@@ -2406,8 +2406,16 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       live.clear();
     };
 
+    // Set by stop(), and read after EVERY await that precedes a paint: the
+    // store read and the nested mounts. A stopped handle's element is not gone,
+    // because syncNested replaces a nested region's handle IN PLACE when the
+    // enclosing row moves its read, so work still in flight from the outgoing
+    // handle lands in the element the incoming one now owns — and lands second.
+    let stopped = false;
+
     const refresh = async (changes) => {
       const stored = await store.query(table, opts.order, opts);
+      if (stopped) return;
       currentRows = stored;
       const rows = projected(stored);
       // Which rows this pass has to reconsider. null means all of them: a
@@ -2535,6 +2543,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             live.delete(key);
           }
           await Promise.all(ready);
+          if (stopped) return;
           // Anything neither current nor mid-exit is stale chrome — the
           // empty-state paragraph on the way back to populated.
           //
@@ -2757,6 +2766,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         return guarded();
       },
       stop: () => {
+        stopped = true;
         detach();
         dropAll();
       },

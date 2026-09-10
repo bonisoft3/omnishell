@@ -100,3 +100,61 @@ describe("a re-read nested region stays a list", () => {
     await m.stop()
   })
 })
+
+// The same move, with the nested region's OWN table written in the same settle
+// — the shape every app that marks a picker's current segment has, since the
+// mark is a column of the rows the picker renders.
+const MARK = `(state) => {
+  const view = (state.rows.view ?? []).find((r) => r.id === "the");
+  const updates = [];
+  for (const r of state.rows.invoice ?? []) {
+    const on = String(r.bucket === view.pick);
+    if (String(r.on) !== on) updates.push({ op: "patch", entity: "invoice", id: r.id, row: { on } });
+  }
+  return { updates };
+}`
+
+const SEATED = {
+  "seat.html": `<section class="screen" data-screen="seat">
+    <div class="seat" data-live="view" data-filter="id=eq.the"
+         data-on-mutation="mark" data-reads="invoice,view">
+      <template data-item><b data-text="{pick}"></b></template>
+    </div>
+    <div data-live="view" data-filter="id=eq.the">
+      <template data-item>
+        <div class="frame">
+          <ul data-live="invoice" data-filter="bucket=eq.{pick}" data-order="number.asc">
+            <template data-item><li data-text="{number}"></li></template>
+          </ul>
+        </div>
+      </template>
+    </div>
+  </section>`,
+  "seat.css": "",
+  "mark.js": MARK,
+}
+
+describe("a nested region whose own table is written as its read moves", () => {
+  it("shows the rows of the read it has, not of the read it had", async () => {
+    // The outgoing handle is replaced the moment the parent's row moves, and it
+    // may have a query in flight into the very element the incoming handle has
+    // just drawn: the loser of that race is whichever resolved first, which is
+    // the one holding the current read. Nothing repairs it afterwards, either —
+    // the handle that owns the element will not render again until its table
+    // changes, so the region keeps the previous read's rows for good. A picker
+    // whose current segment is a fold-stamped column writes that table on every
+    // move, so this is that picker one gesture behind, permanently.
+    const m = await mountScreen({
+      route: { screen: "seat", files: { html: "seat.html", css: "seat.css", handlers: ["mark.js"] } },
+      files: SEATED,
+      tables: { view: [{ id: "the", pick: "x" }], invoice: invoices.map((r) => ({ ...r, on: "false" })) },
+      seed: 1,
+    })
+    await m.settle()
+    expect(shown(m)).toEqual(["INV-1"])
+    await m.store.upsert("view", { id: "the", pick: "y" })
+    await m.settle()
+    expect(shown(m)).toEqual(["INV-2", "INV-3"])
+    await m.stop()
+  })
+})
