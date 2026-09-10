@@ -1,0 +1,86 @@
+# generated from bayt.cue — do not edit
+services:
+  plugins_omnishell-bundle:
+    build:
+      additional_contexts:
+        libraries_mecha-setup_srcs: service:libraries_mecha-setup_srcs
+        plugins_omnishell-setup: service:plugins_omnishell-setup
+      context: ..
+      dockerfile: .bayt/Dockerfile.bundle
+      target: bundle
+      args:
+        BUILDKIT_SYNTAX: >-
+          docker/dockerfile:1.26@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
+      x-bake:
+        cache-from:
+        - >-
+          type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE:-unscoped}-bundle
+        - >-
+          type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE_FALLBACK:-unscoped}-bundle
+        cache-to:
+        - >-
+          type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE:-unscoped}-bundle,mode=min,image-manifest=true,oci-mediatypes=true,compression=zstd,compression-level=3
+    image: bayt-plugins_omnishell-bundle:${BAYT_IMAGE_TAG:-latest}
+    scale: 0
+  plugins_omnishell-bundle_bayt:
+    build:
+      additional_contexts:
+        plugins_omnishell-setup_bayt: service:plugins_omnishell-setup_bayt
+        libraries_mecha-setup_bayt: service:libraries_mecha-setup_bayt
+      context: ..
+      dockerfile: .bayt/Dockerfile.bundle
+      target: bundle_bayt
+      args:
+        BUILDKIT_SYNTAX: >-
+          docker/dockerfile:1.26@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
+      x-bake:
+        cache-from:
+        - >-
+          type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE:-unscoped}-plugins_omnishell-bundle_bayt
+        - >-
+          type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE_FALLBACK:-unscoped}-plugins_omnishell-bundle_bayt
+        cache-to:
+        - >-
+          type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE:-unscoped}-plugins_omnishell-bundle_bayt,mode=max,image-manifest=true,oci-mediatypes=true,compression=zstd,compression-level=3
+    image: bayt-plugins_omnishell-bundle_bayt:latest
+    scale: 0
+  plugins_omnishell-bundle_srcs:
+    build:
+      context: ..
+      dockerfile: .bayt/Dockerfile.bundle
+      target: bundle_srcs
+      args:
+        BUILDKIT_SYNTAX: >-
+          docker/dockerfile:1.26@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
+      x-bake:
+        cache-from:
+        - >-
+          type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE:-unscoped}-plugins_omnishell-bundle_srcs
+        - >-
+          type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE_FALLBACK:-unscoped}-plugins_omnishell-bundle_srcs
+        cache-to:
+        - >-
+          type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE:-unscoped}-plugins_omnishell-bundle_srcs,mode=max,image-manifest=true,oci-mediatypes=true,compression=zstd,compression-level=3
+    image: bayt-plugins_omnishell-bundle_srcs:latest
+    scale: 0
+  plugins_omnishell-bundle_outs:
+    build:
+      context: ..
+      dockerfile: .bayt/Dockerfile.bundle
+      target: bundle_outs
+      args:
+        BUILDKIT_SYNTAX: >-
+          docker/dockerfile:1.26@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
+      additional_contexts:
+        plugins_omnishell-bundle: service:plugins_omnishell-bundle
+      x-bake:
+        cache-from:
+        - >-
+          type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE:-unscoped}-plugins_omnishell-bundle_outs
+        - >-
+          type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE_FALLBACK:-unscoped}-plugins_omnishell-bundle_outs
+        cache-to:
+        - >-
+          type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE:-unscoped}-plugins_omnishell-bundle_outs,mode=max,image-manifest=true,oci-mediatypes=true,compression=zstd,compression-level=3
+    image: bayt-plugins_omnishell-bundle_outs:latest
+    scale: 0

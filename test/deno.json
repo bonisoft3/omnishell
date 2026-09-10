@@ -1,0 +1,21 @@
+{
+  "imports": {
+    "@test/harness": "./harness.ts",
+    "linkedom": "npm:linkedom@0.18.4",
+    "eslint": "npm:eslint@9.25.0",
+    "jose": "npm:jose@6.0.11",
+    "react": "npm:react@19.0.0",
+    "@playwright/test": "npm:@playwright/test@1.59.1",
+    "@simplewebauthn/server": "npm:@simplewebauthn/server@13.1.1",
+    "@tanstack/react-router": "npm:@tanstack/react-router@1.121.0",
+    "firebase-admin/auth": "npm:firebase-admin@13.0.0/auth",
+    "fs": "node:fs",
+    "path": "node:path"
+  },
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "npm:react@19",
+    "jsxImportSourceTypes": "npm:@types/react@19.0.0"
+  },
+  "unstable": ["sloppy-imports"]
+}

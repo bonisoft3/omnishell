@@ -1,0 +1,250 @@
+{
+  "_generated_from": "bayt.cue (do not edit)",
+  "bake": {
+    "platforms": [],
+    "tags": [],
+    "args": {},
+    "cache": {
+      "from": [
+        "type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE:-unscoped}-bundle",
+        "type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE_FALLBACK:-unscoped}-bundle"
+      ],
+      "to": [
+        "type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE:-unscoped}-bundle,mode=min,image-manifest=true,oci-mediatypes=true,compression=zstd,compression-level=3"
+      ]
+    }
+  },
+  "dockerfile": {
+    "preamble": [],
+    "preambleCopyContexts": [],
+    "from": {
+      "ref": ":setup",
+      "name": "plugins_omnishell-setup"
+    },
+    "add": [],
+    "mounts": [],
+    "secrets": {},
+    "extra_hosts": [],
+    "epilogue": [],
+    "copy": [],
+    "healthcheck": null,
+    "expose": [],
+    "entrypoint": null,
+    "incremental": false,
+    "cmd": null
+  },
+  "name": "bundle",
+  "project": "plugins_omnishell",
+  "dir": "plugins/omnishell",
+  "activate": "mise x --",
+  "srcs": {
+    "globs": [
+      "interpreter/vendor/entry.ts"
+    ],
+    "exclude": []
+  },
+  "outs": {
+    "globs": [
+      "interpreter/vendor/mecha-client.js"
+    ],
+    "exclude": []
+  },
+  "state": {
+    "globs": []
+  },
+  "env": {},
+  "synthetics": {
+    "bayt": {
+      "name": "bundle_bayt",
+      "project": "plugins_omnishell",
+      "dir": "plugins/omnishell",
+      "activate": "",
+      "srcs": {
+        "globs": [],
+        "exclude": []
+      },
+      "outs": {
+        "globs": [
+          ".bayt/compose.bundle.yaml",
+          ".bayt/Dockerfile.bundle",
+          ".bayt/bayt.bundle.json",
+          ".bayt/Taskfile.yml",
+          ".bayt/Taskfile.bayt.yml",
+          ".bayt/Taskfile.bundle.yaml"
+        ],
+        "exclude": []
+      },
+      "env": {},
+      "visibility": "public",
+      "deps": [],
+      "transitiveDeps": [],
+      "transitiveCrossDeps": [],
+      "chainedDeps": [],
+      "cmds": [],
+      "cache": {
+        "full": false,
+        "similar": false
+      },
+      "upClosure": [
+        "plugins/omnishell/.bayt/compose.bundle.yaml",
+        "plugins/omnishell/.bayt/compose.setup.yaml",
+        "libraries/mecha/.bayt/compose.setup.yaml"
+      ]
+    },
+    "outs": {
+      "name": "bundle_outs",
+      "project": "plugins_omnishell",
+      "dir": "plugins/omnishell",
+      "activate": "",
+      "srcs": {
+        "globs": [],
+        "exclude": []
+      },
+      "outs": {
+        "globs": [
+          "interpreter/vendor/mecha-client.js"
+        ],
+        "exclude": []
+      },
+      "env": {},
+      "visibility": "public",
+      "deps": [],
+      "transitiveDeps": [],
+      "transitiveCrossDeps": [],
+      "chainedDeps": [],
+      "cmds": [],
+      "cache": {
+        "full": false,
+        "similar": false
+      },
+      "upClosure": [
+        "plugins/omnishell/.bayt/compose.bundle.yaml",
+        "plugins/omnishell/.bayt/compose.setup.yaml",
+        "libraries/mecha/.bayt/compose.setup.yaml"
+      ]
+    },
+    "srcs": {
+      "name": "bundle_srcs",
+      "project": "plugins_omnishell",
+      "dir": "plugins/omnishell",
+      "activate": "",
+      "srcs": {
+        "globs": [],
+        "exclude": []
+      },
+      "outs": {
+        "globs": [
+          "interpreter/vendor/entry.ts"
+        ],
+        "exclude": []
+      },
+      "env": {},
+      "visibility": "public",
+      "deps": [],
+      "transitiveDeps": [
+        "setup_srcs"
+      ],
+      "transitiveCrossDeps": [
+        {
+          "name": "setup_srcs",
+          "project": "libraries_mecha",
+          "dir": "libraries/mecha",
+          "outs": {
+            "globs": [
+              "packages/**"
+            ],
+            "exclude": []
+          }
+        }
+      ],
+      "chainedDeps": [],
+      "cmds": [],
+      "cache": {
+        "full": false,
+        "similar": false
+      },
+      "upClosure": [
+        "plugins/omnishell/.bayt/compose.bundle.yaml",
+        "plugins/omnishell/.bayt/compose.setup.yaml",
+        "libraries/mecha/.bayt/compose.setup.yaml"
+      ]
+    }
+  },
+  "taskfile": {
+    "run": "when_changed",
+    "incremental": true,
+    "preconditions": []
+  },
+  "visibility": "public",
+  "emitsSrcs": true,
+  "deps": [
+    "setup",
+    "setup_srcs"
+  ],
+  "sameProjectDeps": [
+    "setup"
+  ],
+  "transitiveDeps": [
+    "setup"
+  ],
+  "transitiveCrossDeps": [
+    {
+      "name": "setup_srcs",
+      "project": "libraries_mecha",
+      "dir": "libraries/mecha",
+      "outs": {
+        "globs": [
+          "packages/**"
+        ],
+        "exclude": []
+      }
+    }
+  ],
+  "upClosure": [
+    "plugins/omnishell/.bayt/compose.bundle.yaml",
+    "plugins/omnishell/.bayt/compose.setup.yaml",
+    "libraries/mecha/.bayt/compose.setup.yaml"
+  ],
+  "chainedDeps": [
+    {
+      "name": "setup",
+      "project": "plugins_omnishell",
+      "dir": "plugins/omnishell",
+      "outs": {
+        "globs": [],
+        "exclude": []
+      }
+    },
+    {
+      "name": "setup_srcs",
+      "project": "libraries_mecha",
+      "dir": "libraries/mecha",
+      "outs": {
+        "globs": [
+          "packages/**"
+        ],
+        "exclude": []
+      }
+    }
+  ],
+  "cmds": [
+    {
+      "srcs": {
+        "globs": [
+          "interpreter/vendor/entry.ts"
+        ],
+        "exclude": [],
+        "defaultGlobs": null,
+        "defaultExclude": null
+      },
+      "do": "deno bundle --config ../../libraries/mecha/packages/client/deno.json --platform browser --format esm --minify interpreter/vendor/entry.ts -o interpreter/vendor/mecha-client.js",
+      "name": "builtin",
+      "shell": "exec",
+      "stop": false
+    }
+  ],
+  "cache": {
+    "full": false,
+    "similar": false
+  }
+}

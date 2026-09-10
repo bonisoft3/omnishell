@@ -1,0 +1,108 @@
+{
+  "_generated_from": "bayt.cue (do not edit)",
+  "bake": {
+    "platforms": [],
+    "tags": [],
+    "args": {},
+    "cache": {
+      "from": [
+        "type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE:-unscoped}-generate",
+        "type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE_FALLBACK:-unscoped}-generate"
+      ],
+      "to": [
+        "type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE:-unscoped}-generate,mode=min,image-manifest=true,oci-mediatypes=true,compression=zstd,compression-level=3"
+      ]
+    }
+  },
+  "name": "generate",
+  "project": "plugins_omnishell",
+  "dir": "plugins/omnishell",
+  "activate": "mise x --",
+  "srcs": {
+    "globs": [],
+    "exclude": []
+  },
+  "outs": {
+    "globs": [],
+    "exclude": []
+  },
+  "state": {
+    "globs": []
+  },
+  "env": {},
+  "taskfile": {
+    "run": "when_changed",
+    "incremental": true,
+    "preconditions": []
+  },
+  "visibility": "internal",
+  "emitsSrcs": false,
+  "deps": [
+    "bundle"
+  ],
+  "sameProjectDeps": [
+    "bundle"
+  ],
+  "transitiveDeps": [
+    "bundle",
+    "setup"
+  ],
+  "transitiveCrossDeps": [
+    {
+      "name": "setup_srcs",
+      "project": "libraries_mecha",
+      "dir": "libraries/mecha",
+      "outs": {
+        "globs": [
+          "packages/**"
+        ],
+        "exclude": []
+      }
+    }
+  ],
+  "upClosure": [
+    "plugins/omnishell/.bayt/compose.bundle.yaml",
+    "plugins/omnishell/.bayt/compose.setup.yaml",
+    "libraries/mecha/.bayt/compose.setup.yaml"
+  ],
+  "chainedDeps": [
+    {
+      "name": "bundle",
+      "project": "plugins_omnishell",
+      "dir": "plugins/omnishell",
+      "outs": {
+        "globs": [
+          "interpreter/vendor/mecha-client.js"
+        ],
+        "exclude": []
+      }
+    },
+    {
+      "name": "setup",
+      "project": "plugins_omnishell",
+      "dir": "plugins/omnishell",
+      "outs": {
+        "globs": [],
+        "exclude": []
+      }
+    }
+  ],
+  "cmds": [
+    {
+      "srcs": {
+        "globs": [],
+        "exclude": [],
+        "defaultGlobs": null,
+        "defaultExclude": null
+      },
+      "do": "true",
+      "name": "builtin",
+      "shell": "exec",
+      "stop": false
+    }
+  ],
+  "cache": {
+    "full": false,
+    "similar": false
+  }
+}

@@ -1,0 +1,233 @@
+{
+  "_generated_from": "bayt.cue (do not edit)",
+  "bake": {
+    "platforms": [],
+    "tags": [],
+    "args": {},
+    "cache": {
+      "from": [
+        "type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE:-unscoped}-build",
+        "type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE_FALLBACK:-unscoped}-build"
+      ],
+      "to": [
+        "type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE:-unscoped}-build,mode=min,image-manifest=true,oci-mediatypes=true,compression=zstd,compression-level=3"
+      ]
+    }
+  },
+  "dockerfile": {
+    "preamble": [],
+    "preambleCopyContexts": [],
+    "from": {
+      "ref": ":setup",
+      "name": "plugins_omnishell-setup"
+    },
+    "add": [],
+    "mounts": [],
+    "secrets": {},
+    "extra_hosts": [],
+    "epilogue": [],
+    "copy": [],
+    "healthcheck": null,
+    "expose": [],
+    "entrypoint": null,
+    "incremental": false,
+    "cmd": null
+  },
+  "name": "build",
+  "project": "plugins_omnishell",
+  "dir": "plugins/omnishell",
+  "activate": "mise x --",
+  "srcs": {
+    "globs": [
+      "src/**/*",
+      "test/**/*",
+      "interpreter/**/*",
+      "check-machines.ts",
+      "package.json",
+      "bun.lock",
+      "tsconfig.json",
+      "bunfig.toml"
+    ],
+    "exclude": []
+  },
+  "outs": {
+    "globs": [],
+    "exclude": []
+  },
+  "state": {
+    "globs": []
+  },
+  "env": {},
+  "synthetics": {
+    "bayt": {
+      "name": "build_bayt",
+      "project": "plugins_omnishell",
+      "dir": "plugins/omnishell",
+      "activate": "",
+      "srcs": {
+        "globs": [],
+        "exclude": []
+      },
+      "outs": {
+        "globs": [
+          ".bayt/compose.build.yaml",
+          ".bayt/Dockerfile.build",
+          ".bayt/bayt.build.json",
+          ".bayt/Taskfile.yml",
+          ".bayt/Taskfile.bayt.yml",
+          ".bayt/Taskfile.build.yaml"
+        ],
+        "exclude": []
+      },
+      "env": {},
+      "visibility": "public",
+      "deps": [],
+      "transitiveDeps": [],
+      "transitiveCrossDeps": [],
+      "chainedDeps": [],
+      "cmds": [],
+      "cache": {
+        "full": false,
+        "similar": false
+      },
+      "upClosure": [
+        "plugins/omnishell/.bayt/compose.build.yaml",
+        "plugins/omnishell/.bayt/compose.setup.yaml"
+      ]
+    },
+    "outs": {
+      "name": "build_outs",
+      "project": "plugins_omnishell",
+      "dir": "plugins/omnishell",
+      "activate": "",
+      "srcs": {
+        "globs": [],
+        "exclude": []
+      },
+      "outs": {
+        "globs": [],
+        "exclude": []
+      },
+      "env": {},
+      "visibility": "public",
+      "deps": [],
+      "transitiveDeps": [],
+      "transitiveCrossDeps": [],
+      "chainedDeps": [],
+      "cmds": [],
+      "cache": {
+        "full": false,
+        "similar": false
+      },
+      "upClosure": [
+        "plugins/omnishell/.bayt/compose.build.yaml",
+        "plugins/omnishell/.bayt/compose.setup.yaml"
+      ]
+    },
+    "srcs": {
+      "name": "build_srcs",
+      "project": "plugins_omnishell",
+      "dir": "plugins/omnishell",
+      "activate": "",
+      "srcs": {
+        "globs": [],
+        "exclude": []
+      },
+      "outs": {
+        "globs": [
+          "src/**/*",
+          "test/**/*",
+          "interpreter/**/*",
+          "check-machines.ts",
+          "package.json",
+          "bun.lock",
+          "tsconfig.json",
+          "bunfig.toml"
+        ],
+        "exclude": []
+      },
+      "env": {},
+      "visibility": "public",
+      "deps": [],
+      "transitiveDeps": [
+        "setup_srcs"
+      ],
+      "transitiveCrossDeps": [],
+      "chainedDeps": [],
+      "cmds": [],
+      "cache": {
+        "full": false,
+        "similar": false
+      },
+      "upClosure": [
+        "plugins/omnishell/.bayt/compose.build.yaml",
+        "plugins/omnishell/.bayt/compose.setup.yaml"
+      ]
+    }
+  },
+  "taskfile": {
+    "run": "when_changed",
+    "incremental": true,
+    "preconditions": []
+  },
+  "visibility": "public",
+  "emitsSrcs": true,
+  "deps": [
+    "setup"
+  ],
+  "sameProjectDeps": [
+    "setup"
+  ],
+  "transitiveDeps": [
+    "setup"
+  ],
+  "transitiveCrossDeps": [],
+  "upClosure": [
+    "plugins/omnishell/.bayt/compose.build.yaml",
+    "plugins/omnishell/.bayt/compose.setup.yaml"
+  ],
+  "chainedDeps": [
+    {
+      "name": "setup",
+      "project": "plugins_omnishell",
+      "dir": "plugins/omnishell",
+      "outs": {
+        "globs": [],
+        "exclude": []
+      }
+    }
+  ],
+  "cmds": [
+    {
+      "srcs": {
+        "globs": [
+          "src/**/*",
+          "test/**/*",
+          "interpreter/**/*",
+          "check-machines.ts",
+          "package.json",
+          "bun.lock",
+          "tsconfig.json",
+          "bunfig.toml"
+        ],
+        "exclude": [],
+        "defaultGlobs": null,
+        "defaultExclude": null
+      },
+      "shell": "sh",
+      "do": "sh -c 'bun install --frozen-lockfile && bun run check'",
+      "name": "builtin",
+      "stop": false
+    }
+  ],
+  "cache": {
+    "full": false,
+    "similar": false
+  },
+  "vscode": {
+    "group": {
+      "kind": "build",
+      "isDefault": true
+    }
+  }
+}

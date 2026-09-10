@@ -1,0 +1,276 @@
+{
+  "_generated_from": "bayt.cue (do not edit)",
+  "bake": {
+    "platforms": [],
+    "tags": [],
+    "args": {},
+    "cache": {
+      "from": [
+        "type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE:-unscoped}-integrate",
+        "type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE_FALLBACK:-unscoped}-integrate"
+      ],
+      "to": [
+        "type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE:-unscoped}-integrate,mode=min,image-manifest=true,oci-mediatypes=true,compression=zstd,compression-level=3"
+      ]
+    }
+  },
+  "compose": {
+    "up": true,
+    "manual": true,
+    "environment": {},
+    "ports": [],
+    "volumes": [],
+    "depends_on": {}
+  },
+  "dockerfile": {
+    "preamble": [],
+    "preambleCopyContexts": [],
+    "from": {
+      "ref": ":build",
+      "name": "plugins_omnishell-build"
+    },
+    "add": [],
+    "mounts": [],
+    "secrets": {},
+    "extra_hosts": [],
+    "epilogue": [],
+    "copy": [],
+    "healthcheck": null,
+    "expose": [],
+    "entrypoint": null,
+    "incremental": false,
+    "cmd": null
+  },
+  "name": "integrate",
+  "project": "plugins_omnishell",
+  "dir": "plugins/omnishell",
+  "activate": "mise x --",
+  "srcs": {
+    "globs": [
+      "test/**/*",
+      "interpreter/**/*",
+      "check-machines.ts"
+    ],
+    "exclude": []
+  },
+  "outs": {
+    "globs": [],
+    "exclude": []
+  },
+  "state": {
+    "globs": []
+  },
+  "env": {},
+  "synthetics": {
+    "bayt": {
+      "name": "integrate_bayt",
+      "project": "plugins_omnishell",
+      "dir": "plugins/omnishell",
+      "activate": "",
+      "srcs": {
+        "globs": [],
+        "exclude": []
+      },
+      "outs": {
+        "globs": [
+          ".bayt/compose.integrate.yaml",
+          ".bayt/Dockerfile.integrate",
+          ".bayt/bayt.integrate.json",
+          ".bayt/Taskfile.yml",
+          ".bayt/Taskfile.bayt.yml",
+          ".bayt/Taskfile.integrate.yaml",
+          ".bayt/compose.integrate.closure.yaml"
+        ],
+        "exclude": []
+      },
+      "env": {},
+      "visibility": "internal",
+      "deps": [],
+      "transitiveDeps": [],
+      "transitiveCrossDeps": [],
+      "chainedDeps": [],
+      "cmds": [],
+      "cache": {
+        "full": false,
+        "similar": false
+      },
+      "upClosure": [
+        "plugins/omnishell/.bayt/compose.integrate.yaml",
+        "plugins/omnishell/.bayt/compose.build.yaml",
+        "plugins/omnishell/.bayt/compose.setup.yaml"
+      ]
+    },
+    "outs": {
+      "name": "integrate_outs",
+      "project": "plugins_omnishell",
+      "dir": "plugins/omnishell",
+      "activate": "",
+      "srcs": {
+        "globs": [],
+        "exclude": []
+      },
+      "outs": {
+        "globs": [],
+        "exclude": []
+      },
+      "env": {},
+      "visibility": "internal",
+      "deps": [],
+      "transitiveDeps": [],
+      "transitiveCrossDeps": [],
+      "chainedDeps": [],
+      "cmds": [],
+      "cache": {
+        "full": false,
+        "similar": false
+      },
+      "upClosure": [
+        "plugins/omnishell/.bayt/compose.integrate.yaml",
+        "plugins/omnishell/.bayt/compose.build.yaml",
+        "plugins/omnishell/.bayt/compose.setup.yaml"
+      ]
+    },
+    "srcs": {
+      "name": "integrate_srcs",
+      "project": "plugins_omnishell",
+      "dir": "plugins/omnishell",
+      "activate": "",
+      "srcs": {
+        "globs": [],
+        "exclude": []
+      },
+      "outs": {
+        "globs": [
+          "test/**/*",
+          "interpreter/**/*",
+          "check-machines.ts",
+          "src/**/*",
+          "package.json",
+          "bun.lock",
+          "tsconfig.json",
+          "bunfig.toml"
+        ],
+        "exclude": []
+      },
+      "env": {},
+      "visibility": "internal",
+      "deps": [],
+      "transitiveDeps": [
+        "build_srcs",
+        "setup_srcs"
+      ],
+      "transitiveCrossDeps": [
+        {
+          "project": "plugins_omnishell",
+          "name": "build_srcs",
+          "dir": "plugins/omnishell",
+          "outs": {
+            "globs": [
+              "src/**/*",
+              "test/**/*",
+              "interpreter/**/*",
+              "check-machines.ts",
+              "package.json",
+              "bun.lock",
+              "tsconfig.json",
+              "bunfig.toml"
+            ],
+            "exclude": []
+          }
+        }
+      ],
+      "chainedDeps": [],
+      "cmds": [],
+      "cache": {
+        "full": false,
+        "similar": false
+      },
+      "upClosure": [
+        "plugins/omnishell/.bayt/compose.integrate.yaml",
+        "plugins/omnishell/.bayt/compose.build.yaml",
+        "plugins/omnishell/.bayt/compose.setup.yaml"
+      ]
+    }
+  },
+  "taskfile": {
+    "run": "when_changed",
+    "incremental": true,
+    "preconditions": []
+  },
+  "visibility": "internal",
+  "emitsSrcs": true,
+  "deps": [
+    "build"
+  ],
+  "sameProjectDeps": [
+    "build"
+  ],
+  "transitiveDeps": [
+    "build",
+    "setup"
+  ],
+  "transitiveCrossDeps": [],
+  "upClosure": [
+    "plugins/omnishell/.bayt/compose.integrate.yaml",
+    "plugins/omnishell/.bayt/compose.build.yaml",
+    "plugins/omnishell/.bayt/compose.setup.yaml"
+  ],
+  "chainedDeps": [
+    {
+      "name": "build",
+      "project": "plugins_omnishell",
+      "dir": "plugins/omnishell",
+      "outs": {
+        "globs": [],
+        "exclude": []
+      }
+    },
+    {
+      "name": "setup",
+      "project": "plugins_omnishell",
+      "dir": "plugins/omnishell",
+      "outs": {
+        "globs": [],
+        "exclude": []
+      }
+    }
+  ],
+  "cmds": [
+    {
+      "srcs": {
+        "globs": [
+          "test/**/*",
+          "interpreter/**/*",
+          "check-machines.ts"
+        ],
+        "exclude": [],
+        "defaultGlobs": null,
+        "defaultExclude": null
+      },
+      "do": "deno cache --config interpreter/deno.json --lock interpreter/deno.lock --frozen --allow-import=cdn.jsdelivr.net:443 interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/worker-smoke.js",
+      "name": "cache-smokes",
+      "shell": "exec",
+      "stop": false
+    },
+    {
+      "srcs": {
+        "globs": [
+          "test/**/*",
+          "interpreter/**/*",
+          "check-machines.ts"
+        ],
+        "exclude": [],
+        "defaultGlobs": null,
+        "defaultExclude": null
+      },
+      "do": "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/worker-smoke.js'",
+      "shell": "sh",
+      "name": "builtin",
+      "stop": false
+    }
+  ],
+  "cache": {
+    "full": false,
+    "similar": false
+  }
+}

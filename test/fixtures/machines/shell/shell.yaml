@@ -1,0 +1,97 @@
+# A fixture app for check-machines. Not emitted by pronto — hand-written, and
+# check-machines' self-test is its only reader, which is why the broken screens
+# live here beside the sound ones rather than in an app.
+#
+# `siblings` is the one screen that answers for isolation rather than for a
+# finding's wording: two charts on one screen, the second leaving its arrival
+# state on an `after: 0`. Mount them together, or hand the walk the screen's
+# whole trace instead of its own region's, and its arrow lands in the wrong
+# chart. Every other screen here carries at most one mounted region and cannot
+# tell the difference.
+#
+# `refuses` is last on purpose: its mount throws, which ends the run, so a
+# screen after it would go unwalked and its own case would go dark.
+#
+# Four branches have no screen, for two different reasons.
+#
+# Unobservable: a second mount of a screen enumerates the same list, since
+# memoryStore copies the rows, so nothing reaches the `accounted` floor; and
+# the walk's own `wait` quiets after every stimulus, so it re-raises whatever
+# the quiet() before enumeration would have.
+#
+# App-wide, and this fixture always walks something: the floor on an app that
+# states charts and drives none (verified instead by turning every shadcnui
+# chart advisory), and `filled`'s throw, which resolveParams cannot produce.
+local:
+  toggle:
+    - {}
+  item:
+    - {}
+  bare:
+    - {}
+  oddity:
+    - {}
+  pair:
+    - {}
+  stamped:
+    - {}
+seed:
+  stamped:
+    - id: one
+      state: "off"
+    - id: two
+      state: "off"
+  # `decoy` is first and answers ONE of the two predicates: a read that took
+  # the first row, or any row matching either clause, binds a state the chart
+  # has no name for.
+  pair:
+    - id: decoy
+      kind: demo
+      state: nowhere
+    - id: chosen
+      kind: demo
+      state: "off"
+  oddity:
+    # The `&` is load-bearing: parseFilter splits on it and decodes, so a
+    # substitution that did not encode would leave the grammar here.
+    - id: a&b
+      state: nowhere
+  item:
+    - id: seeded-one
+      slug: alpha
+      state: "off"
+      rank: "5"
+routes:
+  - path: /
+    screen: plain
+    files: {html: shell/screens/plain.html, css: shell/screens/plain.css, handlers: []}
+  - path: /pick/:slug
+    screen: resolved
+    files: {html: shell/screens/resolved.html, css: shell/screens/resolved.css, handlers: []}
+  - path: /miss/:nope
+    screen: unresolved
+    files: {html: shell/screens/unresolved.html, css: shell/screens/unresolved.css, handlers: []}
+  - path: /ghost
+    screen: ghost
+    files: {html: shell/screens/ghost.html, css: shell/screens/ghost.css, handlers: []}
+  - path: /older/:when
+    screen: ranged
+    files: {html: shell/screens/ranged.html, css: shell/screens/ranged.css, handlers: []}
+  - path: /stray/:slug
+    screen: stray
+    files: {html: shell/screens/stray.html, css: shell/screens/stray.css, handlers: []}
+  - path: /siblings
+    screen: siblings
+    files: {html: shell/screens/siblings.html, css: shell/screens/siblings.css, handlers: []}
+  - path: /stuck
+    screen: stuck
+    files: {html: shell/screens/stuck.html, css: shell/screens/stuck.css, handlers: []}
+  - path: /stamped
+    screen: stamped
+    files: {html: shell/screens/stamped.html, css: shell/screens/stamped.css, handlers: []}
+  - path: /selects
+    screen: selects
+    files: {html: shell/screens/selects.html, css: shell/screens/selects.css, handlers: []}
+  - path: /refuses
+    screen: refuses
+    files: {html: shell/screens/refuses.html, css: shell/screens/refuses.css, handlers: []}

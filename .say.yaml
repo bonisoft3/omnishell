@@ -1,0 +1,18 @@
+# The browser tier runs at integrate, not at test.
+#
+# Both suites are deterministic and quick — they fulfil every request
+# themselves, reach no cluster and read no wall clock — so speed and
+# repeatability are not what keeps them out of `just test`. The toolchain is: a
+# unit test must run from the ide tier's own `.mise.toml`, and a browser binary
+# is the container tier's to provide.
+say:
+  integrate:
+    rulemap:
+      builtin:
+        stop: false
+        cmds:
+          - do: integrate
+            use: ./integrate.nu
+      browser:
+        cmds:
+          - do: bun run test:browser

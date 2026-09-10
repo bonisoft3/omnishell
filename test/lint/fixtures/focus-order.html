@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Focus order fixture</title>
+  <style>
+    body { margin: 0; padding-left: 80px; }
+    .rail { position: fixed; left: 0; top: 0; bottom: 0; width: 64px; }
+    .rail-bottom { position: absolute; bottom: 8px; }
+    .fab { position: fixed; right: 16px; bottom: 16px; }
+    a, button { display: block; width: 48px; height: 48px; }
+  </style>
+</head>
+<body>
+  <!-- Fixed rail: its bottom-anchored buttons sit visually BELOW the
+       flow content that follows in DOM order. Cross-container order is
+       not a focus-order bug; the rail is its own sequence. -->
+  <nav class="rail">
+    <a href="#a" data-testid="rail-top">rail top</a>
+    <!-- Reversed pair WITHIN the rail: rail-lower comes before
+         rail-upper in DOM but sits below it on screen. Must be
+         flagged — grouping suppresses cross-container noise only. -->
+    <button class="rail-bottom" style="bottom: 8px" data-testid="rail-lower">lower</button>
+    <button class="rail-bottom" style="bottom: 64px" data-testid="rail-upper">upper</button>
+  </nav>
+
+  <!-- A focusable that is itself position:fixed is its own sequence:
+       sitting at the viewport bottom before top-of-page flow content
+       must not be flagged. -->
+  <a class="fab" href="#fab" data-testid="fab">fab</a>
+
+  <main>
+    <button data-testid="flow-first">flow first</button>
+    <!-- Reversed pair in flow: flow-lower precedes flow-upper in DOM
+         but is positioned below it. Must be flagged. -->
+    <button style="position: absolute; top: 400px" data-testid="flow-lower">flow lower</button>
+    <button style="position: absolute; top: 200px" data-testid="flow-upper">flow upper</button>
+  </main>
+</body>
+</html>

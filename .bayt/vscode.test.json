@@ -1,0 +1,29 @@
+{
+  "_generated_from": "bayt.cue (do not edit)",
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "command": "mise x -- sh",
+      "args": [
+        "-c",
+        "deno cache --config interpreter/deno.json --lock interpreter/deno.lock --frozen --allow-import=cdn.jsdelivr.net:443 interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/worker-smoke.js && sh -c \"sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/worker-smoke.js'\""
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "label": "test",
+      "type": "shell",
+      "options": {
+        "cwd": "${workspaceFolder}/plugins/omnishell"
+      },
+      "windows": {
+        "command": "mise x -- pwsh",
+        "args": [
+          "-c",
+          "deno cache --config interpreter/deno.json --lock interpreter/deno.lock --frozen --allow-import=cdn.jsdelivr.net:443 interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/worker-smoke.js && sh -c \"sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/worker-smoke.js'\""
+        ]
+      }
+    }
+  ]
+}

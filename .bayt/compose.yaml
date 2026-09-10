@@ -1,0 +1,30 @@
+# generated from bayt.cue — do not edit
+include:
+- path: ./compose.bayt.yaml
+  required: false
+services:
+  setup:
+    extends:
+      file: ./compose.setup.yaml
+      service: plugins_omnishell-setup
+    profiles:
+    - setup
+  build:
+    extends:
+      file: ./compose.build.yaml
+      service: plugins_omnishell-build
+    profiles:
+    - build
+  integrate:
+    extends:
+      file: ./compose.integrate.yaml
+      service: plugins_omnishell-integrate
+    profiles:
+    - integrate
+    scale: 1
+  bundle:
+    extends:
+      file: ./compose.bundle.yaml
+      service: plugins_omnishell-bundle
+    profiles:
+    - bundle

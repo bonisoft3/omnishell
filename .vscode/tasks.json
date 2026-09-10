@@ -1,0 +1,176 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "install",
+      "type": "shell",
+      "command": "mise",
+      "args": [
+        "exec",
+        "--",
+        "bun",
+        "install",
+        "--frozen-lockfile"
+      ],
+      "problemMatcher": [],
+      "group": {
+        "kind": "build"
+      }
+    },
+    {
+      "command": "mise x -- sh",
+      "args": [
+        "-c",
+        "sh -c 'bun install --frozen-lockfile && bun run check'"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "label": "build",
+      "type": "shell",
+      "options": {
+        "cwd": "${workspaceFolder}/plugins/omnishell"
+      }
+    },
+    {
+      "label": "cache-smokes",
+      "type": "shell",
+      "command": "mise",
+      "args": [
+        "exec",
+        "--",
+        "deno",
+        "cache",
+        "--config",
+        "interpreter/deno.json",
+        "--lock",
+        "interpreter/deno.lock",
+        "--frozen",
+        "--allow-import=cdn.jsdelivr.net:443",
+        "interpreter/handler-smoke.js",
+        "interpreter/hatch-smoke.js",
+        "interpreter/incremental-smoke.js",
+        "interpreter/kind-smoke.js",
+        "interpreter/login-smoke.js",
+        "interpreter/machine-smoke.js",
+        "interpreter/machine-v2-smoke.js",
+        "interpreter/machine-walk-smoke.js",
+        "interpreter/nav-smoke.js",
+        "interpreter/nested-smoke.js",
+        "interpreter/pending-smoke.js",
+        "interpreter/reconcile-smoke.js",
+        "interpreter/renderer-smoke.js",
+        "interpreter/seed-smoke.js",
+        "interpreter/signout-smoke.js",
+        "interpreter/slot-smoke.js",
+        "interpreter/subscribe-smoke.js",
+        "interpreter/template-smoke.js",
+        "interpreter/validation-smoke.js",
+        "interpreter/worker-smoke.js"
+      ],
+      "problemMatcher": [],
+      "group": { "kind": "test" }
+    },
+    {
+      "label": "test-smoke",
+      "type": "shell",
+      "command": "mise",
+      "args": [
+        "exec",
+        "--",
+        "deno",
+        "test",
+        "--config",
+        "interpreter/deno.json",
+        "--lock",
+        "interpreter/deno.lock",
+        "--frozen",
+        "--cached-only",
+        "--allow-env",
+        "--allow-read",
+        "interpreter/handler-smoke.js",
+        "interpreter/hatch-smoke.js",
+        "interpreter/incremental-smoke.js",
+        "interpreter/kind-smoke.js",
+        "interpreter/login-smoke.js",
+        "interpreter/machine-smoke.js",
+        "interpreter/machine-v2-smoke.js",
+        "interpreter/machine-walk-smoke.js",
+        "interpreter/nav-smoke.js",
+        "interpreter/nested-smoke.js",
+        "interpreter/pending-smoke.js",
+        "interpreter/reconcile-smoke.js",
+        "interpreter/renderer-smoke.js",
+        "interpreter/seed-smoke.js",
+        "interpreter/signout-smoke.js",
+        "interpreter/slot-smoke.js",
+        "interpreter/subscribe-smoke.js",
+        "interpreter/template-smoke.js",
+        "interpreter/validation-smoke.js",
+        "interpreter/worker-smoke.js"
+      ],
+      "problemMatcher": [],
+      "group": { "kind": "test" }
+    },
+    {
+      "label": "test",
+      "type": "shell",
+      "command": "mise",
+      "args": [
+        "exec",
+        "--",
+        "deno",
+        "test",
+        "--config",
+        "test/deno.json",
+        "--no-check",
+        "--allow-env",
+        "--allow-read",
+        "--allow-import",
+        "--allow-net",
+        "--allow-sys",
+        "test/"
+      ],
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": [],
+      "dependsOn": ["cache-smokes", "test-smoke"],
+      "options": {
+        "cwd": "${workspaceFolder}/plugins/omnishell"
+      }
+    },
+    {
+      "label": "test-pw",
+      "type": "shell",
+      "command": "mise",
+      "args": [
+        "exec",
+        "--",
+        "deno",
+        "test",
+        "--parallel",
+        "--config",
+        "playwright-tests/deno.json",
+        "--no-check",
+        "--allow-env",
+        "--allow-read",
+        "--allow-write",
+        "--allow-net",
+        "--allow-run",
+        "--allow-sys",
+        "--allow-import",
+        "playwright-tests/cls.pw.ts",
+        "playwright-tests/settle.pw.ts",
+        "playwright-tests/visual-lint.pw.ts",
+        "playwright-tests/soak.pw.ts",
+        "playwright-tests/driven.pw.ts",
+        "playwright-tests/harness-teardown.pw.ts"
+      ],
+      "problemMatcher": [],
+      "group": {
+        "kind": "test"
+      },
+      "dependsOn": []
+    }
+  ]
+}

@@ -1,0 +1,123 @@
+{
+  "_generated_from": "bayt.cue (do not edit)",
+  "bake": {
+    "platforms": [],
+    "tags": [],
+    "args": {},
+    "cache": {
+      "from": [
+        "type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE:-unscoped}-test",
+        "type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE_FALLBACK:-unscoped}-test"
+      ],
+      "to": [
+        "type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE:-unscoped}-test,mode=min,image-manifest=true,oci-mediatypes=true,compression=zstd,compression-level=3"
+      ]
+    }
+  },
+  "name": "test",
+  "project": "plugins_omnishell",
+  "dir": "plugins/omnishell",
+  "activate": "mise x --",
+  "srcs": {
+    "globs": [
+      "test/**/*",
+      "interpreter/**/*",
+      "check-machines.ts"
+    ],
+    "exclude": []
+  },
+  "outs": {
+    "globs": [],
+    "exclude": []
+  },
+  "state": {
+    "globs": []
+  },
+  "env": {},
+  "taskfile": {
+    "run": "when_changed",
+    "incremental": true,
+    "preconditions": []
+  },
+  "visibility": "internal",
+  "emitsSrcs": false,
+  "deps": [
+    "build"
+  ],
+  "sameProjectDeps": [
+    "build"
+  ],
+  "transitiveDeps": [
+    "build",
+    "setup"
+  ],
+  "transitiveCrossDeps": [],
+  "upClosure": [
+    "plugins/omnishell/.bayt/compose.build.yaml",
+    "plugins/omnishell/.bayt/compose.setup.yaml"
+  ],
+  "chainedDeps": [
+    {
+      "name": "build",
+      "project": "plugins_omnishell",
+      "dir": "plugins/omnishell",
+      "outs": {
+        "globs": [],
+        "exclude": []
+      }
+    },
+    {
+      "name": "setup",
+      "project": "plugins_omnishell",
+      "dir": "plugins/omnishell",
+      "outs": {
+        "globs": [],
+        "exclude": []
+      }
+    }
+  ],
+  "cmds": [
+    {
+      "srcs": {
+        "globs": [
+          "test/**/*",
+          "interpreter/**/*",
+          "check-machines.ts"
+        ],
+        "exclude": [],
+        "defaultGlobs": null,
+        "defaultExclude": null
+      },
+      "do": "deno cache --config interpreter/deno.json --lock interpreter/deno.lock --frozen --allow-import=cdn.jsdelivr.net:443 interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/worker-smoke.js",
+      "name": "cache-smokes",
+      "shell": "exec",
+      "stop": false
+    },
+    {
+      "srcs": {
+        "globs": [
+          "test/**/*",
+          "interpreter/**/*",
+          "check-machines.ts"
+        ],
+        "exclude": [],
+        "defaultGlobs": null,
+        "defaultExclude": null
+      },
+      "do": "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/worker-smoke.js'",
+      "shell": "sh",
+      "name": "builtin",
+      "stop": false
+    }
+  ],
+  "cache": {
+    "full": false,
+    "similar": false
+  },
+  "vscode": {
+    "group": {
+      "kind": "test",
+      "isDefault": true
+    }
+  }
+}

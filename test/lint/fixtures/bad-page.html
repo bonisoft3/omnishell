@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: sans-serif; }
+    .header { position: fixed; top: 0; left: 0; right: 0; height: 48px; background: #333; color: white; z-index: 100; display: flex; align-items: center; padding: 0 16px; }
+    .content { padding-top: 48px; padding-left: 16px; padding-right: 16px; }
+    .obscured-btn { margin-top: -20px; padding: 12px 24px; background: #007bff; color: white; border: none; cursor: pointer; }
+    .wide-element { width: 2000px; height: 50px; background: #eee; }
+    .no-aspect { overflow: hidden; }
+    .no-aspect img { width: 100%; height: 200px; object-fit: cover; }
+    .overflow-right { position: relative; left: calc(100vw - 50px); width: 200px; height: 50px; background: #fcc; }
+    .tiny-btn { width: 20px; height: 20px; background: #007bff; color: white; border: none; font-size: 8px; padding: 0; }
+    .bad-constrained { overflow: hidden; position: relative; }
+    .bad-constrained img { position: absolute; width: 100%; height: 100%; object-fit: cover; }
+  </style>
+</head>
+<body>
+  <div class="header"><span>Bad Page</span></div>
+  <div class="content">
+    <button class="obscured-btn" data-testid="obscured">Click me</button>
+    <div class="wide-element">This is too wide</div>
+    <div class="no-aspect">
+      <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="unconstrained">
+    </div>
+    <div class="overflow-right" data-testid="overflow-el">Overflows</div>
+    <button class="tiny-btn" data-testid="tiny">x</button>
+    <div class="bad-constrained" data-constrained-image data-testid="bad-img">
+      <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="bad">
+    </div>
+  </div>
+</body>
+</html>

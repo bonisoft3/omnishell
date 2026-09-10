@@ -1,0 +1,7 @@
+{
+  "imports": {
+    "playwright": "npm:playwright@1.59.1",
+    "@anthropic-ai/sdk": "npm:@anthropic-ai/sdk@0.89.0"
+  },
+  "unstable": ["sloppy-imports"]
+}

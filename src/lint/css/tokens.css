@@ -1,0 +1,16 @@
+:root {
+  /* Z-index scale — use via z-[var(--z-*)] */
+  --z-bleed: 1;
+  --z-sticky: 10;
+  --z-panel: 20;
+  --z-nav: 30;
+  --z-fab: 35;
+  --z-dropdown: 40;
+  --z-overlay: 50;
+  --z-flash: 60;
+
+  /* Layout constants */
+  --sidebar-width: 56px;
+  --bottom-nav-height: 64px;
+  --header-height: 48px;
+}

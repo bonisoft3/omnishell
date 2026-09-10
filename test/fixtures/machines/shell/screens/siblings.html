@@ -1,0 +1,4 @@
+<section class="screen" data-screen="siblings">
+  <button data-live="toggle" data-filter="id=eq.first" data-empty-row='{"id":"first","state":"off"}' data-machine='{"field":"state","initial":"off","states":{"off":{"on":{"click":"on"}},"on":{"on":{"click":"off"}}}}'></button>
+  <button data-live="toggle" data-filter="id=eq.second" data-empty-row='{"id":"second","state":"boot"}' data-machine='{"field":"state","initial":"boot","states":{"boot":{"after":{"0":"off"}},"off":{"on":{"click":"on"}},"on":{"on":{"click":"off"}}}}'></button>
+</section>
