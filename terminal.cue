@@ -267,9 +267,12 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 		units: *[] | [...#Path]
 
 		// Invariants of the terminal's own rendering surface, which no app can
-		// re-derive — the same reason auth and text-formats are published
-		// here. `verb` is the cheapest layer that can answer the check.
-		checks: [Name=string]: {verb: "setup" | "lint" | "test" | "integrate", cmds: [...string], note: string}
+		// re-derive — the same reason auth and text-formats are published here.
+		// `verb` is the cheapest layer that can answer each. The loop owns this
+		// vocabulary; it is restated here because omnishell is consumed on its
+		// own and cannot import a sibling plugin.
+		verbs: [Name=string]: {verb: "setup" | "generate" | "build" | "launch" | "release", cmds: [...string], note: string}
+		checks: [Name=string]: {verb: "lint" | "test" | "integrate", cmds: [...string], note: string}
 		checks: visual: {
 			// A laid-out page over real content, so the cluster has to be up
 			// however cheap `lint` would look.
