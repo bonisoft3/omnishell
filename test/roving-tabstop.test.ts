@@ -198,6 +198,74 @@ describe("a set has one current member", () => {
   })
 })
 
+// A caret over rows where the members ARE the rows, so one pass can shorten the
+// set and move the caret at once: two writes to one table coalesce into a
+// single wake, which is the snapshot a store delivers.
+const WALK_ROUTE = { screen: "wk", files: { html: "wk.html", css: "wk.css", handlers: [] } }
+
+const WALK_FILES = {
+  "wk.html": `<section class="screen" data-screen="wk">
+    <ul data-live="step" data-order="pos.asc">
+      <template data-item>
+        <li id="st-{id}" data-rove="{cur}" data-text="{label}"></li>
+      </template>
+    </ul>
+  </section>`,
+  "wk.css": "",
+}
+
+const steps = (cur: string) =>
+  ["a", "b", "c"].map((id, i) => ({ id, label: id.toUpperCase(), pos: i + 1, cur: String(id === cur) }))
+
+const mountWalk = (cur: string) =>
+  mountScreen({ route: WALK_ROUTE, files: WALK_FILES, tables: { step: steps(cur) }, seed: 1 })
+
+const walkOrder = (m: Mounted) =>
+  (m.all("li") as El[]).map((el) => `${el.getAttribute("id")}=${el.getAttribute("tabindex")}`)
+
+const watchWalkFocus = (m: Mounted): string[] => {
+  const seen: string[] = []
+  for (const el of m.all("li") as unknown as { getAttribute(n: string): string; focus(): void }[]) {
+    el.focus = () => void seen.push(el.getAttribute("id"))
+  }
+  return seen
+}
+
+describe("a row on its way out is no longer a member", () => {
+  it("hands the caret to the survivor when the list shortens past it", async () => {
+    // Shortening past the caret is what puts a released row and its survivor in
+    // the tree at once (midExit says why), and counting both refuses a program
+    // that did nothing wrong. The caret must land on the survivor and focus
+    // must follow it there.
+    const m = await mountWalk("c")
+    await m.settle()
+    expect(walkOrder(m)).toEqual(["st-a=-1", "st-b=-1", "st-c=0"])
+    const focused = watchWalkFocus(m)
+
+    await m.store.update("step", "b", { cur: "true" })
+    await m.store.remove("step", "c")
+    await m.settle()
+
+    expect(walkOrder(m)).toEqual(["st-a=-1", "st-b=0"])
+    // The caret MOVED, so the reader goes with it: the tabstop the departing
+    // row held is what makes this a move rather than a first paint.
+    expect(focused).toEqual(["st-b"])
+    await m.stop()
+  })
+
+  it("still refuses two current members while a third row is leaving", async () => {
+    // The invariant the count defends, with the exiting row in the tree: a fix
+    // that narrowed the population any further than "committed" would trade a
+    // false refusal for a caret the columns did not put anywhere.
+    const m = await mountWalk("c")
+    await m.settle()
+    await m.store.update("step", "a", { cur: "true" })
+    await m.store.update("step", "b", { cur: "true" })
+    await m.store.remove("step", "c")
+    await expect(m.settle()).rejects.toThrow(/2 members read data-rove="true"/)
+  })
+})
+
 // A compile-time item set: N affordances under ONE row, each binding its own
 // column. This is how every grouped pattern in the shadcn gallery spells its
 // options — a radiogroup, a segmented control, a tablist, an accordion's

@@ -22,7 +22,7 @@ describe("comment stripping", () => {
     expect(handlers).toEqual([])
     expect(filters).toEqual([{ table: "real", filter: "id=eq.the" }])
     expect(machineRegions(commented)).toEqual([])
-    expect(slotRegions(commented)).toEqual([{ table: "real", filter: "id=eq.the" }])
+    expect(slotRegions(commented)).toEqual([{ table: "real", filter: "id=eq.the", nested: false, declares: false }])
     expect(kindedRegions(commented)).toEqual([])
   })
 })

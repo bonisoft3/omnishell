@@ -263,57 +263,83 @@ function implied<T extends { tag: string }>(stack: T[], tag: string): T[] {
   return out;
 }
 
-export type Slot = { table: string; filter?: string };
+export type Slot = {
+  table: string;
+  filter?: string;
+  /** Authored inside an item template, so the interpreter hydrates it from an
+   * enclosing region's row — `syncNested` is its only non-top caller — and no
+   * screen state stands for it. */
+  nested: boolean;
+  /** Whether the region states what it renders with no row: `data-empty`'s
+   * copy, or a row to bind instead — `data-empty-row`, or the one a machine
+   * synthesizes from its initial. */
+  declares: boolean;
+};
 
 /** Every slot — a `data-live` region with no `template[data-item]` where the
  * interpreter's querySelector would see one — with the filter its cardinality
- * depends on. Template content is a boundary exactly as it is in the DOM: an
- * item template marks only the regions between it and its nearest enclosing
- * template, because a deeper template lives in content the outer region's
- * querySelector cannot reach. A region referencing a named template
- * (`data-template`) is a list — the shape lives elsewhere in the screen. */
+ * depends on and what it says about holding no row. Template content is a
+ * boundary exactly as it is in the DOM: an item template marks only the
+ * regions between it and its nearest enclosing template, because a deeper
+ * template lives in content the outer region's querySelector cannot reach. A
+ * region referencing a named template (`data-template`) is a list — the shape
+ * lives elsewhere in the screen. */
 export function slotRegions(html: string): Slot[] {
   const out: Slot[] = [];
-  type Open = { tag: string; slot?: { table: string; filter?: string; list: boolean } };
+  type Open = { tag: string; item: boolean; slot?: Slot; list?: boolean };
   const stack: Open[] = [];
+  const emit = ({ slot, list }: Open) => {
+    if (slot !== undefined && list !== true) out.push(slot);
+  };
   for (const m of strip(html).matchAll(ANY_TAG)) {
     const [, closing, rawTag, attrText] = m;
     const tag = rawTag.toLowerCase();
     if (closing === "/") {
       for (let i = stack.length - 1; i >= 0; i--) {
         if (stack[i].tag !== tag) continue;
-        for (const { slot } of stack.splice(i)) {
-          if (slot !== undefined && !slot.list) out.push({ table: slot.table, filter: slot.filter });
-        }
+        for (const open of stack.splice(i)) emit(open);
         break;
       }
       continue;
     }
     const { attr, has } = attrsOf(attrText);
-    for (const { slot } of implied(stack, tag)) {
-      if (slot !== undefined && !slot.list) out.push({ table: slot.table, filter: slot.filter });
-    }
-    if (tag === "template" && has("data-item")) {
+    for (const open of implied(stack, tag)) emit(open);
+    const item = tag === "template" && has("data-item");
+    if (item) {
       for (let i = stack.length - 1; i >= 0 && stack[i].tag !== "template"; i--) {
-        const slot = stack[i].slot;
-        if (slot !== undefined) slot.list = true;
+        if (stack[i].slot !== undefined) stack[i].list = true;
       }
     }
     const table = attr("data-live");
-    const open: Open = { tag };
+    const open: Open = { tag, item };
     if (table !== undefined) {
-      open.slot = { table, filter: attr("data-filter"), list: attr("data-template") !== undefined };
+      open.slot = {
+        table,
+        filter: attr("data-filter"),
+        nested: stack.some((o) => o.item),
+        // A valueless `data-empty` is the empty string in the dataset the
+        // interpreter reads, so presence is what counts, not a value.
+        declares: has("data-empty") || has("data-empty-row") || has("data-machine"),
+      };
+      open.list = attr("data-template") !== undefined;
     }
     if (VOID.has(tag) || /\/\s*$/.test(attrText)) {
-      if (open.slot !== undefined && !open.slot.list) out.push({ table: open.slot.table, filter: open.slot.filter });
+      emit(open);
       continue;
     }
     stack.push(open);
   }
-  for (const { slot } of stack) {
-    if (slot !== undefined && !slot.list) out.push({ table: slot.table, filter: slot.filter });
-  }
+  for (const open of stack) emit(open);
   return out;
+}
+
+/** The reason a slot would render nothing without saying so, or null. Only a
+ * nested one owes the declaration: a top-level slot moves the screen to `gone`
+ * or `empty`, and either is a frame the reader can see. */
+export function undeclaredSlot(slot: Slot): string | null {
+  if (!slot.nested || slot.declares) return null;
+  return "is nested and declares no empty treatment: give it data-empty, empty to mean it shows nothing, " +
+    "or a data-empty-row to bind instead";
 }
 
 export type KindedRegion = { table: string; whens: (string | undefined)[] };

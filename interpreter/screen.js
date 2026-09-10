@@ -650,8 +650,6 @@ function playExit(node, done) {
   settle(node, done);
 }
 
-// True when no [data-live] boundary sits between el (inclusive) and scope
-// (exclusive) — nested regions bind against their own row, never the parent's.
 /** Forms under a scope, the scope included when it is itself one. */
 const formsIn = (scope) => [
   ...(scope.matches?.("form[data-action]") ? [scope] : []),
@@ -664,6 +662,16 @@ const hatchesIn = (node) => [
   ...(node.matches?.("[data-hatch]") ? [node] : []),
   ...node.querySelectorAll("[data-hatch]"),
 ];
+
+/** Whether `el` sits under a node committed to exit — playExit stamps the mark
+ * and the node stays in the tree until its animation ends, so a query over the
+ * live DOM reaches members the region has already let go of. */
+function midExit(el, scope) {
+  for (let n = el; n && n !== scope; n = n.parentElement) {
+    if (n.hasAttribute?.("data-exit")) return true;
+  }
+  return false;
+}
 
 /** Whether `el` is the scope's own to bind: nothing between it and the scope
  * declares a read. */
@@ -699,6 +707,39 @@ function clearBindings(scope) {
     if (el.parentElement?.closest("[data-text-format]")) continue;
     el.textContent = "";
   }
+}
+
+// Regions whose content model is phrasing. A <p> inside one is markup no
+// author could have written: it ends the container's phrasing flow, and a
+// parser meeting it in a served page closes the container around it.
+const PHRASING_REGION = /^(A|ABBR|B|BUTTON|CODE|EM|I|LABEL|OUTPUT|P|SMALL|SPAN|STRONG|H[1-6])$/;
+
+/** The element a note may be, from the region it stands in: a list admits only
+ * li, a phrasing container only phrasing, and everything else takes the
+ * paragraph the note reads as. */
+const noteTag = (tag) => /^(UL|OL)$/.test(tag) ? "li" : PHRASING_REGION.test(tag) ? "span" : "p";
+
+/**
+ * The copy `data-empty` declares, for a region holding nothing: a list with no
+ * rows, or a slot whose row is gone.
+ *
+ * Copy that is empty is no copy: a region declaring the empty string has
+ * declared nothing to show, and a note holding it would put an element where
+ * the region says there is none.
+ *
+ * A list's own sweep takes the note away; a slot has no sweep — its children
+ * are the markup — so the node is held on the region rather than found by its
+ * class, which is the app's to style and to author elsewhere.
+ */
+function emptyNote(region, copy) {
+  region._prontoEmpty?.remove();
+  region._prontoEmpty = undefined;
+  if (!copy) return;
+  const note = document.createElement(noteTag(region.tagName));
+  note.className = "empty";
+  note.textContent = copy;
+  region._prontoEmpty = note;
+  region.append(note);
 }
 
 function bindTexts(scope, ctx, renderers = {}) {
@@ -2252,7 +2293,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       const stops = [...region.querySelectorAll("[data-rove]")].filter((el) => ownedBy(el, region));
       if (stops.length === 0) return;
       const held = stops.find((el) => el.getAttribute("tabindex") === "0");
-      const reading = stops.filter((el) => el.getAttribute("data-rove") === "true");
+      // The set is what the region still renders; the tab order above is every
+      // stop the document holds. They differ by the rows mid-exit.
+      const reading = stops.filter((el) => !midExit(el, region) && el.getAttribute("data-rove") === "true");
       // The invariant a set has, in either shape: one member is current. Two
       // would leave which one holds the tabstop to document order, and the
       // reader would find the caret somewhere the columns did not put it.
@@ -2294,7 +2337,8 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
      */
     const moveFocus = () => {
       if (!focusing) return;
-      const members = [...region.querySelectorAll("[data-focus]")].filter((el) => ownedBy(el, region));
+      const members = [...region.querySelectorAll("[data-focus]")]
+        .filter((el) => ownedBy(el, region) && !midExit(el, region));
       const reading = members.filter((el) => el.getAttribute("data-focus") === "true");
       if (reading.length > 1) {
         throw new ProgramError(
@@ -2578,14 +2622,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           }
           rove();
           moveFocus();
-          if (order.length === 0 && region.dataset.empty) {
-            // A list element admits only li children, so the note matches the
-            // rows it stands in for.
-            const p = document.createElement(/^(UL|OL)$/.test(region.tagName) ? "li" : "p");
-            p.className = "empty";
-            p.textContent = region.dataset.empty;
-            region.append(p);
-          }
+          emptyNote(region, order.length === 0 ? region.dataset.empty : undefined);
           // The region's own element, from the ENCLOSING row rather than any
           // of its rows: a container naming one of them — a listbox's
           // aria-activedescendant — states a fact about the choice, not about
@@ -2634,10 +2671,28 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           // goes with the input — leaving the last row's values standing is
           // how a deleted subject kept rendering itself under the notice
           // saying it was gone.
+          //
+          // Only an ABSENT attribute is refused below: the empty string is a
+          // declaration that the region shows nothing, which a probe whose whole
+          // output is its presence has no other way to state.
+          //
+          // `undeclaredSlot` refuses the same markup at generate, so an app
+          // that was built cannot arrive here. What can is markup that never
+          // went through one — a fixture, a harness, a screen served from
+          // somewhere else — and the interpreter's contract is its own.
           if (top) setState(route.states?.includes("gone") ? "gone" : "empty");
+          else if (region.dataset.empty === undefined) {
+            throw new ProgramError(
+              `slot region "${table}" (filter ${
+                JSON.stringify(opts.filter ?? "")
+              }) has no row and declares no empty treatment; a nested region has no screen state to say so with — give it data-empty, empty to mean it shows nothing, or a data-empty-row to bind instead`,
+            );
+          }
           clearBindings(region);
+          emptyNote(region, region.dataset.empty);
           return;
         }
+        emptyNote(region, undefined);
         if (top && screen.dataset.state === "gone") setState(base);
         slotCtx.row = row;
         // A singleton has affordances too, and its one row is what they act

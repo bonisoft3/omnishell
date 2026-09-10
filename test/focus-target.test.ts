@@ -174,6 +174,42 @@ describe("focus moves for the caret, and only inside the widget", () => {
   })
 })
 
+// `data-focus`'s half of the same wall roving-tabstop.test.ts states: the
+// members are ROWS, so a list can shorten past the caret.
+const LIST_ROUTE = { screen: "hl", files: { html: "hl.html", css: "hl.css", handlers: [] } }
+
+const LIST_FILES = {
+  "hl.html": `<section class="screen" data-screen="hl">
+    <ul class="hl" data-live="head" data-order="pos.asc">
+      <template data-item>
+        <li><button type="button" id="hd-{id}" data-focus="{cur}" data-text="{label}"></button></li>
+      </template>
+    </ul>
+  </section>`,
+  "hl.css": "",
+}
+
+const heads = (cur: string) =>
+  ["a", "b", "c"].map((id, i) => ({ id, label: id.toUpperCase(), pos: i + 1, cur: String(id === cur) }))
+
+describe("a row on its way out is no longer a member", () => {
+  it("moves focus to the survivor when the list shortens past the caret", async () => {
+    // The departing row is still in the tree reading `data-focus="true"`, so a
+    // count over the live DOM refuses a program that did nothing wrong.
+    const m = await mountScreen({ route: LIST_ROUTE, files: LIST_FILES, tables: { head: heads("c") }, seed: 1 })
+    await m.settle()
+    readerOn(m, "hd-a")
+    const seen = watch(m)
+
+    await m.store.update("head", "b", { cur: "true" })
+    await m.store.remove("head", "c")
+    await m.settle()
+
+    expect(seen).toEqual(["hd-b"])
+    await m.stop()
+  })
+})
+
 describe("a chart that cannot hear the reader is refused", () => {
   const entity = {
     table: "acc_demo",

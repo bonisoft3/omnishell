@@ -26,7 +26,7 @@ describe("slotRegions with named templates", () => {
   it("a template-less region beside a named template is still a slot", () => {
     expect(
       slotRegions(THREAD + '<div data-live="profile" data-filter="id=eq.{param.id}"></div>'),
-    ).toEqual([{ table: "profile", filter: "id=eq.{param.id}" }])
+    ).toEqual([{ table: "profile", filter: "id=eq.{param.id}", nested: false, declares: false }])
   })
 })
 

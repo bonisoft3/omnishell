@@ -483,6 +483,7 @@ export type El = {
   dispatchEvent(event: unknown): boolean;
   readonly firstElementChild: El | null;
   readonly textContent: string | null;
+  readonly tagName: string;
 };
 
 /** A vendored unit, as shell.yaml declares it and as the interpreter resolves

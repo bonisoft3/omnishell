@@ -162,6 +162,19 @@ a region that *contains another region* counts that region's template too and
 is never a slot. Symptom: your fallback never appears and the region shows
 `data-empty`.
 
+### A nested slot must say what it looks like with no row
+
+`slot region "x" ... is nested and declares no empty treatment` fails the
+**build** for a slot **inside another region's item**. A top-level slot answers
+this with the screen's `gone` or `empty` state; a nested one has no state to
+move to, so it declares its own: `data-empty="No note yet."` for copy,
+`data-empty=""` for a probe whose whole output is its presence, or
+`data-empty-row` to bind a synthesized row instead. Leaving all three off is the
+one thing refused — without a declaration, a readout that has lost its row and a
+probe holding its peace render the same blank. The interpreter refuses the same
+markup with `... has no row and declares no empty treatment`, which is what
+markup mounted outside a build — a fixture, a harness — gets instead.
+
 ### Every bound column must exist on the row
 
 `binding {x} not in row [...]` means a template binds a column your `create`

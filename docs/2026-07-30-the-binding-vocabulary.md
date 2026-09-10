@@ -59,7 +59,7 @@ The closed set, and it is closed in code — `REGION_ATTRS` in
 | `data-select` | a PostgREST select fragment — the embeds a row arrives with |
 | `data-order` | the ordering. Where a header sorts, it is a closed map: the interpreter reads the attribute raw, so no column interpolates into it |
 | `data-when` | the same filter grammar, matched against the row itself. A template with no `data-when` admits every row |
-| `data-empty` | the empty-state copy, shown when the query returns none |
+| `data-empty` | the empty-state copy, shown when the query returns none. On a nested slot it is also the declaration that the region may be rowless, and empty copy is how one says it then shows nothing. A nested slot has no screen state to say it with, so the declaration is owed rather than offered: one that states nothing is refused at generate, and by the interpreter too, for markup no generate pass saw |
 | `data-empty-row` | the row a region binds when it has none. A machine region synthesizes one from `{...context, field: initial}`; where both are present they must agree, vetted at generate and never arbitrated at runtime |
 | `data-project` | derived columns a region states about its own rows, merged into each row before binding. The clause set is closed and its refusals are the point — `2026-09-01-aria-is-columns.md` |
 | `data-text` | text interpolation from the bound row or singleton; `{param.x}` reads a route param, any other expression is a dot path into the row |
