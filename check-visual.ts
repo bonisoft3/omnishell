@@ -18,6 +18,8 @@
 // taking the criticals with it.
 import { parse as parseYaml } from "jsr:@std/yaml@1.0.5"
 import { checkInteractiveOverlap } from "./src/lint/playwright/checks/interactive-overlap.ts"
+import { checkClippedContent } from "./src/lint/playwright/checks/clipped-content.ts"
+import { checkFocusableInvisible } from "./src/lint/playwright/checks/focusable-invisible.ts"
 import { checkHorizontalOverflow } from "./src/lint/playwright/checks/horizontal-overflow.ts"
 import { checkConstrainedImages } from "./src/lint/playwright/checks/constrained-images.ts"
 import { checkViewportBounds } from "./src/lint/playwright/checks/viewport-bounds.ts"
@@ -27,6 +29,7 @@ import { armCLS, checkCLS } from "./src/lint/playwright/checks/cls.ts"
 import { captureConsole, analyzeConsole } from "./src/lint/playwright/checks/console-messages.ts"
 import type { VisualBug } from "./src/lint/playwright/types.ts"
 import { type ParamPlan, paramPlans } from "./interpreter/lint.ts"
+import { parseFilter, parseFilterSpec, PLACEHOLDERS } from "./interpreter/fragment.js"
 
 type Finding = { severity: string; path: string; message: string }
 /** Only what this driver drives; the checks take @playwright/test's Page, which is the same object. */
@@ -52,11 +55,6 @@ const VIEWPORTS: Viewport[] = [
 // browser, not CPU it could spread wider.
 const LANES = 4
 
-// WCAG 2.5.8 (AA). The battery's own default is 2.5.5's 44px, which on a
-// content surface reports every article title and byline — real advice, but
-// not a gate. See checks/touch-targets.ts.
-const TOUCH_MIN = 24
-
 // A screen is ready to measure when it stops changing. This long without a
 // mutation, a moved box or a loading image means it has; past the cap it is
 // still changing and says so. A constant wait instead of a predicate would
@@ -76,10 +74,33 @@ const IGNORE = [
   /^Removing intrinsics\./,
 ]
 
-export function routesFrom(yamlText: string): Route[] {
-  const doc = parseYaml(yamlText) as { routes?: Route[] }
-  if (!doc?.routes?.length) throw new Error("no routes: block in shell.yaml")
-  return doc.routes
+/** shell.yaml, parsed once by main and handed to each reader; a reader given
+ * text parses it itself, which is what the unit tests do. */
+type ShellDoc = Record<string, unknown>
+const shellDoc = (yaml: string | ShellDoc): ShellDoc => typeof yaml === "string" ? (parseYaml(yaml) as ShellDoc) ?? {} : yaml
+
+/** An emitted key the battery cannot do without: pronto always writes it, so
+ * its absence is a file that is not a shell.yaml, never a default. */
+function emitted<T>(doc: ShellDoc, key: string, is: (v: unknown) => v is T): T {
+  const v = doc[key]
+  if (!is(v)) throw new Error(`no ${key}: in shell.yaml; run plugins/pronto/write.ts`)
+  return v
+}
+
+export function routesFrom(yaml: string | ShellDoc): Route[] {
+  return emitted(shellDoc(yaml), "routes", (v): v is Route[] => Array.isArray(v) && v.length > 0)
+}
+
+/**
+ * The terminal's measured floors, in device px, off the emitted shell.yaml.
+ * The terminal declares them, and
+ * omnishell.#Terminal.capabilities.floors argues why it is one declaration. A
+ * file without them raises: a default here would be a second number.
+ */
+export function floorsFrom(yaml: string | ShellDoc): Record<string, number> {
+  const doc = shellDoc(yaml) as { floors?: Record<string, number> }
+  if (typeof doc.floors?.touch !== "number") throw new Error("no floors.touch in shell.yaml; run plugins/pronto/write.ts")
+  return doc.floors
 }
 
 /** Substitute resolved values for `:param` segments. */
@@ -95,43 +116,133 @@ export function fillRoute(pattern: string, params: Record<string, string>): stri
     .join("/")
 }
 
-async function crud<T>(base: string, q: string, token: string): Promise<T> {
-  const r = await fetch(`${base}/crud/${q}`, { headers: { Authorization: `Bearer ${token}` } })
-  if (!r.ok) throw new Error(`GET /crud/${q} -> ${r.status} ${await r.text()}`)
-  return r.json() as Promise<T>
+type Row = Record<string, unknown>
+/** Where each table's rows live, off the emitted shell.yaml. `local:` names
+ * the browser tiers (tab, device) the store builds from a local factory and
+ * fills from `seed:`; every other table is a server one the store reads
+ * through /crud. pronto emits either key only when it is non-empty, so a file
+ * carrying neither is the emitted statement that every table is a server one.
+ * `server` is whether the cluster runs an auth and a crud service at all,
+ * emitted from the predicate that runs them (pronto's #serverOn). */
+export type Tiers = { local: Record<string, string>; seed: Record<string, Row[]>; server: boolean }
+/** One /crud query, answered as rows. Injected so the resolver can be held to
+ * WHICH reads it makes without a cluster. */
+export type Reader = (query: string) => Promise<Row[]>
+
+export function tiersFrom(yaml: string | ShellDoc): Tiers {
+  const doc = shellDoc(yaml) as { local?: Record<string, string>; seed?: Record<string, Row[]> }
+  const server = emitted(doc, "server", (v): v is boolean => typeof v === "boolean")
+  return { local: doc.local ?? {}, seed: doc.seed ?? {}, server }
+}
+
+/**
+ * Whether the terminal answers this read from the collection it seeded, or
+ * through /crud: a table named in `local:` reads locally exactly when the
+ * store can translate the region's WHOLE filter, which is fragment.js's own
+ * predicate over every clause — one fts expression, embed path or `in` list
+ * sends the read to the server whatever the tier. The store parses the filter
+ * with its params filled, so each binding is filled here with `true`, a value
+ * every operator accepts, `is` included.
+ */
+function onDevice(plan: ParamPlan, tiers: Tiers): boolean {
+  return tiers.local[plan.table] !== undefined && parseFilterSpec(plan.filter.replace(PLACEHOLDERS, "true")) !== null
+}
+
+/** A guest is a real row, so it needs no signing key and no seeded handle.
+ * The whole response is the session: the shell stores it as such, and the
+ * store reads the user's id off it to scope owned rows. */
+type Session = { token: string; user: { id: string; handle: string } }
+async function guestSession(base: string): Promise<Session> {
+  const r = await fetch(`${base}/auth/guest`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  })
+  if (!r.ok) throw new Error(`POST /auth/guest -> ${r.status} ${await r.text()}`)
+  return (await r.json()) as Session
+}
+
+/**
+ * The cluster's /crud as the guest. No token means no cluster runs one: a
+ * device-tier app has no crud service behind caddy, so a read that reaches
+ * here is a plan the seed cannot answer, and it says so instead of 502-ing.
+ */
+function crudReader(base: string, token: string | undefined): Reader {
+  return async (q) => {
+    if (token === undefined) {
+      throw new Error(`GET /crud/${q}: shell.yaml says server: false, so no crud service answers it`)
+    }
+    const r = await fetch(`${base}/crud/${q}`, { headers: { Authorization: `Bearer ${token}` } })
+    if (!r.ok) throw new Error(`GET /crud/${q} -> ${r.status} ${await r.text()}`)
+    return r.json() as Promise<Row[]>
+  }
 }
 
 /** PostgREST nests a select the way the filter nests the path, at any depth:
  * `article_tag.tag` selects `article_tag(tag)`, `a.b.name` selects `a(b(name))`. */
 export function embedSelect(column: string): string {
   const path = column.split(".")
-  return path.slice(0, -1).reduceRight((inner, rel) => `${rel}(${inner})`, path[path.length - 1])
+  const leaf = path.pop() as string
+  return path.reduceRight((inner, rel) => `${rel}(${inner})`, leaf)
 }
 
+/** One hop of an embed walk: the first row of a to-many relation, or a to-one
+ * as it is; an empty relation of either kind is null, and not a row that lacks
+ * the key. */
+const hop = (c: unknown) => Array.isArray(c) ? (c.length === 0 ? null : c[0]) : c
+
 /** The same path walked back out. Which hops answer with an array is the
- * relation's business and unreadable off the filter, so take the first either way. */
+ * relation's business and unreadable off the filter, so take the first either
+ * way. An EMPTY relation on the way is null — the row has the column and
+ * nothing behind it, a hole — where a key the row lacks stays undefined. */
 export function embedValue(row: Record<string, unknown>, column: string): unknown {
   let cursor: unknown = row
   for (const step of column.split(".")) {
-    if (Array.isArray(cursor)) cursor = cursor[0]
+    cursor = hop(cursor)
+    if (cursor === null) return null
     cursor = (cursor as Record<string, unknown> | undefined)?.[step]
   }
-  return Array.isArray(cursor) ? cursor[0] : cursor
+  return hop(cursor)
 }
 
 /**
- * Ask the running cluster for a value that makes each parametrized route
- * paint. `lt`/`gt` cursors take the extreme so the rest of the set remains;
- * full-text search samples a word the index actually matches.
+ * Words the full-text index will answer, read off the indexed column itself
+ * rather than a `title` every table is presumed to have. A tsvector prints as
+ * `'lexeme':pos …`, so its lexemes are the words; a plain text column is
+ * split into its own words. Either is queried back with the plan's operator.
+ */
+export function ftsWords(values: unknown[]): string[] {
+  const words = values.flatMap((v) => {
+    const text = String(v ?? "")
+    const lexemes = [...text.matchAll(/'([^']+)':\d/g)].map((m) => m[1])
+    return lexemes.length > 0 ? lexemes : text.toLowerCase().split(/[^a-z0-9]+/)
+  })
+  // Words only, in any script: the `simple` dictionary keeps accents, so a
+  // Portuguese index prints `'farmácia':1`, and one such word is a fair probe.
+  return [...new Set(words.filter((w) => w.length >= 4 && /^[\p{L}\p{N}]+$/u.test(w)))]
+}
+
+/**
+ * A value that makes each parametrized route paint, from wherever the app put
+ * the entity's rows: the seed for a device table, the running cluster for a
+ * server one. `lt`/`gt` cursors take the extreme so the rest of the set
+ * remains; full-text search samples a word the index actually matches.
+ *
+ * A read the API refuses, or answers with a row lacking a column the read
+ * selected, raises: the battery's report is only as true as its fixtures, and
+ * a hole that was really a broken cluster would be muted as coverage advice.
+ * A table with no row carrying a value for the column is a hole, on either
+ * tier: nothing was there to match. A seed row that omits the column is such a
+ * row, since a seed is an open map and the store reads what it omits as null.
  *
  * Answers per route, because a plan is one: two routes spelling `:id` over
  * different tables want different rows, and a single answer held under the name
  * fills the second route with the first one's value.
  */
-async function resolveParams(
-  base: string,
-  token: string,
+export async function resolveParams(
   plans: ParamPlan[],
+  tiers: Tiers,
+  api: Reader,
 ): Promise<{ params: Map<string, Record<string, string>>; unresolved: { route: string; param: string }[] }> {
   const params = new Map<string, Record<string, string>>()
   const unresolved: { route: string; param: string }[] = []
@@ -140,44 +251,50 @@ async function resolveParams(
     held[plan.param] = value
     params.set(plan.route, held)
   }
+  const hole = (plan: ParamPlan) => unresolved.push({ route: plan.route, param: plan.param })
   for (const plan of plans) {
     const table = plan.table
-    const select = embedSelect(plan.column)
-    try {
-      if (plan.op.startsWith("plfts")) {
-        const rows = await crud<Record<string, unknown>[]>(
-          base,
-          `${table}?select=title&limit=40`,
-          token,
-        )
-        const words = [
-          ...new Set(
-            rows.flatMap((r) => String(r.title ?? "").toLowerCase().split(/[^a-z]+/)).filter((w) => w.length >= 4),
-          ),
-        ]
-        let hit: string | undefined
-        for (const w of words) {
-          const got = await crud<unknown[]>(base, `${table}?select=id&${plan.column}=${plan.op}.${w}&limit=1`, token)
-          if (got.length) { hit = w; break }
-        }
-        if (hit) keep(plan, hit)
-        else unresolved.push(plan)
-        continue
+    if (onDevice(plan, tiers)) {
+      // The seeded values, and for a cursor the one whose own predicate admits
+      // the most other rows: the interpreter's parseFilter orders the rows, so
+      // the battery never carries a comparison of its own that could disagree
+      // with it. Any read a value answers by itself takes the first.
+      const rows = tiers.seed[table] ?? []
+      const values = rows
+        .map((r) => r[plan.column] as number | string | null | undefined)
+        .filter((v): v is number | string => v !== undefined && v !== null)
+      if (values.length === 0) { hole(plan); continue }
+      const admits = (v: number | string) => {
+        const preds = parseFilter(`${plan.column}=${plan.op}.${v}`) as ((row: Row) => boolean)[] | null
+        return preds === null ? -1 : rows.filter((r) => preds.every((p) => p(r))).length
       }
-      const order = plan.op === "lt" ? `&order=${plan.column}.desc` : plan.op === "gt" ? `&order=${plan.column}.asc` : ""
-      const rows = await crud<Record<string, unknown>[]>(
-        base,
-        `${table}?select=${select}${order}&limit=1`,
-        token,
-      )
-      const row = rows[0]
-      if (!row) { unresolved.push(plan); continue }
-      const raw = embedValue(row, plan.column)
-      if (raw === undefined || raw === null) unresolved.push(plan)
-      else keep(plan, String(raw))
-    } catch {
-      unresolved.push(plan)
+      const best = plan.op === "eq" ? values[0] : [...new Set(values)].reduce((a, b) => (admits(b) > admits(a) ? b : a))
+      keep(plan, String(best))
+      continue
     }
+    if (plan.op.startsWith("plfts")) {
+      const rows = await api(`${table}?select=${plan.column}&limit=40`)
+      const words = ftsWords(rows.map((r) => r[plan.column]))
+      let hit: string | undefined
+      for (const w of words) {
+        const got = await api(`${table}?select=id&${plan.column}=${plan.op}.${encodeURIComponent(w)}&limit=1`)
+        if (got.length) { hit = w; break }
+      }
+      if (hit) keep(plan, hit)
+      else hole(plan)
+      continue
+    }
+    const select = embedSelect(plan.column)
+    const order = plan.op === "lt" ? `&order=${plan.column}.desc` : plan.op === "gt" ? `&order=${plan.column}.asc` : ""
+    const rows = await api(`${table}?select=${select}${order}&limit=1`)
+    const row = rows[0]
+    if (!row) { hole(plan); continue }
+    const raw = embedValue(row, plan.column)
+    if (raw === undefined) {
+      throw new Error(`/crud/${table} answered a row without ${plan.column}, which ${plan.route} filters on: ${JSON.stringify(row)}`)
+    }
+    if (raw === null) hole(plan)
+    else keep(plan, String(raw))
   }
   return { params, unresolved }
 }
@@ -314,14 +431,13 @@ async function main(appDir: string): Promise<number> {
   // --self-test must stay runnable with no permissions.
   const { chromium } = await import("npm:playwright@1.59.1")
   const base = await baseUrl(appDir)
-  const routes = routesFrom(await Deno.readTextFile(`${appDir}/shell/shell.yaml`))
-
-  // A guest is a real row, so it needs no signing key and no seeded handle.
-  const session = await fetch(`${base}/auth/guest`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: "{}",
-  }).then((r) => (r.ok ? (r.json() as Promise<{ token: string }>) : { token: "" })).catch(() => ({ token: "" }))
+  const shell = shellDoc(await Deno.readTextFile(`${appDir}/shell/shell.yaml`))
+  const routes = routesFrom(shell)
+  const floors = floorsFrom(shell)
+  const tiers = tiersFrom(shell)
+  // One guest for the resolver's reads and the browser's session alike,
+  // minted only where a cluster runs the auth service that mints it.
+  const session = tiers.server ? await guestSession(base) : undefined
 
   // Keyed by route path, because that is what paramPlans walks. A route whose
   // html is missing reads as empty markup and its params come back unplanned,
@@ -332,7 +448,7 @@ async function main(appDir: string): Promise<number> {
     markup[route.path] = await Deno.readTextFile(`${appDir}/${route.files.html}`).catch(() => "")
   }
   const { plans, unplanned } = paramPlans(routes, markup)
-  const { params, unresolved } = await resolveParams(base, session.token, plans)
+  const { params, unresolved } = await resolveParams(plans, tiers, crudReader(base, session?.token))
   const findings: Finding[] = []
 
   // A route whose param never resolved is a coverage hole, not a pass, and a
@@ -378,16 +494,58 @@ async function main(appDir: string): Promise<number> {
       // style text (an inline script templating {dx} is not a leak), or the
       // data-* attributes the binder consumes — so anything matched was
       // really painted. The runtime twin of the typechecker's R5.
-      await (page as { addInitScript?: (fn: () => void) => Promise<void> }).addInitScript?.(() => {
+      // The binding grammar is the renderer's, handed in as the source and
+      // flags of the whole-text regex fragment.js exports, since an init
+      // script cannot import.
+      await (page as { addInitScript?: (fn: (arg: [string, string]) => void, arg: [string, string]) => Promise<void> })
+        .addInitScript?.(([source, flags]: [string, string]) => {
+        const BRACES = new RegExp(source, flags)
         const leaks = new Set<string>()
-        ;(window as unknown as { __placeholderLeaks: Set<string> }).__placeholderLeaks = leaks
+        // The brace spellings painted on the page that no `data-verbatim` region
+        // accounts for. One scan, installed on the window so the settled read
+        // below runs the very same one: a rule the sampler honours and the read
+        // does not is a rule an app cannot satisfy. A region that declares its
+        // braces is subtracted by COUNT, not by spelling — a leak spelling the
+        // same binding elsewhere is one brace more than the declaration
+        // encloses, and stays a leak — and only while it is rendered, since an
+        // unrendered element's innerText is its textContent, which the body's
+        // projection never counted. Outermost regions only, so a nested one is
+        // not subtracted twice. An authored attribute arrives with its stamped
+        // item and a template's content is not in innerText, so there is no
+        // window in which text is painted and its declaration is not yet on it.
+        const standing = (text: string): string[] => {
+          const count = (s: string) => {
+            const c = new Map<string, number>()
+            for (const m of s.match(BRACES) ?? []) c.set(m, (c.get(m) ?? 0) + 1)
+            return c
+          }
+          const found = count(text)
+          if (found.size > 0) {
+            for (const el of document.querySelectorAll<HTMLElement>("[data-verbatim]")) {
+              if (el.parentElement?.closest("[data-verbatim]")) continue
+              // A `display: contents` region has no box of its own and answers
+              // checkVisibility() false while its text is painted; its parent
+              // holds the answer.
+              const rendered = el.checkVisibility() ||
+                (getComputedStyle(el).display === "contents" && (el.parentElement?.checkVisibility() ?? false))
+              if (!rendered) continue
+              for (const [m, n] of count(el.innerText ?? "")) found.set(m, (found.get(m) ?? 0) - n)
+            }
+          }
+          return [...found].filter(([, n]) => n > 0).map(([m]) => m)
+        }
+        const w = window as unknown as { __placeholderLeaks: Set<string>; __standingBraces: () => string[] }
+        w.__placeholderLeaks = leaks
+        w.__standingBraces = () => standing(document.body?.innerText ?? "")
         const tick = () => {
           const t = document.body?.innerText
-          if (t) for (const m of t.match(/\{[\w.]+\}/g) ?? []) leaks.add(m)
+          if (t !== undefined && t !== "") {
+            for (const m of standing(t)) leaks.add(m)
+          }
           if (leaks.size < 20) requestAnimationFrame(tick)
         }
         requestAnimationFrame(tick)
-      })
+      }, [PLACEHOLDERS.source, PLACEHOLDERS.flags])
       // Before navigation for the same reason as the sampler above; armCLS
       // states why it cannot be anywhere else.
       await armCLS(page as never)
@@ -430,18 +588,26 @@ async function main(appDir: string): Promise<number> {
         await Promise.all([
           checkInteractiveOverlap(p),
           checkHorizontalOverflow(p),
+          checkClippedContent(p),
+          checkFocusableInvisible(p),
           checkConstrainedImages(p),
           checkViewportBounds(p),
-          checkTouchTargets(p, { minSize: TOUCH_MIN }),
+          checkTouchTargets(p, { minSize: floors.touch }),
           checkFocusOrder(p),
           checkCLS(p),
         ])
       ).flat()
       bugs.push(...analyzeConsole(console_, { ignore: IGNORE }))
+      // The sampler above and this settled read are one scan over one projection,
+      // taken at two times: it catches braces painted during hydration, this
+      // catches braces still standing. Neither can tell a leak from an app that
+      // renders braces ON PURPOSE, and one does — a screen quoting a vendor's
+      // token-naming convention spells a binding without being one — so
+      // `data-verbatim` subtracts what it encloses from both, through the one
+      // scan the init script installed on the window.
       const leaked = (await page.evaluate(() => {
-        const w = window as unknown as { __placeholderLeaks?: Set<string> }
-        const now = document.body?.innerText?.match(/\{[\w.]+\}/g) ?? []
-        return [...new Set([...(w.__placeholderLeaks ?? []), ...now])]
+        const w = window as unknown as { __placeholderLeaks?: Set<string>; __standingBraces?: () => string[] }
+        return [...new Set([...(w.__placeholderLeaks ?? []), ...(w.__standingBraces?.() ?? [])])]
       })) as string[]
       if (leaked.length > 0) {
         bugs.push({
@@ -497,7 +663,11 @@ async function main(appDir: string): Promise<number> {
           viewport: { width: viewport.width, height: viewport.height },
         })
         try {
-          await context.addInitScript((s) => sessionStorage.setItem("pronto-token", JSON.stringify(s)), session)
+          // The shell reads its session only behind `auth.required`, which a
+          // device-tier app never declares, so it is written only where minted.
+          if (session !== undefined) {
+            await context.addInitScript((s) => sessionStorage.setItem("pronto-token", JSON.stringify(s)), session)
+          }
           let next = 0
           const lane = async () => {
             for (;;) {
@@ -577,6 +747,19 @@ function selfTest() {
     "/entry/:id": `<div data-live="expense" data-filter="id=eq.{param.id}"></div>`,
   }
   const routes = routesFrom(yaml)
+  // The floors ride the same file. Pinned here because the number is one
+  // declaration shared with #scale's --min-* rungs, and a battery that fell back to its own constant would let the two drift apart.
+  const floors = floorsFrom("floors:\n  touch: 24\n" + yaml)
+  if (floors.touch !== 24) throw new Error(`floors.touch: got ${floors.touch}, want 24`)
+  let raised = ""
+  try {
+    floorsFrom(yaml)
+  } catch (e) {
+    raised = (e as Error).message
+  }
+  if (raised !== "no floors.touch in shell.yaml; run plugins/pronto/write.ts") {
+    throw new Error(`a shell.yaml with no floors must raise, got ${JSON.stringify(raised)}`)
+  }
   const { plans, unplanned } = paramPlans(routes, markup)
   const by = Object.fromEntries(plans.map((p) => [p.route, p]))
   const eq = (got: unknown, want: unknown, what: string) => {
@@ -584,21 +767,27 @@ function selfTest() {
     if (g !== w) throw new Error(`${what}: got ${g}, want ${w}`)
   }
   eq(routes.length, 8, "route count")
-  const plan = (route: string, rest: Record<string, string>) => ({ route, ...rest })
+  // A plan carries its region's whole filter; a case whose region says more
+  // than the one clause spells it.
+  const plan = (route: string, rest: Record<string, string>) => ({
+    route,
+    ...rest,
+    filter: rest.filter ?? `${rest.column}=${rest.op}.{param.${rest.param}}`,
+  })
   eq(by["/article/:slug"], plan("/article/:slug", { param: "slug", table: "article", column: "slug", op: "eq" }), "slug plan")
   eq(
     by["/tag/:name"],
-    plan("/tag/:name", { param: "name", table: "article", column: "article_tag.tag", op: "eq" }),
+    plan("/tag/:name", { param: "name", table: "article", column: "article_tag.tag", op: "eq", filter: "article_tag.tag=eq.{param.name}&limit=20" }),
     "embedded column plan",
   )
   eq(
     by["/older/:when"],
-    plan("/older/:when", { param: "when", table: "article_stats", column: "created_at", op: "lt" }),
+    plan("/older/:when", { param: "when", table: "article_stats", column: "created_at", op: "lt", filter: "created_at=lt.{param.when}&limit=20" }),
     "cursor plan",
   )
   eq(
     by["/search/:q"],
-    plan("/search/:q", { param: "q", table: "article", column: "search", op: "plfts(simple)" }),
+    plan("/search/:q", { param: "q", table: "article", column: "search", op: "plfts(simple)", filter: "search=plfts(simple).{param.q}&limit=20" }),
     "full-text plan",
   )
   // The regression: one `:id` over two tables. Keyed by the name alone, the
@@ -631,13 +820,14 @@ function selfTest() {
 }
 
 if (import.meta.main) {
-  if (Deno.args[0] === "--self-test") {
+  const [arg] = Deno.args
+  if (arg === "--self-test") {
     selfTest()
     Deno.exit(0)
   }
-  if (Deno.args.length === 0) {
+  if (arg === undefined) {
     console.error("usage: check-visual.ts <app dir> | --self-test")
     Deno.exit(1)
   }
-  Deno.exit(await main(Deno.args[0]))
+  Deno.exit(await main(arg))
 }

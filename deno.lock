@@ -82,7 +82,6 @@
         "npm:@types/react@19",
         "npm:@typescript-eslint/parser@^8.31.0",
         "npm:@typescript-eslint/utils@^8.31.0",
-        "npm:@zag-js/vanilla@^1.43.0",
         "npm:eslint@^9.25.0",
         "npm:firebase-admin@13",
         "npm:jose@^6.0.11",

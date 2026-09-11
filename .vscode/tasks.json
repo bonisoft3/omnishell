@@ -134,6 +134,7 @@
         "--allow-import",
         "--allow-net",
         "--allow-sys",
+        "--allow-run=cue",
         "test/"
       ],
       "group": { "kind": "test", "isDefault": true },

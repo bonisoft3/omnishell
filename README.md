@@ -4,9 +4,9 @@ Two halves live in this directory, and which one you want depends on what you
 are building.
 
 **The interpreter** (`interpreter/`) runs a pronto app's screens: a screen is
-HTML, a `data-live` region is a standing query in PostgREST's filter grammar, a
-form is the only way to change data, and a Jessie reduce is a pure function from
-rows to writes. Nothing here is React.
+HTML, a `data-live` region is a standing query in PostgREST's filter grammar,
+data changes only through a form or through the writes a Jessie reduce returns,
+and a reduce is a pure function from rows to writes. Nothing here is React.
 
 > **Writing an app? Start with [GUIDE.md](GUIDE.md).** It covers the
 > reduce contract, what wakes it and what it receives, the rules that bite, and

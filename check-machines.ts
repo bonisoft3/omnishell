@@ -30,7 +30,7 @@
 // exit 1 when any finding is reported.
 
 import { machineRegions, paramPlans } from "./interpreter/lint.ts";
-import { parseFilter } from "./interpreter/fragment.js";
+import { parseFilter, PLACEHOLDER } from "./interpreter/fragment.js";
 import { walkMachine, type WalkHarness } from "./test/walker.ts";
 import type { Machine } from "./test/canonical.ts";
 import {
@@ -229,7 +229,7 @@ function resolveParams(
  * parent's, which nothing at this rung holds. A route param is not that — it
  * has a value here, even when that value is the one no row carries. */
 const rowStamped = (filter: string | undefined) =>
-  /\{[\w.]+\}/.test((filter ?? "").replace(PARAM, ""));
+  PLACEHOLDER.test((filter ?? "").replace(PARAM, ""));
 
 /** `walked` is the charts the walk actually DROVE — not the ones the markup
  * authors, and not the ones it reported as unreachable. An app floors on this:

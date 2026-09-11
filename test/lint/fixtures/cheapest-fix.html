@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The cheapest fix</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: sans-serif; }
+
+    /* THE CHEAPEST FIX for `no-horizontal-overflow`: stop the document being
+       wider than the viewport by making its content unreachable. The rule's
+       metric moves the right way and its intent moves the wrong way. */
+    html { overflow-x: hidden; }
+    .clipped { width: 200px; overflow: hidden; white-space: nowrap; }
+    /* Wide enough to make the document overflow, were the clip not there. */
+    .wide { width: 3000px; height: 8px; background: #eee; }
+
+    /* THE CHEAPEST FIX shared by five checks: they skip what
+       `checkVisibility` calls invisible, and an opacity-0 control is invisible
+       to that call while staying focusable and clickable. Under the viewport
+       edge, under the target floor, and overlapping its neighbour — all three
+       rules go quiet at once. */
+    .ghost { position: fixed; right: -24px; top: 0; width: 8px; height: 8px; opacity: 0; }
+  </style>
+</head>
+<body>
+  <div class="clipped">A sentence long enough that the box cannot show its end, and nothing says so.</div>
+  <div class="clipped"><div class="wide"></div></div>
+  <button class="ghost">Ghost</button>
+  <button style="min-width:44px;min-height:44px">Real</button>
+</body>
+</html>

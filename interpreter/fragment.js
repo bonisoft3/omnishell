@@ -4,6 +4,12 @@
 // deno-side checkers all import these functions rather than keeping a private
 // parse of the same sentences.
 
+/** A binding as the renderer spells it: one grammar, read by the renderer to
+ * fill it, and by every lint that asks whether a text is one. */
+export const PLACEHOLDER = /\{([\w.]+)\}/;
+/** The same grammar over a whole text. */
+export const PLACEHOLDERS = new RegExp(PLACEHOLDER.source, "g");
+
 /**
  * The row cap a filter carries, as a number; undefined when it carries none.
  *

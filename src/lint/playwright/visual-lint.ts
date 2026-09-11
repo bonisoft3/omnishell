@@ -5,6 +5,8 @@ import { assertAtMost, assertIs, assertTruthy } from "./assert"
 import type { VisualLintResult } from "./types"
 import { checkInteractiveOverlap } from "./checks/interactive-overlap"
 import { checkHorizontalOverflow } from "./checks/horizontal-overflow"
+import { checkClippedContent } from "./checks/clipped-content"
+import { checkFocusableInvisible } from "./checks/focusable-invisible"
 import { checkConstrainedImages } from "./checks/constrained-images"
 import { checkViewportBounds } from "./checks/viewport-bounds"
 import { checkTouchTargets } from "./checks/touch-targets"
@@ -29,6 +31,8 @@ export async function visualLint(
   const results = await Promise.all([
     checkInteractiveOverlap(page),
     checkHorizontalOverflow(page),
+    checkClippedContent(page),
+    checkFocusableInvisible(page),
     checkConstrainedImages(page),
     checkViewportBounds(page),
     checkTouchTargets(page),

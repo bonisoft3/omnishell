@@ -151,6 +151,18 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 		isolation: [...string]
 		isolation: *["compartment", "iframe", "worker"] | [...string]
 
+		// The terminal's measured floors, in device px — what a body can hit,
+		// not what a design would like. WCAG 2.5.8 (AA); 2.5.5's 44px is real
+		// advice on a content surface and not a gate, so it is the visual
+		// battery's own default and not this.
+		//
+		// One declaration, because the number is two claims that have to agree:
+		// the rung #scale publishes as --min-touch, and the threshold
+		// check-visual.ts holds a tap target to. Held apart they can be moved
+		// apart, and then the rung is a lie the battery still passes.
+		floors: [Name=string]: int
+		floors: touch: 24
+
 		// The terminal-tier hatch. Props in are the mount element's
 		// data-prop-* attributes, resolved against the row by the same binder
 		// as every other attribute and resynchronised on every refresh, so a

@@ -46,6 +46,9 @@ import (
 // empty.
 // --lock is explicit because deno anchors the lockfile at the workspace root
 // (this package.json), not beside --config; without it the pins go unread.
+// test/design-tokens.test.ts is left out HERE and only here: it reads pronto's
+// schema from the repository root, which this image does not carry. The host
+// run (`sayt test`, which CI's tests job drives on a full checkout) gates it.
 _smokes: strings.Join([
 	for f in ["clock", "handler", "hatch", "login", "nav", "pending", "renderer", "validate", "worker"] {"interpreter/\(f)-smoke.js"},
 ], " ")
@@ -57,7 +60,7 @@ _smokeCmd: {
 	}
 	"builtin": {
 		shell: "sh"
-		do:    "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read \(_smokes)'"
+		do:    "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys --ignore=test/design-tokens.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read \(_smokes)'"
 	}
 }
 
@@ -93,9 +96,11 @@ _omnishell: bayt.#project & {
 				// interpreter modules, so those are check inputs as well.
 				"test/**/*",
 				"interpreter/**/*",
-				// test/check-machines.test.ts imports the checker beside
-				// them; a checker at the plugin root is in no other glob.
+				// test/check-machines.test.ts imports one checker beside
+				// them and the check script typechecks the other; a
+				// checker at the plugin root is in no other glob.
 				"check-machines.ts",
+				"check-visual.ts",
 				"package.json",
 				"bun.lock",
 				"tsconfig.json",

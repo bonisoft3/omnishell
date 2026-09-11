@@ -81,9 +81,9 @@ export const textOf = (el: { textContent: string | null }) => (el.textContent ??
 
 /** Throw the message the test wrote, so a failure reads as a sentence about
  * the screen rather than as a diff of two values. */
-export const assert = (ok: unknown, msg: string) => {
+export function assert(ok: unknown, msg: string): asserts ok {
   if (!ok) throw new Error(msg);
-};
+}
 
 /** The one row a claim is about; any other count is the claim being wrong
  * about the world rather than about the row. */

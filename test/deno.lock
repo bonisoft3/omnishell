@@ -7,6 +7,7 @@
     "jsr:@std/internal@^1.0.14": "1.0.14",
     "jsr:@std/path@^1.1.6": "1.1.6",
     "jsr:@std/testing@1": "1.0.20",
+    "jsr:@std/yaml@1.0.5": "1.0.5",
     "npm:@playwright/test@1.59.1": "1.59.1",
     "npm:@simplewebauthn/server@13.1.1": "13.1.1",
     "npm:@tanstack/react-router@1.121.0": "1.121.0_react@19.0.0_react-dom@19.2.8__react@19.0.0",
@@ -17,6 +18,7 @@
     "npm:firebase-admin@13.0.0": "13.0.0",
     "npm:jose@6.0.11": "6.0.11",
     "npm:linkedom@0.18.4": "0.18.4",
+    "npm:playwright@1.59.1": "1.59.1",
     "npm:react@19": "19.2.8",
     "npm:react@19.0.0": "19.0.0",
     "npm:xstate@5.32.6": "5.32.6"
@@ -51,6 +53,9 @@
         "jsr:@std/assert",
         "jsr:@std/internal@^1.0.14"
       ]
+    },
+    "@std/yaml@1.0.5": {
+      "integrity": "71ba3d334305ee2149391931508b2c293a8490f94a337eef3a09cade1a2a2742"
     }
   },
   "npm": {
@@ -787,6 +792,7 @@
         "natural-compare",
         "optionator"
       ],
+      "deprecated": true,
       "bin": true
     },
     "espree@10.4.0_acorn@8.18.0": {

@@ -138,3 +138,33 @@ describe("checkThemeStability", () => {
       expect(Array.isArray(await checkThemeStability(asCheckPage(page)))).toBe(true)
     }))
 })
+
+// The two cheapest ways to turn this battery green while leaving the page
+// worse. The first assertion in each case records WHICH rule stays silent:
+// that silence is the blind spot the second rule answers, not a defect to fix
+// in the first.
+describe("visualLint - the cheapest fix", () => {
+  const CHEAP = `${fixtures}cheapest-fix.html`
+
+  it("catches content a box hides, which the document's own width cannot see", () =>
+    withPage(async (page) => {
+      await page.goto(CHEAP)
+      const bugs = (await visualLint(asCheckPage(page))).bugs
+      // `overflow-x: hidden` on the document is what makes this rule quiet: the
+      // metric moves the right way and the intent moves the wrong way.
+      expect(bugs.filter((b) => b.rule === "no-horizontal-overflow")).toHaveLength(0)
+      expect(bugs.filter((b) => b.rule === "clipped-content").length).toBeGreaterThan(0)
+    }))
+
+  it("catches a control that dodges three rules by becoming invisible", () =>
+    withPage(async (page) => {
+      await page.goto(CHEAP)
+      const bugs = (await visualLint(asCheckPage(page))).bugs
+      // Out of bounds, under the target floor, and over its neighbour — all
+      // three skip what `checkVisibility` calls invisible, and `opacity: 0`
+      // leaves the control in the tab order.
+      const dodged = ["viewport-bounds", "touch-target-size", "interactive-overlap"]
+      expect(bugs.filter((b) => dodged.includes(b.rule))).toHaveLength(0)
+      expect(bugs.filter((b) => b.rule === "focusable-but-invisible").length).toBeGreaterThan(0)
+    }))
+})

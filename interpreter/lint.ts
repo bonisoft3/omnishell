@@ -4,7 +4,7 @@
 // orchestrates these per app; the terminal's own tests exercise them here —
 // nothing in this file touches the filesystem or an app.
 
-import { machineCandidates, machineShape, parseFilterSpec, parseReadSpec } from "./fragment.js";
+import { machineCandidates, machineShape, parseFilterSpec, parseReadSpec, PLACEHOLDER } from "./fragment.js";
 
 type Unique = { name: string; cols: string[]; where?: string };
 export type Entity = {
@@ -104,7 +104,10 @@ const attrsOf = (attrText: string) => ({
   has: (name: string): boolean => new RegExp(`\\s${name}(?:[\\s=]|$)`).test(` ${attrText}`),
 });
 
-export type ParamPlan = { route: string; param: string; table: string; column: string; op: string };
+/** A route hole and the region read that fills it; `filter` is the region's whole
+ * data-filter, since whether the store answers it locally is decided over all of
+ * its clauses. */
+export type ParamPlan = { route: string; param: string; table: string; column: string; op: string; filter: string };
 
 /**
  * Where each `:param` gets a real value, read off the SCREEN MARKUP.
@@ -156,7 +159,7 @@ export function paramPlans(
         if (!m) continue;
         // An `eq` plan is the only one a reader can answer by echoing a row's
         // value, so it wins over one the markup happened to declare first.
-        const found = { route: route.path, param, table, column: m[1], op: m[2] };
+        const found = { route: route.path, param, table, column: m[1], op: m[2], filter };
         const held = plans.get(key);
         if (held === undefined || (held.op !== "eq" && found.op === "eq")) plans.set(key, found);
         if (found.op === "eq") break;
@@ -636,7 +639,7 @@ export function kindLint(whens: (string | undefined)[], e: Entity, enumOf: EnumO
     if (w === undefined) continue;
     // Matched against the row itself, never interpolated (the interpreter's
     // data-when contract), so a placeholder is a dead predicate.
-    if (/\{[\w.]+\}/.test(w)) {
+    if (PLACEHOLDER.test(w)) {
       return `data-when="${w}" carries a placeholder; data-when values are literals matched against the row`;
     }
     const spec: Spec = parseFilterSpec(w);

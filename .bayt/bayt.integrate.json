@@ -145,6 +145,7 @@
           "interpreter/**/*",
           "check-machines.ts",
           "src/**/*",
+          "check-visual.ts",
           "package.json",
           "bun.lock",
           "tsconfig.json",
@@ -170,6 +171,7 @@
               "test/**/*",
               "interpreter/**/*",
               "check-machines.ts",
+              "check-visual.ts",
               "package.json",
               "bun.lock",
               "tsconfig.json",
@@ -263,7 +265,7 @@
         "defaultGlobs": null,
         "defaultExclude": null
       },
-      "do": "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read interpreter/clock-smoke.js interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/validate-smoke.js interpreter/worker-smoke.js'",
+      "do": "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys --ignore=test/design-tokens.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read interpreter/clock-smoke.js interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/validate-smoke.js interpreter/worker-smoke.js'",
       "shell": "sh",
       "name": "builtin",
       "stop": false

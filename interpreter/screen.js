@@ -3,7 +3,7 @@
 // effect and the whole state machine — screens only style states.
 import { renderInto } from "./render.js";
 import { mountHatch } from "./hatch.js";
-import { machineCandidates, machineShape, parseFilter, parseFilterSpec, parseReadSpec } from "./fragment.js";
+import { machineCandidates, machineShape, parseFilter, parseFilterSpec, parseReadSpec, PLACEHOLDER, PLACEHOLDERS } from "./fragment.js";
 import { evaluateRole } from "./jessie.js";
 
 async function fetchText(url) {
@@ -156,10 +156,6 @@ const mintUuid = () => {
   const variant = ((parseInt(hex[16], 16) & 0x3) | 0x8).toString(16);
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20)}`;
 };
-
-const HAS_PLACEHOLDER = /\{[\w.]+\}/;
-const PLACEHOLDER = /\{([\w.]+)\}/g;
-
 
 // Every role resolves the same way: the attribute names the role, its value
 // names the module, and route.files.handlers is the app's list of Jessie
@@ -605,19 +601,19 @@ function nestedBindings(el, ctx) {
   for (const name of [...names].sort()) {
     if (name !== "data-project" && regionAttr(name)) continue;
     const template = stash[name] ?? el.getAttribute(name);
-    if (template === null || !HAS_PLACEHOLDER.test(template)) continue;
+    if (template === null || !PLACEHOLDER.test(template)) continue;
     out.push(`${name}=${fromEnclosing(() => interpolate(template, ctx), el.dataset.live, name)}`);
   }
   return out.join("\u0000");
 }
 
 function interpolate(template, ctx) {
-  return template.replace(PLACEHOLDER, (_, expr) => String(lookup(expr, ctx) ?? ""));
+  return template.replace(PLACEHOLDERS, (_, expr) => String(lookup(expr, ctx) ?? ""));
 }
 
 // Filter fragments land in a query string, so resolved values are URI-encoded.
 function interpolateFilter(template, ctx) {
-  return template.replace(PLACEHOLDER, (_, expr) => encodeURIComponent(String(lookup(expr, ctx) ?? "")));
+  return template.replace(PLACEHOLDERS, (_, expr) => encodeURIComponent(String(lookup(expr, ctx) ?? "")));
 }
 
 // Hidden data-value grammar: literal "null" → JSON null; {now} → the terminal
@@ -625,7 +621,7 @@ function interpolateFilter(template, ctx) {
 // context.
 function resolveHidden(template, ctx) {
   if (template === "null") return null;
-  return template.replace(PLACEHOLDER, (_, expr) =>
+  return template.replace(PLACEHOLDERS, (_, expr) =>
     expr === "now" ? now() : String(lookup(expr, ctx) ?? ""),
   );
 }
@@ -636,7 +632,7 @@ function resolveHidden(template, ctx) {
 export function navigationHash(target, form) {
   const inputs = {};
   for (const input of form.querySelectorAll("[name]")) inputs[input.name] = input.value;
-  return target.replace(PLACEHOLDER, (_, name) => {
+  return target.replace(PLACEHOLDERS, (_, name) => {
     if (!(name in inputs)) throw new Error(`navigate target {${name}} names no form input`);
     return encodeURIComponent(inputs[name]);
   });
@@ -803,7 +799,7 @@ function bindTexts(scope, ctx, renderers = {}) {
     if (!ownedBy(el, scope)) continue;
     const format = el.dataset.textFormat;
     if (format === "datetime") {
-      el.textContent = el.dataset.text.replace(PLACEHOLDER, (_, expr) =>
+      el.textContent = el.dataset.text.replace(PLACEHOLDERS, (_, expr) =>
         formatDatetime(lookup(expr, ctx)),
       );
       continue;
@@ -854,7 +850,7 @@ function bindElementAttributes(el, ctx) {
   for (const name of names) {
     if (regionAttr(name)) continue;
     const template = stash[name] ?? el.getAttribute(name);
-    if (template === null || !HAS_PLACEHOLDER.test(template)) continue;
+    if (template === null || !PLACEHOLDER.test(template)) continue;
     stash[name] = template;
     const attr = { name, value: template };
     // Fixture tier: an interpolated img src would fire a real request the
@@ -1069,7 +1065,7 @@ function wireInterest(el) {
 }
 
 function paramOnly(template) {
-  const exprs = [...template.matchAll(PLACEHOLDER)].map((m) => m[1]);
+  const exprs = [...template.matchAll(PLACEHOLDERS)].map((m) => m[1]);
   return exprs.length > 0 && exprs.every((e) => e.startsWith("param."));
 }
 
@@ -1120,7 +1116,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // way bindAttributes does and neutralise the attribute until it resolves.
   for (const el of [screen, ...screen.querySelectorAll("*")]) {
     for (const attr of [...(el.attributes ?? [])]) {
-      if (!URL_ATTRS.has(attr.name) || !HAS_PLACEHOLDER.test(attr.value)) continue;
+      if (!URL_ATTRS.has(attr.name) || !PLACEHOLDER.test(attr.value)) continue;
       (el._prontoAttrs ??= {})[attr.name] = attr.value;
       if (el.localName === "img" && attr.name === "src") el.setAttribute("src", BLANK_PIXEL);
       else el.removeAttribute(attr.name);
@@ -1273,7 +1269,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     const template = el._prontoAttrs?.[attr];
     if (template === undefined) return false;
     const declared = JSON.parse(template)[key];
-    return typeof declared === "string" && HAS_PLACEHOLDER.test(declared);
+    return typeof declared === "string" && PLACEHOLDER.test(declared);
   };
 
   // data-key='{"<key>": "<form id>"}' submits a form on a key, the way a form
@@ -2145,7 +2141,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       // literals — the closed grammar exhaustiveness lint can enumerate. A
       // placeholder here would compare rows against the brace text and admit
       // nothing, silently.
-      if (HAS_PLACEHOLDER.test(when)) {
+      if (PLACEHOLDER.test(when)) {
         throw new ProgramError(`region "${table}": data-when="${when}" carries a placeholder; data-when values are literals`);
       }
       const admits = parseFilter(when);

@@ -77,7 +77,7 @@ The closed set, and it is closed in code — `REGION_ATTRS` in
 
 ## Mutations
 
-Forms only. `data-form` with `data-entity` and `data-action` names the mutation
+Forms, and the writes a reduce returns. `data-form` with `data-entity` and `data-action` names the mutation
 — create inserts, update patches the enclosing item's row, delete removes it —
 and it goes through the same collection layer as everything else, optimistic
 writes included. Validation is the platform's: the native constraint attributes

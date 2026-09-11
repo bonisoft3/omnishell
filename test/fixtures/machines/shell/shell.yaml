@@ -22,6 +22,7 @@
 # App-wide, and this fixture always walks something: the floor on an app that
 # states charts and drives none (verified instead by turning every shadcnui
 # chart advisory), and `filled`'s throw, which resolveParams cannot produce.
+server: false
 local:
   toggle:
     - {}
