@@ -1,0 +1,122 @@
+@import "./shared/chrome.css";
+
+/* sheet — every rule scoped under the screen: injected stylesheets outlive
+   the screen that brought them. */
+.screen-sheet { max-width: 720px; margin: 0 auto; padding: var(--sp-lg) var(--sp-md); }
+.screen-sheet .demo-head h1 { margin: 0 0 4px; }
+.screen-sheet .lede { color: var(--secondary); margin: 0 0 var(--sp-lg); line-height: 1.6; }
+/* An inline anchor's box is its font's content height, which no line-height
+   raises, so a link in prose is a box of its own to clear WCAG 2.5.8's 24px. */
+.screen-sheet .lede a { display: inline-block; padding: 4px 0; color: var(--primary); }
+.screen-sheet .lede a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Three stages on one screen, so each is named: an unlabelled box holding one
+   button leaves the reader guessing which component it is. */
+.screen-sheet .stage-name { font-size: 1rem; margin: var(--sp-lg) 0 8px; }
+.screen-sheet .demo-stage { display: flex; flex-wrap: wrap; gap: var(--sp-md);
+  padding: var(--sp-lg); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); }
+
+.screen-sheet .dialog-trigger,
+.screen-sheet .dialog-dismiss,
+.screen-sheet .dialog-ask { font: inherit; cursor: pointer;
+  padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--primary); }
+.screen-sheet .dialog-trigger:hover,
+.screen-sheet .dialog-dismiss:hover { background: var(--surface-muted); }
+.screen-sheet .dialog-trigger:focus-visible,
+.screen-sheet .dialog-dismiss:focus-visible,
+.screen-sheet .dialog-ask:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The answer wears the consequence and the refusal stays neutral: focus opens
+   on the refusal, and the control focus lands on must not be the one that
+   reads as the action. */
+.screen-sheet .dialog-ask { background: var(--danger); border-color: var(--danger);
+  color: var(--neutral); }
+.screen-sheet .dialog-ask:hover { opacity: .9; }
+
+.screen-sheet .dialog { padding: var(--sp-lg); box-sizing: border-box;
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface); color: var(--primary);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 18%); }
+.screen-sheet .dialog:not([data-edge]) { width: min(420px, calc(100vw - var(--sp-lg))); }
+
+/* An edge surface is placed by its margins inside the box the UA already gives
+   a modal dialog: inset 0, so one auto margin is the whole of the pinning. The
+   UA's max-width and max-height are what it would otherwise hold it off the
+   edges by. */
+.screen-sheet .dialog[data-edge] { max-width: none; max-height: none; }
+.screen-sheet .dialog[data-edge="right"],
+.screen-sheet .dialog[data-edge="left"] { height: 100%;
+  width: min(360px, calc(100vw - var(--sp-xl))); border-radius: 0; }
+.screen-sheet .dialog[data-edge="right"] { margin: 0 0 0 auto; border-width: 0 0 0 1px; }
+.screen-sheet .dialog[data-edge="left"] { margin: 0 auto 0 0; border-width: 0 1px 0 0; }
+/* The drawer's rounded top is the whole of what it borrows from vaul: the grab
+   handle is not drawn, because dragging it shut is what does not ship. */
+.screen-sheet .dialog[data-edge="bottom"] { margin: auto 0 0; width: 100%;
+  max-height: 70vh; border-width: 1px 0 0;
+  border-radius: var(--r-md) var(--r-md) 0 0; }
+/* Scoped to [open], because a display an author states unconditionally beats
+   the UA rule that hides a closed dialog. The column is what puts the footer
+   at the end of a surface as tall as its side. */
+.screen-sheet .dialog[data-edge][open] { display: flex; flex-direction: column; }
+.screen-sheet .dialog[data-edge] .dialog-footer { margin-top: auto; }
+
+/* The scrim is a filter, not a colour: dimming is dimming in both appearances,
+   and no owned token stays dark through its dark twin. */
+.screen-sheet dialog.dialog::backdrop { backdrop-filter: blur(2px) brightness(.55); }
+/* Scoped through the screen class because injected stylesheets outlive their
+   screen: an unscoped html:has() would lock scrolling on every screen the
+   session visits afterwards. */
+html:has(.screen-sheet dialog.dialog:modal) { overflow: hidden; }
+
+/* Closed is the resting declaration and [open] is the platform's own spelling,
+   so the travel keys on nothing the component writes. Discrete display and
+   overlay are what keep the surface painted while it leaves the top layer.
+   Every duration here is a token, so the reduced-motion block that zeroes them
+   lands each edge instantly and nothing waits on the arrival. */
+.screen-sheet .dialog { opacity: 0;
+  transition: opacity var(--motion-base) var(--motion-ease),
+              translate var(--motion-base) var(--motion-ease),
+              display var(--motion-base) allow-discrete,
+              overlay var(--motion-base) allow-discrete; }
+.screen-sheet .dialog:not([data-edge]) { translate: 0 var(--motion-shift); }
+.screen-sheet .dialog[data-edge="right"] { translate: 100% 0; }
+.screen-sheet .dialog[data-edge="left"] { translate: -100% 0; }
+.screen-sheet .dialog[data-edge="bottom"] { translate: 0 100%; }
+.screen-sheet .dialog[open] { opacity: 1; translate: 0 0; }
+@starting-style {
+  .screen-sheet .dialog:not([data-edge])[open] { opacity: 0; translate: 0 var(--motion-shift); }
+  .screen-sheet .dialog[data-edge="right"][open] { opacity: 0; translate: 100% 0; }
+  .screen-sheet .dialog[data-edge="left"][open] { opacity: 0; translate: -100% 0; }
+  .screen-sheet .dialog[data-edge="bottom"][open] { opacity: 0; translate: 0 100%; }
+}
+
+.screen-sheet .dialog-title { margin: 0 0 4px; font-size: 1.05rem; }
+.screen-sheet .dialog-desc { margin: 0 0 var(--sp-md); font-size: .875rem;
+  color: var(--secondary); line-height: 1.5; }
+.screen-sheet .dialog-body { margin: 0 0 var(--sp-lg); font-size: .875rem; line-height: 1.6; }
+.screen-sheet .dialog-list { margin: 0 0 var(--sp-lg); padding-left: 1.1rem;
+  font-size: .875rem; line-height: 1.6; }
+.screen-sheet .dialog-footer { display: flex; justify-content: flex-end; gap: var(--sp-sm); }
+
+.screen-sheet .demo-pane { margin-top: var(--sp-lg); }
+.screen-sheet .demo-pane h2 { font-size: 1rem; margin: 0 0 4px; }
+.screen-sheet .pane-note { color: var(--secondary); font-size: .875rem;
+  margin: 0 0 8px; line-height: 1.55; }
+.screen-sheet .claim { margin: 0 0 8px; font-size: .8125rem;
+  background: var(--surface-muted); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: var(--sp-sm) var(--sp-md);
+  overflow-x: auto; white-space: nowrap; }
+
+.screen-sheet .matrix-wrap { overflow-x: auto; }
+.screen-sheet .matrix { border-collapse: collapse; width: 100%;
+  font-size: .8125rem; line-height: 1.5; }
+.screen-sheet .matrix th, .screen-sheet .matrix td {
+  border: 1px solid var(--border); padding: 6px 10px;
+  text-align: left; vertical-align: top; }
+.screen-sheet .matrix thead th { background: var(--surface-muted); }
+/* Only the last column carries a sentence; wrapping the verdict columns
+   starves it, and the wrapper scrolls where the width will not fit. */
+.screen-sheet .matrix td:not(:last-child) { white-space: nowrap; }
+.screen-sheet .matrix tbody th { font-weight: 600; }
+/* The words in the cell carry the meaning; the colour only seconds them. */
+.screen-sheet .matrix .no { color: var(--danger); }

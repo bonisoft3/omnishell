@@ -1,0 +1,112 @@
+@import "./shared/chrome.css";
+
+/* overlays — every rule scoped under the screen: injected stylesheets outlive
+   the screen that brought them. */
+.screen-overlays { max-width: 720px; margin: 0 auto; padding: var(--sp-lg) var(--sp-md); }
+.screen-overlays .demo-head h1 { margin: 0 0 4px; }
+.screen-overlays .lede { color: var(--secondary); margin: 0 0 var(--sp-lg); line-height: 1.6; }
+/* Two components on one screen, so each stage is named: an unlabelled box
+   holding one button leaves the reader guessing which component it is. */
+.screen-overlays .stage-name { font-size: 1rem; margin: var(--sp-lg) 0 8px; }
+.screen-overlays .demo-stage { display: flex; flex-wrap: wrap; gap: var(--sp-md);
+  padding: var(--sp-lg); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); margin-bottom: var(--sp-lg); }
+
+.screen-overlays .dialog-trigger,
+.screen-overlays .dialog-dismiss,
+.screen-overlays .tip-trigger { font: inherit; cursor: pointer;
+  padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--primary); }
+.screen-overlays .dialog-trigger:hover,
+.screen-overlays .dialog-dismiss:hover,
+.screen-overlays .tip-trigger:hover { background: var(--surface-muted); }
+.screen-overlays .dialog-trigger:focus-visible,
+.screen-overlays .dialog-dismiss:focus-visible,
+.screen-overlays .tip-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The non-modal surface anchors to the button that commands it; the modal one
+   is centred by the UA and wants no anchor at all. The command is the honest
+   discriminator — nothing on the screen restates the surface as a class. */
+.screen-overlays .dialog-trigger[command="toggle-popover"] { anchor-name: --dialog-inline; }
+
+.screen-overlays .dialog { padding: var(--sp-lg); width: min(420px, calc(100vw - var(--sp-lg)));
+  box-sizing: border-box;
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface); color: var(--primary);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 18%); }
+.screen-overlays .dialog[popover] { margin: 6px 0 0;
+  position-anchor: --dialog-inline; position-area: bottom span-right;
+  position-try-fallbacks: flip-block; }
+/* The scrim is a filter, not a colour: dimming is dimming in both appearances,
+   and no owned token stays dark through its dark twin. */
+.screen-overlays dialog.dialog::backdrop { backdrop-filter: blur(2px) brightness(.55); }
+/* Scoped through the screen class because injected stylesheets outlive their
+   screen: an unscoped html:has() would lock scrolling on every screen the
+   session visits afterwards. */
+html:has(.screen-overlays dialog.dialog:modal) { overflow: hidden; }
+
+/* Closed is the resting declaration and the open selectors are the platform's
+   own spellings, so the transition keys on nothing the component writes.
+   Discrete display and overlay are what keep the surface painted while it
+   leaves the top layer; under reduced motion the tokens collapse and it
+   simply goes. */
+.screen-overlays .dialog, .screen-overlays .tip-surface { opacity: 0;
+  transition: opacity var(--motion-fast) var(--motion-ease),
+              display var(--motion-fast) allow-discrete,
+              overlay var(--motion-fast) allow-discrete; }
+.screen-overlays dialog.dialog[open],
+.screen-overlays .dialog[popover]:popover-open,
+.screen-overlays .tip-surface:popover-open { opacity: 1; }
+@starting-style {
+  .screen-overlays dialog.dialog[open],
+  .screen-overlays .dialog[popover]:popover-open,
+  .screen-overlays .tip-surface:popover-open { opacity: 0; }
+}
+
+.screen-overlays .dialog-title { margin: 0 0 4px; font-size: 1.05rem; }
+.screen-overlays .dialog-desc { margin: 0 0 var(--sp-md); font-size: .875rem;
+  color: var(--secondary); line-height: 1.5; }
+.screen-overlays .dialog-list { margin: 0 0 var(--sp-lg); padding-left: 1.1rem;
+  font-size: .875rem; line-height: 1.6; }
+.screen-overlays .dialog-footer { display: flex; justify-content: flex-end; }
+
+.screen-overlays .tip { display: inline-flex; }
+.screen-overlays .demo-stage:has(.tip) { display: flex; gap: var(--sp-lg); flex-wrap: wrap; }
+/* An anchor name is per INSTANCE, not per class: two triggers declaring one
+   name leave every surface pointing at whichever the document reaches first.
+   The ids are the component's own, so the pairs cannot drift. */
+.screen-overlays #tip-open-tier { anchor-name: --tip-tier; }
+.screen-overlays #tip-tier { position-anchor: --tip-tier; }
+.screen-overlays #htip-open-aria { anchor-name: --tip-aria; }
+.screen-overlays #htip-aria { position-anchor: --tip-aria; }
+.screen-overlays .tip-surface { margin: 0; width: max-content; max-width: min(260px, calc(100vw - var(--sp-lg)));
+  padding: var(--sp-sm) var(--sp-md);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--primary);
+  font-size: .875rem; line-height: 1.5;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 10%);
+  position-try-fallbacks: flip-block; }
+.screen-overlays .tip-surface[data-place="top"] { position-area: top; margin-bottom: 6px; }
+.screen-overlays .tip-surface[data-place="bottom"] { position-area: bottom; margin-top: 6px; }
+
+.screen-overlays .demo-pane { margin-top: var(--sp-lg); }
+.screen-overlays .demo-pane h2 { font-size: 1rem; margin: 0 0 4px; }
+.screen-overlays .pane-note { color: var(--secondary); font-size: .875rem;
+  margin: 0 0 8px; line-height: 1.55; }
+.screen-overlays .absence { display: block; margin-bottom: 8px;
+  font-size: .8125rem; background: var(--surface-muted);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  padding: var(--sp-sm) var(--sp-md); overflow-x: auto; white-space: nowrap; }
+
+.screen-overlays .matrix-wrap { overflow-x: auto; }
+.screen-overlays .matrix { border-collapse: collapse; width: 100%;
+  font-size: .8125rem; line-height: 1.5; }
+.screen-overlays .matrix th, .screen-overlays .matrix td {
+  border: 1px solid var(--border); padding: 6px 10px;
+  text-align: left; vertical-align: top; }
+.screen-overlays .matrix thead th { background: var(--surface-muted); }
+/* Only the last column carries a sentence; wrapping the verdict columns
+   starves it, and the wrapper scrolls where the width will not fit. */
+.screen-overlays .matrix td:not(:last-child) { white-space: nowrap; }
+.screen-overlays .matrix tbody th { font-weight: 600; }
+/* The word in the cell carries the meaning; the colour only seconds it. */
+.screen-overlays .matrix .no { color: var(--danger); }

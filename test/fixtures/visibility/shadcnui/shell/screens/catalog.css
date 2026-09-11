@@ -1,0 +1,70 @@
+@import "./shared/chrome.css";
+
+/* Catalog — every rule scoped under its own screen: injected stylesheets
+   outlive the screen that brought them. Colors are the design tokens only. */
+.screen-catalog {
+  max-width: 64rem;
+  margin: 0 auto;
+  padding: var(--sp-xl) var(--sp-lg);
+}
+.screen-catalog .catalog-head h1 {
+  margin: 0 0 var(--sp-sm);
+  font-size: 2rem;
+  letter-spacing: -0.02em;
+  color: var(--primary);
+}
+.screen-catalog .lede {
+  margin: 0 0 var(--sp-xl);
+  max-width: 44rem;
+  color: var(--secondary);
+  line-height: 1.6;
+}
+.screen-catalog .catalog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: var(--sp-md);
+}
+.screen-catalog .entry {
+  display: block;
+  padding: var(--sp-md);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color var(--motion-fast) var(--motion-ease);
+}
+.screen-catalog a.entry:hover {
+  border-color: var(--secondary);
+}
+.screen-catalog .entry h2 {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+  color: var(--primary);
+}
+.screen-catalog .entry p {
+  margin: 0 0 var(--sp-sm);
+  font-size: 0.875rem;
+  color: var(--secondary);
+  line-height: 1.5;
+}
+.screen-catalog .entry-state {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  padding: 2px 10px;
+}
+.screen-catalog a.entry .entry-state {
+  color: var(--surface);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+/* Dimming the card drops its text below 4.5:1; the dashed edge carries
+   the not-yet-built signal instead. */
+.screen-catalog .entry.planned {
+  border-style: dashed;
+}

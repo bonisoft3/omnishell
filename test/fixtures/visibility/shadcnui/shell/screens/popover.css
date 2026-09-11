@@ -1,0 +1,126 @@
+@import "./shared/chrome.css";
+
+/* popover — every rule scoped under the screen: injected stylesheets outlive
+   the screen that brought them. */
+.screen-popover { max-width: 720px; margin: 0 auto; padding: var(--sp-lg) var(--sp-md); }
+.screen-popover .demo-head h1 { margin: 0 0 4px; }
+.screen-popover .lede { color: var(--secondary); margin: 0 0 var(--sp-lg); line-height: 1.6; }
+.screen-popover .stage-name { font-size: 1rem; margin: var(--sp-lg) 0 4px; }
+.screen-popover .stage-note { color: var(--secondary); font-size: .875rem;
+  margin: 0 0 var(--sp-md); line-height: 1.55; }
+.screen-popover .demo-stage { display: flex; flex-wrap: wrap; gap: var(--sp-md);
+  padding: var(--sp-lg); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); margin-bottom: var(--sp-lg); }
+/* The fallback stage exists to put its anchor against the column's edge: the
+   surface asks for the gutter after it, and the gutter is what runs out. */
+.screen-popover .pop-edge { justify-content: flex-end; }
+
+.screen-popover .pop { display: inline-flex; }
+.screen-popover .pop-trigger, .screen-popover .pop-dismiss { font: inherit; cursor: pointer;
+  padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--primary); }
+.screen-popover .pop-trigger:hover, .screen-popover .pop-dismiss:hover { background: var(--surface-muted); }
+.screen-popover .pop-trigger:focus-visible,
+.screen-popover .pop-dismiss:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.screen-popover .pop-places .pop-trigger { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .8125rem; }
+
+/* One name per trigger, one anchor per surface: anchor-name is not a shared
+   handle, and two elements carrying the same one would let a surface resolve
+   against whichever came last. */
+.screen-popover #pop-open-bare { anchor-name: --pop-bare; }
+.screen-popover #pop-bare { position-anchor: --pop-bare; }
+.screen-popover #pop-open-block-start { anchor-name: --pop-block-start; }
+.screen-popover #pop-block-start { position-anchor: --pop-block-start; }
+.screen-popover #pop-open-block-end { anchor-name: --pop-block-end; }
+.screen-popover #pop-block-end { position-anchor: --pop-block-end; }
+.screen-popover #pop-open-inline-start { anchor-name: --pop-inline-start; }
+.screen-popover #pop-inline-start { position-anchor: --pop-inline-start; }
+.screen-popover #pop-open-inline-end { anchor-name: --pop-inline-end; }
+.screen-popover #pop-inline-end { position-anchor: --pop-inline-end; }
+.screen-popover #pop-open-flip { anchor-name: --pop-flip; }
+.screen-popover #pop-flip { position-anchor: --pop-flip; }
+.screen-popover #pop-open-manual { anchor-name: --pop-manual; }
+.screen-popover #pop-manual { position-anchor: --pop-manual; }
+
+/* [popover] is closed-by-default in the UA sheet; only the open box needs
+   styling. The top layer ignores the page's stacking, so no z-index is
+   declared anywhere on this screen. */
+.screen-popover .pop-surface { margin: 0; padding: var(--sp-md);
+  width: max-content; max-width: min(260px, calc(100vw - var(--sp-xl)));
+  box-sizing: border-box;
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface); color: var(--primary);
+  font-size: .875rem; line-height: 1.55;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 14%); }
+
+/* The four places, and the whole placement vocabulary this screen offers. The
+   attribute's value IS the position-area keyword, and each fallback is that
+   keyword's mirror on the axis it places on — the screen prints this table and
+   the suite folds these rules through it. */
+.screen-popover .pop-surface[data-place="block-start"] { position-area: block-start;
+  margin-block-end: 6px; position-try-fallbacks: flip-block; }
+.screen-popover .pop-surface[data-place="block-end"] { position-area: block-end;
+  margin-block-start: 6px; position-try-fallbacks: flip-block; }
+.screen-popover .pop-surface[data-place="inline-start"] { position-area: inline-start;
+  margin-inline-end: 6px; position-try-fallbacks: flip-inline; }
+.screen-popover .pop-surface[data-place="inline-end"] { position-area: inline-end;
+  margin-inline-start: 6px; position-try-fallbacks: flip-inline; }
+
+/* The fallback stage's surface is sized to be wider than the gutter its anchor
+   leaves and narrower than the one on the other side, so the rule above has
+   something to fire on at the widths this page is read at. It is the only
+   surface here whose width is a fraction of the viewport rather than its
+   content. */
+.screen-popover #pop-flip { width: min(40vw, 420px); max-width: none; }
+
+/* Closed is the resting declaration and the open selector is the platform's
+   own spelling, so the transition keys on nothing this component writes.
+   Discrete display and overlay keep the surface painted while it leaves the
+   top layer; under reduced motion the tokens collapse and it simply goes. */
+.screen-popover .pop-surface { opacity: 0;
+  transition: opacity var(--motion-fast) var(--motion-ease),
+              display var(--motion-fast) allow-discrete,
+              overlay var(--motion-fast) allow-discrete; }
+.screen-popover .pop-surface:popover-open { opacity: 1; }
+@starting-style {
+  .screen-popover .pop-surface:popover-open { opacity: 0; }
+}
+
+.screen-popover .pop-list { margin: 0; padding-left: 1.1rem; }
+.screen-popover .pop-list li + li { margin-top: 4px; }
+.screen-popover .pop-text { margin: 0; }
+.screen-popover .pop-dismiss { margin-top: var(--sp-md); padding: 6px 10px; font-size: .8125rem; }
+
+.screen-popover .demo-pane { margin-top: var(--sp-lg); }
+.screen-popover .demo-pane h2 { font-size: 1rem; margin: 0 0 4px; }
+.screen-popover .pane-note { color: var(--secondary); font-size: .875rem;
+  margin: 0 0 8px; line-height: 1.55; }
+.screen-popover .absence { display: block; margin-bottom: 8px;
+  font-size: .8125rem; background: var(--surface-muted);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  padding: var(--sp-sm) var(--sp-md); overflow-x: auto; white-space: nowrap; }
+
+/* A box that scrolls is a tab stop, so it is dressed as one. */
+.screen-popover .scroll-area:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; }
+.screen-popover .matrix-wrap, .screen-popover .placement-scroll { overflow-x: auto; }
+.screen-popover .matrix, .screen-popover .placement-table { border-collapse: collapse;
+  width: 100%; font-size: .8125rem; line-height: 1.5; }
+.screen-popover .matrix th, .screen-popover .matrix td,
+.screen-popover .placement-table th, .screen-popover .placement-table td {
+  border: 1px solid var(--border); padding: 6px 10px;
+  text-align: left; vertical-align: top; }
+.screen-popover .matrix thead th, .screen-popover .placement-table thead th { background: var(--surface-muted); }
+.screen-popover .matrix tbody th { font-weight: 600; }
+/* Only the last column carries a sentence; wrapping the verdict columns
+   starves it, and the wrapper scrolls where the width will not fit. */
+.screen-popover .matrix td:not(:last-child) { white-space: nowrap; }
+.screen-popover .placement-table td:not(:last-child) { white-space: nowrap; }
+/* The word in the cell carries the meaning; the colour only seconds it. */
+.screen-popover .matrix .no { color: var(--danger); }
+
+.screen-popover .stands-on { margin: 0 0 var(--sp-md); }
+.screen-popover .stands-on dt { font-weight: 600; font-size: .875rem; margin-top: var(--sp-sm); }
+.screen-popover .stands-on dd { margin: 2px 0 0; color: var(--secondary);
+  font-size: .875rem; line-height: 1.55; }

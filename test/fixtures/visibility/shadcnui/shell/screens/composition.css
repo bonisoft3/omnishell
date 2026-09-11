@@ -1,0 +1,96 @@
+@import "./shared/chrome.css";
+
+/* composition — every rule scoped under the screen: injected stylesheets
+   outlive the screen that brought them.
+
+   Every edge here is LOGICAL — inline-start, inline-end, text-align: start —
+   which is what makes the dir="rtl" frame at the bottom of the screen mirror
+   without a second rule. A physical left is a rule that attribute cannot
+   reach. */
+.screen-composition { max-width: 44rem; margin: 0 auto; padding: var(--sp-xl) var(--sp-lg); }
+.screen-composition .demo-head h1 { margin: 0 0 var(--sp-sm); font-size: 1.6rem;
+  letter-spacing: -0.02em; color: var(--primary); }
+.screen-composition .lede { margin: 0 0 var(--sp-lg); color: var(--secondary); line-height: 1.6; }
+.screen-composition .stage-name { font-size: 1rem; margin: var(--sp-lg) 0 8px; color: var(--primary); }
+.screen-composition .stage-note { margin: 0 0 var(--sp-sm); font-size: .875rem;
+  line-height: 1.6; color: var(--secondary); }
+.screen-composition .demo-stage { padding: var(--sp-lg); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); }
+.screen-composition .demo-pane { margin-top: var(--sp-lg); }
+.screen-composition .demo-pane h2 { font-size: 1rem; margin: 0 0 8px; color: var(--primary); }
+.screen-composition .pane-note { margin: 0 0 var(--sp-sm); font-size: .875rem;
+  line-height: 1.6; color: var(--secondary); }
+.screen-composition .pane-link { display: inline-flex; align-items: center; min-height: 24px;
+  color: var(--accent); text-decoration-color: var(--border); }
+.screen-composition .pane-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Item. Three slots, and the middle one takes what is left. */
+.screen-composition .item-list { display: grid; gap: var(--sp-sm); }
+.screen-composition .item { display: flex; align-items: center; gap: var(--sp-md);
+  padding: var(--sp-sm) var(--sp-md); border-radius: var(--r-md);
+  color: var(--primary); text-decoration: none; }
+.screen-composition .item[data-variant="outline"] { border: 1px solid var(--border); }
+.screen-composition .item[data-variant="muted"] { background: var(--surface-muted); }
+.screen-composition a.item:hover { background: var(--surface-muted); }
+.screen-composition a.item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.screen-composition .item-media { flex: none; display: inline-flex; align-items: center;
+  justify-content: center; width: 34px; height: 34px; border-radius: var(--r-sm);
+  background: var(--surface-muted); border: 1px solid var(--border);
+  font-size: .75rem; font-weight: 700; color: var(--secondary); }
+.screen-composition .item[data-variant="muted"] .item-media { background: var(--surface); }
+.screen-composition .item-content { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.screen-composition .item-title { font-weight: 600; font-size: .9375rem; }
+.screen-composition .item-note { font-size: .8125rem; line-height: 1.5; color: var(--secondary); }
+.screen-composition .item-actions { flex: none; }
+.screen-composition .item-action { display: inline-flex; align-items: center; min-height: 24px;
+  padding: 0 var(--sp-sm); border: 1px solid var(--border); border-radius: var(--r-sm);
+  font-size: .8125rem; color: var(--secondary); }
+
+/* Input group. The box belongs to the group, so the ring does too — a ring
+   left on the control would leave the visible edge and the focused thing two
+   different boxes. */
+.screen-composition .ig-holder { display: grid; gap: 4px; }
+.screen-composition .ig-label { font-size: .875rem; font-weight: 600; color: var(--primary); }
+.screen-composition .ig { display: flex; align-items: stretch; max-width: 26rem;
+  border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface);
+  overflow: hidden; }
+.screen-composition .ig:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.screen-composition .ig-text { display: inline-flex; align-items: center;
+  padding-inline: var(--sp-sm); font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .8125rem; color: var(--secondary); background: var(--surface-muted);
+  border-inline-end: 1px solid var(--border); }
+.screen-composition .ig-input { flex: 1; min-width: 0; min-height: 34px; padding-inline: var(--sp-sm);
+  font: inherit; font-size: .875rem; color: var(--primary);
+  background: transparent; border: 0; }
+.screen-composition .ig-input:focus-visible { outline: 0; }
+.screen-composition .ig-button { flex: none; padding-inline: var(--sp-md); font: inherit;
+  font-size: .8125rem; color: var(--secondary); background: var(--surface-muted);
+  border: 0; border-inline-start: 1px solid var(--border); cursor: pointer; }
+.screen-composition .ig-button:hover { color: var(--primary); }
+.screen-composition .ig-button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Button group. One border over N buttons, and the seams are the neighbours'. */
+.screen-composition .bg { display: inline-flex; margin-block-start: var(--sp-md);
+  border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden; }
+.screen-composition .bg-button { min-height: 32px; padding-inline: var(--sp-md);
+  font: inherit; font-size: .875rem; color: var(--primary); background: var(--surface);
+  border: 0; cursor: pointer; }
+.screen-composition .bg-button + .bg-button { border-inline-start: 1px solid var(--border); }
+.screen-composition .bg-button:hover { background: var(--surface-muted); }
+.screen-composition .bg-button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.screen-composition .composition-said { margin: var(--sp-md) 0 0; font-size: .875rem;
+  color: var(--secondary); }
+.screen-composition .rowview { padding: var(--sp-sm) var(--sp-md);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface-muted); }
+.screen-composition .row-readout { font-size: .85rem; color: var(--primary); }
+
+.screen-composition .matrix { border-collapse: collapse; width: 100%;
+  font-size: .8125rem; line-height: 1.5; }
+.screen-composition .matrix th, .screen-composition .matrix td {
+  border: 1px solid var(--border); padding: 6px 10px; text-align: start; vertical-align: top; }
+.screen-composition .matrix thead th { background: var(--surface-muted); }
+.screen-composition .matrix tbody th { font-weight: 600; }
+/* The word in the cell carries the meaning; the colour only seconds it. */
+.screen-composition .matrix .no { color: var(--danger); }

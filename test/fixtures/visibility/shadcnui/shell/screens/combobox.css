@@ -1,0 +1,51 @@
+@import "./shared/chrome.css";
+
+/* combobox — every rule scoped under the screen: injected stylesheets outlive
+   the screen that brought them. */
+.screen-combobox { max-width: 720px; margin: 0 auto; padding: var(--sp-lg) var(--sp-md); }
+.screen-combobox .demo-head h1 { margin: 0 0 4px; }
+.screen-combobox .lede { color: var(--secondary); margin: 0 0 var(--sp-lg); line-height: 1.6; }
+.screen-combobox .demo-stage { padding: var(--sp-lg); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); margin-bottom: var(--sp-lg); }
+
+.screen-combobox .combobox-form { display: grid; gap: 6px; max-width: 22rem; }
+.screen-combobox .combobox-label { font-size: .875rem; font-weight: 600; color: var(--primary); }
+/* No open/closed rule anywhere on this control: the suggestion popup is the
+   UA's own surface, and it resolves none of the tokens above. */
+.screen-combobox .combobox-input { font: inherit; width: 100%; box-sizing: border-box;
+  padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--primary);
+  transition: border-color var(--motion-fast) var(--motion-ease); }
+.screen-combobox .combobox-input::placeholder { color: var(--secondary); }
+.screen-combobox .combobox-input:focus-visible { outline: 2px solid var(--accent);
+  outline-offset: 2px; }
+.screen-combobox .combobox-hint { margin: 0; font-size: .8125rem; color: var(--secondary); }
+.screen-combobox .invalid { margin: 0; font-size: .8125rem; color: var(--danger); }
+/* The gate the generated pattern is there for, projected off the screen state
+   the interpreter writes when checkValidity refuses the submit. */
+.screen-combobox[data-state="validation-error"] .combobox-input { border-color: var(--danger); }
+
+.screen-combobox .demo-pane { margin-top: var(--sp-lg); }
+.screen-combobox .demo-pane h2 { font-size: 1rem; margin: 0 0 4px; }
+.screen-combobox .pane-note { color: var(--secondary); font-size: .875rem; margin: 0 0 8px;
+  line-height: 1.6; }
+/* Inline, but a target: 24px is WCAG 2.5.8's floor and a .875rem line box is
+   under it. Every prose link on the screen, the walls' included — an inline
+   anchor's box is its font's content height, which no line-height raises. */
+.screen-combobox .lede a,
+.screen-combobox .pane-note a,
+.screen-combobox .walls dd a { display: inline-block; padding: 2px 0; color: var(--primary); }
+.screen-combobox .rowview code, .screen-combobox .machine-json { display: block;
+  font-size: .8125rem; background: var(--surface-muted); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: var(--sp-sm) var(--sp-md); overflow-x: auto; }
+.screen-combobox .machine-json { margin: 0 0 var(--sp-md); line-height: 1.5; }
+
+/* A definition list, not a table: three walls read down a 400px board without
+   a scroller. */
+.screen-combobox .walls { margin: 0 0 var(--sp-md); }
+.screen-combobox .walls dt { font-weight: 600; color: var(--primary);
+  padding-top: var(--sp-sm); border-top: 1px solid var(--border); }
+.screen-combobox .walls dd { margin: 4px 0 var(--sp-md); font-size: .875rem;
+  line-height: 1.6; color: var(--secondary); overflow-wrap: break-word; }
+.screen-combobox .walls dd em { font-style: normal; font-weight: 600; color: var(--primary); }
+.screen-combobox .walls code { font-size: .8125rem; }

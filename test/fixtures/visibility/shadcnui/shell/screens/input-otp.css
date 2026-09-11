@@ -1,0 +1,110 @@
+@import "./shared/chrome.css";
+
+/* input-otp — every rule scoped under the screen: injected stylesheets outlive
+   the screen that brought them.
+
+   The whole component's geometry is here, and that is the point of it: the six
+   boxes a reader sees are a background under ONE input, so the caret, the
+   paste, the autofill and the Backspace all stay the browser's. The alignment
+   is arithmetic rather than a table of magic numbers — a monospace glyph is
+   1ch wide, so a slot of --otp-box holds it centred when the tracking makes up
+   the difference and half of it is spent up front. */
+.screen-input-otp { max-width: 44rem; margin: 0 auto; padding: var(--sp-xl) var(--sp-lg); }
+.screen-input-otp .demo-head h1 { margin: 0 0 var(--sp-sm); font-size: 1.6rem;
+  letter-spacing: -0.02em; color: var(--primary); }
+.screen-input-otp .lede { margin: 0 0 var(--sp-lg); color: var(--secondary); line-height: 1.6; }
+.screen-input-otp .demo-stage { display: grid; gap: var(--sp-lg);
+  padding: var(--sp-lg); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); }
+.screen-input-otp .demo-pane { margin-top: var(--sp-lg); }
+.screen-input-otp .demo-pane h2 { font-size: 1rem; margin: 0 0 8px; color: var(--primary); }
+.screen-input-otp .pane-note { margin: 0 0 var(--sp-sm); font-size: .875rem;
+  line-height: 1.6; color: var(--secondary); }
+/* An atomic inline box, so the cross-reference inside a sentence still clears
+   WCAG 2.5.8's 24px floor without the note's type growing to meet it. */
+.screen-input-otp .pane-link { display: inline-flex; align-items: center; min-height: 24px;
+  color: var(--accent); text-decoration-color: var(--border); }
+.screen-input-otp .pane-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.screen-input-otp .otp { display: grid; gap: var(--sp-sm); justify-items: start; }
+.screen-input-otp .otp-label { font-size: .875rem; font-weight: 600; color: var(--primary); }
+
+.screen-input-otp .otp-field {
+  --otp-box: 2.75rem;
+  --otp-size: 1.25rem;
+  position: relative;
+  width: calc(var(--otp-box) * var(--otp-digits));
+  height: 3rem;
+}
+/* One track per digit, from the same number the maxlength and the guard are
+   emitted from: the boxes cannot come to a different count than the code. */
+.screen-input-otp .otp-boxes { position: absolute; inset: 0; display: grid;
+  grid-template-columns: repeat(var(--otp-digits), 1fr); pointer-events: none;
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface); }
+/* The dividers are the grid's, drawn with one rule rather than an element per
+   slot: a background of repeating stops has no count to keep in step. */
+.screen-input-otp .otp-boxes { background-image:
+  repeating-linear-gradient(to right, transparent 0 calc(var(--otp-box) - 1px),
+    var(--border) calc(var(--otp-box) - 1px) var(--otp-box)); }
+
+.screen-input-otp .otp-code {
+  /* Half the difference between a slot and a glyph, spent up front so each
+     character lands in the middle of its own box — and spent AGAIN on the
+     width, because the tracking after the last glyph is real: an input whose
+     content is wider than its box scrolls, and the first digit would be the
+     one that went. */
+  --otp-pad: calc((var(--otp-box) - 1ch) / 2);
+  position: relative; width: calc(100% + var(--otp-pad)); height: 100%;
+  box-sizing: border-box; margin: 0; padding: 0 0 0 var(--otp-pad);
+  border: 0; background: transparent; color: var(--primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--otp-size); letter-spacing: calc(var(--otp-box) - 1ch);
+  caret-color: var(--accent);
+}
+.screen-input-otp .otp-code:focus { outline: 0; }
+/* The ring is the field's, because the boxes are what a reader sees and the
+   input is transparent over them. */
+.screen-input-otp .otp-field:focus-within .otp-boxes { outline: 2px solid var(--accent);
+  outline-offset: 2px; }
+.screen-input-otp .otp-field:has(.otp-code[aria-invalid="true"]) .otp-boxes {
+  border-color: var(--danger); }
+
+.screen-input-otp .otp-hint { margin: 0; font-size: .8125rem; color: var(--secondary); }
+
+.screen-input-otp .otp-acts { display: flex; gap: var(--sp-sm); }
+.screen-input-otp .otp-verify, .screen-input-otp .otp-reset {
+  min-height: 2.25rem; padding: 0 var(--sp-md); border-radius: var(--r-sm);
+  border: 1px solid var(--border); background: var(--surface);
+  color: var(--primary); font: inherit; font-size: .875rem; cursor: pointer; }
+.screen-input-otp .otp-verify { background: var(--accent); color: var(--surface);
+  border-color: var(--accent); }
+.screen-input-otp .otp-verify[disabled] { opacity: .5; cursor: not-allowed; }
+.screen-input-otp .otp-verify:focus-visible, .screen-input-otp .otp-reset:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Which of the two buttons is on the screen is the state's, and display:none
+   is what takes the other out of the Tab sequence as well as out of view. */
+.screen-input-otp .otp[data-state="verified"] .otp-verify { display: none; }
+.screen-input-otp .otp:not([data-state="verified"]) .otp-reset { display: none; }
+.screen-input-otp .otp:not([data-state="verified"]) .otp-done { visibility: hidden; }
+.screen-input-otp .otp-done { margin: 0; font-size: .875rem; font-weight: 600;
+  color: var(--accent); }
+.screen-input-otp .otp[data-state="verified"] .otp-boxes { border-color: var(--accent); }
+
+.screen-input-otp .rowview { padding: var(--sp-sm) var(--sp-md);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface-muted); overflow-x: auto; }
+.screen-input-otp .row-readout { font-size: .85rem; color: var(--primary); white-space: nowrap; }
+.screen-input-otp .machine-json { margin: 0; padding: var(--sp-md); overflow-x: auto;
+  font-size: .8rem; line-height: 1.5; color: var(--primary);
+  border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); }
+
+.screen-input-otp .matrix { border-collapse: collapse; width: 100%;
+  font-size: .8125rem; line-height: 1.5; }
+.screen-input-otp .matrix th, .screen-input-otp .matrix td {
+  border: 1px solid var(--border); padding: 6px 10px; text-align: left; vertical-align: top; }
+.screen-input-otp .matrix thead th { background: var(--surface-muted); }
+.screen-input-otp .matrix tbody th { font-weight: 600; }
+/* The word in the cell carries the meaning; the colour only seconds it. */
+.screen-input-otp .matrix .no { color: var(--danger); }

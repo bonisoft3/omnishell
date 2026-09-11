@@ -1,0 +1,105 @@
+@import "./shared/chrome.css";
+
+/* checkbox · toggle · collapsible — every rule scoped under the screen:
+   injected stylesheets outlive the screen that brought them. Each control is
+   styled off the ARIA attribute its machine writes, so the three skins differ
+   exactly where the three charts do. */
+.screen-checkbox { max-width: 720px; margin: 0 auto; padding: var(--sp-lg) var(--sp-md); }
+.screen-checkbox .demo-head h1 { margin: 0 0 4px; }
+.screen-checkbox .lede { color: var(--secondary); margin: 0 0 var(--sp-lg); line-height: 1.6; }
+
+.screen-checkbox .demo-arm { margin-top: var(--sp-xl); }
+.screen-checkbox .demo-arm h2 { font-size: 1.05rem; margin: 0 0 4px; }
+.screen-checkbox .arm-note { color: var(--secondary); font-size: .9rem;
+  line-height: 1.55; margin: 0 0 var(--sp-md); }
+.screen-checkbox .demo-stage { display: grid; gap: var(--sp-lg); justify-items: start;
+  padding: var(--sp-lg); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); margin-bottom: var(--sp-lg); }
+
+/* The box is a square of the label's own line, so the control's tap target is
+   the whole row rather than the glyph. */
+.screen-checkbox .cb-control { --cb-box: 18px;
+  display: inline-flex; align-items: center; gap: 10px; min-height: 24px;
+  padding: 2px 0; text-align: left;
+  font: inherit; border: 0; background: none; cursor: pointer; color: var(--primary); }
+.screen-checkbox .cb-box { flex: none; display: inline-flex; align-items: center;
+  justify-content: center; width: var(--cb-box); height: var(--cb-box);
+  box-sizing: border-box; border: 1px solid var(--border);
+  border-radius: var(--r-sm); background: var(--surface);
+  transition: background var(--motion-fast) var(--motion-ease),
+    border-color var(--motion-fast) var(--motion-ease); }
+.screen-checkbox .cb-control[aria-checked="true"] .cb-box,
+.screen-checkbox .cb-control[aria-checked="mixed"] .cb-box {
+  background: var(--accent); border-color: var(--accent); }
+/* Two glyphs, one per checked value: the tick for true, the bar for mixed —
+   both drawn in the surface token, so each is the accent's own twin. */
+.screen-checkbox .cb-control[aria-checked="true"] .cb-box::after { content: "";
+  width: 4px; height: 8px; margin-top: -2px;
+  border-right: 2px solid var(--surface); border-bottom: 2px solid var(--surface);
+  transform: rotate(45deg); }
+.screen-checkbox .cb-control[aria-checked="mixed"] .cb-box::after { content: "";
+  width: 9px; height: 2px; background: var(--surface); }
+.screen-checkbox .cb-control:focus-visible .cb-box { outline: 2px solid var(--accent);
+  outline-offset: 2px; }
+
+/* The items the header covers, each a checkbox of its own: same control, same
+   box, indented under the header it adds up to. */
+.screen-checkbox .cb-items { list-style: none; margin: 10px 0 0; padding: 0 0 0 28px;
+  display: grid; gap: 2px; font-size: .875rem; }
+.screen-checkbox .cb-item .cb-box { --cb-box: 15px; }
+
+.screen-checkbox .toggle { min-height: 32px; padding: 6px 14px;
+  font: inherit; font-size: .875rem; font-weight: 500; border: 1px solid var(--border);
+  border-radius: var(--r-sm); background: none; cursor: pointer; color: var(--secondary);
+  transition: background var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease); }
+.screen-checkbox .toggle[aria-pressed="true"] { background: var(--surface-muted);
+  color: var(--primary); font-weight: 600; }
+.screen-checkbox .toggle:focus-visible { outline: 2px solid var(--accent);
+  outline-offset: 2px; }
+
+.screen-checkbox .collapsible { width: 100%; border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); }
+.screen-checkbox .col-trigger { display: flex; width: 100%; align-items: center;
+  gap: var(--sp-sm); padding: 12px var(--sp-md); text-align: left;
+  font: inherit; font-size: .9375rem; font-weight: 500;
+  border: 0; background: none; cursor: pointer; color: var(--primary); }
+.screen-checkbox .col-trigger:focus-visible { outline: 2px solid var(--accent);
+  outline-offset: -2px; }
+.screen-checkbox .col-title { flex: 1; }
+.screen-checkbox .col-chevron { flex: none; width: 8px; height: 8px;
+  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+  color: var(--secondary);
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform var(--motion-fast) var(--motion-ease); }
+.screen-checkbox .col-trigger[aria-expanded="true"] .col-chevron {
+  transform: translateY(2px) rotate(225deg); }
+/* The panel follows its own trigger's aria-expanded — the accordion's rule,
+   because this is the accordion's multiple arm with one item. */
+.screen-checkbox .collapsible:has(.col-trigger[aria-expanded="false"]) .col-panel {
+  display: none; }
+.screen-checkbox .col-panel { padding: 0 var(--sp-md) var(--sp-md); }
+.screen-checkbox .col-panel p { margin: 0; color: var(--secondary);
+  font-size: .9rem; line-height: 1.55; }
+
+.screen-checkbox .demo-pane { margin-top: var(--sp-lg); }
+.screen-checkbox .demo-pane h2 { font-size: 1.05rem; margin: 0 0 4px; }
+.screen-checkbox .demo-pane h3 { font-size: 1rem; margin: 0 0 4px; }
+.screen-checkbox .pane-note { color: var(--secondary); font-size: .875rem;
+  line-height: 1.5; margin: 0 0 8px; }
+.screen-checkbox .rowview + .rowview { margin-top: 6px; }
+.screen-checkbox .rowview code, .screen-checkbox .machine-json { display: block;
+  font-size: .8125rem; background: var(--surface-muted); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: var(--sp-sm) var(--sp-md); overflow-x: auto; }
+.screen-checkbox .machine-json { margin: 0 0 8px; line-height: 1.5; }
+.screen-checkbox .machine-json:last-child { margin-bottom: 0; }
+
+.screen-checkbox .demo-shape { margin-top: var(--sp-xl); }
+.screen-checkbox .shape-scroll { overflow-x: auto; }
+.screen-checkbox .shape { border-collapse: collapse; font-size: .8125rem; }
+.screen-checkbox .shape th, .screen-checkbox .shape td { border: 1px solid var(--border);
+  padding: 6px var(--sp-sm); text-align: left; white-space: nowrap; }
+.screen-checkbox .shape th[scope="col"] { background: var(--surface-muted);
+  color: var(--primary); }
+.screen-checkbox .shape th[scope="row"] { color: var(--secondary); font-weight: 500; }
+.screen-checkbox .shape td { color: var(--primary); }

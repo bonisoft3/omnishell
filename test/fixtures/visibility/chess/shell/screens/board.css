@@ -1,0 +1,719 @@
+@import url("shared/paper.css");
+
+/* Every rule is nested under the screen. The terminal injects a screen's
+   stylesheet into the document head and it outlives the screen that brought
+   it, so a bare `.board` rule would reach the shelf and the sheet too. */
+
+[data-screen="board"] {
+  display: grid;
+  gap: var(--sp-md);
+  padding: var(--sp-md);
+  max-width: 1040px;
+  margin: 0 auto;
+}
+/* Below the two-column breakpoint the board is as wide as the column, and a
+   column as wide as a tablet is a board nobody can see past — the clocks and
+   the sheet start below the fold. So the stacked arrangement carries its own
+   measure, which a phone is already narrower than. */
+@media (max-width: 879px) {
+  [data-screen="board"] { max-width: 560px; }
+}
+
+[data-screen="board"] .figures { position: absolute; width: 0; height: 0; overflow: hidden; }
+[data-screen="board"] .metronome { display: none; }
+[data-screen="board"] .game { display: contents; }
+
+[data-screen="board"] .table {
+  display: grid;
+  gap: var(--sp-md);
+  grid-template-areas: "plate" "rail";
+}
+@media (min-width: 880px) {
+  [data-screen="board"] .table {
+    grid-template-columns: minmax(0, 1fr) 320px;
+    grid-template-areas: "plate rail";
+    align-items: start;
+  }
+  /* A square sized by width alone is as tall as the column is wide, however
+     short the window is — so on a laptop the two control rows sat under the
+     fold with their own borders cut off. The board may have what the window
+     has left after the strip, this screen's padding, the two gaps and the two
+     rows: 53 + 32 + 32 + 72, plus the plate's own rule and the offset one
+     outside it. Measured rather than guessed. It centres in the
+     column it no longer fills. */
+  [data-screen="board"] .plate {
+    max-width: min(100%, calc(100svh - 197px));
+    justify-self: center;
+  }
+}
+
+/* The plate holds two layers: the grid takes the gestures, the layer above it
+   holds the pieces. That split is what lets a piece travel — a cell cannot
+   move, and a piece whose node survives a move can be transitioned.
+ 
+   It is also the container everything on the board is sized against: a square
+   is 12.5cqmin, so a figure or a coordinate states its share of a square once
+   and holds it at every board size. */
+[data-screen="board"] .plate {
+  grid-area: plate;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  container-type: size;
+  /* A printed plate carries a double rule, and the gap between the two is
+     paper. `outline` rather than a second box: an inset shadow on the plate
+     paints under `.board`, which covers it. */
+  border: 1px solid var(--primary);
+  outline: 1px solid var(--primary);
+  outline-offset: 3px;
+}
+
+[data-screen="board"] .board {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  width: 100%;
+  height: 100%;
+}
+
+[data-screen="board"] .sq {
+  position: relative;
+  padding: 0;
+  border: 0;
+  font: inherit;
+  color: var(--primary);
+  background: var(--surface);
+  cursor: pointer;
+  min-height: 24px;
+}
+/* The dark square is the stock with ink laid over it, which is why there is no
+   third colour anywhere on the board. */
+[data-screen="board"] .sq[data-shade="dark"] { background: var(--surface-muted); }
+[data-screen="board"] .sq[data-drag="yes"] { cursor: grab; }
+[data-screen="board"] .sq:active { cursor: grabbing; }
+/* The board answers the hand before it commits: a square holding a piece that
+   may move lifts under the pointer. */
+@media (hover: hover) {
+  [data-screen="board"] .sq[data-drag="yes"]:hover { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent); }
+}
+/* The caret is drawn in ink, not in the accent: the accent already means the
+   square you picked, where it may go, and where the last move went, so a
+   fourth thing in that colour would be a fourth thing to tell apart. */
+[data-screen="board"] .sq:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+  z-index: 1;
+}
+/* The keys' own forms. Present so the terminal can submit them, and never
+   seen or tabbed to — the board is the affordance. */
+[data-screen="board"] .caretf { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+
+[data-screen="board"] .cf, [data-screen="board"] .cr {
+  position: absolute;
+  font-size: max(8px, 1.5cqmin);
+  font-weight: 600;
+  color: var(--secondary);
+  pointer-events: none;
+}
+[data-screen="board"] .cf { bottom: 2px; right: 4px; }
+[data-screen="board"] .cr { top: 2px; left: 4px; }
+[data-screen="board"] .cf:empty, [data-screen="board"] .cr:empty { display: none; }
+
+/* The drag image. The browser snapshots the element it was given, and what it
+   was given is the SQUARE — the figures are a layer above the grid that no
+   snapshot reaches, so a drag carried a rectangle in the square's own colour.
+   `:-webkit-drag` styles that snapshot and nothing else: the ground goes, the
+   marks go, and the square shows the figure standing on it for exactly as long
+   as the picture is taken. The figure is drawn the way the piece layer draws
+   it, so what leaves the square looks like what stood on it. */
+[data-screen="board"] .carried {
+  display: none;
+  position: absolute;
+  inset: 0;
+  place-items: center;
+  font-size: 11.5cqmin;
+  line-height: 1;
+  pointer-events: none;
+}
+[data-screen="board"] .sq:-webkit-drag {
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+[data-screen="board"] .sq:-webkit-drag .cf,
+[data-screen="board"] .sq:-webkit-drag .cr { display: none; }
+[data-screen="board"] .sq:-webkit-drag::after { content: none; }
+[data-screen="board"] .sq:-webkit-drag .carried { display: grid; }
+[data-screen="board"] .sq[data-color="black"] .carried { color: var(--primary); }
+[data-screen="board"] .sq[data-color="white"] .carried {
+  color: var(--surface);
+  -webkit-text-stroke: 0.045em var(--primary);
+}
+
+/* The three things the accent means, in one vocabulary: the square you picked
+   up, where it may go, and where the last move went. */
+[data-screen="board"] .sq[data-last="yes"] {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+[data-screen="board"] .sq[data-selected="yes"] { box-shadow: inset 0 0 0 2px var(--accent); }
+[data-screen="board"] .sq[data-check="yes"] { box-shadow: inset 0 0 0 2px var(--danger); }
+[data-screen="board"] .sq[data-target="yes"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 26%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--accent);
+}
+/* A target that takes something is a ring around the piece, not a dot under
+   it: a dot would be hidden by the figure it is about. */
+[data-screen="board"] .sq[data-target="yes"][data-capture="yes"]::after {
+  width: 82%;
+  background: none;
+  border: 2px solid var(--accent);
+}
+
+/* The pieces. Absolutely placed and transitioned, so a move is a piece
+   travelling rather than one square emptying while another fills. */
+[data-screen="board"] .pieces {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+[data-screen="board"] .pc {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 12.5%;
+  height: 12.5%;
+  display: grid;
+  place-items: center;
+  transform: translate(calc(var(--f) * 100%), calc(var(--r) * 100%));
+  transition: transform var(--motion-base) var(--motion-ease), opacity var(--motion-fast) linear;
+  will-change: transform;
+}
+/* A move the hand carried has already happened on screen: the figure appears
+   where it was let go rather than setting off from the square it left, which
+   is what made a drop read as the move being replayed. */
+[data-screen="board"] .table[data-dragged="yes"] .pc { transition: none; }
+
+/* A piece being dragged is in two places at once unless the layer lets go of
+   it: the square carries the figure into the drag image (see `.carried`) while
+   the piece itself is still standing where it started. The mark is the
+   terminal's — `:-webkit-drag` styles the drag IMAGE and never matches the
+   element left in the document, so it cannot answer "which square is in the
+   air". `:has()` cannot compare one element's attribute against another's, so
+   the sixty-four pairings are spelled out rather than expressed — one
+   declaration, and the board shows one piece. */
+[data-screen="board"] .plate:has(.sq[data-id="a1"][data-dragging]) .pc[data-square="a1"],
+[data-screen="board"] .plate:has(.sq[data-id="b1"][data-dragging]) .pc[data-square="b1"],
+[data-screen="board"] .plate:has(.sq[data-id="c1"][data-dragging]) .pc[data-square="c1"],
+[data-screen="board"] .plate:has(.sq[data-id="d1"][data-dragging]) .pc[data-square="d1"],
+[data-screen="board"] .plate:has(.sq[data-id="e1"][data-dragging]) .pc[data-square="e1"],
+[data-screen="board"] .plate:has(.sq[data-id="f1"][data-dragging]) .pc[data-square="f1"],
+[data-screen="board"] .plate:has(.sq[data-id="g1"][data-dragging]) .pc[data-square="g1"],
+[data-screen="board"] .plate:has(.sq[data-id="h1"][data-dragging]) .pc[data-square="h1"],
+[data-screen="board"] .plate:has(.sq[data-id="a2"][data-dragging]) .pc[data-square="a2"],
+[data-screen="board"] .plate:has(.sq[data-id="b2"][data-dragging]) .pc[data-square="b2"],
+[data-screen="board"] .plate:has(.sq[data-id="c2"][data-dragging]) .pc[data-square="c2"],
+[data-screen="board"] .plate:has(.sq[data-id="d2"][data-dragging]) .pc[data-square="d2"],
+[data-screen="board"] .plate:has(.sq[data-id="e2"][data-dragging]) .pc[data-square="e2"],
+[data-screen="board"] .plate:has(.sq[data-id="f2"][data-dragging]) .pc[data-square="f2"],
+[data-screen="board"] .plate:has(.sq[data-id="g2"][data-dragging]) .pc[data-square="g2"],
+[data-screen="board"] .plate:has(.sq[data-id="h2"][data-dragging]) .pc[data-square="h2"],
+[data-screen="board"] .plate:has(.sq[data-id="a3"][data-dragging]) .pc[data-square="a3"],
+[data-screen="board"] .plate:has(.sq[data-id="b3"][data-dragging]) .pc[data-square="b3"],
+[data-screen="board"] .plate:has(.sq[data-id="c3"][data-dragging]) .pc[data-square="c3"],
+[data-screen="board"] .plate:has(.sq[data-id="d3"][data-dragging]) .pc[data-square="d3"],
+[data-screen="board"] .plate:has(.sq[data-id="e3"][data-dragging]) .pc[data-square="e3"],
+[data-screen="board"] .plate:has(.sq[data-id="f3"][data-dragging]) .pc[data-square="f3"],
+[data-screen="board"] .plate:has(.sq[data-id="g3"][data-dragging]) .pc[data-square="g3"],
+[data-screen="board"] .plate:has(.sq[data-id="h3"][data-dragging]) .pc[data-square="h3"],
+[data-screen="board"] .plate:has(.sq[data-id="a4"][data-dragging]) .pc[data-square="a4"],
+[data-screen="board"] .plate:has(.sq[data-id="b4"][data-dragging]) .pc[data-square="b4"],
+[data-screen="board"] .plate:has(.sq[data-id="c4"][data-dragging]) .pc[data-square="c4"],
+[data-screen="board"] .plate:has(.sq[data-id="d4"][data-dragging]) .pc[data-square="d4"],
+[data-screen="board"] .plate:has(.sq[data-id="e4"][data-dragging]) .pc[data-square="e4"],
+[data-screen="board"] .plate:has(.sq[data-id="f4"][data-dragging]) .pc[data-square="f4"],
+[data-screen="board"] .plate:has(.sq[data-id="g4"][data-dragging]) .pc[data-square="g4"],
+[data-screen="board"] .plate:has(.sq[data-id="h4"][data-dragging]) .pc[data-square="h4"],
+[data-screen="board"] .plate:has(.sq[data-id="a5"][data-dragging]) .pc[data-square="a5"],
+[data-screen="board"] .plate:has(.sq[data-id="b5"][data-dragging]) .pc[data-square="b5"],
+[data-screen="board"] .plate:has(.sq[data-id="c5"][data-dragging]) .pc[data-square="c5"],
+[data-screen="board"] .plate:has(.sq[data-id="d5"][data-dragging]) .pc[data-square="d5"],
+[data-screen="board"] .plate:has(.sq[data-id="e5"][data-dragging]) .pc[data-square="e5"],
+[data-screen="board"] .plate:has(.sq[data-id="f5"][data-dragging]) .pc[data-square="f5"],
+[data-screen="board"] .plate:has(.sq[data-id="g5"][data-dragging]) .pc[data-square="g5"],
+[data-screen="board"] .plate:has(.sq[data-id="h5"][data-dragging]) .pc[data-square="h5"],
+[data-screen="board"] .plate:has(.sq[data-id="a6"][data-dragging]) .pc[data-square="a6"],
+[data-screen="board"] .plate:has(.sq[data-id="b6"][data-dragging]) .pc[data-square="b6"],
+[data-screen="board"] .plate:has(.sq[data-id="c6"][data-dragging]) .pc[data-square="c6"],
+[data-screen="board"] .plate:has(.sq[data-id="d6"][data-dragging]) .pc[data-square="d6"],
+[data-screen="board"] .plate:has(.sq[data-id="e6"][data-dragging]) .pc[data-square="e6"],
+[data-screen="board"] .plate:has(.sq[data-id="f6"][data-dragging]) .pc[data-square="f6"],
+[data-screen="board"] .plate:has(.sq[data-id="g6"][data-dragging]) .pc[data-square="g6"],
+[data-screen="board"] .plate:has(.sq[data-id="h6"][data-dragging]) .pc[data-square="h6"],
+[data-screen="board"] .plate:has(.sq[data-id="a7"][data-dragging]) .pc[data-square="a7"],
+[data-screen="board"] .plate:has(.sq[data-id="b7"][data-dragging]) .pc[data-square="b7"],
+[data-screen="board"] .plate:has(.sq[data-id="c7"][data-dragging]) .pc[data-square="c7"],
+[data-screen="board"] .plate:has(.sq[data-id="d7"][data-dragging]) .pc[data-square="d7"],
+[data-screen="board"] .plate:has(.sq[data-id="e7"][data-dragging]) .pc[data-square="e7"],
+[data-screen="board"] .plate:has(.sq[data-id="f7"][data-dragging]) .pc[data-square="f7"],
+[data-screen="board"] .plate:has(.sq[data-id="g7"][data-dragging]) .pc[data-square="g7"],
+[data-screen="board"] .plate:has(.sq[data-id="h7"][data-dragging]) .pc[data-square="h7"],
+[data-screen="board"] .plate:has(.sq[data-id="a8"][data-dragging]) .pc[data-square="a8"],
+[data-screen="board"] .plate:has(.sq[data-id="b8"][data-dragging]) .pc[data-square="b8"],
+[data-screen="board"] .plate:has(.sq[data-id="c8"][data-dragging]) .pc[data-square="c8"],
+[data-screen="board"] .plate:has(.sq[data-id="d8"][data-dragging]) .pc[data-square="d8"],
+[data-screen="board"] .plate:has(.sq[data-id="e8"][data-dragging]) .pc[data-square="e8"],
+[data-screen="board"] .plate:has(.sq[data-id="f8"][data-dragging]) .pc[data-square="f8"],
+[data-screen="board"] .plate:has(.sq[data-id="g8"][data-dragging]) .pc[data-square="g8"],
+[data-screen="board"] .plate:has(.sq[data-id="h8"][data-dragging]) .pc[data-square="h8"] {
+  opacity: 0;
+}
+
+/* A piece that was taken is not removed from the tree: it fades where it
+   stood, which is what a capture looks like, and a reduce cannot delete a row
+   anyway. */
+[data-screen="board"] .pc[data-taken="yes"] { opacity: 0; }
+
+[data-screen="board"] .pc .glyph,
+[data-screen="board"] .pc .fig,
+[data-screen="board"] .pc .ini { display: none; }
+
+/* Print — the column's own figures. One glyph per kind; ink fills black and
+   outlines white, which is how a printed diagram draws them and the only
+   version of it that survives the ground being inverted. */
+[data-screen="board"] .table[data-set="print"] .pc .glyph { display: block; }
+[data-screen="board"] .pc .glyph { font-size: 11.5cqmin; line-height: 1; }
+[data-screen="board"] .pc[data-color="black"] .glyph { color: var(--primary); }
+[data-screen="board"] .pc[data-color="white"] .glyph {
+  color: var(--surface);
+  /* In em, so the rim holds its weight against the figure at every board
+     size — and it is the whole of what tells the sides apart once the ground
+     inverts and both are drawn in ink. */
+  -webkit-text-stroke: 0.045em var(--primary);
+}
+
+/* Staunton — the carved set, as silhouettes. Same rule as the print set for
+   which side is which: fill decides. */
+[data-screen="board"] .table[data-set="staunton"] .pc .fig,
+[data-screen="board"] .table[data-set="engraved"] .pc .fig { display: block; }
+[data-screen="board"] .pc .fig { width: 94%; height: 94%; }
+[data-screen="board"] .pc[data-color="black"] .fig { fill: var(--primary); stroke: var(--primary); stroke-width: 0.8; }
+[data-screen="board"] .pc[data-color="white"] .fig { fill: var(--surface); stroke: var(--primary); stroke-width: 1.4; }
+/* The eye and the bishop's slit are cut OUT of the figure, so they take the
+   other side's colour. */
+[data-screen="board"] .pc[data-color="black"] .fig .hole { fill: var(--surface); stroke: none; }
+[data-screen="board"] .pc[data-color="white"] .fig .hole { fill: var(--primary); stroke: none; }
+
+/* Engraved — the same six figures as outline and hatch, the way a printed
+   diagram was set before it could be filled. The hatch is a pattern rather
+   than a second grey, so the set stays two colours deep like the rest. */
+[data-screen="board"] .table[data-set="engraved"] .pc .fig { stroke-width: 1.7; }
+[data-screen="board"] .table[data-set="engraved"] .pc[data-color="white"] .fig { fill: none; }
+[data-screen="board"] .table[data-set="engraved"] .pc[data-color="black"] .fig { fill: url(#hatch); }
+[data-screen="board"] .table[data-set="engraved"] .pc .fig .hole { fill: var(--surface); }
+
+/* Disc — flat and lettered. The most legible set at a phone's board size, and
+   the one that never needs a stroke to be told apart. */
+[data-screen="board"] .table[data-set="disc"] .pc .ini {
+  display: grid;
+  place-items: center;
+  width: 78%;
+  height: 78%;
+  border-radius: 50%;
+  font: 700 5.2cqmin/1 var(--shell-font, system-ui), sans-serif;
+  letter-spacing: 0;
+}
+[data-screen="board"] .pc[data-color="white"] .ini {
+  background: var(--surface);
+  color: var(--primary);
+  box-shadow: inset 0 0 0 2px var(--primary);
+}
+[data-screen="board"] .pc[data-color="black"] .ini {
+  background: var(--primary);
+  color: var(--surface);
+}
+
+/* --- the rail ---------------------------------------------------------- */
+
+[data-screen="board"] .rail { grid-area: rail; display: grid; gap: var(--sp-sm); }
+
+[data-screen="board"] .seats { display: grid; gap: 4px; }
+[data-screen="board"] .seat {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  /* Fixed, so the rail does not jump when the opponent changes: the cast's
+     lines are two rows on this width and the guest's is one. */
+  min-height: 62px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+/* The clock that is counting is the one whose side is to move, and it says so
+   by being the only one with any weight to it. */
+[data-screen="board"] .seat[data-turn="yes"] { border-color: var(--primary); background: var(--surface-muted); }
+[data-screen="board"] .av {
+  width: 34px; height: 34px; flex: none;
+  display: grid; place-items: center;
+  border-radius: var(--r-full);
+  background: var(--primary); color: var(--surface);
+  font: 600 0.875rem/1 var(--shell-font, system-ui), sans-serif;
+}
+[data-screen="board"] .seat.you .av {
+  background: var(--surface); color: var(--primary);
+  box-shadow: inset 0 0 0 1.5px var(--primary);
+}
+[data-screen="board"] .who { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+[data-screen="board"] .nm { font-size: 0.9375rem; }
+[data-screen="board"] .sub {
+  font-size: 0.75rem;
+  color: var(--secondary);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+/* A captured piece is a figure, not a mark: below this it stops reading as
+   the piece it is. It wraps rather than pushing the clock off the seat. */
+[data-screen="board"] .taken {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 1.25rem;
+  line-height: 1;
+  color: var(--secondary);
+  letter-spacing: -3px;
+  word-break: break-all;
+}
+/* Beside the captures, and only in the seat that is ahead. */
+[data-screen="board"] .seat .edge { flex: none; margin-left: 4px; font: 600 0.8125rem/1 var(--mono); color: var(--secondary); }
+[data-screen="board"] .seat .edge:empty { display: none; }
+[data-screen="board"] .clk {
+  flex: none;
+  margin-left: auto;
+  font: 700 1.5rem/1 var(--mono);
+  letter-spacing: -0.02em;
+  color: var(--secondary);
+}
+[data-screen="board"] .seat[data-turn="yes"] .clk { color: var(--primary); }
+/* The last ten seconds, in the colour the board already uses for a fact that
+   has gone wrong. Colour and not motion: a page that flashes is not this one,
+   and the reading changes to tenths at the same moment anyway. */
+[data-screen="board"] .seat[data-low="yes"] .clk { color: var(--danger); }
+/* Without a clock there is nothing to count, and an empty figure reads as a
+   clock that has stopped. */
+[data-screen="board"] .table[data-tc="unlimited"] .clk { display: none; }
+
+[data-screen="board"] .say { display: grid; gap: 2px; }
+[data-screen="board"] .say p { margin: 0; }
+/* A finished game says so as a block, not as one more line in the rail: the
+   result is the only thing on the board worth reading at that moment. */
+[data-screen="board"] .table[data-status="over"] .say {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--sp-sm);
+  row-gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--primary);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+[data-screen="board"] .turn { font-weight: 600; }
+[data-screen="board"] .flag { color: var(--danger); font-weight: 600; }
+[data-screen="board"] .score { font-weight: 600; color: var(--secondary); }
+[data-screen="board"] .score:empty { display: none; }
+/* The headline is who won, not the figures — a guest reads the board to find
+   out, and 1-0 answers that only for somebody who already reads score sheets.
+   The figures keep their place beside the ending that produced them. */
+[data-screen="board"] .won { flex-basis: 100%; font-size: 1.75rem; font-weight: 700; line-height: 1.1; }
+[data-screen="board"] .won:empty { display: none; }
+[data-screen="board"] .book { color: var(--secondary); font-size: 0.875rem; }
+[data-screen="board"] .book b { font-family: var(--mono); }
+[data-screen="board"] .book span { font: 600 0.9375rem/1 var(--serif); color: var(--primary); }
+[data-screen="board"] .book:has(span:empty) { display: none; }
+[data-screen="board"] .offer { font-size: 0.875rem; color: var(--attention); }
+/* Only while an old position is on the plate, and it takes the place of the
+   turn: "White to move" is true of the position being looked at and reads as
+   an invitation to play, which is the one thing this state refuses. */
+[data-screen="board"] .past { display: none; font-size: 0.875rem; color: var(--attention); }
+[data-screen="board"] .table[data-reviewing="yes"] .past { display: block; }
+[data-screen="board"] .table[data-reviewing="yes"] .turn { display: none; }
+/* The plate says it too, in the frame: the pieces stay in ink, because
+   dimming them would make an old position harder to read rather than easier
+   to place. */
+[data-screen="board"] .table[data-reviewing="yes"] .plate {
+  border-color: var(--secondary);
+  outline-color: var(--secondary);
+  outline-style: dashed;
+}
+
+[data-screen="board"] .table[data-turn="white"] .turn i[data-w="white"],
+[data-screen="board"] .table[data-turn="black"] .turn i[data-w="black"] { display: inline; }
+[data-screen="board"] .table[data-status="playing"][data-check="yes"] .flag .chk { display: inline; }
+[data-screen="board"] .table[data-termination="checkmate"] .flag i[data-e="checkmate"],
+[data-screen="board"] .table[data-termination="stalemate"] .flag i[data-e="stalemate"],
+[data-screen="board"] .table[data-termination="threefold"] .flag i[data-e="threefold"],
+[data-screen="board"] .table[data-termination="fifty-move"] .flag i[data-e="fifty-move"],
+[data-screen="board"] .table[data-termination="insufficient"] .flag i[data-e="insufficient"],
+[data-screen="board"] .table[data-termination="resignation"] .flag i[data-e="resignation"],
+[data-screen="board"] .table[data-termination="flag"] .flag i[data-e="flag"],
+[data-screen="board"] .table[data-termination="agreement"] .flag i[data-e="agreement"] { display: inline; }
+/* Who won, then how, then the figures, then the line it was. */
+[data-screen="board"] .table[data-status="over"] .won { order: 1; }
+[data-screen="board"] .table[data-status="over"] .flag { order: 2; color: var(--secondary); font-weight: 400; font-size: 0.875rem; }
+[data-screen="board"] .table[data-status="over"] .score { order: 3; }
+[data-screen="board"] .table[data-status="over"] .book { order: 4; flex-basis: 100%; }
+[data-screen="board"] .table[data-status="over"] .turn { display: none; }
+[data-screen="board"] .table[data-offer="you"] .offer i[data-o="you"],
+[data-screen="board"] .table[data-offer="declined"] .offer i[data-o="declined"] { display: inline; }
+
+/* The sheet. Every move on it is a place you can go. */
+[data-screen="board"] .moves {
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  align-content: start;
+  gap: 1px 6px;
+  margin: 0;
+  padding: var(--sp-sm) 0 0;
+  border-top: 1px solid var(--border);
+  list-style: none;
+  font-size: 0.9375rem;
+  max-height: 34vh;
+  overflow-y: auto;
+}
+[data-screen="board"] .moves li { display: contents; }
+/* The empty line is a whole row, not a first column: `display: contents` on
+   the li hands its text straight to the grid, where it would set itself in the
+   move-number track. */
+[data-screen="board"] .moves li.empty { display: block; grid-column: 1 / -1; color: var(--secondary); }
+/* Every cell states its column. Auto-flow would take the count of VISIBLE
+   children per row as the row's width, so hiding a clock — which is what "no
+   clock" does — slides every following move one cell along. */
+[data-screen="board"] .moves .no { grid-column: 1; color: var(--secondary); font-variant-numeric: tabular-nums; }
+[data-screen="board"] .moves li[data-color="white"] .san { grid-column: 2; }
+[data-screen="board"] .moves li[data-color="white"] .ms.w { grid-column: 3; }
+[data-screen="board"] .moves li[data-color="black"] .san { grid-column: 4; }
+[data-screen="board"] .moves li[data-color="black"] .ms.b { grid-column: 5; }
+[data-screen="board"] .moves .no::after { content: "."; }
+/* The number is printed once for the pair, and the pair shares a row: every
+   cell states its column, so the one that is not there shifts nothing. */
+[data-screen="board"] .moves li[data-color="black"] .no { display: none; }
+[data-screen="board"] .moves .san {
+  font: inherit;
+  text-align: left;
+  padding: 1px 5px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  /* Hugs its own name: a highlight the width of the column reads as a row
+     selected rather than a move looked at. */
+  justify-self: start;
+}
+/* The move being looked at. */
+[data-screen="board"] .moves li[data-here="true"] .san { background: var(--accent); color: var(--surface); font-weight: 600; }
+[data-screen="board"] .moves .ms { font-size: 0.75rem; color: var(--secondary); font-variant-numeric: tabular-nums; text-align: right; }
+/* The gap that groups: a move and its clock are one reading, and white's pair
+   must not run into black's. */
+[data-screen="board"] .moves .ms.w { padding-right: var(--sp-sm); }
+[data-screen="board"] .moves li[data-color="white"] .ms.b,
+[data-screen="board"] .moves li[data-color="black"] .ms.w { display: none; }
+[data-screen="board"] .table[data-tc="unlimited"] .moves .ms { display: none; }
+
+[data-screen="board"] .nav { display: flex; gap: 4px; flex-wrap: wrap; }
+[data-screen="board"] .navf { display: contents; }
+[data-screen="board"] .nav .act { min-width: 40px; padding: 0 8px; }
+/* Only offered while an old position is being looked at. */
+[data-screen="board"] .nav .live-btn { display: none; }
+/* Offered only while an old position is being looked at. */
+[data-screen="board"] .table[data-reviewing="yes"] .live-btn { display: inline-flex; }
+
+[data-screen="board"] .acts { display: flex; gap: var(--sp-sm); flex-wrap: wrap; }
+[data-screen="board"] .acts[data-status="over"] #btn-resign,
+[data-screen="board"] .acts[data-status="over"] #btn-draw,
+[data-screen="board"] .acts[data-status="over"] #btn-takeback,
+[data-screen="board"] .acts[data-mode="hotseat"] #btn-takeback { display: none; }
+
+/* The promotion picker, standing on the square the pawn is waiting on: one
+   file wide, four figures deep, growing into the board from whichever end the
+   pawn arrived at. A strip under the board made the eye leave the move it was
+   in the middle of. */
+[data-screen="board"] .promo { display: none; }
+[data-screen="board"] .promo:not([data-promo=""]) {
+  display: flex;
+  flex-direction: column;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  width: 12.5%;
+  transform: translateX(calc(var(--pf) * 100%));
+  border: 1px solid var(--primary);
+  background: var(--surface);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 22%);
+}
+/* Promoting at the foot of the board, so the choice climbs rather than
+   falling off it. */
+[data-screen="board"] .table[data-promo-r="7"] .promo:not([data-promo=""]) {
+  top: auto;
+  bottom: 0;
+  flex-direction: column-reverse;
+}
+/* The instruction is for a reader who cannot see where the strip is standing;
+   on screen the four figures on the square say it. */
+[data-screen="board"] .promo-ask {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+[data-screen="board"] .promo .pick {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary);
+  font-size: 9cqmin;
+  line-height: 1;
+  cursor: pointer;
+}
+[data-screen="board"] .promo .pick + .pick { border-top: 1px solid var(--border); }
+[data-screen="board"] .promo .pick:hover { background: var(--surface-muted); }
+[data-screen="board"] .promo .pick:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* Whose promotion it is decides how the figures are drawn, exactly as on the
+   board: ink fills black and outlines white. */
+[data-screen="board"] .promo[data-turn="white"] .pick {
+  color: var(--surface);
+  -webkit-text-stroke: 0.045em var(--primary);
+}
+
+[data-screen="board"] .pickers { display: flex; gap: var(--sp-sm); flex-wrap: wrap; }
+/* On a phone the two control rows wrap ragged — five items of five different
+   widths over three or four lines. A two-column grid is the same set in the
+   same order, aligned, and it is the difference between a strip of chrome and
+   a panel. The odd one out takes the whole row rather than half of it. */
+@media (max-width: 560px) {
+  [data-screen="board"] .acts,
+  [data-screen="board"] .pickers {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  [data-screen="board"] .acts > :last-child:nth-child(odd),
+  [data-screen="board"] .pickers > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+  /* Each pair has to hold one line in half a phone's width, or its cell is
+     two lines tall and its neighbour is one. It wraps rather than clips if
+     one ever does not. */
+  [data-screen="board"] .picker > button {
+    width: 100%;
+    justify-content: flex-start;
+    padding: 0 10px;
+    font-size: 0.8125rem;
+  }
+  [data-screen="board"] .picker > button::after { margin-left: auto; }
+  /* The cast's line is flavour and the board is the thing that wants the
+     height; the guest's seat still says which colour and which clock. */
+  [data-screen="board"] .seat { min-height: 0; }
+  [data-screen="board"] .seat:not(.you) .sub { display: none; }
+}
+[data-screen="board"] .picker { position: relative; }
+[data-screen="board"] .picker button {
+  font: inherit;
+  font-size: 0.875rem;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--primary);
+  cursor: pointer;
+}
+/* A picker is a setting, not an action: the button beside it commits
+   something, and the two must not read alike. What it is called is printed
+   in front of what it is set to, and the caret says the value opens. */
+[data-screen="board"] .picker > button { display: inline-flex; align-items: center; gap: 6px; }
+[data-screen="board"] .picker > button .sr {
+  position: static;
+  width: auto;
+  height: auto;
+  clip-path: none;
+  color: var(--secondary);
+  font-weight: 400;
+}
+[data-screen="board"] .picker > button .pick-label { font-weight: 600; }
+[data-screen="board"] .picker > button::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  margin-left: 2px;
+  border: solid var(--secondary);
+  border-width: 0 1.5px 1.5px 0;
+  transform: translateY(-2px) rotate(45deg);
+}
+[data-screen="board"] .picker > button:hover { border-color: var(--primary); }
+[data-screen="board"] .picker .pick-label i { display: none; font-style: normal; }
+[data-screen="board"] .picker[data-value="house"] .pick-label i[data-t="house"],
+[data-screen="board"] .picker[data-value="hotseat"] .pick-label i[data-t="hotseat"],
+[data-screen="board"] .picker[data-value="pip"] .pick-label i[data-t="pip"],
+[data-screen="board"] .picker[data-value="nell"] .pick-label i[data-t="nell"],
+[data-screen="board"] .picker[data-value="otto"] .pick-label i[data-t="otto"],
+[data-screen="board"] .picker[data-value="vera"] .pick-label i[data-t="vera"],
+[data-screen="board"] .picker[data-value="magnus"] .pick-label i[data-t="magnus"],
+[data-screen="board"] .picker[data-value="unlimited"] .pick-label i[data-t="unlimited"],
+[data-screen="board"] .picker[data-value="1+0"] .pick-label i[data-t="1+0"],
+[data-screen="board"] .picker[data-value="3+2"] .pick-label i[data-t="3+2"],
+[data-screen="board"] .picker[data-value="5+0"] .pick-label i[data-t="5+0"],
+[data-screen="board"] .picker[data-value="10+0"] .pick-label i[data-t="10+0"],
+[data-screen="board"] .picker[data-value="print"] .pick-label i[data-t="print"],
+[data-screen="board"] .picker[data-value="staunton"] .pick-label i[data-t="staunton"],
+[data-screen="board"] .picker[data-value="engraved"] .pick-label i[data-t="engraved"],
+[data-screen="board"] .picker[data-value="disc"] .pick-label i[data-t="disc"],
+[data-screen="board"] .picker[data-value="no"] .pick-label i[data-t="no"],
+[data-screen="board"] .picker[data-value="yes"] .pick-label i[data-t="yes"] { display: inline; }
+/* Placement is CSS: a popover is in the top layer, where the picker's
+   `position: relative` reaches nothing and the UA sheet's `inset: 0` pins it
+   to the corner of the window. Each list anchors to the trigger whose id
+   opens it. */
+[data-screen="board"] #picker-open-mode { anchor-name: --pick-mode; }
+[data-screen="board"] #picker-pop-mode { position-anchor: --pick-mode; }
+[data-screen="board"] #picker-open-bot { anchor-name: --pick-bot; }
+[data-screen="board"] #picker-pop-bot { position-anchor: --pick-bot; }
+[data-screen="board"] #picker-open-tc { anchor-name: --pick-tc; }
+[data-screen="board"] #picker-pop-tc { position-anchor: --pick-tc; }
+[data-screen="board"] #picker-open-set { anchor-name: --pick-set; }
+[data-screen="board"] #picker-pop-set { position-anchor: --pick-set; }
+[data-screen="board"] #picker-open-view { anchor-name: --pick-view; }
+[data-screen="board"] #picker-pop-view { position-anchor: --pick-view; }
+
+[data-screen="board"] .picker-list {
+  margin: 4px 0;
+  padding: 4px;
+  min-width: anchor-size(width);
+  max-width: min(20rem, calc(100vw - var(--sp-lg)));
+  box-sizing: border-box;
+  list-style: none;
+  border: 1px solid var(--primary);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--primary);
+  position-area: block-start span-inline-end;
+  position-try-fallbacks: flip-block;
+}
+[data-screen="board"] .picker-list button { border: 0; width: 100%; text-align: left; }
+[data-screen="board"] .picker-list button:hover { background: var(--surface-muted); }
+[data-screen="board"] .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+
+/* A page about a board must not move under the hand. */
+@media (prefers-reduced-motion: reduce) {
+  [data-screen="board"] .pc { transition: none; }
+}

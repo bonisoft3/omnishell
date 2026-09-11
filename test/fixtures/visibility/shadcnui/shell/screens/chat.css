@@ -1,0 +1,109 @@
+@import "./shared/chrome.css";
+
+/* chat — every rule scoped under the screen: injected stylesheets outlive the
+   screen that brought them.
+
+   The scroller is the whole argument of this file: column-reverse puts the
+   scroll origin at the bottom, so the newest row is where the reader already
+   is and older rows arriving above do not move them. No listener, no
+   measurement. */
+.screen-chat { max-width: 44rem; margin: 0 auto; padding: var(--sp-xl) var(--sp-lg); }
+.screen-chat .demo-head h1 { margin: 0 0 var(--sp-sm); font-size: 1.6rem;
+  letter-spacing: -0.02em; color: var(--primary); }
+.screen-chat .lede { margin: 0 0 var(--sp-lg); color: var(--secondary); line-height: 1.6; }
+.screen-chat .demo-stage { padding: var(--sp-lg); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); }
+.screen-chat .demo-pane { margin-top: var(--sp-lg); }
+.screen-chat .demo-pane h2 { font-size: 1rem; margin: 0 0 8px; color: var(--primary); }
+.screen-chat .pane-note { margin: 0 0 var(--sp-sm); font-size: .875rem;
+  line-height: 1.6; color: var(--secondary); }
+.screen-chat .pane-link { display: inline-flex; align-items: center; min-height: 24px;
+  color: var(--accent); text-decoration-color: var(--border); }
+.screen-chat .pane-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.screen-chat .chat-hold { display: grid; gap: var(--sp-md); }
+/* A box that scrolls is a tab stop that has to be named, which is decision-33's
+   rule and not this screen's. */
+.screen-chat .chat-scroller { display: flex; flex-direction: column-reverse;
+  gap: var(--sp-md); height: 20rem; overflow-y: auto; overscroll-behavior: contain;
+  padding: var(--sp-sm); border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface-muted); }
+.screen-chat .chat-scroller:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.screen-chat .chat-row { display: flex; gap: var(--sp-sm); align-items: flex-start; }
+.screen-chat .chat-row[data-seat="you"] { flex-direction: row-reverse; }
+.screen-chat .chat-avatar { flex: none; display: inline-flex; align-items: center;
+  justify-content: center; width: 28px; height: 28px; border-radius: var(--r-full);
+  background: var(--surface); border: 1px solid var(--border);
+  font-size: .6875rem; font-weight: 700; color: var(--secondary); }
+.screen-chat .chat-content { display: grid; gap: 4px; max-width: 26rem; min-width: 0; }
+.screen-chat .chat-row[data-seat="you"] .chat-content { justify-items: end; }
+.screen-chat .chat-head { margin: 0; font-size: .75rem; color: var(--secondary); }
+.screen-chat .chat-at { margin-inline-start: 6px; }
+.screen-chat .chat-bubble { padding: 8px 12px; border-radius: var(--r-md);
+  background: var(--surface); border: 1px solid var(--border);
+  font-size: .875rem; line-height: 1.5; color: var(--primary); }
+.screen-chat .chat-row[data-seat="you"] .chat-bubble { background: var(--accent);
+  border-color: var(--accent); color: var(--surface); }
+
+/* The kind decides which of the three the row is, and the other two are not
+   drawn: a marker is a row nobody said, so it has no seat and no bubble. */
+.screen-chat .chat-row[data-kind="message"] .chat-file,
+.screen-chat .chat-row[data-kind="message"] .chat-marker,
+.screen-chat .chat-row[data-kind="file"] .chat-bubble,
+.screen-chat .chat-row[data-kind="file"] .chat-marker,
+.screen-chat .chat-row[data-kind="marker"] .chat-bubble,
+.screen-chat .chat-row[data-kind="marker"] .chat-file,
+.screen-chat .chat-row[data-kind="marker"] .chat-avatar,
+.screen-chat .chat-row[data-kind="marker"] .chat-head { display: none; }
+.screen-chat .chat-row[data-kind="marker"] { justify-content: center; }
+.screen-chat .chat-row[data-kind="marker"] .chat-content { max-width: none; width: 100%; }
+.screen-chat .chat-marker { margin: 0; display: flex; align-items: center; gap: var(--sp-sm);
+  font-size: .75rem; color: var(--secondary); text-align: center; }
+.screen-chat .chat-marker::before, .screen-chat .chat-marker::after {
+  content: ""; flex: 1; height: 1px; background: var(--border); }
+
+/* The attachment. Its state is a column, so the shimmer is a rule keyed on it
+   rather than an animation somebody starts. */
+.screen-chat .chat-file { display: flex; align-items: center; gap: var(--sp-sm);
+  padding: 8px 12px; border-radius: var(--r-md); background: var(--surface);
+  border: 1px solid var(--border); font-size: .8125rem; }
+.screen-chat .chat-file-media { flex: none; width: 26px; height: 30px; border-radius: 3px;
+  background: var(--surface-muted); border: 1px solid var(--border); }
+.screen-chat .chat-file-text { display: grid; gap: 2px; color: var(--secondary); }
+.screen-chat .chat-file-text b { color: var(--primary); }
+.screen-chat .chat-file-state { margin-inline-start: auto; font-size: .6875rem;
+  text-transform: uppercase; letter-spacing: .04em; color: var(--secondary); }
+.screen-chat .chat-row[data-state="uploading"] .chat-file { border-style: dashed; }
+.screen-chat .chat-row[data-state="uploading"] .chat-file-media {
+  animation: chat-shimmer 1.2s ease-in-out infinite; }
+.screen-chat .chat-row[data-state="error"] .chat-file { border-color: var(--danger); }
+.screen-chat .chat-row[data-state="error"] .chat-file-state { color: var(--danger); }
+@keyframes chat-shimmer { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) {
+  .screen-chat .chat-row[data-state="uploading"] .chat-file-media { animation: none; opacity: .6; }
+}
+
+.screen-chat .chat-composer { display: flex; align-items: end; gap: var(--sp-sm); }
+.screen-chat .chat-label { position: absolute; width: 1px; height: 1px; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.screen-chat .chat-input { flex: 1; min-height: 36px; padding-inline: var(--sp-sm);
+  box-sizing: border-box; font: inherit; font-size: .875rem; color: var(--primary);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); }
+.screen-chat .chat-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.screen-chat .chat-send { min-height: 36px; padding-inline: var(--sp-md); font: inherit;
+  font-size: .875rem; font-weight: 500; color: var(--surface); background: var(--accent);
+  border: 1px solid var(--accent); border-radius: var(--r-sm); cursor: pointer; }
+.screen-chat .chat-send:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.screen-chat .rowview { display: grid; gap: 2px; padding: var(--sp-sm) var(--sp-md);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface-muted); max-height: 9rem; overflow-y: auto; }
+.screen-chat .row-readout { font-size: .8rem; color: var(--primary); }
+
+.screen-chat .matrix { border-collapse: collapse; width: 100%;
+  font-size: .8125rem; line-height: 1.5; }
+.screen-chat .matrix th, .screen-chat .matrix td {
+  border: 1px solid var(--border); padding: 6px 10px; text-align: start; vertical-align: top; }
+.screen-chat .matrix thead th { background: var(--surface-muted); }
+.screen-chat .matrix tbody th { font-weight: 600; }

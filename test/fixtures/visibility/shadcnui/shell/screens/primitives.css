@@ -1,0 +1,271 @@
+@import "./shared/chrome.css";
+
+/* Badge · Card · Alert — every rule scoped under the screen: injected
+   stylesheets outlive the screen that brought them. This is the screen where
+   the token system is on trial, so it names tokens and nothing else: there is
+   no literal colour below, and the suite asserts it. */
+.screen-primitives {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: var(--sp-xl) var(--sp-lg);
+}
+.screen-primitives .demo-head h1 {
+  margin: 0 0 var(--sp-sm);
+  font-size: 1.6rem;
+  letter-spacing: -0.02em;
+  color: var(--primary);
+}
+.screen-primitives .lede {
+  margin: 0 0 var(--sp-lg);
+  color: var(--secondary);
+  line-height: 1.6;
+}
+.screen-primitives .demo-part,
+.screen-primitives .demo-pane {
+  margin-top: var(--sp-lg);
+}
+.screen-primitives .demo-part h2,
+.screen-primitives .demo-pane h2 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  color: var(--primary);
+}
+.screen-primitives .pane-note {
+  margin: 0 0 var(--sp-sm);
+  font-size: 0.875rem;
+  color: var(--secondary);
+  line-height: 1.5;
+}
+.screen-primitives .demo-stage {
+  padding: var(--sp-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+/* The component tag is an inert wrapper, so it takes no part in layout either:
+   the card is the grid item, which is what makes a row of cards one height. */
+.screen-primitives omnishell--badge,
+.screen-primitives omnishell--card,
+.screen-primitives omnishell--alert {
+  display: contents;
+}
+
+/* Badge — one span, one token pair per variant, no state to key on. */
+.screen-primitives .badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-sm);
+}
+.screen-primitives .badge-row + .badge-row {
+  margin-top: var(--sp-md);
+}
+.screen-primitives .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+}
+.screen-primitives .badge-icon {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+.screen-primitives .badge-default {
+  background: var(--accent);
+  color: var(--surface);
+  border-color: var(--accent);
+}
+.screen-primitives .badge-secondary {
+  background: var(--surface-muted);
+  color: var(--primary);
+  border-color: var(--surface-muted);
+}
+/* surface is the readable foreground on danger in both appearances: near-white
+   on the light red, near-black on the dark one. */
+.screen-primitives .badge-destructive {
+  background: var(--danger);
+  color: var(--surface);
+  border-color: var(--danger);
+}
+.screen-primitives .badge-outline {
+  color: var(--primary);
+  border-color: var(--border);
+}
+
+/* Card — pure layout: no variant, so nothing to key on. */
+.screen-primitives .card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: var(--sp-md);
+}
+.screen-primitives .card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-md);
+  padding: var(--sp-md) 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--primary);
+}
+.screen-primitives .card-header {
+  display: grid;
+  gap: 4px;
+  padding: 0 var(--sp-md);
+}
+/* The filled action slot is what promotes the header to two columns —
+   shadcn's has-[] variant, restated as the selector it always was. */
+.screen-primitives .card-header:has(.card-action) {
+  grid-template-columns: 1fr auto;
+}
+.screen-primitives .card-action {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: start;
+}
+.screen-primitives .card-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.screen-primitives .card-description {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--secondary);
+  line-height: 1.5;
+}
+.screen-primitives .card-content {
+  padding: 0 var(--sp-md);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+.screen-primitives .card-content p {
+  margin: 0;
+}
+.screen-primitives .card-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-md);
+  padding: var(--sp-md) var(--sp-md) 0;
+  border-top: 1px solid var(--border);
+}
+/* A whole-card click target would be the anchor's affordance, not the card's. */
+.screen-primitives .card-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--primary);
+  text-decoration: none;
+  border-bottom: 1px solid var(--border);
+  transition: border-color var(--motion-fast) var(--motion-ease);
+}
+.screen-primitives .card-link:hover {
+  border-color: var(--primary);
+}
+.screen-primitives .card-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Alert — the icon column appears only when an icon does. */
+.screen-primitives .alert-specimens {
+  display: grid;
+  gap: var(--sp-md);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.screen-primitives .alert {
+  display: grid;
+  gap: 4px 12px;
+  padding: var(--sp-sm) var(--sp-md);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--primary);
+}
+.screen-primitives .alert:has(> .alert-icon) {
+  grid-template-columns: 16px 1fr;
+}
+.screen-primitives .alert-icon {
+  width: 16px;
+  height: 16px;
+  grid-row: 1 / span 2;
+  margin-top: 3px;
+}
+.screen-primitives .alert-title {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.screen-primitives .alert-description {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--secondary);
+  line-height: 1.5;
+}
+.screen-primitives .alert-destructive {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.screen-primitives .alert-destructive .alert-description {
+  color: var(--danger);
+}
+.screen-primitives .specimen-note {
+  margin: 6px 0 0;
+  font-size: 0.8rem;
+  color: var(--secondary);
+  line-height: 1.5;
+}
+
+/* The two panes: the claim this screen's absences are, and the token table
+   that stands where a machine's JSON stands on every other screen. */
+.screen-primitives .claim {
+  margin: 0;
+  padding: var(--sp-sm) var(--sp-md);
+  font-size: 0.85rem;
+  color: var(--primary);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-muted);
+}
+.screen-primitives .token-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+.screen-primitives .token-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.screen-primitives .token-table th,
+.screen-primitives .token-table td {
+  padding: 6px var(--sp-md);
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+.screen-primitives .token-table th {
+  font-weight: 600;
+  color: var(--secondary);
+}
+.screen-primitives .token-table td {
+  color: var(--primary);
+}
+.screen-primitives .token-table tr:last-child td {
+  border-bottom: 0;
+}

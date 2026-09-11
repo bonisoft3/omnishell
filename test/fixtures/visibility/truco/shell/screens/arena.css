@@ -1,0 +1,1088 @@
+@import url("shared/table.css");
+
+/* The arena is a board, not a document: it occupies exactly the viewport it
+   is given and never scrolls, on a phone in portrait or on a desktop across
+   the room. Sizes are viewport-relative rather than breakpoint-switched, so
+   one layout survives both.
+
+   Every rule below is nested inside the screen's own selector. The terminal
+   injects screen stylesheets into the document head and they outlive the
+   screen that brought them, so a bare `.mat` rule here would reach the rules
+   screen too — which is exactly how this screen's grid once tore that one
+   apart. */
+
+body:has([data-screen="arena"]) { overflow: hidden; }
+
+/* The room. A screen's CSS is injected globally, so every rule that reaches
+   past .screen is scoped to this screen the way the nav rules below are —
+   the rules screen keeps the terminal's own page. The colours are literal
+   because the table's tokens live on .screen, which is a DESCENDANT of body
+   and cannot hand them upward. */
+body:has([data-screen="arena"]) {
+  background: radial-gradient(78% 58% at 50% -12%, #4A3219 0%, #1A1008 56%, #0B0603 100%);
+}
+
+body:has([data-screen="arena"]) > nav {
+  background: linear-gradient(180deg, #2A1B0C, #170E06);
+  border-block-end: 1px solid color-mix(in oklch, #C77B1E 40%, transparent);
+  color: #F7EEDB;
+}
+
+body:has([data-screen="arena"]) > nav a { color: #F0C46A; }
+body:has([data-screen="arena"]) > nav a:hover { color: #FFE9B8; }
+
+body:has([data-screen="arena"]):has([data-theme="formica"]) {
+  background: radial-gradient(78% 58% at 50% -12%, #3A4348 0%, #171B1D 56%, #090C0D 100%);
+}
+body:has([data-screen="arena"]):has([data-theme="formica"]) > nav {
+  background: linear-gradient(180deg, #222B2F, #121719);
+}
+body:has([data-screen="arena"]):has([data-theme="formica"]) > nav a { color: #CFE3E9; }
+
+body:has([data-screen="arena"]):has([data-theme="neon"]) {
+  background: radial-gradient(78% 58% at 50% -12%, #43277A 0%, #120922 56%, #06030C 100%);
+}
+body:has([data-screen="arena"]):has([data-theme="neon"]) > nav {
+  background: linear-gradient(180deg, #241542, #100820);
+}
+body:has([data-screen="arena"]):has([data-theme="neon"]) > nav a { color: #35E0D8; }
+
+body:has([data-screen="arena"]):has([data-theme="madeira"]) {
+  background: radial-gradient(78% 58% at 50% -12%, #5A3A18 0%, #1E1207 56%, #0C0703 100%);
+}
+body:has([data-screen="arena"]):has([data-theme="madeira"]) > nav {
+  background: linear-gradient(180deg, #33200D, #1A1008);
+}
+body:has([data-screen="arena"]):has([data-theme="madeira"]) > nav a { color: #FFDFA0; }
+/* The board takes the room, so the terminal's strip gives some back — but a
+   link stays a thumb tall: shrinking the chrome must not shrink the target. */
+body:has([data-screen="arena"]) > nav { padding: 6px 16px; font-size: 0.875rem; }
+body:has([data-screen="arena"]) > nav a {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 26px;
+}
+
+@keyframes closebeat { from { opacity: 0.999; } to { opacity: 1; } }
+
+  to { scale: 1; opacity: 0; }
+}
+
+@keyframes ember {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--attention) 55%, transparent); }
+  50% { box-shadow: 0 0 0 7px color-mix(in oklch, var(--attention) 0%, transparent); }
+}
+
+@keyframes talked-a { from { translate: 0 7px; scale: 0.94; opacity: 0; } }
+@keyframes talked-b { from { translate: 0 7px; scale: 0.94; opacity: 0; } }
+
+@keyframes land {
+  from { translate: 0 calc(var(--card-h) * -0.2); opacity: 0; }
+  to { translate: 0 0; opacity: 1; }
+}
+
+/* Dealt cards arrive one after another, from the deck's side of the table. */
+@keyframes deal {
+  from { translate: 0 calc(var(--card-h) * -0.9); rotate: -12deg; opacity: 0; }
+  to { translate: 0 calc(abs(var(--fan, 0)) * 3px); rotate: calc(var(--fan, 0) * 5deg); opacity: 1; }
+}
+
+/* Paired like talked-a/b. */
+@keyframes shout-up-a {
+  from { opacity: 0; translate: 0 45cqh; scale: 0.3; rotate: -25deg; }
+  70% { opacity: 1; translate: 0 calc(var(--drop, 0px) - 0.08em); scale: 1.12; rotate: var(--lean, 0deg); }
+  to { translate: 0 var(--drop, 0px); scale: 1; rotate: var(--lean, 0deg); }
+}
+@keyframes shout-up-b {
+  from { opacity: 0; translate: 0 45cqh; scale: 0.3; rotate: -25deg; }
+  70% { opacity: 1; translate: 0 calc(var(--drop, 0px) - 0.08em); scale: 1.12; rotate: var(--lean, 0deg); }
+  to { translate: 0 var(--drop, 0px); scale: 1; rotate: var(--lean, 0deg); }
+}
+@keyframes shout-down-a {
+  from { opacity: 0; translate: 0 -45cqh; scale: 2.2; rotate: 12deg; }
+  70% { opacity: 1; translate: 0 calc(var(--drop, 0px) + 0.06em); scale: 0.94; rotate: var(--lean, 0deg); }
+  to { translate: 0 var(--drop, 0px); scale: 1; rotate: var(--lean, 0deg); }
+}
+@keyframes shout-down-b {
+  from { opacity: 0; translate: 0 -45cqh; scale: 2.2; rotate: 12deg; }
+  70% { opacity: 1; translate: 0 calc(var(--drop, 0px) + 0.06em); scale: 0.94; rotate: var(--lean, 0deg); }
+  to { translate: 0 var(--drop, 0px); scale: 1; rotate: var(--lean, 0deg); }
+}
+@keyframes flicker-a {
+  0%, 9%, 26%, 48%, 100% { opacity: 0; }
+  10% { opacity: 0.55; } 16% { opacity: 0.9; } 32% { opacity: 0.4; }
+}
+@keyframes flicker-b {
+  0%, 9%, 26%, 48%, 100% { opacity: 0; }
+  10% { opacity: 0.55; } 16% { opacity: 0.9; } 32% { opacity: 0.4; }
+}
+@keyframes plate-up {
+  from { opacity: 0; scale: 0.88; }
+}
+@keyframes back-turn { to { transform: rotateY(90deg); opacity: 0; } }
+@keyframes leave-up { to { translate: 0 calc(var(--card-h) * -0.6); rotate: 0deg; opacity: 0; } }
+@keyframes leave-down { to { translate: 0 calc(var(--card-h) * 0.4); rotate: 0deg; opacity: 0; } }
+@keyframes tap {
+  0%, 40%, 80%, 100% { translate: 0 calc(var(--card-h) * -0.5); }
+  20%, 60% { translate: 0 calc(var(--card-h) * -0.5 + 6px); }
+}
+@keyframes hum {
+  0%, 100% { rotate: var(--r, 0deg); }
+  25% { rotate: calc(var(--r, 0deg) + 3deg); }
+  75% { rotate: calc(var(--r, 0deg) - 3deg); }
+}
+@keyframes carry {
+  from { translate: 0 0; scale: 1.4; opacity: 0; }
+  15% { opacity: 1; }
+  to { translate: var(--dx) var(--dy); scale: 1; opacity: 1; }
+}
+@keyframes land {
+  from { opacity: 0; scale: 0.4; }
+}
+
+/* The hand's verdict does not blink into place. */
+@keyframes verdict {
+  from { scale: 0.94; opacity: 0; }
+  to { scale: 1; opacity: 1; }
+}
+
+.screen[data-screen="arena"] {
+  /* Objects on the table settle slower than chrome reacts. */
+  --motion-settle: 420ms;
+  --motion-settle-ease: cubic-bezier(.2, .86, .28, 1);
+  /* --chrome is the terminal's own nav strip, measured by the dealer at
+     mount; the fallback keeps the board whole if that never runs. Border-box
+     because the padding is inside the viewport, not added to it. */
+  box-sizing: border-box;
+  block-size: calc(100dvh - var(--chrome, 3.1rem));
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  align-items: center;
+  padding: clamp(4px, 1dvh, 10px);
+  overflow: hidden;
+
+  & *, & *::before, & *::after { box-sizing: border-box; }
+
+  & .board {
+    min-block-size: 0;
+    block-size: 100%;
+    display: grid;
+    padding: clamp(4px, 0.9dvh, 9px);
+    border-radius: clamp(10px, 1.8dvh, 18px);
+  }
+
+  /* The region wrappers dissolve: the match row and the hand row are stores,
+     not boxes, so their children sit directly on the board's grid. */
+  & .matchbox, & .hands, & .hand { display: contents; }
+
+  & .mat {
+    min-block-size: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "seat    pickers"
+      "scores  scores"
+      "line    line"
+      "spine   spine"
+      "play    play"
+      "log     log";
+    gap: clamp(3px, 0.9dvh, 10px);
+    padding: clamp(6px, 1.4dvh, 16px);
+    border-radius: clamp(7px, 1.4dvh, 12px);
+  }
+
+  /* Who is at the table. One line, always. */
+  & .seatbar {
+    grid-area: seat;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+    min-inline-size: 0;
+    /* On the pad, not on the cloth: at 8px the epithet reads about 4:1 against
+       gingham however dark the ink, because the check itself carries the
+       contrast. Small type gets a flat surface or it does not ship. */
+    /* Sized by its grid track, not by its content: the pad shares a row with
+       the pickers, and a seatbar that sizes to what is in it runs under them
+       on a narrow table. What gives is the epithet, which already ellipsizes. */
+    justify-self: stretch;
+    overflow: hidden;
+    padding: clamp(3px, 0.7dvh, 7px) clamp(7px, 1.4vw, 13px);
+  }
+
+  & .seatbar .avatar {
+    display: grid;
+    place-items: center;
+    inline-size: clamp(26px, 3.6dvh, 34px);
+    block-size: clamp(26px, 3.6dvh, 34px);
+    border: 1px solid var(--rim);
+    border-radius: var(--r-full);
+    background: linear-gradient(180deg, var(--wood-lip), var(--wood-deep));
+    color: var(--rim-hi);
+    font-weight: 700;
+    font-size: 0.8125rem;
+  }
+
+  & .seatbar .who { display: grid; min-inline-size: 0; }
+  & .seatbar .who b {
+    font-size: clamp(0.75rem, 1.7dvh, 0.9375rem);
+    color: var(--pad-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  & .seatbar .sect {
+    color: var(--pad-dim);
+    font-size: clamp(0.5rem, 1.15dvh, 0.6875rem);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* The position you hold this hand: mão plays first, pé plays last and has
+     the final word on every trick of it. */
+  & .seat-role {
+    padding: 2px 8px;
+    border: 1px solid var(--pad-line);
+    border-radius: var(--r-full);
+    background: var(--pad-2);
+    border-radius: var(--r-full);
+    font: 700 clamp(0.5rem, 1.15dvh, 0.6875rem)/1.6 ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--pad-ink);
+  }
+
+  /* Mão plays first and pé plays last. Which you hold follows from who led the
+     rodada the hand opened with, and from how many seats are at the table —
+     both of them bound on rows that are the seatbar's siblings, which is what
+     :has() is for. Read off the singleton that carries the hand's lead and not
+     off the hand itself: a list region can hold the outgoing row and the
+     incoming one for a frame while a hand is dealt, and two hands with two
+     leads showed both words at once. Both ship as real text and the one not in
+     force is removed — a word assembled in CSS is a word nobody can select,
+     search or hear. */
+  & .seat-role { display: none; }
+  & .seat-role i { display: none; font-style: normal; }
+
+  &:has(.actions[data-leader="you"]) .seat-role,
+  &:has(.matchbox[data-seats="1v1"]):has(.actions[data-leader="eles1"]) .seat-role,
+  &:has(.matchbox[data-seats="2v2"]):has(.actions[data-leader="eles2"]) .seat-role {
+    display: inline-block;
+  }
+
+  &:has(.actions[data-leader="you"]) .seat-role i[data-r="mao"] { display: inline; }
+  &:has(.matchbox[data-seats="1v1"]):has(.actions[data-leader="eles1"]) .seat-role i[data-r="pe"],
+  &:has(.matchbox[data-seats="2v2"]):has(.actions[data-leader="eles2"]) .seat-role i[data-r="pe"] {
+    display: inline;
+  }
+
+  /* The rules are reached from the table rather than from a strip above it.
+     On the pad with the rest of the seatbar, so the one piece of navigation
+     the app has is a thing on the table and not chrome around it. */
+  & .rules-link {
+    display: inline-flex;
+    align-items: center;
+    margin-inline-start: auto;
+    min-block-size: 24px;
+    padding: 2px 8px;
+    border-block-end: 1px solid color-mix(in oklch, var(--pad-dim) 55%, transparent);
+    color: var(--pad-dim);
+    font: 700 clamp(0.5rem, 1.15dvh, 0.6875rem)/1.6 ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  & .rules-link:hover { color: var(--pad-ink); border-block-end-color: var(--pad-ink); }
+  & .rules-link:focus-visible { outline: 2px solid var(--rim); outline-offset: 2px; }
+
+  & .pickers {
+    grid-area: pickers;
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: end;
+    gap: 6px;
+    min-inline-size: 0;
+  }
+
+  /* They shrink before they wrap: three pickers on two lines eat a row of the
+     table, and the row they eat is the one the cards need. */
+  & .pickers .picker > button {
+    min-inline-size: 0;
+    padding-inline: clamp(5px, 0.8vw, 10px);
+    font-size: clamp(0.625rem, 1.3dvh, 0.8125rem);
+  }
+
+  /* The scoreboard: two figures with the one hot thing between them. */
+  & .scores {
+    grid-area: scores;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: var(--sp-sm);
+    padding: clamp(4px, 0.9dvh, 9px) clamp(8px, 1.6vw, 16px);
+  }
+
+  /* The pad the bar keeps the score on: a striped header over the paper, the
+     way a caderneta is bound. */
+  & .scores {
+    position: relative;
+    overflow: hidden;
+    padding-block-start: calc(clamp(4px, 0.9dvh, 9px) + 5px);
+  }
+
+  & .scores::before {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    inset-block-start: 0;
+    block-size: 5px;
+    background: repeating-linear-gradient(90deg,
+      var(--rim) 0 9px, color-mix(in oklch, var(--rim) 52%, #000) 9px 18px);
+  }
+
+  & .score .sect { font-size: clamp(0.5rem, 1.1dvh, 0.6875rem); color: var(--pad-dim); }
+
+  & .score .figure {
+    margin: 0;
+    font: 800 clamp(2rem, 7dvh, 3.75rem)/1 ui-sans-serif, system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+    color: var(--pad-ink);
+    /* Pressed into the paper rather than printed on it. */
+    text-shadow:
+      0 1px 0 color-mix(in oklch, #fff 75%, transparent),
+      0 2px 4px color-mix(in oklch, #000 22%, transparent);
+    transition: color var(--motion-base) var(--motion-ease);
+  }
+
+  & .score.them { text-align: end; }
+
+  & .stake {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: clamp(3px, 0.7dvh, 7px) clamp(8px, 1.4dvh, 15px);
+    font: 700 clamp(0.5625rem, 1.35dvh, 0.8125rem)/1 ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+  }
+
+  & .stake b { font-size: 1.15em; }
+
+  /* Both words ship as text and the one not in force is removed. A hand is
+     RAISED when it is off the variant's base — paulista opens at 1, mineiro at
+     2, and 2 is not a rung on the paulista ladder, so the pair covers both
+     without the badge having to be told which variant it is in. */
+  & .stake .stake-word i { font-style: normal; }
+  & .stake .stake-word i[data-w="up"] { display: none; }
+  & .stake:not([data-stake="1"]):not([data-stake="2"]) .stake-word i[data-w="base"] { display: none; }
+  & .stake:not([data-stake="1"]):not([data-stake="2"]) .stake-word i[data-w="up"] { display: inline; }
+
+  /* The single loop in the app, and it runs only while the hand is raised. */
+  & .stake:not([data-stake="1"]):not([data-stake="2"]) {
+    border-color: var(--attention);
+    color: #fff;
+    background: linear-gradient(180deg,
+      color-mix(in oklch, var(--attention) 85%, #000) 0%,
+      color-mix(in oklch, var(--attention) 55%, #000) 100%);
+    animation: ember 1.6s var(--motion-ease) infinite;
+  }
+
+  & .stake[data-stake="9"],
+  & .stake[data-stake="12"] {
+    border-color: var(--danger);
+    background: linear-gradient(180deg,
+      color-mix(in oklch, var(--danger) 88%, #000) 0%,
+      color-mix(in oklch, var(--danger) 58%, #000) 100%);
+  }
+
+  /* The picker shows its value as text, not as generated content: a value
+     drawn by CSS is a value no screen reader and no copy ever sees. */
+  & .pick-label i { font-style: normal; }
+
+  /* Names the control for a screen reader without taking room on the felt. */
+  & .sr {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* The spine is the hand's whole progress bar: five nodes, the current one
+     lit, each decided vaza wearing its verdict — no second row of chips
+     repeating it. */
+  & .spine {
+    grid-area: spine;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    margin: 0;
+    /* The weave is busy; the hand's own instruments get a calm strip to sit
+       on so their small type stays readable on every cloth. */
+    padding: 5px 8px;
+    list-style: none;
+  }
+
+  & .spine > li {
+    position: relative;
+    display: grid;
+    justify-items: center;
+    align-content: start;
+    gap: 3px;
+    font: 700 clamp(0.5rem, 1.15dvh, 0.6875rem)/1 ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--pad-dim);
+  }
+
+  & .spine > li::before {
+    content: "";
+    inline-size: clamp(7px, 1.2dvh, 11px);
+    block-size: clamp(7px, 1.2dvh, 11px);
+    border: 1px solid var(--rim);
+    border-radius: var(--r-full);
+    background: var(--pad-2);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklch, #fff 60%, transparent),
+      0 2px 3px -1px color-mix(in oklch, #000 55%, transparent);
+    transition: background var(--motion-base) var(--motion-ease),
+                scale var(--motion-base) var(--motion-ease);
+  }
+
+  & .spine > li:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    inset-block-start: clamp(3px, 0.55dvh, 5px);
+    inset-inline-start: calc(50% + 8px);
+    inline-size: calc(100% - 16px);
+    block-size: 1px;
+    background: color-mix(in oklch, var(--rim) 50%, transparent);
+  }
+
+  & .spine[data-phase="v1"] > li:nth-child(-n+1)::before,
+  & .spine[data-phase="v2"] > li:nth-child(-n+2)::before,
+  & .spine[data-phase="v3"] > li:nth-child(-n+3)::before,
+  & .spine[data-phase="result"] > li:nth-child(-n+4)::before {
+    background: color-mix(in oklch, var(--rim) 55%, var(--cloth-2));
+  }
+
+  & .spine[data-phase="dealt"] > li:nth-child(1),
+  & .spine[data-phase="v1"] > li:nth-child(2),
+  & .spine[data-phase="v2"] > li:nth-child(3),
+  & .spine[data-phase="v3"] > li:nth-child(4),
+  & .spine[data-phase="result"] > li:nth-child(5) { color: var(--pad-ink); font-weight: 800; }
+
+  & .spine[data-phase="dealt"] > li:nth-child(1)::before,
+  & .spine[data-phase="v1"] > li:nth-child(2)::before,
+  & .spine[data-phase="v2"] > li:nth-child(3)::before,
+  & .spine[data-phase="v3"] > li:nth-child(4)::before,
+  & .spine[data-phase="result"] > li:nth-child(5)::before {
+    background: var(--rim);
+    scale: 1.25;
+  }
+
+  & .spine > li[data-v="us"] { color: var(--accent); }
+  & .spine[data-phase] > li { color: var(--pad-dim); }
+  & .spine > li[data-v="us"]::before { background: var(--rim); border-color: var(--rim); }
+  & .spine > li[data-v="them"] { color: var(--danger); }
+  & .spine > li[data-v="them"]::before { background: var(--danger); border-color: var(--danger); }
+  & .spine > li[data-v="tie"]::before { background: var(--on-cloth); border-color: var(--on-cloth); }
+  & .spine > li[data-v="us"] > span::after { content: " ✓"; }
+  & .spine > li[data-v="them"] > span::after { content: " ✗"; }
+  & .spine > li[data-v="tie"] > span::after { content: " ="; }
+
+  /* The vira and what the manilhas are, riding the top of the felt so they
+     cost no row of their own. */
+  & .handline {
+    grid-area: line;
+    justify-self: center;
+    padding: 3px 12px;
+    display: flex;
+    align-items: center;
+    gap: clamp(6px, 1.4vw, 14px);
+    font-size: clamp(0.625rem, 1.5dvh, 0.875rem);
+    color: var(--pad-ink);
+  }
+
+  & .vira-slot { display: inline-flex; align-items: center; gap: 5px; }
+  & .vira-slot .sect { font-size: inherit; }
+
+  & .vira {
+    padding: 1px 6px;
+    border: 1px solid var(--stock-line);
+    border-radius: var(--r-sm);
+    background: var(--stock);
+    color: var(--ink);
+    font-weight: 700;
+  }
+
+  & .manilha-note b { color: var(--danger); font-weight: 800; }
+
+  /* The felt: house hands at the top, the mat in the middle, your hand at the
+     bottom, actions under it. Rows are auto and the slack is shared, so an
+     empty mat leaves a pause rather than a hole. */
+  & .play {
+    grid-area: play;
+    min-block-size: 0;
+    container-type: size;
+    container-name: felt;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+    justify-items: center;
+    align-content: space-evenly;
+    gap: clamp(2px, 0.6dvh, 8px);
+  }
+
+  /* Three card rows, a line of talk and a row of buttons have to fit the felt,
+     so the card takes its size from the felt's own box — declared on the
+     felt's children, because container-query units never resolve against the
+     element that declares the container — on .play itself they fall back to
+     the viewport and the card stops tracking the felt entirely. The floor is
+     the
+     smallest card still worth tapping; below the height that fits three rows
+     of it the table has simply run out of room. */
+  & .play > * {
+    --card-w: clamp(34px, min(26cqw, 19cqh), 168px);
+    /* Height and radius are re-declared, not inherited. A custom property
+       substitutes its var()s where it is DECLARED and then inherits the
+       resolved value, so overriding --card-w alone leaves them resolved
+       against the screen's, and the card is no longer 1:1.46. */
+    --card-h: calc(var(--card-w) * 1.46);
+    --card-r: calc(var(--card-w) * 0.12);
+  }
+
+  & .seat-row {
+    display: flex;
+    justify-content: center;
+    gap: clamp(4px, 1.4vw, 14px);
+    min-block-size: var(--card-h);
+    flex: 0 0 auto;
+  }
+
+  & .seat-row.mine { gap: clamp(6px, 2.2vw, 22px); }
+
+  /* Their cards are in their hands, not lying on the cloth: the row is shorter
+     than a card and clips, so the backs run off the top edge the way a hand
+     held across the table does. They carry no information — only how many are
+     left — so the half you can see is the whole point of them. */
+  & .seat-row.house {
+    block-size: calc(var(--card-h) * 0.46);
+    overflow: hidden;
+    align-items: start;
+    perspective: 700px;
+  }
+  & .seat-row.house .card-back[data-exit] { animation: back-turn 200ms var(--motion-ease) forwards; }
+  /* The tells are finite: the tell is a beat, and the stake badge stays the
+     table's one loop. */
+  & .seat-row.house .card-back { transition: rotate var(--motion-base) var(--motion-ease), translate var(--motion-base) var(--motion-ease), opacity var(--motion-base) var(--motion-ease), scale var(--motion-base) var(--motion-ease); }
+  & .seats[data-tell="nezinho"] .seat-row.house[data-seat^="eles"] .card-back { rotate: 0deg; translate: 0 calc(var(--card-h) * -0.5); }
+  & .seats[data-tell="cida"] .seat-row.house[data-seat^="eles"] .card-back { animation: tap 600ms var(--motion-ease) both; }
+  & .seats[data-tell="tiao"] .seat-row.house[data-seat^="eles"] .card-back { animation: hum 700ms ease-in-out both; }
+  & .seats[data-tell="ze"] .seat-row.house[data-seat^="eles"] .card-back { opacity: 0.7; scale: 0.96; }
+  & .seats {
+    display: flex;
+    justify-content: center;
+    align-items: start;
+    gap: clamp(8px, 3vw, 40px);
+    inline-size: 100%;
+    box-sizing: border-box;
+    min-block-size: calc(var(--card-h) * 0.46);
+  }
+  &:has(.matchbox[data-seats="1v1"]) .seat-row.house:not(:has(.card-back)) { display: none; }
+  /* Three hands across the top: eles either side of the parça, each held
+     tight and dealt smaller so the three fit where one was spread. The
+     card vars are re-declared, not scaled: the fan's overlap and the row's
+     clip are both in card units. */
+  &:has(.matchbox[data-seats="2v2"]) .seats {
+    --card-w: clamp(34px, min(17cqw, 12.5cqh), 110px);
+    --card-h: calc(var(--card-w) * 1.46);
+    --card-r: calc(var(--card-w) * 0.12);
+    gap: clamp(6px, 1.5vw, 20px);
+    padding-inline: clamp(4px, 1vw, 12px);
+  }
+  /* A seat keeps its third as its hand empties; the fans do not slide. */
+  &:has(.matchbox[data-seats="2v2"]) .seat-row.house { flex: 1 1 0; min-inline-size: 0; }
+  &:has(.matchbox[data-seats="2v2"]) .seat-row.house .card-back + .card-back { margin-inline-start: calc(var(--card-w) * -0.62); }
+
+  & .seat-row.house .card-back {
+    translate: 0 calc(var(--card-h) * -0.5);
+    transform-origin: 50% 100%;
+  }
+
+  & .seat-row.house .card-back:nth-child(1) { --r: -7deg; rotate: var(--r); }
+  & .seat-row.house .card-back:nth-child(2) { --r: -1deg; rotate: var(--r); translate: 0 calc(var(--card-h) * -0.54); }
+  & .seat-row.house .card-back:nth-child(3) { --r: 6deg; rotate: var(--r); }
+
+  /* The fan is structural: the terminal renders the hand from rows and a
+     template binds fields, it cannot compute a card's place from the count.
+     :first/:last/:only give the same arc for one, two or three cards, and the
+     row re-centres itself as cards leave it. */
+  & .seat-row.mine .card {
+    rotate: 0deg;
+    translate: 0 0;
+    cursor: pointer;
+    animation: deal var(--motion-base) var(--motion-ease) both;
+    transition: translate var(--motion-base) var(--motion-ease),
+                rotate var(--motion-base) var(--motion-ease),
+                scale var(--motion-base) var(--motion-ease),
+                box-shadow var(--motion-base) var(--motion-ease);
+  }
+
+  & .seat-row.mine .card:first-child:not(:only-child) { rotate: -5deg; translate: 0 3px; }
+  & .seat-row.mine .card:last-child:not(:only-child) { rotate: 5deg; translate: 0 3px; }
+  & .seat-row.mine .card:nth-child(2) { animation-delay: 70ms; }
+  & .seat-row.mine .card:nth-child(3) { animation-delay: 140ms; }
+
+  & .seat-row.mine .card:not([disabled]):hover,
+  & .seat-row.mine .card:not([disabled]):focus-visible {
+    translate: 0 calc(var(--card-h) * -0.16);
+    rotate: 0deg;
+    scale: 1.05;
+    z-index: 3;
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklch, #fff 90%, transparent),
+      0 calc(var(--card-w) * 0.20) calc(var(--card-w) * 0.30) calc(var(--card-w) * -0.10)
+        color-mix(in oklch, #000 85%, transparent),
+      0 0 calc(var(--card-w) * 0.26) color-mix(in oklch, var(--lamp) 50%, transparent);
+    outline: none;
+  }
+
+  & .seat-row.mine .card:not([disabled]):focus-visible { border-color: var(--rim-hi); }
+
+  & .matcards {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(8px, 3vw, 28px);
+    min-block-size: calc(var(--card-h) * 1.15);
+    min-inline-size: calc(var(--card-w) * 2.8);
+    border: 1px dashed color-mix(in oklch, var(--on-cloth) 14%, transparent);
+    border-radius: var(--r-md);
+  }
+
+  /* The wrapper is the round, and lays nothing out. */
+  & .matwrap { display: contents; }
+
+  /* The three rodadas are always in the markup; one nobody has played to
+     takes no room, and the empty felt keeps its dashed outline until the
+     first card is down. */
+  & .trick:not(:has(.played)) { display: none; }
+  & .matcards:has(.played) { border-color: transparent; }
+
+  /* Where it fell. The angle is the card's own and it keeps it for the hand;
+     the second card of a rodada lands across the first rather than beside it,
+     because a table is not a shelf. */
+  /* The felt has depth: the cards lie back a little under the bulb rather than
+     lying flat against the screen, and each keeps its own angle. */
+  & .matcards { perspective: 900px; }
+
+  & .played {
+    rotate: calc(var(--lie, 0) * 1deg);
+    transform: rotateX(6deg);
+    transition: transform var(--motion-settle) var(--motion-settle-ease);
+  }
+  & .played + .played { margin-inline-start: calc(var(--card-w) * -0.26); }
+
+  & .played .card {
+    animation: land var(--motion-settle) var(--motion-settle-ease) both;
+    transition: translate var(--motion-base) var(--motion-ease),
+                opacity var(--motion-base) var(--motion-ease);
+  }
+
+  /* Nothing is collected until the hand ends. A closed trick keeps its cards
+     on the felt — smaller, dimmed, and marked with who took it — so a player
+     who looked away can still read the whole hand off the table. */
+  & .trick {
+    display: flex;
+    align-items: center;
+    gap: clamp(4px, 1vw, 10px);
+    padding: clamp(3px, 0.7dvh, 7px);
+    border: 1px solid transparent;
+    border-radius: var(--r-md);
+    transition: opacity var(--motion-settle) var(--motion-settle-ease),
+                border-color var(--motion-settle) var(--motion-settle-ease);
+  }
+
+  /* A rodada is closed when the round has stated its verdict, so the felt
+     wears the round's own three fields and each rodada reads the one that is
+     its own. */
+  & .matcards {
+    &:is([data-v1="us"], [data-v1="them"], [data-v1="tie"]) .trick[data-t="1"],
+    &:is([data-v2="us"], [data-v2="them"], [data-v2="tie"]) .trick[data-t="2"],
+    &:is([data-v3="us"], [data-v3="them"], [data-v3="tie"]) .trick[data-t="3"] {
+      scale: 0.66;
+      opacity: 0.9;
+      margin-inline: calc(var(--card-w) * -0.14);
+
+      /* A closed rodada settles flatter and further off, the way a pile
+         pushed to one side of the table does. */
+      & .played { transform: rotateX(10deg); }
+
+      /* The card that took the rodada keeps its edge lit. */
+      & .played:not([data-win="yes"]) .card { opacity: 0.82; }
+      & .played .card { transition-duration: var(--motion-settle); }
+      & .played[data-win="yes"] .card {
+        box-shadow: 0 0 0 2px color-mix(in oklch, var(--rim) 70%, transparent);
+      }
+    }
+
+    &[data-v1="us"] .trick[data-t="1"],
+    &[data-v2="us"] .trick[data-t="2"],
+    &[data-v3="us"] .trick[data-t="3"] { border-color: color-mix(in oklch, var(--rim) 60%, transparent); }
+
+    &[data-v1="them"] .trick[data-t="1"],
+    &[data-v2="them"] .trick[data-t="2"],
+    &[data-v3="them"] .trick[data-t="3"] { border-color: color-mix(in oklch, var(--danger) 55%, transparent); }
+
+    &[data-v1="tie"] .trick[data-t="1"],
+    &[data-v2="tie"] .trick[data-t="2"],
+    &[data-v3="tie"] .trick[data-t="3"] { border-color: color-mix(in oklch, var(--on-cloth) 35%, transparent); }
+  }
+
+  /* What the table says, on a strip of its own: dark enough that the cloth
+     stops showing through, lit along its top edge by the same bulb as
+     everything else, and thrown far enough off the felt to sit in front of it
+     rather than on it. */
+  & .talk {
+    min-block-size: 1.3em;
+    padding: clamp(3px, 0.6dvh, 6px) clamp(12px, 2vw, 22px);
+    border-radius: var(--r-full);
+    background: linear-gradient(180deg,
+      color-mix(in oklch, var(--wood-deep) 90%, transparent) 0%,
+      color-mix(in oklch, #000 62%, transparent) 100%);
+    font: 700 clamp(0.8125rem, 2dvh, 1.125rem)/1.3 ui-sans-serif, system-ui, sans-serif;
+    text-align: center;
+    color: #FDF6E7;
+    text-shadow: 0 1px 0 color-mix(in oklch, #000 55%, transparent);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklch, var(--rim) 45%, transparent),
+      0 10px 20px -10px color-mix(in oklch, #000 90%, transparent);
+  }
+
+  & .talk:empty { box-shadow: none; background: none; }
+
+  /* Every line the table says should land. A CSS animation only restarts when
+     the animation NAME changes, so the two below are identical and the dealer
+     alternates between them. */
+  & .talk[data-t="1"] { animation: talked-a var(--motion-base) var(--motion-ease); }
+  & .talk[data-t="2"] { animation: talked-b var(--motion-base) var(--motion-ease); }
+
+  /* The beat between the last card of a rodada and its close. An animation and
+     not a timer: a handler evaluated with nothing endowed has no clock, so the
+     terminal turns this animation's end into the event that folds the rodada's
+     verdicts onto the round (ir decision-30). It paints nothing — the duration
+     is the whole point of it. */
+  & .log[data-closing] { animation: closebeat 700ms linear; }
+
+  /* The hand's verdict lands over the felt, not in the flow: it appears for a
+     beat between hands and must not move the board when it does. */
+  & .said {
+    grid-area: play;
+    align-self: center;
+    justify-self: center;
+    z-index: 3;
+    margin: 0;
+    padding: clamp(6px, 1.4dvh, 14px) clamp(12px, 3vw, 28px);
+    border: 1px solid var(--rim);
+    border-radius: var(--r-md);
+    background: color-mix(in oklch, var(--cloth-edge) 88%, transparent);
+    font: 800 clamp(0.9375rem, 2.6dvh, 1.5rem)/1.2 ui-sans-serif, system-ui, sans-serif;
+    color: var(--rim-hi);
+    text-align: center;
+    text-shadow: 0 1px 0 color-mix(in oklch, #000 45%, transparent);
+    pointer-events: none;
+    animation: verdict var(--motion-base) var(--motion-ease) both;
+  }
+
+  & .said:empty { display: none; }
+
+  /* The log is a rail on a wide screen and the last two lines on a phone; it
+     is never a list the board has to scroll to reach. */
+  & .log {
+    grid-area: log;
+    display: grid;
+    align-content: end;
+    min-block-size: 0;
+    gap: 1px;
+    margin: 0;
+    padding: 5px 8px;
+    border-block-start: 1px solid color-mix(in oklch, var(--on-cloth) 22%, transparent);
+    list-style: none;
+    font-size: clamp(0.6875rem, 1.25dvh, 0.75rem);
+    /* The smallest type on the screen, so it takes the pad's full ink rather
+       than its dim: the battery judges glyphs as they render, and at this size
+       a dim tone is more edge than body — it measures 3.6 where the two flat
+       colours are nominally 5.4. Rank is carried by size here, not by tone. */
+    color: var(--pad-ink);
+  }
+
+  & .log > li {
+    display: grid;
+    grid-template-columns: 1.6rem 3.4rem 1fr;
+    gap: 6px;
+    white-space: nowrap;
+  }
+
+  & .log li[data-kind="truco"] .what,
+  & .log li[data-kind="accept"] .what,
+  & .log li[data-kind="run"] .what { color: var(--danger); font-weight: 700; }
+  & .log .v::after { content: "ª"; }
+  & .log li[data-seat="you"] .who::before { content: "você"; }
+  & .log li[data-seat="parca"] .who::before { content: "parça"; }
+  & .log li[data-seat="eles1"] .who::before { content: "eles"; }
+  & .log li[data-seat="eles2"] .who::before { content: "eles 2"; }
+  & .log .empty { margin: 0; grid-column: 1 / -1; }
+
+  /* Lowered by the dealer when the call is answered. */
+  & .play { position: relative; }
+  & .shout {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    /* Above the mat's centre, where the played cards lie, not on it. */
+    padding-block-end: 12cqh;
+    gap: 0;
+    pointer-events: none;
+    z-index: 2;
+    white-space: nowrap;
+    font: 400 clamp(2.5rem, 24cqh, 9rem)/1 var(--shout-font);
+    color: #FBF3DF;
+    -webkit-text-stroke: max(1.5px, 0.02em) var(--wood-deep);
+    paint-order: stroke fill;
+    text-shadow: 0.04em 0.05em 0 color-mix(in oklch, var(--wood-deep) 45%, transparent);
+    transition: opacity var(--motion-base) var(--motion-ease), scale var(--motion-base) var(--motion-ease);
+  }
+  & .shout[data-from="them"] { font-size: clamp(3rem, 30cqh, 11rem); color: var(--rim-hi); }
+  & .shout[data-kind="run"] { font-size: clamp(1.75rem, 12cqh, 4.5rem); color: var(--pad-line); -webkit-text-stroke-width: max(1px, 0.015em); }
+  & .shout:not([data-state="live"]) { opacity: 0; scale: 0.8; }
+  & .shout i {
+    display: inline-block;
+    font-style: normal;
+    animation: none 420ms var(--motion-ease) calc(var(--i, 0) * 45ms) both;
+  }
+  & .shout[data-from="us"][data-t="1"] i { animation-name: shout-up-a; }
+  & .shout[data-from="us"][data-t="2"] i { animation-name: shout-up-b; }
+  & .shout[data-from="them"][data-t="1"] i { animation-name: shout-down-a; }
+  & .shout[data-from="them"][data-t="2"] i { animation-name: shout-down-b; }
+  & .shout i:nth-child(odd) { --lean: -4deg; --drop: 0.06em; }
+  & .shout i:nth-child(even) { --lean: 3deg; --drop: -0.05em; }
+  & .shout i:nth-child(3n) { --lean: -2deg; --drop: -0.1em; }
+  & .shout i:last-child { --lean: 8deg; --drop: 0.08em; }
+
+  & .bulb {
+    position: absolute;
+    /* Wider than the felt's middle column: the light falls on the pads too. */
+    inset: -4% -36%;
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0;
+    mix-blend-mode: screen;
+    background: radial-gradient(ellipse 55% 60% at 50% 12%, rgb(255 236 190 / 0.95) 0%, rgb(255 236 190 / 0.35) 45%, transparent 75%);
+  }
+  & .bulb[data-t="1"] { animation: flicker-a 620ms steps(1, end); }
+  & .bulb[data-t="2"] { animation: flicker-b 620ms steps(1, end); }
+
+  /* What you can do. One set per phase, always within thumb reach. */
+  & .actions, & .answers, & .over, & .nomatch {
+    display: none;
+    flex-wrap: nowrap;
+    justify-content: center;
+    /* The board's grid stretches whichever of these owns a sparse phase, and
+       a stretched cross-axis turns a pill into a slab; the row centers its
+       items at its natural height instead. */
+    align-items: center;
+    align-content: center;
+    gap: clamp(6px, 1.6vw, 14px);
+    inline-size: 100%;
+  }
+
+  & .over, & .nomatch { text-align: center; }
+  & .over p, & .nomatch p {
+    margin: 0;
+    color: var(--on-cloth);
+    font-size: clamp(0.75rem, 1.7dvh, 0.9375rem);
+  }
+
+  & .over-line {
+    font: 800 clamp(1.125rem, 3.4dvh, 1.75rem)/1.2 ui-sans-serif, system-ui, sans-serif;
+    color: var(--rim-hi);
+  }
+  & .over-say { font-style: italic; color: var(--rim-hi); opacity: 0.85; }
+
+  & .play .tento.fly {
+    --mark: clamp(10px, 2dvh, 15px);
+    display: block;
+    position: absolute;
+    left: var(--x0);
+    top: var(--y0);
+    z-index: 3;
+    pointer-events: none;
+    animation: carry 620ms var(--motion-ease) both;
+    animation-delay: calc(var(--i, 0) * 70ms);
+  }
+  & .tento[data-landing] { animation: land 240ms var(--motion-ease) both; animation-delay: 560ms; }
+
+  & .play[data-phase="your-turn"] .actions,
+  & .play[data-phase="waiting"] .actions,
+  & .play[data-phase="resolved"] .actions { display: flex; }
+  & .play[data-phase="waiting"] .actions .act { opacity: 0.5; pointer-events: none; }
+  & .play[data-phase="your-turn"] #btn-next,
+  & .play[data-phase="waiting"] #btn-next { display: none; }
+  & .play[data-phase="resolved"] #btn-truco { display: none; }
+  & .play[data-phase="raised"] .answers { display: flex; }
+  /* Animations, not declarations: the deal's fill holds the card where it
+     landed, and only another animation takes it from there. */
+  & .play[data-ran="us"] .seat-row.mine .card { animation: leave-up var(--motion-base) var(--motion-ease) both; pointer-events: none; }
+  & .play[data-ran="them"] .seat-row.house .card-back { animation: leave-down var(--motion-base) var(--motion-ease) both; }
+
+  & .answers { align-items: flex-end; gap: clamp(6px, 1.4vw, 16px); }
+  & .answers .act {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    min-inline-size: clamp(84px, 24cqw, 156px);
+    padding: 8px 12px 9px;
+    transform-origin: 50% 100%;
+  }
+  & .answers .act b { font: inherit; letter-spacing: 0.06em; text-transform: uppercase; }
+  & .answers .act small { font: 600 0.625rem/1 ui-sans-serif, system-ui, sans-serif; letter-spacing: 0.04em; opacity: 0.75; }
+  & .answers .act small:empty { display: none; }
+  & #btn-accept { rotate: -5deg; }
+  & #btn-run { rotate: 5deg; }
+  & #btn-raise { translate: 0 -6px; }
+  & #btn-raise:hover { translate: 0 -8px; }
+  & #btn-raise:active { translate: 0 -5px; }
+  & .act.hot {
+    border-color: var(--attention);
+    color: #fff;
+    text-shadow: 0 1px 0 color-mix(in oklch, #000 35%, transparent);
+    background: linear-gradient(180deg,
+      color-mix(in oklch, var(--attention) 90%, #fff) 0%,
+      color-mix(in oklch, var(--attention) 70%, #000) 100%);
+  }
+  & .act.hot[disabled] { border-color: var(--pad-line); background: linear-gradient(180deg, var(--pad) 0%, var(--pad-2) 100%); color: var(--pad-ink); text-shadow: none; }
+  & .play[data-phase="raised"] .answers .act { animation: plate-up var(--motion-base) var(--motion-ease) both; }
+  & .play[data-phase="raised"] .answers #btn-run { animation-delay: 60ms; }
+  & .play[data-phase="raised"] .answers #btn-raise { animation-delay: 120ms; }
+  /* Asking for another sitting lives with the other things the table can be
+     asked for — a control has to sit inside a region to be one — so it is
+     hidden until there is a partida to ask after. */
+  & #btn-again, & #btn-start { display: none; }
+  & .play[data-phase="over"] .actions { display: flex; }
+  & .play[data-phase="over"] #btn-truco,
+  & .play[data-phase="over"] #btn-next { display: none; }
+  & .play[data-phase="over"] #btn-again { display: inline-block; }
+  & .play[data-phase="over"] .actions { order: 1; }
+  & .play[data-phase="over"] .over { display: grid; justify-items: center; align-content: center; }
+  & .play[data-phase="idle"] .nomatch { display: grid; justify-items: center; align-content: center; }
+  & .play[data-phase="idle"] .actions { display: flex; }
+  & .play[data-phase="idle"] #btn-truco,
+  & .play[data-phase="idle"] #btn-next { display: none; }
+  & .play[data-phase="idle"] #btn-start { display: inline-block; }
+  & .play[data-phase="idle"] .seat-row,
+  & .play[data-phase="idle"] .matcards,
+  & .play[data-phase="idle"] .handline { display: none; }
+
+  /* The screen's own machine states. The terminal drives loading and empty.
+     validation-error is not among them: every form here is hidden inputs and
+     a submit, so the terminal's checkValidity() gate never fails. A store
+     write that throws does set network-error, local store or not. */
+  &[data-state="loading"] .play,
+  &[data-state="loading"] .scores,
+  &[data-state="loading"] .spine { opacity: 0.35; }
+
+  & .refusal { display: none; }
+  &[data-state="network-error"] .refusal {
+    display: block;
+    margin: 0;
+    padding: 2px 12px;
+    text-align: center;
+    font-size: 0.8125rem;
+    color: var(--danger);
+  }
+
+  /* Landscape and desktop: the log takes a rail beside the felt instead of
+     eating the board's height, and the table stops stretching past a width
+     you could actually sit at. */
+  /* Wide screens: the sides are the table, not margin. The score pad takes the
+     left, the hand's papers and the log take the right, and the felt keeps the
+     whole middle at full height — which is what a short, wide window needs,
+     because stacking everything in one column is what pushed the cards and the
+     call button off the bottom. */
+  @media (min-width: 56rem) {
+    & .board { justify-self: center; inline-size: min(100%, 74rem); block-size: 100%; }
+    & .mat {
+      grid-template-columns: 12rem minmax(0, 1fr) 13rem;
+      grid-template-rows: auto auto auto minmax(0, 1fr);
+      grid-template-areas:
+        "seat    seat  pickers"
+        "scores  play  line"
+        "scores  play  spine"
+        "scores  play  log";
+      column-gap: clamp(10px, 1.6vw, 20px);
+    }
+
+    /* Stacked: nós above, the stake between, eles below. */
+    & .scores {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto auto auto;
+      align-content: start;
+      gap: clamp(6px, 1.4dvh, 14px);
+      align-self: start;
+    }
+
+    & .score.them { text-align: start; }
+    & .score .figure { font-size: clamp(2rem, 5.5dvh, 3.25rem); }
+    & .stakebox { justify-self: start; }
+
+    & .handline { justify-self: stretch; text-align: center; }
+    /* The log is a pad on the table, not a column: it takes the room its
+       entries need and stops. */
+    & .log { align-content: start; align-self: start; max-block-size: 100%; }
+    & .log > li { grid-template-columns: 1.6rem 3.6rem 1fr; }
+  }
+
+  @media (max-width: 55.99rem) {
+    & .log > li:nth-child(n+3) { display: none; }
+    & .seatbar .sect { display: none; }
+  }
+
+  /* Short windows: the papers shrink before the cards do, because a table you
+     cannot play on is worse than a scoreboard you have to squint at. */
+  @media (max-height: 620px) {
+    & .mat { padding: 6px; gap: 3px; }
+    & .scores { padding: 3px 8px; }
+    & .score .figure { font-size: clamp(1.5rem, 5dvh, 2.25rem); }
+    & .spine, & .log { padding: 3px 6px; }
+    & .handline { padding: 1px 8px; }
+    & .seatbar .avatar { inline-size: 24px; block-size: 24px; }
+    & .talk { padding: 1px 10px; }
+    & .log > li:nth-child(n+3) { display: none; }
+  }
+
+  /* Shorter still — a zoomed-in window, a phone in landscape — and the felt
+     can no longer hold three rows of cards beside the chrome. The chrome goes
+     first: the log and the epithet are what a hand can be played without, and
+     giving their height back to the felt is what keeps the call button on
+     screen. Below the point where three rows of a tappable card fit, the
+     table has run out of room and says so by clipping. */
+  @media (max-height: 470px) {
+    & .log { display: none; }
+    & .seatbar .sect { display: none; }
+    & .scores { padding: 2px 6px; }
+    & .score .figure { font-size: clamp(1.1rem, 4dvh, 1.75rem); }
+    & .spine { padding: 2px 5px; }
+    & .handline { padding: 0 6px; }
+  }
+}
+
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }

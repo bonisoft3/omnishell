@@ -1,0 +1,31 @@
+@import "./shared/chrome.css";
+
+/* tabs — every rule scoped under the screen: injected stylesheets outlive
+   the screen that brought them. */
+.screen-tabs { max-width: 720px; margin: 0 auto; padding: var(--sp-lg) var(--sp-md); }
+.screen-tabs .demo-head h1 { margin: 0 0 4px; }
+.screen-tabs .lede { color: var(--secondary); margin: 0 0 var(--sp-lg); }
+.screen-tabs .demo-stage { padding: var(--sp-lg); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); margin-bottom: var(--sp-lg); }
+
+.screen-tabs [role="tablist"] { display: inline-flex; gap: 4px; padding: 4px;
+  background: var(--surface-muted); border-radius: var(--r-sm); }
+.screen-tabs .tab-trigger { font: inherit; border: 0; cursor: pointer;
+  padding: 6px 14px; border-radius: var(--r-sm);
+  background: transparent; color: var(--secondary); }
+/* The semantics are the styling hook: aria-selected is a bound row column. */
+.screen-tabs .tab-trigger[aria-selected="true"] { background: var(--surface);
+  color: var(--primary); box-shadow: 0 1px 2px rgb(0 0 0 / 8%); }
+
+/* Panels project off the root's data-state — Radix's contract, no script. */
+.screen-tabs .tab-panel { display: none; padding: var(--sp-md) 2px 0;
+  color: var(--primary); }
+.screen-tabs .tabs[data-state="account"] [data-panel="account"] { display: block; }
+.screen-tabs .tabs[data-state="password"] [data-panel="password"] { display: block; }
+
+.screen-tabs .demo-pane { margin-top: var(--sp-lg); }
+.screen-tabs .demo-pane h2 { font-size: 1rem; margin: 0 0 4px; }
+.screen-tabs .pane-note { color: var(--secondary); font-size: .875rem; margin: 0 0 8px; }
+.screen-tabs .rowview code, .screen-tabs .machine-json { display: block;
+  font-size: .8125rem; background: var(--surface-muted); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: var(--sp-sm) var(--sp-md); overflow-x: auto; }

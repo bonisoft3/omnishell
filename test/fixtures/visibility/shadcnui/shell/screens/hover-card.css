@@ -1,0 +1,88 @@
+@import "./shared/chrome.css";
+
+/* hover-card — every rule scoped under the screen: injected stylesheets outlive
+   the screen that brought them.
+
+   The surface is anchored the way the popover screen's are: an anchor-name on
+   the trigger and a position-area on the surface, which is the whole of the
+   placement this component has. Nothing here decides openness — that is the
+   terminal's, and no rule may key on it. */
+.screen-hover-card { max-width: 44rem; margin: 0 auto; padding: var(--sp-xl) var(--sp-lg); }
+.screen-hover-card .demo-head h1 { margin: 0 0 var(--sp-sm); font-size: 1.6rem;
+  letter-spacing: -0.02em; color: var(--primary); }
+.screen-hover-card .lede { margin: 0 0 var(--sp-lg); color: var(--secondary); line-height: 1.6; }
+.screen-hover-card .stage-name { font-size: 1rem; margin: var(--sp-lg) 0 8px; color: var(--primary); }
+.screen-hover-card .stage-note { margin: 0 0 var(--sp-sm); font-size: .875rem;
+  line-height: 1.6; color: var(--secondary); }
+.screen-hover-card .demo-stage { display: grid; gap: var(--sp-lg);
+  padding: var(--sp-lg); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); }
+.screen-hover-card .demo-pane { margin-top: var(--sp-lg); }
+.screen-hover-card .demo-pane h2 { font-size: 1rem; margin: 0 0 8px; color: var(--primary); }
+.screen-hover-card .pane-note { margin: 0 0 var(--sp-sm); font-size: .875rem;
+  line-height: 1.6; color: var(--secondary); }
+/* An atomic inline box, so the cross-reference inside a sentence still clears
+   WCAG 2.5.8's 24px floor without the note's type growing to meet it. */
+.screen-hover-card .pane-link { display: inline-flex; align-items: center; min-height: 24px;
+  color: var(--accent); text-decoration-color: var(--border); }
+.screen-hover-card .pane-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.screen-hover-card .hc-line { margin: 0; line-height: 1.8; color: var(--primary); }
+
+/* The trigger is an affordance in a sentence, so it takes the same 24px floor
+   the cross-references do — a hover card's whole gesture starts on this box. */
+.screen-hover-card .hc-trigger { display: inline-flex; align-items: center;
+  min-height: 24px; color: var(--primary); font-weight: 600;
+  text-decoration: underline; text-underline-offset: 3px;
+  text-decoration-color: var(--border); }
+/* One name per trigger, one anchor per surface: anchor-name is not a shared
+   handle, and two elements carrying the same one would let a surface resolve
+   against whichever came last (the popover screen's rule, one screen on). */
+.screen-hover-card #hc-open-profile { anchor-name: --hc-profile; }
+.screen-hover-card #hc-profile { position-anchor: --hc-profile; }
+.screen-hover-card #hc-open-term { anchor-name: --hc-term; }
+.screen-hover-card #hc-term { position-anchor: --hc-term; }
+.screen-hover-card .hc-trigger:hover { text-decoration-color: var(--accent); }
+.screen-hover-card .hc-trigger:focus-visible { outline: 2px solid var(--accent);
+  outline-offset: 2px; border-radius: var(--r-sm); }
+
+/* [popover] is closed-by-default in the UA sheet; only the open box needs
+   styling, and the top layer ignores the page's stacking, so no z-index is
+   declared here. */
+.screen-hover-card .hc-surface { margin: 0; margin-block: 6px; width: 18rem;
+  box-sizing: border-box; max-width: calc(100vw - var(--sp-xl));
+  padding: var(--sp-md); border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface); color: var(--primary);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 14%); }
+/* The place is the attribute's own value, and the fallback is its mirror on the
+   axis it places on — the popover screen's vocabulary, used rather than
+   restated. */
+.screen-hover-card .hc-surface[data-place="block-end"] { position-area: block-end span-inline-end;
+  position-try-fallbacks: flip-block; }
+.screen-hover-card .hc-surface[data-place="block-start"] { position-area: block-start span-inline-end;
+  position-try-fallbacks: flip-block; }
+
+.screen-hover-card .hc-head { display: flex; align-items: center; gap: var(--sp-sm);
+  margin-bottom: var(--sp-sm); }
+.screen-hover-card .hc-avatar { display: grid; place-items: center;
+  width: 2.5rem; height: 2.5rem; border-radius: var(--r-full);
+  background: var(--surface-muted); border: 1px solid var(--border);
+  font-weight: 700; }
+.screen-hover-card .hc-who { display: grid; }
+.screen-hover-card .hc-name { font-size: .9375rem; }
+.screen-hover-card .hc-handle { font-size: .8125rem; color: var(--secondary); }
+.screen-hover-card .hc-bio { margin: 0 0 var(--sp-sm); font-size: .875rem;
+  line-height: 1.5; color: var(--secondary); }
+.screen-hover-card .hc-meta { margin: 0 0 var(--sp-sm); font-size: .75rem; color: var(--secondary); }
+.screen-hover-card .hc-link { display: inline-flex; align-items: center;
+  min-height: 24px; font-size: .8125rem; font-weight: 600; color: var(--accent); }
+.screen-hover-card .hc-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.screen-hover-card .matrix { border-collapse: collapse; width: 100%;
+  font-size: .8125rem; line-height: 1.5; }
+.screen-hover-card .matrix th, .screen-hover-card .matrix td {
+  border: 1px solid var(--border); padding: 6px 10px; text-align: left; vertical-align: top; }
+.screen-hover-card .matrix thead th { background: var(--surface-muted); }
+.screen-hover-card .matrix tbody th { font-weight: 600; }
+/* The word in the cell carries the meaning; the colour only seconds it. */
+.screen-hover-card .matrix .no { color: var(--danger); }

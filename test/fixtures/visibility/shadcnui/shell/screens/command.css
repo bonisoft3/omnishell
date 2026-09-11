@@ -1,0 +1,93 @@
+@import "./shared/chrome.css";
+
+/* command — every rule scoped under the screen: injected stylesheets outlive
+   the screen that brought them. */
+.screen-command { max-width: 720px; margin: 0 auto; padding: var(--sp-lg) var(--sp-md); }
+.screen-command .demo-head h1 { margin: 0 0 4px; }
+.screen-command .lede { color: var(--secondary); margin: 0 0 var(--sp-lg); line-height: 1.6; }
+.screen-command .demo-stage { padding: var(--sp-lg); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface-muted); margin-bottom: var(--sp-lg); }
+
+.screen-command .cmd { border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface); overflow: hidden; }
+.screen-command .cmd-run { display: grid; gap: 6px; padding: var(--sp-md);
+  border-bottom: 1px solid var(--border);
+  grid-template-areas: "label label" "input run"; grid-template-columns: 1fr auto; }
+.screen-command .cmd-label { grid-area: label;
+  font-size: .875rem; font-weight: 600; color: var(--primary); }
+.screen-command .cmd-input { grid-area: input;
+  font: inherit; width: 100%; box-sizing: border-box;
+  padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--primary);
+  transition: border-color var(--motion-fast) var(--motion-ease); }
+.screen-command .cmd-input::placeholder { color: var(--secondary); }
+.screen-command .cmd-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.screen-command .cmd-go { grid-area: run; font: inherit; font-weight: 600;
+  padding: 8px 14px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--accent); color: var(--surface); cursor: pointer;
+  transition: background var(--motion-fast) var(--motion-ease); }
+.screen-command .cmd-go:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.screen-command .cmd-hint { margin: 0; padding: 0 var(--sp-md) var(--sp-sm);
+  font-size: .8125rem; color: var(--secondary); line-height: 1.5; }
+
+/* The list's height follows the match count, so the box is held open rather
+   than walking the page up and down under the reader. */
+.screen-command .cmd-list { margin: 0; padding: var(--sp-sm); list-style: none;
+  min-height: 254px; box-sizing: border-box; }
+.screen-command .cmd-item { display: block; }
+/* The option IS the control: role="option" sits on the button, so the whole
+   row is one target and nothing inside it is a second one. */
+.screen-command .cmd-option { display: flex; width: 100%; align-items: baseline;
+  justify-content: space-between; gap: var(--sp-sm); text-align: left;
+  font: inherit; font-size: .9375rem; line-height: 1.4; color: var(--primary);
+  padding: 8px var(--sp-sm); border: 0; border-radius: var(--r-sm);
+  background: none; cursor: pointer;
+  transition: background var(--motion-fast) var(--motion-ease); }
+.screen-command .cmd-option:hover { background: var(--surface-muted); }
+/* The caret, which is a column and not a focus ring: nothing here is focused,
+   so the only thing that can show where the reader stands is the projected
+   answer bound onto the option. */
+.screen-command .cmd-option[data-active="true"] { background: var(--surface-muted); }
+.screen-command .cmd-option[aria-selected="true"] { font-weight: 600; }
+/* The tick's column is reserved on every option, so marking one does not move
+   the group label beside it; the empty alt text keeps the glyph out of the
+   accessible name, which aria-selected already carries. */
+.screen-command .cmd-option::before { content: "" / ""; flex: 0 0 1em; }
+.screen-command .cmd-option[aria-selected="true"]::before { content: "✓" / ""; }
+.screen-command .cmd-option-group { font-size: .75rem; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--secondary); }
+
+/* A read that answered nothing renders no option, and :empty is the platform's
+   own signal for that — the render sweep takes the whitespace with the rows so
+   it stays true. */
+.screen-command .cmd-none { display: none; margin: 0;
+  padding: var(--sp-md) var(--sp-sm); font-size: .875rem; color: var(--secondary); }
+.screen-command .cmd-hold:has(.cmd-list:empty) .cmd-none { display: block; }
+.screen-command .cmd-hold:has(.cmd-list:empty) .cmd-list { min-height: 0; }
+
+.screen-command .cmd-readout { margin: 0 var(--sp-md) var(--sp-md); }
+.screen-command .cmd-readout,
+.screen-command .machine-json { display: block; font-size: .8125rem;
+  background: var(--surface-muted); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: var(--sp-sm) var(--sp-md); overflow-x: auto;
+  white-space: pre; }
+
+.screen-command .demo-pane { margin-top: var(--sp-lg); }
+.screen-command .demo-pane h2 { font-size: 1rem; margin: 0 0 4px; }
+.screen-command .pane-note { color: var(--secondary); font-size: .875rem; margin: 0 0 8px;
+  line-height: 1.6; }
+.screen-command .machine-json { margin: 0 0 var(--sp-md); line-height: 1.5; }
+
+/* Inline, but a target: an inline box is the font's height, and WCAG 2.5.8's
+   floor is 24px — so every link in prose is a box of its own. */
+.screen-command .lede a, .screen-command .pane-note a, .screen-command .limits a {
+  display: inline-block; padding: 4px 0; color: var(--primary); }
+
+/* A definition list, not a table: the limits read down a 400px board without
+   a scroller. */
+.screen-command .limits { margin: 0 0 var(--sp-md); }
+.screen-command .limits dt { font-weight: 600; color: var(--primary);
+  padding-top: var(--sp-sm); border-top: 1px solid var(--border); }
+.screen-command .limits dd { margin: 4px 0 var(--sp-md); font-size: .875rem;
+  line-height: 1.6; color: var(--secondary); overflow-wrap: break-word; }
+.screen-command .limits code { font-size: .8125rem; }

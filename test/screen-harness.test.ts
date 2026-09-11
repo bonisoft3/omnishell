@@ -153,6 +153,65 @@ describe("a whole screen under the harness", () => {
     })).rejects.toThrow(/does not name/)
   })
 
+  // The refused fetch rejects inside interpretScreen, after the seam and the
+  // rejection listener are armed. A report raised after it, outside any mount,
+  // is printed: the tamed console inspects what it prints, and the seam's
+  // collector never does. A rejection is left to the runtime, not cancelled.
+  it("disarms a mount that rejects before it resolves", async () => {
+    await expect(mountScreen({
+      route: { ...ROUTE, files: { ...ROUTE.files, css: "shell/screens/missing.css" } },
+      files: FILES,
+      seed: 7,
+      tables: { tick: [{ id: "t1", beats: "0" }] },
+    })).rejects.toThrow(/does not name/)
+
+    let printed = false
+    console.error({
+      [Symbol.for("Deno.customInspect")]: () => {
+        printed = true
+        return "a report outside any mount"
+      },
+    })
+    expect(printed).toBe(true)
+    const rejection = new Event("unhandledrejection", { cancelable: true })
+    globalThis.dispatchEvent(rejection)
+    expect(rejection.defaultPrevented).toBe(false)
+
+    const m = await mountScreen({ route: ROUTE, files: FILES, seed: 7, tables: { tick: [{ id: "t1", beats: "0" }] } })
+    await m.settle()
+    await m.stop()
+  })
+
+  // Lockdown has run before any mount, and every mount after the first boots
+  // an interpreter that already evaluated Jessie: the escape a screen raises
+  // there is the one the seam exists for.
+  it("fails the stop of a mount a console.error escaped from", async () => {
+    const mount = () =>
+      mountScreen({ route: ROUTE, files: FILES, seed: 7, tables: { tick: [{ id: "t1", beats: "0" }] } })
+    const first = await mount()
+    await first.settle()
+    await first.stop()
+    const m = await mount()
+    await m.settle()
+    console.error(new Error("escaped from the second mount"))
+    await expect(m.stop()).rejects.toThrow(/escaped from the second mount/)
+  })
+
+  // A guard on expectRefusal itself, which the seam keeps: the stop of a mount
+  // that says it drives a refusal resolves over the console.error it hears.
+  it("keeps expectRefusal: a mount that expects a refusal hears one and stops", async () => {
+    const m = await mountScreen({
+      route: ROUTE,
+      files: FILES,
+      seed: 7,
+      tables: { tick: [{ id: "t1", beats: "0" }] },
+      expectRefusal: true,
+    })
+    await m.settle()
+    console.error(new Error("a refusal the test drove"))
+    await m.stop()
+  })
+
   it("keeps the clock and the seed the file's", async () => {
     await expect(mountScreen({
       route: ROUTE,

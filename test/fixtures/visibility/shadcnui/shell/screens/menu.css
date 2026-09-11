@@ -1,0 +1,139 @@
+@import "./shared/chrome.css";
+
+/* dropdown menu · menubar — every rule scoped under the screen: injected
+   stylesheets outlive the screen that brought them. */
+.screen-menu { max-width: 720px; margin: 0 auto; padding: var(--sp-lg) var(--sp-md); }
+.screen-menu .demo-head h1 { margin: 0 0 4px; }
+.screen-menu .lede { color: var(--secondary); margin: 0 0 var(--sp-lg); line-height: 1.6; }
+
+/* The prose here carries more cross-links than any other screen's, and an
+   inline box is exactly its line box tall — under the 24px target minimum.
+   Vertical padding grows the border box without moving the line it sits on. */
+.screen-menu .lede a, .screen-menu .arm-note a, .screen-menu .pane-note a { padding: 5px 0; }
+
+.screen-menu .demo-arm { margin-top: var(--sp-xl); }
+.screen-menu .demo-arm h2 { font-size: 1.05rem; margin: 0 0 4px; }
+.screen-menu .arm-note { color: var(--secondary); font-size: .9rem;
+  line-height: 1.55; margin: 0 0 var(--sp-md); }
+.screen-menu .demo-stage { display: flex; flex-wrap: wrap; gap: var(--sp-md);
+  padding: var(--sp-lg); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); }
+
+.screen-menu .menu-trigger { font: inherit; font-size: .875rem; font-weight: 500;
+  cursor: pointer; min-height: 32px; padding: 6px 12px;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--primary);
+  transition: background var(--motion-fast) var(--motion-ease); }
+.screen-menu .menu-trigger:hover { background: var(--surface-muted); }
+.screen-menu .menu-trigger:focus-visible { outline: 2px solid var(--accent);
+  outline-offset: 2px; }
+
+/* The bar's own triggers carry no border of their own: the bar is the frame,
+   and a row of outlined buttons reads as a toolbar rather than a menubar. */
+.screen-menu .menubar { display: flex; flex-wrap: wrap; gap: 2px;
+  padding: 4px; border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface); }
+.screen-menu .menubar-trigger { border-color: transparent; background: none; }
+
+/* Placement is CSS, as it is for every surface in this gallery: each menu
+   anchors to the trigger whose id opens it, so the bar's two menus land under
+   their own buttons with nothing script-side deciding. */
+.screen-menu #menu-open-trigger { anchor-name: --menu-open; }
+.screen-menu #menu-open { position-anchor: --menu-open; }
+.screen-menu #menu-view-trigger { anchor-name: --menu-view; }
+.screen-menu #menu-view { position-anchor: --menu-view; }
+.screen-menu #menu-go-trigger { anchor-name: --menu-go; }
+.screen-menu #menu-go { position-anchor: --menu-go; }
+
+/* [popover] is closed-by-default in the UA sheet, so only the open box needs
+   styling; the top layer ignores the page's stacking, so no z-index anywhere. */
+.screen-menu .menu-surface { margin: 4px 0 0; padding: 4px;
+  min-width: 12rem; max-width: min(16rem, calc(100vw - var(--sp-lg)));
+  box-sizing: border-box;
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface); color: var(--primary);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  position-area: bottom span-right; position-try-fallbacks: flip-block; }
+.screen-menu .menu-surface, .screen-menu .menu-surface * { text-align: left; }
+
+.screen-menu .menu-label { margin: 0; padding: 6px 10px 4px;
+  font-size: .75rem; font-weight: 600; letter-spacing: .02em;
+  color: var(--secondary); }
+.screen-menu .menu-group + [role="separator"] { display: block; height: 1px;
+  margin: 4px 6px; background: var(--border); }
+
+/* Every item is one row of the surface, tall enough to be a target in its own
+   right: the tick's column is reserved on all of them, so a checked item does
+   not shift its neighbours when the row moves. */
+.screen-menu .menu-item { display: flex; align-items: center; gap: var(--sp-sm);
+  box-sizing: border-box; width: 100%; min-height: 28px; padding: 5px 10px;
+  font: inherit; font-size: .875rem; text-decoration: none;
+  border: 0; border-radius: var(--r-sm); background: none;
+  color: var(--primary); cursor: pointer;
+  transition: background var(--motion-fast) var(--motion-ease); }
+.screen-menu .menu-item:hover { background: var(--surface-muted); }
+.screen-menu .menu-item:focus-visible { outline: 2px solid var(--accent);
+  outline-offset: -2px; }
+
+/* The semantics are the styling hook: aria-checked is a bound row column, and
+   nothing on the item restates it as a class. */
+.screen-menu .menu-tick { flex: none; width: 10px; height: 10px; }
+.screen-menu .menu-item[aria-checked="true"] { font-weight: 600; }
+.screen-menu .menu-item[aria-checked="true"] .menu-tick {
+  border-right: 2px solid var(--accent); border-bottom: 2px solid var(--accent);
+  width: 4px; height: 8px; margin: -2px 3px 0;
+  transform: rotate(45deg); }
+
+.screen-menu .demo-pane { margin-top: var(--sp-lg); }
+.screen-menu .demo-pane h2 { font-size: 1.05rem; margin: 0 0 4px; }
+.screen-menu .pane-note { color: var(--secondary); font-size: .875rem;
+  line-height: 1.55; margin: 0 0 8px; }
+.screen-menu .rowview + .rowview { margin-top: 6px; }
+.screen-menu .rowview code, .screen-menu .machine-json { display: block;
+  font-size: .8125rem; background: var(--surface-muted); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: var(--sp-sm) var(--sp-md); overflow-x: auto; }
+.screen-menu .machine-json { margin: 0 0 8px; line-height: 1.5; }
+.screen-menu .machine-json:last-child { margin-bottom: 0; }
+
+.screen-menu .aria-scroll { overflow-x: auto; border: 1px solid var(--border);
+  border-radius: var(--r-sm); background: var(--surface); }
+.screen-menu .aria-table { width: 100%; min-width: 34rem;
+  border-collapse: collapse; font-size: .8rem; text-align: left; }
+.screen-menu .aria-table th, .screen-menu .aria-table td {
+  padding: 6px var(--sp-md); vertical-align: top;
+  border-bottom: 1px solid var(--border); }
+.screen-menu .aria-table th { font-weight: 600; color: var(--secondary); }
+.screen-menu .aria-table th[scope="row"] { white-space: nowrap; }
+.screen-menu .aria-table td { color: var(--primary); }
+
+.screen-menu .matrix-wrap { overflow-x: auto; margin-bottom: 8px; }
+.screen-menu .matrix { border-collapse: collapse; width: 100%; min-width: 30rem;
+  font-size: .8125rem; line-height: 1.5; }
+.screen-menu .matrix th, .screen-menu .matrix td {
+  border: 1px solid var(--border); padding: 6px 10px;
+  text-align: left; vertical-align: top; }
+.screen-menu .matrix thead th { background: var(--surface-muted); }
+.screen-menu .matrix tbody th { font-weight: 600; }
+/* The word in the cell carries the meaning; the colour only seconds it. */
+.screen-menu .matrix .no { color: var(--danger); }
+
+/* The right-click menu. The target is the anchor, as every surface here has an
+   anchor — what differs is that the offset INSIDE it is data: the row holds two
+   fractions and CSS multiplies them back out against the anchor's own size. So
+   the pixels are never stored, and a window of another width recomputes them
+   rather than replaying stale ones.
+
+   position-area is unset for this one because the two shares are the placement;
+   the fallbacks still keep the surface on screen at the far edges. */
+.screen-menu .ctx-target { anchor-name: --ctx-anchor;
+  display: grid; place-items: center; min-height: 8rem;
+  border: 1px dashed var(--border); border-radius: var(--r-md);
+  background: var(--surface-muted); color: var(--secondary);
+  font-size: .875rem; }
+.screen-menu .ctx-target:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.screen-menu .ctx-surface { position-anchor: --ctx-anchor; position-area: none;
+  margin: 0;
+  left: calc(anchor(left) + var(--ctx-x) / 1000 * anchor-size(width));
+  top: calc(anchor(top) + var(--ctx-y) / 1000 * anchor-size(height));
+  position-try-fallbacks: flip-block, flip-inline; }

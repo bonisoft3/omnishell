@@ -16,6 +16,8 @@ import { load as parseYaml } from "../interpreter/vendor/js-yaml.js";
 import { embedTables, parseFilter, parseLimit, parseSelect } from "../interpreter/fragment.js";
 import { upsertKey as resolveKey } from "../interpreter/data-crud.js";
 import { batched } from "../interpreter/batched-store.js";
+import "../interpreter/vendor/ses.umd.min.js";
+import { ensureSes } from "../interpreter/jessie.js";
 
 /** data-crud.js is the shipped store, not a typed module: the natural key an
  * upsert resolves against comes from there so there is one resolution and not
@@ -27,19 +29,26 @@ const upsertKey = resolveKey as (
   values: Row,
 ) => string[] | null;
 
-/** SES hardens `console` at lockdown, so the seam has to be taken before the
- * first mount boots it — after that the property is read-only. Nothing is
- * collected until a mount asks, which keeps lockdown's own chatter out. */
-const loggedError = console.error;
+// The Jessie tier's lockdown, taken once at load: the ses pin is imported
+// first so ensureSes skips script injection (linkedom executes no scripts), and
+// the vendored bundle rather than the CDN's, so a whole-screen mount needs no
+// network reach of any kind. Lockdown reports the intrinsics it removes
+// through console.error; that is the platform booting, and it is over before
+// the seam below exists.
+await ensureSes();
+
+/** The console seam every silent failure passes through. Lockdown leaves a
+ * frozen console on a writable global, so the seam is a console of its own
+ * that forwards everything else to the tamed one. Nothing is collected until a
+ * mount asks. */
+const tamed = console;
 let collect: ((err: unknown) => void) | null = null;
-console.error = (...args: unknown[]) => {
-  // lockdown reports every intrinsic it removes through this same channel, in
-  // a group whose continuation lines carry no prefix — so the report is told
-  // apart by where it comes from, not by how it reads. That is the platform
-  // booting, not a screen failing.
-  const ses = new Error().stack?.includes("ses.umd.min.js") === true;
-  if (collect === null || ses) return loggedError(...args);
-  collect(args[0] instanceof Error ? args[0] : new Error(args.map(String).join(" ")));
+globalThis.console = {
+  ...tamed,
+  error: (...args: unknown[]) => {
+    if (collect === null) return tamed.error(...args);
+    collect(args[0] instanceof Error ? args[0] : new Error(args.map(String).join(" ")));
+  },
 };
 
 export type Row = Record<string, unknown>;
@@ -530,12 +539,6 @@ async function interpreter(search: string): Promise<Interpreter> {
   return engine;
 }
 
-// The Jessie tier's ses pin, pre-imported so ensureSes skips script injection:
-// linkedom executes no scripts. The vendored bundle rather than the CDN's, so
-// a whole-screen mount needs no network reach of any kind.
-let ses: Promise<unknown> | undefined;
-const ensureSes = () => (ses ??= import("../interpreter/vendor/ses.umd.min.js"));
-
 const macrotask = () => new Promise((r) => setTimeout(r, 0));
 
 export type Mounted = {
@@ -723,6 +726,56 @@ function buttonValue(document: unknown): void {
   });
 }
 
+/** A select's `value` setter, which linkedom omits: its select answers `value`
+ * off the `selected` attribute and refuses an assignment, so a `data-value`
+ * binding on a select threw at mount here while working in every browser.
+ *
+ * The setter is the browser's: the first option whose value matches becomes the
+ * selected one and every other option stops being selected. A value no option
+ * offers selects nothing, and the select then reads back as the empty string —
+ * never the first option, which would show a choice the row never made. */
+function selectValue(document: unknown): void {
+  type Option = {
+    textContent: string | null;
+    getAttribute(name: string): string | null;
+    hasAttribute(name: string): boolean;
+    setAttribute(name: string, v: string): void;
+    removeAttribute(name: string): void;
+  };
+  type Select = { querySelectorAll(sel: string): Option[]; _prontoNoMatch?: boolean };
+  let proto = Object.getPrototypeOf(
+    (document as { createElement(tag: string): object }).createElement("select"),
+  ) as object | null;
+  let found: PropertyDescriptor | undefined;
+  while (proto !== null && found === undefined) {
+    found = Object.getOwnPropertyDescriptor(proto, "value");
+    if (found === undefined) proto = Object.getPrototypeOf(proto);
+  }
+  if (proto === null || found?.get === undefined) {
+    throw new Error("linkedom's select no longer answers value; this shim has nothing to extend");
+  }
+  if (found.set !== undefined) return;
+  const read = found.get;
+  const optionValue = (o: Option) => o.getAttribute("value") ?? (o.textContent ?? "").trim();
+  Object.defineProperty(proto, "value", {
+    configurable: true,
+    get(this: Select) {
+      // A selected option answers for itself, whoever selected it — choose()
+      // moves the attribute directly.
+      const picked = [...this.querySelectorAll("option")].find((o) => o.hasAttribute("selected"));
+      if (picked !== undefined) return optionValue(picked);
+      return this._prontoNoMatch === true ? "" : read.call(this);
+    },
+    set(this: Select, v: string) {
+      const options = [...this.querySelectorAll("option")];
+      const match = options.find((o) => optionValue(o) === String(v));
+      for (const o of options) if (o !== match) o.removeAttribute("selected");
+      if (match !== undefined) match.setAttribute("selected", "");
+      this._prontoNoMatch = match === undefined;
+    },
+  });
+}
+
 /** An element's box, which this tier has no layout to measure.
  *
  * A normalized pointer is a fraction of the affordance it landed on, so without
@@ -846,6 +899,7 @@ function controlProperties(document: unknown) {
   };
   valueAsNumber(document);
   buttonValue(document);
+  selectValue(document);
   const proto = Object.getPrototypeOf(
     (document as { createElement(tag: string): object }).createElement("input"),
   ) as object;
@@ -876,7 +930,6 @@ function controlProperties(document: unknown) {
 export const writes = (m: Mounted): Call[] => m.store.calls.filter((c) => c.op !== "query");
 
 export async function mountScreen(spec: MountSpec): Promise<Mounted> {
-  await ensureSes();
   const { interpretScreen } = await interpreter(
     `?clock=manual&seed=${spec.seed}${spec.epoch === undefined ? "" : `&epoch=${spec.epoch}`}`,
   );
@@ -923,14 +976,27 @@ export async function mountScreen(spec: MountSpec): Promise<Mounted> {
   };
 
   if (spec.expectRefusal !== true) collect = (err) => escaped.push(err);
+  const disarm = () => {
+    collect = null;
+    (globalThis as unknown as EventTarget).removeEventListener("unhandledrejection", onEscape as EventListener);
+  };
 
   const store = memoryStore(spec.tables, spec.cluster ?? {});
   const mount = document.getElementById("shell");
-  if (mount === null) throw new Error("the harness document has no mount");
-  const handle = await interpretScreen(mount, base, spec.route, store, spec.params ?? {}, {
-    units: spec.units ?? {},
-    mountUnits: spec.mountUnits ?? true,
-  });
+  // A mount that never resolves hands back no stop(), so it disarms here: a
+  // seam left collecting into it would swallow every later report, and the
+  // listener would go on cancelling every later rejection.
+  let handle: Awaited<ReturnType<typeof interpretScreen>>;
+  try {
+    if (mount === null) throw new Error("the harness document has no mount");
+    handle = await interpretScreen(mount, base, spec.route, store, spec.params ?? {}, {
+      units: spec.units ?? {},
+      mountUnits: spec.mountUnits ?? true,
+    });
+  } catch (err) {
+    disarm();
+    throw err;
+  }
 
   const step = spec.step ?? 100;
   const cap = spec.cap ?? 60_000;
@@ -1071,8 +1137,7 @@ export async function mountScreen(spec: MountSpec): Promise<Mounted> {
         // Detached even when the drain throws: the console seam is one slot for
         // the process, and a mount that kept it holds every report until the
         // next mount takes the slot back.
-        collect = null;
-        (globalThis as unknown as EventTarget).removeEventListener("unhandledrejection", onEscape as EventListener);
+        disarm();
       }
     },
   };

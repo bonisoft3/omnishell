@@ -1,0 +1,51 @@
+@import "./shared/chrome.css";
+
+/* slider — every rule scoped under the screen: injected stylesheets outlive
+   the screen that brought them. */
+.screen-slider { max-width: 44rem; margin: 0 auto; padding: var(--sp-xl) var(--sp-lg); }
+.screen-slider .demo-head h1 { margin: 0 0 var(--sp-sm); font-size: 1.6rem;
+  letter-spacing: -0.02em; color: var(--primary); }
+.screen-slider .lede { margin: 0 0 var(--sp-lg); color: var(--secondary); line-height: 1.6; }
+
+.screen-slider .demo-stage { display: grid; gap: var(--sp-lg);
+  padding: var(--sp-lg); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); }
+
+/* The control is the platform's, so it is dressed rather than rebuilt:
+   accent-color paints the track and the thumb through the UA's own shadow
+   tree, which no selector here can reach. */
+.screen-slider .slider { display: grid; grid-template-columns: 1fr auto;
+  align-items: center; gap: 4px var(--sp-md); }
+.screen-slider .slider-label { grid-column: 1 / -1; font-size: .875rem;
+  font-weight: 500; color: var(--primary); }
+.screen-slider .slider-input { width: 100%; min-width: 0; height: 24px;
+  margin: 0; accent-color: var(--accent); cursor: pointer; }
+.screen-slider .slider-input:focus-visible { outline: 2px solid var(--accent);
+  outline-offset: 2px; }
+.screen-slider .slider-readout { min-width: 3ch; text-align: right;
+  font-variant-numeric: tabular-nums; font-size: .875rem; color: var(--secondary); }
+
+/* The bar is <progress>, dressed the same way: the fill is the element's own
+   value against its own max, so nothing here restates the scale. Its exact
+   shape is the UA's, as the range's thumb is. */
+.screen-slider .progress { display: grid; gap: 6px; }
+.screen-slider .progress-label { font-size: .875rem; font-weight: 500;
+  color: var(--primary); }
+.screen-slider .progress-bar { display: block; width: 100%; height: 10px;
+  accent-color: var(--accent); }
+
+.screen-slider .demo-pane { margin-top: var(--sp-lg); }
+.screen-slider .demo-pane h2 { margin: 0 0 4px; font-size: 1rem; color: var(--primary); }
+.screen-slider .pane-note { margin: 0 0 var(--sp-sm); font-size: .875rem;
+  color: var(--secondary); line-height: 1.5; }
+.screen-slider .rowview + .pane-note { margin-top: var(--sp-md); }
+.screen-slider .rowview code, .screen-slider .machine-json { display: block;
+  font-size: .8125rem; background: var(--surface-muted); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: var(--sp-sm) var(--sp-md); overflow-x: auto; }
+.screen-slider .machine-json { margin: 0; line-height: 1.5; }
+
+.screen-slider .limits { margin: 0; }
+.screen-slider .limits dt { margin-top: var(--sp-sm); font-size: .875rem;
+  font-weight: 600; color: var(--primary); }
+.screen-slider .limits dd { margin: 4px 0 0; font-size: .875rem;
+  line-height: 1.55; color: var(--secondary); }

@@ -1,0 +1,44 @@
+@import "./shared/chrome.css";
+
+/* radio-group — every rule scoped under the screen: injected stylesheets
+   outlive the screen that brought them. */
+.screen-radio-group { max-width: 720px; margin: 0 auto; padding: var(--sp-lg) var(--sp-md);
+  /* Indicator plus the gap after it: what an option's description hangs on to
+     sit under its label. */
+  --rg-indent: 24px; }
+.screen-radio-group .demo-head h1 { margin: 0 0 4px; }
+.screen-radio-group .lede { color: var(--secondary); margin: 0 0 var(--sp-lg);
+  line-height: 1.6; }
+.screen-radio-group .demo-stage { padding: var(--sp-lg); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); margin-bottom: var(--sp-lg); }
+
+.screen-radio-group .rg-legend { margin: 0 0 var(--sp-md); color: var(--primary);
+  font-weight: 600; }
+.screen-radio-group .rg-set { display: grid; gap: var(--sp-md); }
+.screen-radio-group .rg-item { font: inherit; border: 0; background: none; cursor: pointer;
+  display: flex; align-items: center; gap: var(--sp-sm); padding: 0; min-height: 24px;
+  color: var(--primary); text-align: left; border-radius: var(--r-sm); }
+.screen-radio-group .rg-mark { flex: none; width: 16px; height: 16px;
+  border: 1px solid var(--secondary); border-radius: var(--r-full);
+  display: grid; place-items: center;
+  transition: border-color var(--motion-fast) var(--motion-ease); }
+.screen-radio-group .rg-mark::after { content: ""; width: 8px; height: 8px;
+  border-radius: var(--r-full); background: var(--accent); transform: scale(0);
+  transition: transform var(--motion-fast) var(--motion-ease); }
+/* The semantics are the styling hook: aria-checked is a bound row column. */
+.screen-radio-group .rg-item[aria-checked="true"] .rg-mark { border-color: var(--accent); }
+.screen-radio-group .rg-item[aria-checked="true"] .rg-mark::after { transform: scale(1); }
+.screen-radio-group .rg-item:focus-visible { outline: 2px solid var(--accent);
+  outline-offset: 2px; }
+/* The description is a sibling the option only points at, so it is indented
+   to the label rather than nested under it. */
+.screen-radio-group .rg-desc { margin: 4px 0 0 var(--rg-indent); color: var(--secondary);
+  font-size: .875rem; line-height: 1.5; }
+
+.screen-radio-group .demo-pane { margin-top: var(--sp-lg); }
+.screen-radio-group .demo-pane h2 { font-size: 1rem; margin: 0 0 4px; }
+.screen-radio-group .pane-note { color: var(--secondary); font-size: .875rem;
+  margin: 0 0 8px; line-height: 1.55; }
+.screen-radio-group .rowview code, .screen-radio-group .machine-json { display: block;
+  font-size: .8125rem; background: var(--surface-muted); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: var(--sp-sm) var(--sp-md); overflow-x: auto; }

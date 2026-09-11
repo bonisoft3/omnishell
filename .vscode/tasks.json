@@ -48,6 +48,7 @@
         "interpreter/deno.lock",
         "--frozen",
         "--allow-import=cdn.jsdelivr.net:443",
+        "interpreter/clock-smoke.js",
         "interpreter/handler-smoke.js",
         "interpreter/hatch-smoke.js",
         "interpreter/incremental-smoke.js",
@@ -66,6 +67,7 @@
         "interpreter/slot-smoke.js",
         "interpreter/subscribe-smoke.js",
         "interpreter/template-smoke.js",
+        "interpreter/validate-smoke.js",
         "interpreter/validation-smoke.js",
         "interpreter/worker-smoke.js"
       ],
@@ -89,6 +91,7 @@
         "--cached-only",
         "--allow-env",
         "--allow-read",
+        "interpreter/clock-smoke.js",
         "interpreter/handler-smoke.js",
         "interpreter/hatch-smoke.js",
         "interpreter/incremental-smoke.js",
@@ -107,6 +110,7 @@
         "interpreter/slot-smoke.js",
         "interpreter/subscribe-smoke.js",
         "interpreter/template-smoke.js",
+        "interpreter/validate-smoke.js",
         "interpreter/validation-smoke.js",
         "interpreter/worker-smoke.js"
       ],

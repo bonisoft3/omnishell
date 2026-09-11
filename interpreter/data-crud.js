@@ -25,6 +25,7 @@ import {
 } from "./vendor/mecha-client.js";
 import { embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect } from "./fragment.js";
 import { evaluateRole } from "./jessie.js";
+import { judge } from "./validate.js";
 
 export { embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect };
 
@@ -309,11 +310,8 @@ export function createStore(base = "", cfg = {}) {
   }
 
   // The store seat: every validation of the table judges the row the write
-  // would produce, over the reader's own copy of the rows its edges name.
-  // The owner column is filled from the session when the produced row omits
-  // it — the server defaults it, and a predicate over an absent owner judges
-  // nothing. Filled after the merge, so an update never restates the owner of
-  // a row this reader does not own.
+  // would produce (validate.js), over the reader's own copy of the rows its
+  // edges name.
   // `current` is the standing row, when the caller already holds it: finding it
   // again is a scan of the table per row.
   // `edgeIndex` is one write's shared bucketing of each edge's visible rows by
@@ -335,46 +333,28 @@ export function createStore(base = "", cfg = {}) {
     if (type === "update" && held === undefined) {
       throw new Error(`validation ${table}: update of a row the store does not hold: ${String(row[key])}`);
     }
-    const items = held === undefined ? [] : [held];
-    let produced = held === undefined ? row : { ...held, ...row };
-    const owner = access[table]?.owner;
-    if (owner !== undefined && produced[owner] === undefined) {
-      produced = { ...produced, [owner]: userId() };
-    }
-    const event = { type, row: produced };
-    for (const v of list) {
-      const rows = {};
-      for (const edge of v.edges) {
-        await ensurePrepared(edge.table);
-        const c = client.collections[edge.table];
-        if (c === undefined) throw new Error(`validation ${table}.${v.name}: reads unsynced table ${edge.table}`);
-        if (!c.isReady()) await c.toArrayWhenReady();
-        const want = String(event.row[edge.from]);
-        const at = `${edge.table} ${edge.key}`;
-        let index = edgeIndex.get(at);
-        if (index === undefined) {
-          index = new Map();
-          for (const r of c.toArray) {
-            if (!visible(edge.table, r)) continue;
-            const k = String(r[edge.key]);
-            const bucket = index.get(k);
-            if (bucket === undefined) index.set(k, [r]);
-            else bucket.push(r);
-          }
-          edgeIndex.set(at, index);
+    const rowsFor = async (edge, produced, name) => {
+      await ensurePrepared(edge.table);
+      const c = client.collections[edge.table];
+      if (c === undefined) throw new Error(`validation ${table}.${name}: reads unsynced table ${edge.table}`);
+      if (!c.isReady()) await c.toArrayWhenReady();
+      const want = String(produced[edge.from]);
+      const at = `${edge.table} ${edge.key}`;
+      let index = edgeIndex.get(at);
+      if (index === undefined) {
+        index = new Map();
+        for (const r of c.toArray) {
+          if (!visible(edge.table, r)) continue;
+          const k = String(r[edge.key]);
+          const bucket = index.get(k);
+          if (bucket === undefined) index.set(k, [r]);
+          else bucket.push(r);
         }
-        rows[edge.table] = index.get(want) ?? [];
+        edgeIndex.set(at, index);
       }
-      const verdict = v.test({ items, rows }, event);
-      if (verdict === true) continue;
-      if (verdict !== false) {
-        throw new Error(`validation ${table}.${v.name}: the predicate answered ${typeof verdict}`);
-      }
-      const err = new Error(`validation ${table}.${v.name}`);
-      err.name = "NonRetriableError";
-      err.validation = v.name;
-      throw err;
-    }
+      return index.get(want) ?? [];
+    };
+    await judge(list, { table, type, row, held, rowsFor, owner: access[table]?.owner, me: userId });
   }
 
   // A local collection is made ready for use once per boot, before the first

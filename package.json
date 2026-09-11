@@ -11,7 +11,7 @@
   },
   "scripts": {
     "test": "deno test --config test/deno.json --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys test/",
-    "test:pw": "deno test --config playwright-tests/deno.json --no-check --allow-env --allow-read --allow-write --allow-net --allow-run --allow-sys --allow-import playwright-tests/visual-lint.pw.ts playwright-tests/picker.pw.ts playwright-tests/settle.pw.ts playwright-tests/cls.pw.ts",
+    "test:pw": "deno test --config playwright-tests/deno.json --no-check --allow-env --allow-read --allow-write --allow-net --allow-run --allow-sys --allow-import playwright-tests/visual-lint.pw.ts playwright-tests/picker.pw.ts playwright-tests/settle.pw.ts playwright-tests/cls.pw.ts playwright-tests/select-change.pw.ts",
     "test:pw:snapcards": "deno test --config playwright-tests/deno.json --no-check --allow-env --allow-read --allow-write --allow-net --allow-run --allow-sys --allow-import playwright-tests/snapcards-visual-qa.pw.ts",
     "check": "deno check --config test/deno.json src/ test/",
     "bundle:mecha-client": "deno bundle --config ../../libraries/mecha/packages/client/deno.json --platform browser --format esm --minify interpreter/vendor/entry.ts -o interpreter/vendor/mecha-client.js",

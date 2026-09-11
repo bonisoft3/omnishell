@@ -75,6 +75,13 @@ let held = 0;
 // exists only to be discarded.
 let busy = 0;
 globalThis.__prontoBusy = () => ({ regions: busy, waits: pending.size });
+// The seed's generator, declared ahead of the clock because a held clock can
+// rewind it: a replay is the same seed from the same start, and `reset` is
+// what puts the start back.
+const seeded = params.get("seed");
+const origin = seeded === null ? 0 : Number(seeded) >>> 0;
+let entropy = origin;
+let drawn = 0;
 if (MANUAL) {
   globalThis.__prontoClock = {
     // Returns how many waits are still outstanding, so a caller can tell a
@@ -88,12 +95,39 @@ if (MANUAL) {
       }
       return pending.size;
     },
+    // Back to table time zero and the seed's first draw, so a second mount in
+    // the same process replays the first one rather than continuing it. A
+    // queued wait or a refresh in flight belongs to a screen still running:
+    // rewinding under it would fire that wait at a time it was never armed
+    // for, so a dirty queue is refused, not cleared.
+    reset() {
+      if (pending.size > 0 || busy > 0) {
+        throw new Error(`reset over ${pending.size} waits, ${busy} regions`);
+      }
+      held = 0;
+      entropy = origin;
+      drawn = 0;
+    },
+    // What is queued and how far off each is, soonest first, so a driver can
+    // jump to the next thing that happens instead of stepping toward it, and
+    // can tell a metronome from a wait that ends.
+    due() {
+      return [...pending]
+        .map((w) => ({ in: w.at - held, label: w.label }))
+        .sort((a, b) => a.in - b.in);
+    },
+    // How many draws the screen has made since the last reset: two runs that
+    // drew a different number of times took different paths.
+    draws: () => drawn,
   };
 }
-const rest = (ms) =>
-  MANUAL
-    ? new Promise((fire) => pending.add({ at: held + ms, fire }))
-    : new Promise((resolve) => setTimeout(resolve, ms));
+// Every wait says what armed it. The label is what due() reports, and a held
+// clock with an unlabelled wait could only answer "something".
+const rest = (ms, label) => {
+  if (!MANUAL) return new Promise((resolve) => setTimeout(resolve, ms));
+  if (label?.kind === undefined) throw new Error(`a held wait of ${ms}ms names no kind`);
+  return new Promise((fire) => pending.add({ at: held + ms, fire, label }));
+};
 // The clock the screen reads, not the one the host runs: a held clock answers
 // from where the caller advanced it, so a row stamped {now} lands on the same
 // instant in every run. `?epoch` names that start; unset it starts at zero.
@@ -105,14 +139,22 @@ const now = () => {
   if (epoch === null) throw new Error("a held clock stamps {now} only from an ?epoch");
   return new Date(Date.parse(epoch) + held).toISOString();
 };
-const seeded = params.get("seed");
-let entropy = seeded === null ? 0 : Number(seeded) >>> 0;
 const draw = () => {
+  drawn += 1;
   if (seeded === null) return crypto.getRandomValues(new Uint32Array(1))[0];
   entropy = (entropy + 0x6D2B79F5) >>> 0;
   let t = Math.imul(entropy ^ (entropy >>> 15), 1 | entropy);
   t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
   return (t ^ (t >>> 14)) >>> 0;
+};
+// A key the terminal mints for a row or a blob. Seeded, it is four draws laid
+// out as a version-4 uuid, so a replayed create writes the same key; unseeded,
+// it is the platform's own.
+const mintUuid = () => {
+  if (seeded === null) return crypto.randomUUID();
+  const hex = [draw(), draw(), draw(), draw()].map((n) => n.toString(16).padStart(8, "0")).join("");
+  const variant = ((parseInt(hex[16], 16) & 0x3) | 0x8).toString(16);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20)}`;
 };
 
 const HAS_PLACEHOLDER = /\{[\w.]+\}/;
@@ -737,6 +779,12 @@ const noteTag = (tag) => /^(UL|OL)$/.test(tag) ? "li" : PHRASING_REGION.test(tag
  * are the markup — so the node is held on the region rather than found by its
  * class, which is the app's to style and to author elsewhere.
  */
+/** A form with no submit button submits on change: its controls carry the
+ * row's state rather than an edit waiting to be sent. */
+function submitsOnChange(form) {
+  return form !== null && form !== undefined && !form.querySelector('button, [type="submit"]');
+}
+
 function emptyNote(region, copy) {
   region._prontoEmpty?.remove();
   region._prontoEmpty = undefined;
@@ -824,8 +872,11 @@ function bindElementAttributes(el, ctx) {
       // user typed and then clicked away from. The control stays untouched
       // until its form submits or resets, which is what clears the mark.
       // Checkboxes are exempt: their value IS the state, and a refused
-      // toggle has to roll back where the user can see it.
-      if (el.type !== "checkbox") {
+      // toggle has to roll back where the user can see it. So is any control
+      // whose form submits on change, for the same reason: the reader's pick
+      // was the write, there is no unsent edit to protect, and a focused
+      // select left un-bound goes on showing a value the row no longer holds.
+      if (el.type !== "checkbox" && !submitsOnChange(el.closest("form"))) {
         if (el._prontoDirty || el === document.activeElement) continue;
         if (!el._prontoDirtyWired) {
           el._prontoDirtyWired = true;
@@ -988,7 +1039,7 @@ function wireInterest(el) {
   // a wait that comes due after interest moved on finds a stale mark and dies.
   const settle = (want, delay) => {
     const mine = ++generation;
-    rest(delay / TEMPO).then(() => {
+    rest(delay / TEMPO, { kind: "interest" }).then(() => {
       if (mine !== generation) return;
       setPopover(surface, want);
     });
@@ -1320,7 +1371,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           if (!file) continue;
           const dot = file.name.lastIndexOf(".");
           const ext = dot > 0 ? file.name.slice(dot) : ".bin";
-          const key = `${crypto.randomUUID()}${ext}`;
+          const key = `${mintUuid()}${ext}`;
           const res = await fetch(`/blobs/mecha-objects/${key}`, { method: "PUT", body: file });
           if (!res.ok) throw new Error(`${res.status} PUT /blobs/mecha-objects/${key}`);
           out[input.name] = key;
@@ -1392,7 +1443,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           // The key is minted here because every write now carries one: retries
           // are idempotent only because the key travels with each attempt.
           const row = await values();
-          await store.add(entity, [row.id === undefined ? { id: crypto.randomUUID(), ...row } : row], refused);
+          await store.add(entity, [row.id === undefined ? { id: mintUuid(), ...row } : row], refused);
         }
         // Write the row for this natural key, existing or not. The form says
         // what the row should be; whether that is an insert or an update is the
@@ -1407,11 +1458,14 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           await store.dropWhere(entity, interpolateFilter(form.dataset.filter, getCtx()), refused);
         } else if (action === "delete") await store.drop(entity, [rowId()], refused);
         else throw new Error(`unknown action: ${action}`);
-        if (edits === editsAtSubmit) form.reset();
+        // A form that submits on change is not reset: its controls already
+        // show the row the write stated, and a select whose value was bound
+        // (not authored as its default) would reset to its first option.
+        if (edits === editsAtSubmit && !submitsOnChange(form)) form.reset();
         setState("success");
         // A late refusal can land inside the flash window; only an
         // undisturbed success may hand back to the base state.
-        rest(600).then(() => {
+        rest(600, { kind: "flash" }).then(() => {
           if (screen.dataset.state === "success") setState(base);
         });
       } catch (err) {
@@ -1429,7 +1483,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       }
     });
     // A form with no submit button (the toggle checkbox) submits on change.
-    if (!form.querySelector('button, [type="submit"]')) {
+    if (submitsOnChange(form)) {
       form.addEventListener("change", () => form.requestSubmit());
     }
   }
@@ -1668,7 +1722,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       if (depth + 1 >= STEPS) {
         throw new Error(`handler chain did not settle in ${STEPS} steps at "${next.type}"`);
       }
-      if (next.delay > 0) await rest(next.delay / TEMPO);
+      if (next.delay > 0) await rest(next.delay / TEMPO, { kind: "then", type: next.type });
       const carried = { type: next.type };
       // A draw the reduce asked for. It has no randomness of its own — the
       // compartment endows nothing — so it says it wants one and is called
@@ -1908,8 +1962,21 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             event.type === `after:${key}`
               ? apply(machineRow(state), event, list, stateName)
               : machineReduce(state, event);
+          // Periodic when every arrow the timer can take lands back in the
+          // state that armed it and raises nothing: a metronome re-arms
+          // forever, and a driver waiting for the queue to empty would wait
+          // for it forever. A raise can carry the machine out of the state,
+          // so an arrow that raises never counts as one that stays.
+          const label = {
+            kind: "after",
+            key,
+            table: region.dataset.live,
+            field: machine.field,
+            state: stateName,
+            periodic: list.length > 0 && list.every(({ c }) => c.target === stateName && c.raise === undefined),
+          };
           (async () => {
-            await rest(ms / TEMPO);
+            await rest(ms / TEMPO, label);
             if (region[mine("afterGen")] !== gen) return;
             await runMachine(timerReduce, { type: `after:${key}` });
           })().catch((err) => {

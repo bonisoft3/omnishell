@@ -1,0 +1,64 @@
+@import "./shared/chrome.css";
+
+/* resizable — every rule scoped under the screen: injected stylesheets outlive
+   the screen that brought them. Two panes and one number: everything the split
+   touches is derived from --split, so the divider's position and the control's
+   value are the same fact rather than two that agree. */
+.screen-resizable { max-width: 44rem; margin: 0 auto; padding: var(--sp-xl) var(--sp-lg); }
+.screen-resizable .demo-head h1 { margin: 0 0 var(--sp-sm); font-size: 1.6rem;
+  letter-spacing: -0.02em; color: var(--primary); }
+.screen-resizable .lede { margin: 0 0 var(--sp-lg); color: var(--secondary); line-height: 1.6; }
+.screen-resizable .stage-name { font-size: 1rem; margin: var(--sp-lg) 0 8px; }
+.screen-resizable .demo-stage { display: grid; gap: var(--sp-lg);
+  padding: var(--sp-lg); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); }
+.screen-resizable .demo-pane h2 { font-size: 1rem; margin: 0 0 8px; color: var(--primary); }
+.screen-resizable .pane-note { margin: 0 0 var(--sp-sm); font-size: .875rem;
+  line-height: 1.6; color: var(--secondary); }
+
+.screen-resizable .rs { display: grid; gap: var(--sp-sm); }
+
+.screen-resizable .rs-group { display: flex; align-items: stretch;
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface); overflow: hidden; min-height: 160px; }
+
+/* The binding lands once, on the box that owns both panes: a custom property
+   inherits, so neither pane carries a copy of the number. */
+.screen-resizable .rs-pane { padding: var(--sp-md); box-sizing: border-box;
+  min-width: 0; overflow: hidden; }
+.screen-resizable .rs-pane:first-of-type { flex: 0 0 calc(var(--split, 50) * 1%); }
+.screen-resizable .rs-pane:last-of-type { flex: 1 1 0; }
+.screen-resizable .rs-bar { flex: 0 0 1px; background: var(--border); }
+
+.screen-resizable .rs-pane-title { margin: 0 0 6px; font-size: .9375rem;
+  font-weight: 600; color: var(--primary); }
+.screen-resizable .rs-pane-body { margin: 0; font-size: .875rem; line-height: 1.5;
+  color: var(--secondary); }
+
+.screen-resizable .rs-label { font-size: .875rem; font-weight: 600;
+  color: var(--primary); }
+/* The control is the whole gesture, so it is a target a finger can find: a
+   range's default box is 16px tall and carries a UA margin that pushes the
+   document past the viewport. */
+.screen-resizable .rs-handle { width: 100%; margin: 0; box-sizing: border-box;
+  min-height: 24px; accent-color: var(--accent); cursor: pointer; }
+.screen-resizable .rs-handle:focus-visible { outline: 2px solid var(--accent);
+  outline-offset: 2px; }
+
+.screen-resizable .rs-readout { display: block; font-size: .8125rem;
+  background: var(--surface-muted); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: var(--sp-sm) var(--sp-md); }
+
+/* An inline anchor's box is its font's content height, which no line-height
+   raises, so a link in prose is a box of its own to clear WCAG 2.5.8's 24px. */
+.screen-resizable .lede a, .screen-resizable .pane-note a, .screen-resizable .limits a {
+  display: inline-block; padding: 4px 0; color: var(--primary); }
+
+.screen-resizable .demo-pane { margin-top: var(--sp-lg); }
+.screen-resizable .machine-json { display: block; font-size: .8125rem;
+  background: var(--surface-muted); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: var(--sp-sm) var(--sp-md);
+  overflow-x: auto; white-space: pre; }
+.screen-resizable .limits dt { font-weight: 600; margin-top: var(--sp-sm); }
+.screen-resizable .limits dd { margin: 4px 0 0; color: var(--secondary);
+  font-size: .875rem; line-height: 1.5; }

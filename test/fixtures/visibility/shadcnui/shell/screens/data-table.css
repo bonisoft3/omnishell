@@ -1,0 +1,312 @@
+@import "./shared/chrome.css";
+
+/* Data table — every rule scoped under the screen: injected stylesheets outlive
+   the screen that brought them. */
+.screen-data-table {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: var(--sp-xl) var(--sp-lg);
+}
+.screen-data-table .demo-head h1 {
+  margin: 0 0 var(--sp-sm);
+  font-size: 1.6rem;
+  letter-spacing: -0.02em;
+  color: var(--primary);
+}
+.screen-data-table .lede {
+  margin: 0 0 var(--sp-lg);
+  color: var(--secondary);
+  line-height: 1.6;
+}
+.screen-data-table .demo-pane {
+  margin-top: var(--sp-lg);
+}
+.screen-data-table .demo-pane h2 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  color: var(--primary);
+}
+.screen-data-table .pane-note {
+  margin: 0 0 var(--sp-sm);
+  font-size: 0.875rem;
+  color: var(--secondary);
+  line-height: 1.6;
+}
+/* An atomic inline box, so a cross-reference inside a sentence clears WCAG
+   2.5.8's 24px floor without the note's type growing to meet it. */
+.screen-data-table .pane-link,
+.screen-data-table .limits a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  color: var(--primary);
+  text-decoration-color: var(--border);
+}
+.screen-data-table .pane-link:focus-visible,
+.screen-data-table .limits a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.screen-data-table .demo-stage {
+  display: grid;
+  gap: var(--sp-lg);
+  padding: var(--sp-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+/* The component tags are inert wrappers, so they take no part in layout. */
+.screen-data-table omnishell--data-table,
+.screen-data-table omnishell--scroll-area {
+  display: contents;
+}
+
+.screen-data-table .dt-field {
+  display: grid;
+  gap: 4px;
+}
+.screen-data-table .dt-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--primary);
+}
+.screen-data-table .dt-input {
+  font: inherit;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--primary);
+  transition: border-color var(--motion-fast) var(--motion-ease);
+}
+.screen-data-table .dt-input::placeholder {
+  color: var(--secondary);
+}
+.screen-data-table .dt-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.screen-data-table .dt-hint {
+  margin: var(--sp-sm) 0 0;
+  font-size: 0.8125rem;
+  color: var(--secondary);
+  line-height: 1.5;
+}
+.screen-data-table .dt-frame {
+  display: grid;
+}
+.screen-data-table .dt-hold {
+  display: grid;
+  gap: var(--sp-sm);
+}
+
+/* A box that scrolls is a tab stop, so it is dressed as one. */
+.screen-data-table .scroll-area {
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+.screen-data-table .scroll-area:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.screen-data-table .scroll-x {
+  overflow-x: auto;
+}
+
+.screen-data-table .dt {
+  width: 100%;
+  min-width: 26rem;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  text-align: left;
+}
+/* The grid is the widget's one tab stop, so its ring is the reader's whole
+   sign that the arrow keys now move the chosen row. */
+.screen-data-table .dt:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.screen-data-table .dt-caption {
+  padding: var(--sp-sm) var(--sp-md);
+  font-size: 0.8125rem;
+  color: var(--secondary);
+  text-align: left;
+}
+.screen-data-table .dt th,
+.screen-data-table .dt td {
+  padding: var(--sp-sm) var(--sp-md);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.screen-data-table .dt thead th {
+  font-weight: 600;
+  color: var(--secondary);
+  background: var(--surface-muted);
+}
+.screen-data-table .dt tbody th {
+  font-weight: 600;
+  color: var(--primary);
+  padding: 0;
+}
+.screen-data-table .dt td {
+  color: var(--secondary);
+}
+.screen-data-table .dt .dt-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.screen-data-table .dt tbody tr:last-child th,
+.screen-data-table .dt tbody tr:last-child td {
+  border-bottom: 0;
+}
+/* Keyed on the ARIA attribute the projection wrote, never on a class restating
+   it: what a reader hears and what the screen paints are one column. */
+.screen-data-table .dt-row[aria-selected="true"] {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.screen-data-table .dt-row[aria-selected="true"] td {
+  color: var(--primary);
+}
+.screen-data-table .dt-pick {
+  font: inherit;
+  font-weight: 600;
+  display: block;
+  width: 100%;
+  min-height: 24px;
+  padding: var(--sp-sm) var(--sp-md);
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.screen-data-table .dt-pick:hover {
+  color: var(--primary);
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+}
+/* The button is out of the tab sequence — the grid is the tab stop — so it
+   never draws a ring of its own; the row's band is the selected state. */
+.screen-data-table .dt-pick:focus {
+  outline: none;
+}
+.screen-data-table .dt-none {
+  display: none;
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--secondary);
+}
+.screen-data-table .dt-hold:has(.dt-body:empty) .dt-none {
+  display: block;
+}
+/* No rows, no grid. `:empty` on a region is the platform's own signal that it
+   rendered nothing — the render sweep takes the whitespace with the rows so it
+   stays true — and taking the table off the screen is what puts its tab stop
+   and its data-key out of reach: the pair the key names is rendered by a read
+   that answered nothing, so nothing may press an arrow at it. */
+.screen-data-table .dt-hold:has(.dt-body:empty) .scroll-area {
+  display: none;
+}
+
+.screen-data-table .rowview code,
+.screen-data-table .machine-json {
+  display: block;
+  margin: 0;
+  font-size: 0.8125rem;
+  padding: var(--sp-sm) var(--sp-md);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-muted);
+  color: var(--primary);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+/* A definition list, not a table: six limits read down a 400px board without a
+   scroller. */
+.screen-data-table .limits {
+  margin: 0;
+}
+.screen-data-table .limits dt {
+  padding-top: var(--sp-sm);
+  border-top: 1px solid var(--border);
+  font-weight: 600;
+  color: var(--primary);
+}
+.screen-data-table .limits dd {
+  margin: 4px 0 var(--sp-md);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--secondary);
+  overflow-wrap: break-word;
+}
+.screen-data-table .limits dd em {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--primary);
+}
+.screen-data-table .limits code,
+.screen-data-table .pane-note code {
+  font-size: 0.8125rem;
+}
+
+/* A sortable header holds its name and two order commands. The commands are
+   siblings of the name rather than wrappers around it, so the header's own text
+   stays the column's name and no glyph joins it. */
+.screen-data-table .dt thead th:has(.dt-sorts) {
+  padding-block: calc(var(--sp-sm) / 2);
+}
+.screen-data-table .dt-head {
+  vertical-align: middle;
+}
+.screen-data-table .dt-sorts {
+  display: inline-flex;
+  gap: 2px;
+  margin-inline-start: var(--sp-sm);
+  vertical-align: middle;
+}
+.screen-data-table .dt-sorts form {
+  display: contents;
+}
+.screen-data-table .dt-sort {
+  display: grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--secondary);
+  cursor: pointer;
+}
+.screen-data-table .dt-sort:hover {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--primary);
+}
+.screen-data-table .dt-sort:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* The order in force is the header's own state, so it is read off aria-sort
+   rather than off a class: the attribute a screen reader gets and the styling
+   hook are one fact, which is the rule the whole gallery keys on. */
+.screen-data-table .dt thead th[aria-sort="ascending"],
+.screen-data-table .dt thead th[aria-sort="descending"] {
+  color: var(--primary);
+}
+.screen-data-table th[aria-sort="ascending"] #dt-sort-id-asc,
+.screen-data-table th[aria-sort="ascending"] #dt-sort-amount-asc,
+.screen-data-table th[aria-sort="descending"] #dt-sort-id-desc,
+.screen-data-table th[aria-sort="descending"] #dt-sort-amount-desc {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--primary);
+}

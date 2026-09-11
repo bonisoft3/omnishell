@@ -1,0 +1,115 @@
+@import "./shared/chrome.css";
+
+/* Switch demo — the skin lives with the app, the structure with the
+   component. Styling keys on the ARIA attribute the machine writes
+   (aria-checked), never on a second spelling of the state. */
+.screen-switch {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: var(--sp-xl) var(--sp-lg);
+}
+.screen-switch .demo-head h1 {
+  margin: 0 0 var(--sp-sm);
+  font-size: 1.6rem;
+  letter-spacing: -0.02em;
+  color: var(--primary);
+}
+.screen-switch .lede {
+  margin: 0 0 var(--sp-lg);
+  color: var(--secondary);
+  line-height: 1.6;
+}
+.screen-switch .demo-stage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-lg) var(--sp-xl);
+  min-height: 7rem;
+  padding: var(--sp-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+/* The control: a real button wearing role="switch". */
+.screen-switch .switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--primary);
+  cursor: pointer;
+}
+.screen-switch .switch-track {
+  display: inline-flex;
+  align-items: center;
+  width: 44px;
+  height: 24px;
+  padding: 2px;
+  box-sizing: border-box;
+  border-radius: var(--r-full);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  transition: background var(--motion-fast) var(--motion-ease);
+}
+.screen-switch .switch-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-full);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  transition: transform var(--motion-fast) var(--motion-ease);
+}
+.screen-switch .switch[aria-checked="true"] .switch-track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.screen-switch .switch[aria-checked="true"] .switch-thumb {
+  transform: translateX(20px);
+}
+.screen-switch .switch:focus-visible .switch-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.screen-switch .demo-pane {
+  margin-top: var(--sp-lg);
+}
+.screen-switch .demo-pane h2 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  color: var(--primary);
+}
+.screen-switch .pane-note {
+  margin: 0 0 var(--sp-sm);
+  font-size: 0.875rem;
+  color: var(--secondary);
+  line-height: 1.5;
+}
+.screen-switch .rowview + .rowview {
+  margin-top: var(--sp-sm);
+}
+.screen-switch .rowview {
+  padding: var(--sp-sm) var(--sp-md);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-muted);
+}
+.screen-switch .row-readout {
+  font-size: 0.85rem;
+  color: var(--primary);
+}
+.screen-switch .machine-json {
+  margin: 0;
+  padding: var(--sp-md);
+  overflow-x: auto;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--primary);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}

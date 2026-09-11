@@ -1,0 +1,91 @@
+@import "./shared/chrome.css";
+
+/* select — every rule scoped under the screen: injected stylesheets outlive
+   the screen that brought them. */
+.screen-select { max-width: 720px; margin: 0 auto; padding: var(--sp-lg) var(--sp-md); }
+.screen-select .demo-head h1 { margin: 0 0 4px; }
+.screen-select .lede { color: var(--secondary); margin: 0 0 var(--sp-lg); line-height: 1.6; }
+.screen-select .demo-stage { display: grid; gap: var(--sp-lg); padding: var(--sp-lg);
+  border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface);
+  margin-bottom: var(--sp-lg); }
+
+.screen-select .select-pick, .screen-select .select-mint { display: grid; gap: 6px;
+  max-width: 22rem; }
+/* Two forms, and the rule says so: the one that commits a pick and the one
+   that mints what there is to pick from are not two halves of a control. */
+.screen-select .select-mint { border-top: 1px solid var(--border);
+  padding-top: var(--sp-lg); }
+.screen-select .select-label { font-size: .875rem; font-weight: 600; color: var(--primary); }
+/* The closed box is ours; the open list is the UA's own surface and takes
+   none of these. No appearance:none — dropping the native arrow would mean
+   drawing one, and this control is here for what the UA supplies. */
+.screen-select .select-control { font: inherit; width: 100%; box-sizing: border-box;
+  min-height: 36px; padding: 6px 10px; border: 1px solid var(--border);
+  border-radius: var(--r-sm); background: var(--surface); color: var(--primary);
+  transition: border-color var(--motion-fast) var(--motion-ease); }
+.screen-select .select-control:focus-visible { outline: 2px solid var(--accent);
+  outline-offset: 2px; }
+.screen-select .select-hint { margin: 0; font-size: .8125rem; color: var(--secondary);
+  line-height: 1.6; }
+
+.screen-select .select-mint-line { display: flex; gap: var(--sp-sm); }
+.screen-select .select-mint-input { font: inherit; flex: 1 1 auto; min-width: 0;
+  min-height: 36px; padding: 6px 10px; border: 1px solid var(--border);
+  border-radius: var(--r-sm); background: var(--surface); color: var(--primary);
+  transition: border-color var(--motion-fast) var(--motion-ease); }
+.screen-select .select-mint-input::placeholder { color: var(--secondary); }
+.screen-select .select-mint-input:focus-visible { outline: 2px solid var(--accent);
+  outline-offset: 2px; }
+.screen-select .select-mint-button { font: inherit; font-size: .875rem; font-weight: 600;
+  flex: none; min-height: 36px; padding: 6px 16px; border: 1px solid var(--accent);
+  border-radius: var(--r-sm); background: var(--accent); color: var(--surface);
+  cursor: pointer;
+  transition: opacity var(--motion-fast) var(--motion-ease); }
+.screen-select .select-mint-button:hover { opacity: .88; }
+.screen-select .select-mint-button:focus-visible { outline: 2px solid var(--accent);
+  outline-offset: 2px; }
+.screen-select .invalid { margin: 0; font-size: .8125rem; color: var(--danger); }
+/* The refusal is the minting form's alone — the prompt option is disabled, so
+   the pick form has nothing left to refuse. */
+.screen-select[data-state="validation-error"] .select-mint-input { border-color: var(--danger); }
+
+.screen-select .demo-pane { margin-top: var(--sp-lg); }
+.screen-select .demo-pane h2 { font-size: 1rem; margin: 0 0 4px; }
+.screen-select .pane-note { color: var(--secondary); font-size: .875rem; margin: 0 0 8px;
+  line-height: 1.6; }
+/* Inline, but a target: 24px is WCAG 2.5.8's floor and neither the lede's line
+   box nor a .875rem one reaches it. */
+.screen-select .lede a, .screen-select .pane-note a { display: inline-block;
+  padding: 4px 0; color: var(--primary); }
+.screen-select .rowview code, .screen-select .rowlist code { display: block;
+  font-size: .8125rem; background: var(--surface-muted); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: var(--sp-sm) var(--sp-md); overflow-x: auto; }
+.screen-select .rowlist { list-style: none; margin: var(--sp-sm) 0 0; padding: 0;
+  display: grid; gap: 4px; }
+.screen-select .rowlist .empty { margin: 0; font-size: .8125rem; color: var(--secondary); }
+
+/* Three columns of prose do not fit a 400px board, so the table scrolls inside
+   its own box rather than the page scrolling under it. */
+.screen-select .trade-wrap { overflow-x: auto; border: 1px solid var(--border);
+  border-radius: var(--r-sm); margin-bottom: var(--sp-md); }
+.screen-select .trade { border-collapse: collapse; width: 100%; min-width: 34rem;
+  font-size: .8125rem; }
+.screen-select .trade th, .screen-select .trade td { text-align: left; vertical-align: top;
+  padding: var(--sp-sm) var(--sp-md); border-bottom: 1px solid var(--border);
+  line-height: 1.5; }
+.screen-select .trade thead th { font-weight: 600; color: var(--primary);
+  background: var(--surface-muted); }
+.screen-select .trade tbody th { font-weight: 600; color: var(--primary); width: 11rem; }
+.screen-select .trade td { color: var(--secondary); }
+.screen-select .trade tbody tr:last-child th,
+.screen-select .trade tbody tr:last-child td { border-bottom: 0; }
+
+/* A definition list, not a table: three walls read down a 400px board without
+   a scroller. */
+.screen-select .walls { margin: 0 0 var(--sp-md); }
+.screen-select .walls dt { font-weight: 600; color: var(--primary);
+  padding-top: var(--sp-sm); border-top: 1px solid var(--border); }
+.screen-select .walls dd { margin: 4px 0 var(--sp-md); font-size: .875rem;
+  line-height: 1.6; color: var(--secondary); overflow-wrap: break-word; }
+.screen-select .walls dd em { font-style: normal; font-weight: 600; color: var(--primary); }
+.screen-select .walls code { font-size: .8125rem; }

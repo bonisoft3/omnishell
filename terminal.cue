@@ -232,7 +232,7 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 
 		modules: [...#Path]
 		modules: [
-			"shell.js", "screen.js", "fragment.js", "data-crud.js", "render.js",
+			"shell.js", "screen.js", "fragment.js", "data-crud.js", "validate.js", "render.js",
 			"hatch.js", "hatch-worker.js", "storybook.js", "jessie.js",
 			"vendor/mecha-client.js", "vendor/js-yaml.js", "vendor/ses.umd.min.js",
 		]

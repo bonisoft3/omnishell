@@ -1,0 +1,71 @@
+@import "./shared/chrome.css";
+
+/* toast — every rule scoped under the screen: injected stylesheets outlive
+   the screen that brought them. */
+.screen-toast { max-width: 720px; margin: 0 auto; padding: var(--sp-lg) var(--sp-md); }
+.screen-toast .demo-head h1 { margin: 0 0 4px; }
+.screen-toast .lede { color: var(--secondary); margin: 0 0 var(--sp-lg); line-height: 1.6; }
+.screen-toast .demo-stage { padding: var(--sp-lg); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); margin-bottom: var(--sp-lg); }
+
+.screen-toast .toast-trigger { font: inherit; border: 1px solid var(--accent);
+  background: var(--accent); color: var(--surface); cursor: pointer;
+  min-height: 36px; padding: 0 var(--sp-md); border-radius: var(--r-sm); }
+.screen-toast .toast-trigger:focus-visible { outline: 2px solid var(--accent);
+  outline-offset: 2px; }
+
+/* The viewport is the live region and is always mounted; what appears inside
+   it is the message. Fixed so a screen scrolled anywhere shows the toast, and
+   inset by the safe area a phone reserves for its own chrome. The z-index is
+   the cost of declining the top layer: this surface stacks with the page, so a
+   modal <dialog> would paint over it. The strip runs the full width to place
+   the toast against the right edge, so it must not take the pointer: the toast
+   itself takes it back. */
+.screen-toast .toast-viewport { position: fixed; z-index: 1;
+  right: max(var(--sp-md), env(safe-area-inset-right));
+  bottom: max(var(--sp-md), env(safe-area-inset-bottom));
+  left: max(var(--sp-md), env(safe-area-inset-left));
+  display: flex; justify-content: flex-end; pointer-events: none; }
+
+/* One rule per state, projected off the data-state the machine writes.
+   visibility rather than display: both take the surface out of the
+   accessibility tree — which is what makes the live region report it on the
+   way back in — and visibility animates, so a dismissed toast fades instead of
+   vanishing mid-word. */
+.screen-toast .toast {
+  pointer-events: auto; box-sizing: border-box; width: 100%; max-width: 22rem;
+  padding: var(--sp-md); border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface); color: var(--primary);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 14%);
+  visibility: hidden; opacity: 0; translate: 0 var(--motion-shift);
+  transition: opacity var(--motion-base) var(--motion-ease),
+              translate var(--motion-base) var(--motion-ease),
+              visibility var(--motion-base) var(--motion-ease); }
+.screen-toast .toast-mount[data-state="open"] .toast {
+  visibility: visible; opacity: 1; translate: 0 0; }
+
+.screen-toast .toast-title { margin: 0; font-size: .9375rem; font-weight: 600; }
+.screen-toast .toast-body { margin: 4px 0 0; font-size: .875rem; line-height: 1.5;
+  color: var(--secondary); }
+.screen-toast .toast-close { display: inline-flex; align-items: center;
+  margin-top: var(--sp-sm); min-height: 24px; padding: 0 var(--sp-sm);
+  font: inherit; font-size: .8125rem; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: none; color: var(--primary); }
+.screen-toast .toast-close:focus-visible { outline: 2px solid var(--accent);
+  outline-offset: 2px; }
+
+.screen-toast .demo-pane { margin-top: var(--sp-lg); }
+.screen-toast .demo-pane h2 { font-size: 1.05rem; margin: 0 0 4px; }
+.screen-toast .pane-note { color: var(--secondary); font-size: .875rem;
+  line-height: 1.5; margin: 0 0 8px; }
+.screen-toast .rowview code, .screen-toast .machine-json { display: block;
+  font-size: .8125rem; background: var(--surface-muted); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: var(--sp-sm) var(--sp-md); overflow-x: auto; }
+.screen-toast .machine-json { margin: 0; line-height: 1.5; }
+
+.screen-toast .limits { margin: 0; }
+.screen-toast .limits dt { margin-top: var(--sp-sm); font-size: .875rem;
+  font-weight: 600; color: var(--primary); }
+.screen-toast .limits dd { margin: 4px 0 0; font-size: .875rem; line-height: 1.55;
+  color: var(--secondary); }

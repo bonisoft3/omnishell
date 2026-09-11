@@ -1,0 +1,99 @@
+@import "./shared/chrome.css";
+
+/* calendar — every rule scoped under the screen: injected stylesheets outlive
+   the screen that brought them. */
+.screen-calendar { max-width: 720px; margin: 0 auto; padding: var(--sp-lg) var(--sp-md); }
+.screen-calendar .demo-head h1 { margin: 0 0 4px; }
+.screen-calendar .lede { color: var(--secondary); margin: 0 0 var(--sp-lg); line-height: 1.6; }
+.screen-calendar .demo-stage { padding: var(--sp-lg); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); margin-bottom: var(--sp-lg); }
+
+/* A definite width, because the same card is rendered twice: inline, where the
+   column decides it, and inside a popover, whose box is max-content — there the
+   month's NAME decided the width, so paging from September to May narrowed the
+   surface and moved every day cell under the reader's pointer. The grid is what
+   this box is for, and a grid of seven columns is the same width every month. */
+.screen-calendar .cal-card { width: 20rem; max-width: 100%; }
+.screen-calendar .cal-head { display: flex; align-items: center; gap: var(--sp-sm); }
+.screen-calendar .cal-title { flex: 1; text-align: center; margin: 0;
+  font-size: .9375rem; font-weight: 600; color: var(--primary); }
+.screen-calendar .cal-step { flex: none; display: inline-flex; align-items: center;
+  justify-content: center; width: 32px; height: 32px; padding: 0; cursor: pointer;
+  font: inherit; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--secondary);
+  transition: color var(--motion-fast) var(--motion-ease); }
+.screen-calendar .cal-step:hover { color: var(--primary); }
+.screen-calendar .cal-step:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The grid is one tab stop, so the ring belongs to the whole grid and the
+   active cell is marked by aria-selected rather than by focus. */
+.screen-calendar .cal-grid { margin-top: var(--sp-md); }
+.screen-calendar .cal-grid:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px;
+  border-radius: var(--r-sm); }
+.screen-calendar .cal-week { display: grid; grid-template-columns: repeat(7, 1fr); }
+.screen-calendar .cal-wd { display: flex; align-items: center; justify-content: center;
+  height: 28px; font-size: .75rem; font-weight: 600; color: var(--secondary); }
+.screen-calendar .cal-wd abbr { text-decoration: none; }
+.screen-calendar .cal-cell { display: flex; }
+.screen-calendar .cal-pick { display: flex; flex: 1; margin: 1px; }
+.screen-calendar .cal-day { flex: 1; min-width: 24px; min-height: 32px; padding: 0;
+  font: inherit; font-size: .8125rem; cursor: pointer;
+  border: 1px solid transparent; border-radius: var(--r-sm);
+  background: transparent; color: var(--primary);
+  transition: background var(--motion-fast) var(--motion-ease); }
+.screen-calendar .cal-day:hover { background: var(--surface-muted); }
+/* The button is inside the cell that carries the state, so the ring is the
+   button's and the marking is the cell's — one fact, one owner. */
+.screen-calendar .cal-day:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* Keyed on the ARIA attribute the projection answers, never on a class. */
+.screen-calendar .cal-cell[aria-selected="true"] .cal-day { background: var(--accent);
+  color: var(--surface); font-weight: 600; }
+/* The other projected answer: a day whose own month is not the grid's. */
+.screen-calendar .cal-cell[data-inmonth="false"] .cal-day { color: var(--secondary); opacity: .55; }
+
+.screen-calendar .cal-chosen { display: flex; align-items: baseline; gap: var(--sp-sm);
+  margin: var(--sp-md) 0 0; font-size: .8125rem; }
+.screen-calendar .cal-chosen-label,
+.screen-calendar .dp-chosen-label { color: var(--secondary); }
+.screen-calendar .cal-chosen-date,
+.screen-calendar .dp-chosen-date { font-weight: 600; color: var(--primary); }
+
+.screen-calendar .dp-bar { display: flex; align-items: center; gap: var(--sp-md);
+  flex-wrap: wrap; }
+.screen-calendar .dp-chosen { margin: 0; display: flex; align-items: baseline;
+  gap: var(--sp-sm); font-size: .8125rem; }
+.screen-calendar .dp-trigger { font: inherit; cursor: pointer;
+  display: inline-flex; align-items: center; gap: var(--sp-sm); min-height: 32px;
+  padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--primary);
+  /* Placement is CSS: the surface positions itself against this name, and no
+     script measures anything. */
+  anchor-name: --dp-trigger; }
+.screen-calendar .dp-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* [popover] is closed-by-default in the UA sheet; only the open box needs
+   styling. Top layer ignores the page's stacking, so no z-index anywhere. */
+.screen-calendar .dp-pop { margin: 4px 0 0; padding: var(--sp-md);
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface); box-shadow: 0 4px 12px rgb(0 0 0 / 10%);
+  position-anchor: --dp-trigger; position-area: bottom span-right; }
+
+.screen-calendar .demo-part { margin-top: var(--sp-xl); }
+.screen-calendar .demo-part h2 { font-size: 1.05rem; margin: 0 0 4px; }
+.screen-calendar .demo-pane { margin-top: var(--sp-lg); }
+.screen-calendar .demo-pane h2 { font-size: 1.05rem; margin: 0 0 4px; }
+.screen-calendar .pane-note { color: var(--secondary); font-size: .875rem;
+  line-height: 1.5; margin: 0 0 8px; }
+.screen-calendar .pane-link { color: var(--primary); }
+.screen-calendar .rowview code, .screen-calendar .machine-json { display: block;
+  font-size: .8125rem; background: var(--surface-muted); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: var(--sp-sm) var(--sp-md); overflow-x: auto; }
+/* Six assigns of parameterised references is a wall a page long; the pane keeps
+   its own scroll so the section after it stays reachable. */
+.screen-calendar .machine-json { margin: 0 0 8px; line-height: 1.5;
+  max-height: 22rem; overflow: auto; }
+.screen-calendar .limits { margin: 0; }
+.screen-calendar .limits dt { font-weight: 600; font-size: .875rem;
+  margin-top: var(--sp-md); color: var(--primary); }
+.screen-calendar .limits dd { margin: 4px 0 0; color: var(--secondary);
+  font-size: .875rem; line-height: 1.55; }

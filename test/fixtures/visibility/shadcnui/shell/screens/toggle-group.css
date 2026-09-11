@@ -1,0 +1,38 @@
+@import "./shared/chrome.css";
+
+/* toggle-group — every rule scoped under the screen: injected stylesheets
+   outlive the screen that brought them. */
+.screen-toggle-group { max-width: 720px; margin: 0 auto; padding: var(--sp-lg) var(--sp-md); }
+.screen-toggle-group .demo-head h1 { margin: 0 0 4px; }
+.screen-toggle-group .lede { color: var(--secondary); margin: 0 0 var(--sp-lg);
+  line-height: 1.6; }
+.screen-toggle-group .demo-stage { padding: var(--sp-lg); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); margin-bottom: var(--sp-lg); }
+
+.screen-toggle-group .tg-set { display: inline-flex; gap: 4px; padding: 4px;
+  background: var(--surface-muted); border: 1px solid var(--border);
+  border-radius: var(--r-sm); }
+.screen-toggle-group .tg-item { font: inherit; font-size: .875rem; border: 0;
+  background: none; cursor: pointer; min-height: 26px; padding: 4px 14px;
+  border-radius: var(--r-sm); color: var(--secondary); }
+/* The semantics are the styling hook: aria-checked is a bound row column. */
+.screen-toggle-group .tg-item[aria-checked="true"] { background: var(--surface);
+  color: var(--primary); box-shadow: 0 1px 2px rgb(0 0 0 / 8%); }
+.screen-toggle-group .tg-item:focus-visible { outline: 2px solid var(--accent);
+  outline-offset: 2px; }
+
+/* The sample is its own region reading the same column the group writes; the
+   component projects nothing. */
+.screen-toggle-group .tg-preview { margin-top: var(--sp-lg); padding-top: var(--sp-md);
+  border-top: 1px solid var(--border); }
+.screen-toggle-group .tg-sample { margin: 0; color: var(--primary); }
+.screen-toggle-group .tg-preview[data-state="center"] .tg-sample { text-align: center; }
+.screen-toggle-group .tg-preview[data-state="right"] .tg-sample { text-align: right; }
+
+.screen-toggle-group .demo-pane { margin-top: var(--sp-lg); }
+.screen-toggle-group .demo-pane h2 { font-size: 1rem; margin: 0 0 4px; }
+.screen-toggle-group .pane-note { color: var(--secondary); font-size: .875rem;
+  margin: 0 0 8px; line-height: 1.55; }
+.screen-toggle-group .rowview code, .screen-toggle-group .machine-json { display: block;
+  font-size: .8125rem; background: var(--surface-muted); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: var(--sp-sm) var(--sp-md); overflow-x: auto; }

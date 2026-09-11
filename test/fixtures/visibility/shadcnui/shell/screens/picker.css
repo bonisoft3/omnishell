@@ -1,0 +1,44 @@
+@import "./shared/chrome.css";
+
+/* picker — every rule scoped under the screen: injected stylesheets outlive
+   the screen that brought them. */
+.screen-picker { max-width: 720px; margin: 0 auto; padding: var(--sp-lg) var(--sp-md); }
+.screen-picker .demo-head h1 { margin: 0 0 4px; }
+.screen-picker .lede { color: var(--secondary); margin: 0 0 var(--sp-lg); }
+.screen-picker .demo-stage { padding: var(--sp-lg); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); margin-bottom: var(--sp-lg); }
+
+.screen-picker .picker-trigger { font: inherit; cursor: pointer;
+  display: inline-flex; align-items: center; gap: var(--sp-sm);
+  padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--primary);
+  /* The list positions itself against this name — placement is CSS, not
+     script, like every other half of the openness. */
+  anchor-name: --picker-trigger; }
+.screen-picker .picker-label { color: var(--secondary); font-size: .875rem; }
+.screen-picker .picker-value { font-weight: 600; }
+.screen-picker .picker-trigger::after { content: "▾"; color: var(--secondary); font-size: .75rem; }
+
+/* [popover] is closed-by-default in the UA sheet; only the open box needs
+   styling. Top layer ignores the page's stacking, so no z-index anywhere. */
+.screen-picker .picker-list { margin: 4px 0 0; padding: 4px; list-style: none;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); box-shadow: 0 4px 12px rgb(0 0 0 / 10%);
+  min-width: 180px;
+  position-anchor: --picker-trigger; position-area: bottom span-right; }
+.screen-picker .picker-option { font: inherit; border: 0; cursor: pointer;
+  display: block; width: 100%; text-align: left;
+  padding: 6px 10px; border-radius: var(--r-sm);
+  background: transparent; color: var(--primary); }
+.screen-picker .picker-option:hover { background: var(--surface-muted); }
+/* The semantics are the styling hook: aria-selected is a bound row column. */
+.screen-picker .picker-option[aria-selected="true"] { font-weight: 600; }
+.screen-picker .picker-option[aria-selected="true"]::after { content: " ✓";
+  color: var(--secondary); }
+
+.screen-picker .demo-pane { margin-top: var(--sp-lg); }
+.screen-picker .demo-pane h2 { font-size: 1rem; margin: 0 0 4px; }
+.screen-picker .pane-note { color: var(--secondary); font-size: .875rem; margin: 0 0 8px; }
+.screen-picker .rowview code, .screen-picker .machine-json { display: block;
+  font-size: .8125rem; background: var(--surface-muted); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: var(--sp-sm) var(--sp-md); overflow-x: auto; }

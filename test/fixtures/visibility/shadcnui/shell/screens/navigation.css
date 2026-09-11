@@ -1,0 +1,210 @@
+@import "./shared/chrome.css";
+
+/* navigation menu · sidebar — every rule scoped under the screen: injected
+   stylesheets outlive the screen that brought them. */
+.screen-navigation { max-width: 720px; margin: 0 auto; padding: var(--sp-lg) var(--sp-md); }
+.screen-navigation .demo-head h1 { margin: 0 0 4px; }
+.screen-navigation .lede { color: var(--secondary); margin: 0 0 var(--sp-lg); line-height: 1.6; }
+/* An inline anchor's box is its font's content height, which no line-height
+   raises, so a link in prose needs vertical padding of its own to clear
+   WCAG 2.5.8's 24px. */
+.screen-navigation .lede a, .screen-navigation .arm-note a,
+.screen-navigation .pane-note a, .screen-navigation .aria-table a,
+.screen-navigation .matrix a { display: inline-block; padding: 5px 0; color: var(--primary); }
+.screen-navigation .lede a:focus-visible, .screen-navigation .arm-note a:focus-visible,
+.screen-navigation .pane-note a:focus-visible, .screen-navigation .aria-table a:focus-visible,
+.screen-navigation .matrix a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.screen-navigation .demo-arm { margin-top: var(--sp-xl); }
+.screen-navigation .demo-arm h2 { font-size: 1.05rem; margin: 0 0 4px; }
+.screen-navigation .arm-note { color: var(--secondary); font-size: .9rem;
+  line-height: 1.55; margin: 0 0 var(--sp-md); }
+.screen-navigation .demo-stage { padding: var(--sp-lg); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); }
+
+/* --- the navigation menu: /menu's bar and surface, unchanged ------------- */
+
+.screen-navigation .menubar { display: flex; flex-wrap: wrap; gap: 2px;
+  padding: 4px; border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface); }
+.screen-navigation .menu-trigger { font: inherit; font-size: .875rem; font-weight: 500;
+  cursor: pointer; min-height: 32px; padding: 6px 12px;
+  border: 1px solid transparent; border-radius: var(--r-sm);
+  background: none; color: var(--primary);
+  transition: background var(--motion-fast) var(--motion-ease); }
+.screen-navigation .menu-trigger:hover { background: var(--surface-muted); }
+.screen-navigation .menu-trigger:focus-visible { outline: 2px solid var(--accent);
+  outline-offset: 2px; }
+
+/* Placement is CSS: each surface anchors to the trigger whose id opens it, so
+   nothing script-side decides where a panel lands. */
+.screen-navigation #menu-controls-trigger { anchor-name: --menu-controls; }
+.screen-navigation #menu-controls { position-anchor: --menu-controls; }
+.screen-navigation #menu-surfaces-trigger { anchor-name: --menu-surfaces; }
+.screen-navigation #menu-surfaces { position-anchor: --menu-surfaces; }
+
+/* [popover] is closed-by-default in the UA sheet, so only the open box needs
+   styling; the top layer ignores the page's stacking, so no z-index anywhere. */
+.screen-navigation .menu-surface { margin: 4px 0 0; padding: 4px;
+  min-width: 12rem; max-width: min(16rem, calc(100vw - var(--sp-lg)));
+  box-sizing: border-box;
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface); color: var(--primary);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  position-area: bottom span-right; position-try-fallbacks: flip-block; }
+.screen-navigation .menu-item { display: flex; align-items: center;
+  box-sizing: border-box; width: 100%; min-height: 28px; padding: 5px 10px;
+  font: inherit; font-size: .875rem; text-decoration: none;
+  border-radius: var(--r-sm); color: var(--primary);
+  transition: background var(--motion-fast) var(--motion-ease); }
+.screen-navigation .menu-item:hover { background: var(--surface-muted); }
+.screen-navigation .menu-item:focus-visible { outline: 2px solid var(--accent);
+  outline-offset: -2px; }
+
+/* --- the sidebar -------------------------------------------------------- */
+
+.screen-navigation .sidebar { display: flex; flex-direction: column;
+  gap: var(--sp-md); }
+.screen-navigation .sb-toggle { display: inline-flex; align-items: center;
+  align-self: flex-start; gap: var(--sp-sm); font: inherit; font-size: .875rem;
+  font-weight: 500; cursor: pointer; min-height: 32px; padding: 6px 12px;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--primary);
+  transition: background var(--motion-fast) var(--motion-ease); }
+.screen-navigation .sb-toggle:hover { background: var(--surface-muted); }
+.screen-navigation .sb-toggle:focus-visible { outline: 2px solid var(--accent);
+  outline-offset: 2px; }
+/* Three rules of a box, so the glyph is drawn rather than typed: a character
+   in the button would join its accessible name. */
+.screen-navigation .sb-bars { flex: none; width: 12px; height: 10px;
+  border-top: 2px solid currentColor; border-bottom: 2px solid currentColor;
+  box-shadow: inset 0 0 0 1px transparent, 0 4px 0 -1px currentColor; }
+
+.screen-navigation .sb-body { display: flex; flex-wrap: wrap;
+  align-items: stretch; gap: var(--sp-md); }
+/* The semantics are the styling hook: aria-expanded is the column the machine
+   wrote, and nothing on the rail restates it as a class. Collapsed takes the
+   rail off the canvas rather than narrowing it — shadcn's offcanvas default,
+   and the only one these rows can express, since none of them carries an
+   icon. */
+.screen-navigation .sidebar:has(.sb-toggle[aria-expanded="false"]) .sb-rail { display: none; }
+
+.screen-navigation .sb-rail { flex: 0 0 auto; width: 11rem; box-sizing: border-box;
+  padding: var(--sp-sm); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface-muted); }
+/* The row the outer region stamps, holding the list region inside it: a nested
+   region has to sit UNDER an item node, so the holder exists to be that node
+   and carries no box of its own. */
+.screen-navigation .sb-holder { display: contents; }
+.screen-navigation .sb-list { list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 2px; }
+.screen-navigation .sb-link { display: flex; align-items: center;
+  box-sizing: border-box; min-height: 32px; padding: 6px 10px;
+  font-size: .875rem; text-decoration: none; border-radius: var(--r-sm);
+  color: var(--primary);
+  transition: background var(--motion-fast) var(--motion-ease); }
+.screen-navigation .sb-link:hover { background: var(--surface); }
+.screen-navigation .sb-link:focus-visible { outline: 2px solid var(--accent);
+  outline-offset: -2px; }
+/* The page the reader is on, and the attribute the projection decided is the
+   whole of the selector: no class carries this fact twice. */
+.screen-navigation .sb-link[aria-current="true"] { background: var(--surface);
+  font-weight: 600; box-shadow: inset 2px 0 0 var(--accent); }
+
+.screen-navigation .sb-canvas { flex: 1 1 14rem; padding: var(--sp-md);
+  border: 1px dashed var(--border); border-radius: var(--r-md); }
+.screen-navigation .sb-canvas p { margin: 0; color: var(--secondary);
+  font-size: .875rem; line-height: 1.55; }
+
+/* --- the narrow board: /sheet's left-edge dialog ------------------------- */
+
+.screen-navigation .dialog-trigger, .screen-navigation .dialog-dismiss {
+  font: inherit; font-size: .875rem; cursor: pointer; min-height: 32px;
+  padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--primary); }
+.screen-navigation .dialog-trigger:hover,
+.screen-navigation .dialog-dismiss:hover { background: var(--surface-muted); }
+.screen-navigation .dialog-trigger:focus-visible,
+.screen-navigation .dialog-dismiss:focus-visible { outline: 2px solid var(--accent);
+  outline-offset: 2px; }
+
+/* An edge surface is placed by its margins inside the box the UA already gives
+   a modal dialog: inset 0, so one auto margin is the whole of the pinning. */
+.screen-navigation .dialog { padding: var(--sp-lg); box-sizing: border-box;
+  border: 1px solid var(--border); background: var(--surface);
+  color: var(--primary); box-shadow: 0 12px 32px rgb(0 0 0 / 18%);
+  max-width: none; max-height: none; height: 100%;
+  width: min(320px, calc(100vw - var(--sp-xl)));
+  margin: 0 auto 0 0; border-width: 0 1px 0 0; }
+.screen-navigation .dialog[open] { display: flex; flex-direction: column; }
+.screen-navigation .dialog .dialog-footer { margin-top: auto; }
+/* The scrim is a filter, not a colour: dimming is dimming in both appearances,
+   and no owned token stays dark through its dark twin. */
+.screen-navigation dialog.dialog::backdrop { backdrop-filter: blur(2px) brightness(.55); }
+/* Scoped through the screen class because injected stylesheets outlive their
+   screen: an unscoped html:has() would lock scrolling on every screen the
+   session visits afterwards. */
+html:has(.screen-navigation dialog.dialog:modal) { overflow: hidden; }
+
+/* Closed is the resting declaration and [open] is the platform's own spelling,
+   so the travel keys on nothing the component writes. Every duration is a
+   token, so the reduced-motion block that zeroes them lands the edge instantly
+   and nothing waits on the arrival. */
+.screen-navigation .dialog { opacity: 0; translate: -100% 0;
+  transition: opacity var(--motion-base) var(--motion-ease),
+              translate var(--motion-base) var(--motion-ease),
+              display var(--motion-base) allow-discrete,
+              overlay var(--motion-base) allow-discrete; }
+.screen-navigation .dialog[open] { opacity: 1; translate: 0 0; }
+@starting-style {
+  .screen-navigation .dialog[open] { opacity: 0; translate: -100% 0; }
+}
+
+.screen-navigation .dialog-title { margin: 0 0 4px; font-size: 1.05rem; }
+.screen-navigation .dialog-desc { margin: 0 0 var(--sp-md); font-size: .8125rem;
+  color: var(--secondary); line-height: 1.5; }
+.screen-navigation .dialog-footer { display: flex; justify-content: flex-end;
+  padding-top: var(--sp-md); }
+/* Inside the drawer the rail is the whole surface: the frame is the dialog's,
+   so the rail keeps only its rows. */
+.screen-navigation .dialog .sb-rail { width: auto; padding: 0;
+  border: 0; background: none; }
+
+/* --- the panes ---------------------------------------------------------- */
+
+.screen-navigation .demo-pane { margin-top: var(--sp-lg); }
+.screen-navigation .demo-pane h2 { font-size: 1.05rem; margin: 0 0 4px; }
+.screen-navigation .pane-note { color: var(--secondary); font-size: .875rem;
+  line-height: 1.55; margin: 0 0 8px; }
+.screen-navigation .rowview + .rowbox { margin-top: 6px; }
+.screen-navigation .rowlist { list-style: none; margin: 6px 0 0; padding: 0; }
+.screen-navigation .rowlist li + li { margin-top: 4px; }
+.screen-navigation .row-readout, .screen-navigation .machine-json { display: block;
+  font-size: .8125rem; background: var(--surface-muted); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: var(--sp-sm) var(--sp-md); overflow-x: auto;
+  white-space: nowrap; }
+.screen-navigation .machine-json { margin: 0; line-height: 1.5; white-space: pre; }
+
+/* A box that scrolls is a tab stop, so it is dressed as one. */
+.screen-navigation .scroll-area:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; }
+.screen-navigation .aria-scroll { overflow-x: auto; border: 1px solid var(--border);
+  border-radius: var(--r-sm); background: var(--surface); }
+.screen-navigation .aria-table { width: 100%; min-width: 40rem;
+  border-collapse: collapse; font-size: .8rem; text-align: left; }
+.screen-navigation .aria-table th, .screen-navigation .aria-table td {
+  padding: 6px var(--sp-md); vertical-align: top;
+  border-bottom: 1px solid var(--border); }
+.screen-navigation .aria-table th { font-weight: 600; color: var(--secondary); }
+.screen-navigation .aria-table td { color: var(--primary); }
+
+.screen-navigation .matrix-wrap { overflow-x: auto; margin-bottom: 8px; }
+.screen-navigation .matrix { border-collapse: collapse; width: 100%; min-width: 34rem;
+  font-size: .8125rem; line-height: 1.5; }
+.screen-navigation .matrix th, .screen-navigation .matrix td {
+  border: 1px solid var(--border); padding: 6px 10px;
+  text-align: left; vertical-align: top; }
+.screen-navigation .matrix thead th { background: var(--surface-muted); }
+.screen-navigation .matrix tbody th { font-weight: 600; }
+/* The word in the cell carries the meaning; the colour only seconds it. */
+.screen-navigation .matrix .no { color: var(--danger); }

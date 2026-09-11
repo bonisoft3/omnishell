@@ -1,0 +1,84 @@
+@import "./shared/chrome.css";
+
+/* chart — every rule scoped under the screen: injected stylesheets outlive the
+   screen that brought them.
+
+   The whole picture is here, which is the claim: a bar's length is calc() over
+   a bound value and a bound domain, so the markup does no arithmetic and the
+   only numbers in this file are the ones that decide how tall a row is. */
+.screen-chart { max-width: 44rem; margin: 0 auto; padding: var(--sp-xl) var(--sp-lg); }
+.screen-chart .demo-head h1 { margin: 0 0 var(--sp-sm); font-size: 1.6rem;
+  letter-spacing: -0.02em; color: var(--primary); }
+.screen-chart .lede { margin: 0 0 var(--sp-lg); color: var(--secondary); line-height: 1.6; }
+.screen-chart .demo-stage { padding: var(--sp-lg); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); }
+.screen-chart .demo-pane { margin-top: var(--sp-lg); }
+.screen-chart .demo-pane h2 { font-size: 1rem; margin: 0 0 8px; color: var(--primary); }
+.screen-chart .pane-note { margin: 0 0 var(--sp-sm); font-size: .875rem;
+  line-height: 1.6; color: var(--secondary); }
+/* An atomic inline box, so the cross-reference inside a sentence still clears
+   WCAG 2.5.8's 24px floor without the note's type growing to meet it. */
+.screen-chart .pane-link { display: inline-flex; align-items: center; min-height: 24px;
+  color: var(--accent); text-decoration-color: var(--border); }
+.screen-chart .pane-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.screen-chart .chart { margin: 0; }
+.screen-chart .chart-title { font-size: .9375rem; font-weight: 600;
+  color: var(--primary); margin-bottom: var(--sp-md); }
+/* The gridlines are proportional and carry no labels: four stops across the
+   plot, which needs no number to be read against the scale printed below it. */
+.screen-chart .chart-plot { width: 100%; border-collapse: collapse;
+  background-image: repeating-linear-gradient(to right,
+    var(--border) 0 1px, transparent 1px 25%); }
+.screen-chart .chart-row { border: 0; }
+.screen-chart .chart-cat { width: 5.5rem; padding: 4px 8px 4px 0; text-align: right;
+  font-size: .8125rem; font-weight: 500; color: var(--secondary); vertical-align: middle; }
+.screen-chart .chart-cell { padding: 4px 0; }
+
+/* One bar, one length: the value and the domain are both bound, and calc does
+   the division the markup has no way to state. */
+.screen-chart .chart-bar { display: block; box-sizing: border-box;
+  width: calc(var(--v) / var(--chart-max) * 100%); min-width: 2.5rem;
+  min-height: 1.75rem; padding: 0 8px; border: 0; border-radius: var(--r-sm);
+  background: var(--surface-muted); color: var(--primary);
+  font: inherit; font-size: .8125rem; text-align: right; line-height: 1.75rem;
+  cursor: pointer; transition: background var(--motion-fast) var(--motion-ease); }
+.screen-chart .chart-bar:hover { background: var(--border); }
+/* The caret, and it is one attribute: the same projected answer that decides
+   the tab order decides the fill, so a bar cannot look current and not be. */
+.screen-chart .chart-bar[aria-current="true"] { background: var(--accent); color: var(--surface); }
+.screen-chart .chart-bar:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The line, over the same rows the table draws: one box per row, and the shape
+   is a clip from this row's height to its neighbour's. The same calc the bars
+   use, against the same domain — with the axis flipped by subtracting from
+   100%, which is the whole of the arithmetic a line needs once the horizontal
+   step is the box itself. */
+.screen-chart .chart-line { display: grid; grid-auto-flow: column;
+  grid-auto-columns: 1fr; height: 4.5rem; margin: var(--sp-md) 0 0;
+  padding-left: 5.5rem; }
+.screen-chart .chart-seg { --at: calc(100% - var(--v) / var(--chart-max) * 100%);
+  --to: calc(100% - var(--n) / var(--chart-max) * 100%);
+  background: var(--accent);
+  clip-path: polygon(0 var(--at), 100% var(--to), 100% calc(var(--to) + 2px), 0 calc(var(--at) + 2px)); }
+/* The last point's neighbour is itself, which is a flat segment with nothing
+   after it: N points make N-1 intervals, and the row says so by naming itself.  */
+.screen-chart .chart-seg:last-child { display: none; }
+
+.screen-chart .chart-tip { margin-top: var(--sp-md); }
+.screen-chart .chart-read { margin: 0; font-size: .875rem; color: var(--primary);
+  border-left: 3px solid var(--accent); padding-left: var(--sp-sm); }
+.screen-chart .chart-scale { margin: var(--sp-sm) 0 0; font-size: .75rem;
+  color: var(--secondary); }
+
+.screen-chart .rowview { padding: var(--sp-sm) var(--sp-md);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface-muted); }
+.screen-chart .row-readout { font-size: .85rem; color: var(--primary); }
+
+.screen-chart .walls-head { font-size: .875rem; margin: var(--sp-md) 0 4px; color: var(--primary); }
+.screen-chart .walls { margin: 0; }
+.screen-chart .walls dt { font-weight: 600; color: var(--primary); font-size: .875rem; }
+.screen-chart .walls dd { margin: 4px 0 var(--sp-md); font-size: .875rem;
+  line-height: 1.6; color: var(--secondary); }
+.screen-chart .walls dd em { font-style: normal; font-weight: 600; color: var(--primary); }

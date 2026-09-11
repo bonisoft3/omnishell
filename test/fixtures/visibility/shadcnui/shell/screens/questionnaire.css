@@ -1,0 +1,102 @@
+@import "./shared/chrome.css";
+
+/* questionnaire — every rule scoped under the screen: injected stylesheets
+   outlive the screen that brought them.
+
+   Which step is showing is the field, so the panels are a projection off
+   data-state and so is the progress: a number computed from where you are is a
+   second spelling of where you are. */
+.screen-questionnaire { max-width: 44rem; margin: 0 auto; padding: var(--sp-xl) var(--sp-lg); }
+.screen-questionnaire .demo-head h1 { margin: 0 0 var(--sp-sm); font-size: 1.6rem;
+  letter-spacing: -0.02em; color: var(--primary); }
+.screen-questionnaire .lede { margin: 0 0 var(--sp-lg); color: var(--secondary); line-height: 1.6; }
+.screen-questionnaire .demo-stage { padding: var(--sp-lg); border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); }
+.screen-questionnaire .demo-pane { margin-top: var(--sp-lg); }
+.screen-questionnaire .demo-pane h2 { font-size: 1rem; margin: 0 0 8px; color: var(--primary); }
+.screen-questionnaire .pane-note { margin: 0 0 var(--sp-sm); font-size: .875rem;
+  line-height: 1.6; color: var(--secondary); }
+.screen-questionnaire .pane-link { display: inline-flex; align-items: center; min-height: 24px;
+  color: var(--accent); text-decoration-color: var(--border); }
+.screen-questionnaire .pane-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.screen-questionnaire .quiz { display: grid; gap: var(--sp-md); }
+.screen-questionnaire .q-title { margin: 0; font-size: 1rem; color: var(--primary); }
+
+/* The progress is the field's, one rule per state. */
+.screen-questionnaire .q-progress { margin: 0; height: 4px; border-radius: var(--r-full);
+  background: var(--surface-muted); overflow: hidden; }
+.screen-questionnaire .q-progress-bar { display: block; height: 100%; width: 0;
+  background: var(--accent); transition: width var(--motion-base) var(--motion-ease); }
+.screen-questionnaire .quiz[data-state="one"] .q-progress-bar { width: 25%; }
+.screen-questionnaire .quiz[data-state="two"] .q-progress-bar { width: 50%; }
+.screen-questionnaire .quiz[data-state="three"] .q-progress-bar { width: 75%; }
+.screen-questionnaire .quiz[data-state="done"] .q-progress-bar { width: 100%; }
+
+/* One panel showing, and the others not drawn — display:none is what keeps
+   their controls out of the Tab sequence as well as out of view. */
+.screen-questionnaire .q-step { display: none; margin: 0; padding: 0; border: 0; }
+.screen-questionnaire .quiz[data-state="one"] .q-step[data-step="one"],
+.screen-questionnaire .quiz[data-state="two"] .q-step[data-step="two"],
+.screen-questionnaire .quiz[data-state="three"] .q-step[data-step="three"] { display: grid; gap: var(--sp-sm); }
+.screen-questionnaire .q-ask { padding: 0; font-size: 1.05rem; font-weight: 600;
+  color: var(--primary); }
+
+.screen-questionnaire .q-choice { min-height: 40px; padding: 0 var(--sp-md);
+  text-align: start; font: inherit; font-size: .9375rem; color: var(--primary);
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-sm); cursor: pointer; }
+.screen-questionnaire .q-choice:hover { background: var(--surface-muted); }
+.screen-questionnaire .q-choice:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The chosen one, styled off its own attribute: aria-pressed is per option and
+   speaks true and false, so no rule here compares two of anything. */
+.screen-questionnaire .q-choice[aria-pressed="true"] { background: var(--accent);
+  border-color: var(--accent); color: var(--surface); }
+
+.screen-questionnaire .q-note-label { font-size: .875rem; font-weight: 600; color: var(--primary); }
+.screen-questionnaire .q-note { min-height: 38px; padding-inline: var(--sp-sm);
+  box-sizing: border-box; font: inherit; font-size: .9375rem; color: var(--primary);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); }
+.screen-questionnaire .q-note:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.screen-questionnaire .q-done { display: none; gap: var(--sp-sm); justify-items: start; }
+.screen-questionnaire .quiz[data-state="done"] .q-done { display: grid; }
+.screen-questionnaire .q-done-note { margin: 0; font-size: .9375rem; line-height: 1.6;
+  color: var(--primary); }
+.screen-questionnaire .q-again { min-height: 36px; padding-inline: var(--sp-md); font: inherit;
+  font-size: .875rem; color: var(--primary); background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--r-sm); cursor: pointer; }
+.screen-questionnaire .q-again:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.screen-questionnaire .q-acts { display: flex; gap: var(--sp-sm); align-items: center; }
+.screen-questionnaire .quiz[data-state="done"] .q-acts { display: none; }
+/* Back on the first step and Skip on a step that has none: not drawn, which is
+   what keeps them out of the Tab sequence too. */
+.screen-questionnaire .quiz[data-state="one"] .q-back,
+.screen-questionnaire .quiz[data-state="one"] .q-skip,
+.screen-questionnaire .quiz[data-state="three"] .q-skip { display: none; }
+.screen-questionnaire .q-back, .screen-questionnaire .q-skip {
+  min-height: 36px; padding-inline: var(--sp-md); font: inherit; font-size: .875rem;
+  color: var(--secondary); background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-sm); cursor: pointer; }
+.screen-questionnaire .q-next { min-height: 36px; padding-inline: var(--sp-lg);
+  margin-inline-start: auto; font: inherit; font-size: .875rem; font-weight: 500;
+  color: var(--surface); background: var(--accent); border: 1px solid var(--accent);
+  border-radius: var(--r-sm); cursor: pointer; }
+.screen-questionnaire .q-next[disabled] { opacity: .5; cursor: not-allowed; }
+.screen-questionnaire .q-back:focus-visible, .screen-questionnaire .q-skip:focus-visible,
+.screen-questionnaire .q-next:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.screen-questionnaire .rowview { padding: var(--sp-sm) var(--sp-md);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface-muted); overflow-x: auto; }
+.screen-questionnaire .row-readout { font-size: .85rem; color: var(--primary); white-space: nowrap; }
+.screen-questionnaire .machine-json { margin: 0; padding: var(--sp-md); overflow-x: auto;
+  font-size: .8rem; line-height: 1.5; color: var(--primary);
+  border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); }
+
+.screen-questionnaire .walls { margin: 0; }
+.screen-questionnaire .walls dt { font-weight: 600; color: var(--primary); font-size: .875rem; }
+.screen-questionnaire .walls dd { margin: 4px 0 var(--sp-md); font-size: .875rem;
+  line-height: 1.6; color: var(--secondary); }
+.screen-questionnaire .walls dd em { font-style: normal; font-weight: 600; color: var(--primary); }

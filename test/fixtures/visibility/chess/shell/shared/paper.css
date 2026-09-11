@@ -1,0 +1,59 @@
+/* Two stacks the app adds beside the platform's tokens. Both resolve out of
+   what the device already has: a webfont would be a network request, and this
+   app's whole claim is that it makes none after its statics load. */
+:root {
+  --serif: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* The vocabulary all three screens speak: the stock, the rules between
+   things, the figures, and the one button shape. Unscoped on purpose — it is
+   shared, and a screen that needed its own copy would have two. */
+
+/* The strip carries the paper's name the way a column carries its paper's.
+   The terminal renders the routes and nothing beside them, so the identity is
+   the app's own to print — as a pseudo-element, because the strip's markup is
+   the terminal's and this stylesheet is the whole of what the app may say
+   about it. */
+body > nav::before {
+  content: "The Board";
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding-right: var(--sp-md);
+  border-right: 1px solid var(--shell-rule);
+  font: 600 1.0625rem/1 var(--serif);
+  letter-spacing: -0.01em;
+}
+
+.masthead { margin: 0 0 var(--sp-md); padding-bottom: var(--sp-sm);
+  border-bottom: 1px solid var(--border); }
+.masthead .title { margin: 0; font: 600 1.6rem/1.1 var(--serif); letter-spacing: -0.01em; }
+.masthead .sub { margin: 4px 0 0; color: var(--secondary); font-size: 0.875rem; }
+
+/* Figures are tabular everywhere: a score sheet whose two columns drift is one
+   nobody can scan down. */
+.no, .score, .when, .san, .ms, .clk { font-variant-numeric: tabular-nums lining-nums; }
+.san, .no, .ms, .clk { font-family: var(--mono); }
+
+.score { font-weight: 700; }
+
+.act { font: inherit; font-weight: 600; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 36px; padding: 0 14px;
+  border: 1px solid var(--primary); border-radius: var(--r-sm);
+  background: var(--primary); color: var(--surface);
+  text-decoration: none; }
+.act.ghost { background: transparent; color: var(--primary); }
+.act:disabled { opacity: 0.4; cursor: default; }
+.act:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* An arm shown by an attribute on an ancestor. Everything is off until a rule
+   turns exactly one on, so a value nobody wrote prints nothing rather than
+   printing all of them. */
+.masthead i, .players i, .how i, .mode i, .turn i, .flag i, .offer i { display: none; }
+/* An <i> here is a switch the CSS turns on, not emphasis: the arm that shows
+   reads as the sentence it is part of. */
+.masthead i, .players i, .how i, .mode i, .turn i, .flag i, .offer i { font-style: normal; }
+
+.empty { margin: var(--sp-md) 0; color: var(--secondary); }
