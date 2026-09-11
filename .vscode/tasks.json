@@ -162,6 +162,7 @@
         "playwright-tests/cls.pw.ts",
         "playwright-tests/settle.pw.ts",
         "playwright-tests/visual-lint.pw.ts",
+        "playwright-tests/picker.pw.ts",
         "playwright-tests/soak.pw.ts",
         "playwright-tests/driven.pw.ts",
         "playwright-tests/harness-teardown.pw.ts"

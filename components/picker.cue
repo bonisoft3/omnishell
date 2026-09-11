@@ -16,10 +16,10 @@
 //     of the row, kept by literal assigns; ARIA-complete with zero script,
 //     for an entity that carries the columns (the gallery's demo row).
 //   text — the machine writes only its field plus each option's declared
-//     assigns; the readout is per-option <i data-t> spans CSS shows via the
-//     bound data-value, and per-option selected-state is the consumer's
-//     concern (truco keeps an aria-checked observer). For rows whose entity
-//     carries no readout columns.
+//     assigns; the readout is per-option <i data-t> spans, one shown by the
+//     component's own <style> keyed on the bound data-value, and per-option
+//     selected-state is the consumer's concern (truco keeps an aria-checked
+//     observer). For rows whose entity carries no readout columns.
 package components
 
 import (
@@ -148,9 +148,21 @@ import (
 				"""
 		}], "\n")
 		_spans: strings.Join([for o in P.options {"<i data-t=\"\(o.name)\">\(o.label)</i>"}], "")
+		// The trigger names the chosen option with no app stylesheet: one rule per
+		// option shows its span, scoped to the picker's key and more specific
+		// than a screen's own rule over every span.
+		_show: strings.Join([
+			"[data-picker=\"\(P.key)\"] .pick-label i { display: none; }",
+			for o in P.options {
+				"[data-picker=\"\(P.key)\"][data-value=\"\(o.name)\"] .pick-label i[data-t=\"\(o.name)\"] { display: inline; }"
+			},
+		], "\n    ")
 
 		markup: """
 			<omnishell--picker>
+			  <style>
+			    \(P._show)
+			  </style>
 			  <div class="picker" data-picker="\(P.key)" data-value="{\(P.field)}" data-live="\(P.collection)" data-filter="\(P.filter)"\(P._emptyRowAttr)
 			       data-machine='\((#attrJSON & {in: P.machine}).out)'>
 			    <button type="button" id="picker-open-\(P.key)"

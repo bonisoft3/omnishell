@@ -8,6 +8,16 @@ export async function checkInteractiveOverlap(page: Page): Promise<VisualBug[]> 
     const bugs: Array<{ rule: string; description: string; severity: "critical" | "major" | "minor"; element?: string }> = []
     const interactives = document.querySelectorAll('button, a[href], input, textarea, select, [role="button"], [tabindex="0"]')
 
+    const clippedAway = (el: Element): boolean => {
+      for (let a: Element | null = el; a; a = a.parentElement) {
+        const box = a.getBoundingClientRect()
+        if (box.width > 1 && box.height > 1) continue
+        const s = getComputedStyle(a)
+        if (s.overflow !== "visible" || s.clipPath !== "none") return true
+      }
+      return false
+    }
+
     for (const el of interactives) {
       const htmlEl = el as HTMLElement
       // Computed style is not enough to know whether a reader can see this.
@@ -17,6 +27,8 @@ export async function checkInteractiveOverlap(page: Page): Promise<VisualBug[]> 
       // whatever genuinely occupies that space as an obscuring blocker.
       if (!htmlEl.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true, contentVisibilityAuto: true })) continue
       if (htmlEl.offsetWidth === 0 || htmlEl.offsetHeight === 0) continue
+      // Unreachable by pointer: see touch-targets.ts.
+      if (htmlEl.closest("[inert]") || clippedAway(htmlEl)) continue
 
       const rect = htmlEl.getBoundingClientRect()
       if (rect.bottom < 0 || rect.top > window.innerHeight || rect.right < 0 || rect.left > window.innerWidth) continue

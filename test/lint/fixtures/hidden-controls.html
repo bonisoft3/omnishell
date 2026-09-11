@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Hidden controls fixture</title>
+  <style>
+    body { margin: 0; }
+    button { position: absolute; margin: 0; padding: 0; border: 0; }
+    .big { width: 48px; height: 48px; }
+    .small { width: 20px; height: 20px; }
+    /* The visually-hidden pattern: in the layout, visible to checkVisibility,
+       clipped to nothing on screen and in hit testing. */
+    .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    .cover { position: absolute; top: 0; left: 0; width: 375px; height: 812px; background: #eee; }
+    .scrim { position: absolute; top: 280px; left: 0; width: 375px; height: 100px; z-index: 1; background: rgb(0 0 0 / 0.4); }
+  </style>
+</head>
+<body>
+  <!-- A visible surface under every control, so a hit that falls through a
+       clipped control lands on something that is not its ancestor. -->
+  <div class="cover" data-testid="cover"></div>
+
+  <!-- Each control below sits higher on screen than the one before it in DOM
+       order, so every one judged by focus-order is an upward jump. -->
+  <button class="big" style="top: 700px; left: 0" data-testid="anchor">anchor</button>
+
+  <!-- Clipped, so no pointer reaches it; aria-hidden hides it from assistive
+       tech only, so Tab still does. -->
+  <div class="sr" aria-hidden="true" style="top: 600px; left: 20px">
+    <button class="small" data-testid="aria-hidden-ancestor">a</button>
+  </div>
+
+  <!-- Clipped and tabindex=-1: neither pointer nor Tab reaches it. -->
+  <div class="sr" style="top: 500px; left: 20px">
+    <button class="small" tabindex="-1" aria-hidden="true" data-testid="aria-hidden-self">s</button>
+  </div>
+
+  <!-- Reachable by pointer, never by Tab: a target, not a tab stop. -->
+  <button class="big" tabindex="-1" style="top: 400px; left: 200px" data-testid="programmatic-only">p</button>
+
+  <!-- inert: unreachable by pointer and Tab, behind the scrim as an open
+       dialog's background is. -->
+  <div inert>
+    <button class="small" style="top: 300px; left: 200px" data-testid="inert-control">i</button>
+  </div>
+  <div class="scrim" data-testid="scrim"></div>
+
+  <!-- Reachable controls the checks must still judge. -->
+  <button class="big" style="top: 300px; left: 20px" data-testid="reachable-covered">c</button>
+  <button class="small" style="top: 750px; left: 100px" data-testid="reachable-small">r</button>
+
+  <!-- aria-hidden alone: hidden from assistive tech, still a visible target. -->
+  <button class="small" aria-hidden="true" style="top: 750px; left: 200px" data-testid="visible-aria-hidden">v</button>
+</body>
+</html>

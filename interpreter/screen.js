@@ -234,7 +234,7 @@ async function loadRenderers(screen, appBase, route) {
 // first key forever, which is a sort that never sorts again.
 const REGION_ATTRS = new Set([
   "data-text", "data-filter", "data-select", "data-empty", "data-empty-row", "data-when",
-  "data-project", "data-order",
+  "data-project", "data-order", "data-exit-motion",
 ]);
 
 // What a machine may read off the event that fired it (machine.cue #EventRef).
@@ -645,8 +645,14 @@ const MOTION_CAP_MS = 1000;
 // on motion no reader can follow. Past this many the pass is a load, which is
 // the same judgement the first paint already makes.
 const GESTURE = 32;
+// A leaving row is no longer the data: while it plays, nothing may click it,
+// read it or resolve an id to it — the row that replaces it may carry the same
+// ids.
 function playExit(node, done) {
   node.dataset.exit = "";
+  node.setAttribute("inert", "");
+  node.setAttribute("aria-hidden", "true");
+  for (const el of [node, ...node.querySelectorAll("[id]")]) el.removeAttribute("id");
   settle(node, done);
 }
 
@@ -2099,6 +2105,16 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         `region "${table}" is a slot and declares data-project; a projection states facts about a set of rows`,
       );
     }
+    // data-exit-motion="none": this list's rows leave in the pass that loses
+    // them, with no exit motion.
+    const exitMotion = region.getAttribute("data-exit-motion");
+    if (exitMotion !== null && exitMotion !== "none") {
+      throw new ProgramError(`region "${table}": data-exit-motion="${exitMotion}"; the one value is "none"`);
+    }
+    if (exitMotion !== null && templates.length === 0) {
+      throw new ProgramError(`region "${table}" is a slot and declares data-exit-motion; a slot has no rows to leave`);
+    }
+    const exits = exitMotion === null;
     const opts = {};
     if (region.dataset.filter) {
       opts.filter = fromEnclosing(() => interpolateFilter(region.dataset.filter, ctx), table, "data-filter");
@@ -2562,7 +2578,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           for (const [key, entry] of live) {
             if (!seen.has(key)) departing.push([key, entry]);
           }
-          const leaving = departing.length <= GESTURE;
+          // A gesture's rows play their exit, unless the region's rows leave
+          // without motion.
+          const leaving = exits && departing.length <= GESTURE;
           // Everything going and nothing mid-exit is the list emptied in one
           // call: taking ten thousand rows out one at a time costs twice what
           // taking them out together does.

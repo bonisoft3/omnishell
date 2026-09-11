@@ -6,11 +6,14 @@
 import { describe, expect, it, withPage, asCheckPage } from "./harness.ts"
 import { assertVisualLint, visualLint } from "../src/lint/playwright/visual-lint.ts"
 import { checkFocusOrder } from "../src/lint/playwright/checks/focus-order.ts"
+import { checkInteractiveOverlap } from "../src/lint/playwright/checks/interactive-overlap.ts"
 import { checkThemeStability } from "../src/lint/playwright/checks/theme-stability.ts"
+import { checkTouchTargets } from "../src/lint/playwright/checks/touch-targets.ts"
 
 const fixtures = new URL("../test/lint/fixtures/", import.meta.url).href
 const BAD = `${fixtures}bad-page.html`
 const GOOD = `${fixtures}good-page.html`
+const HIDDEN = `${fixtures}hidden-controls.html`
 
 describe("visualLint - good page", () => {
   it("passes with no bugs", () =>
@@ -93,6 +96,39 @@ describe("checkFocusOrder", () => {
       const bugs = await checkFocusOrder(asCheckPage(page))
       expect(bugs.map((b) => b.element).sort()).toEqual(["flow-upper", "rail-upper"])
     }))
+
+  // Tab skips a negative tabIndex and anything inert; an aria-hidden control
+  // with neither is still a stop.
+  it("leaves unreachable controls out of the sequence", () =>
+    withPage(async (page) => {
+      await page.goto(HIDDEN)
+      const bugs = await checkFocusOrder(asCheckPage(page))
+      expect(bugs.map((b) => b.element)).toEqual(["aria-hidden-ancestor", "reachable-covered"])
+    }))
+})
+
+// A pointer reaches no control that is clipped to nothing or inert; an
+// aria-hidden control with neither is still a target.
+describe("hidden controls", () => {
+  it("are not touch targets", () =>
+    withPage(
+      async (page) => {
+        await page.goto(HIDDEN)
+        const bugs = await checkTouchTargets(asCheckPage(page))
+        expect(bugs.map((b) => b.element)).toEqual(["reachable-small", "visible-aria-hidden"])
+      },
+      { viewport: { width: 375, height: 812 } },
+    ))
+
+  it("are not obscured", () =>
+    withPage(
+      async (page) => {
+        await page.goto(HIDDEN)
+        const bugs = await checkInteractiveOverlap(asCheckPage(page))
+        expect(bugs.map((b) => b.element)).toEqual(["reachable-covered"])
+      },
+      { viewport: { width: 375, height: 812 } },
+    ))
 })
 
 describe("checkThemeStability", () => {

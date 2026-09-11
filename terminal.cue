@@ -280,8 +280,10 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 			cmds: [
 				// --build, because compose reuses any image it already has: a
 				// battery that photographed the previous build reports green for
-				// markup nobody is serving.
-				"docker compose up -d --wait --build launch",
+				// markup nobody is serving. Under mise exec, because the compose
+				// project name is published in the app's .mise.toml [env], and
+				// the tool-stub sayt runs rules through applies no [env].
+				"mise exec -- docker compose up -d --wait --build launch",
 				// No --force-recreate: it recreates the DEPENDENCIES too, so a
 				// data-backed app starts every run with an empty database and its
 				// rows-first screens never settle. --build is the part that
@@ -291,8 +293,12 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 				// NAME may move. Without it the closure starts a second project
 				// named after .bayt, which brings up a second caddy and collides
 				// with the first on its port — and the runtime the line above
-				// started would not be the one the battery talks to.
-				"docker compose -p \(T.app) --profile '*' -f .bayt/compose.integrate.closure.yaml up bayt --abort-on-container-failure --exit-code-from bayt --build --remove-orphans --attach-dependencies",
+				// started would not be the one the battery talks to. The name is
+				// the one the line above resolves, read from the same mise env:
+				// the published COMPOSE_PROJECT_NAME, else the app's own, which
+				// compose derives from the app directory. An empty one counts as
+				// unpublished.
+				"mise exec -- docker compose -p (^mise exec -- printenv COMPOSE_PROJECT_NAME | complete | get stdout | str trim | str replace -r '^$' '\(T.app)') --profile '*' -f .bayt/compose.integrate.closure.yaml up bayt --abort-on-container-failure --exit-code-from bayt --build --remove-orphans --attach-dependencies",
 			]
 			note: "DOM checks over every route at two viewports, run in a container beside the app; only critical findings fail"
 		}

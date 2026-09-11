@@ -19,10 +19,22 @@ export async function checkTouchTargets(
 
     const interactives = document.querySelectorAll('button, a[href], input, textarea, select, [role="button"], [tabindex="0"]')
 
+    const clippedAway = (el: Element): boolean => {
+      for (let a: Element | null = el; a; a = a.parentElement) {
+        const box = a.getBoundingClientRect()
+        if (box.width > 1 && box.height > 1) continue
+        const s = getComputedStyle(a)
+        if (s.overflow !== "visible" || s.clipPath !== "none") return true
+      }
+      return false
+    }
+
     for (const el of interactives) {
       const htmlEl = el as HTMLElement
       if (!htmlEl.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true, contentVisibilityAuto: true })) continue
       if (htmlEl.offsetWidth === 0 || htmlEl.offsetHeight === 0) continue
+      // No pointer reaches a control under inert or clipped to nothing (a box of 1px or less that clips).
+      if (htmlEl.closest("[inert]") || clippedAway(htmlEl)) continue
       const rect = htmlEl.getBoundingClientRect()
       if (rect.bottom < 0 || rect.top > window.innerHeight) continue
 

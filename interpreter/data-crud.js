@@ -378,11 +378,11 @@ export function createStore(base = "", cfg = {}) {
   }
 
   // A local collection is made ready for use once per boot, before the first
-  // read or write touches it: its bootstrap rows are written, then its
-  // declared uniques are reconciled over everything the collection holds —
-  // seeded rows included, so a seed that collides with a natural key is
-  // caught by the same pass that catches any other collision rather than
-  // being trusted because the program wrote it.
+  // read or write touches it: its bootstrap rows are written, its optional
+  // columns are filled, then its declared uniques are reconciled over
+  // everything the collection holds — seeded rows included, so a seed that
+  // collides with a natural key is caught by the same pass that catches any
+  // other collision rather than being trusted because the program wrote it.
   //
   // Server tiers never arrive here: Postgres owns their uniques, and their
   // bootstrap rows are 900_seed.sql.
@@ -398,8 +398,40 @@ export function createStore(base = "", cfg = {}) {
   };
   async function prepare(table) {
     await seed(table);
+    await fill(table);
     await reconcile(table);
   }
+
+  // Every row of a local collection carries each column shell.yaml lists as
+  // optional ({table: [{name, type}]}): a device collection outlives the
+  // program that wrote it, so a stored row can predate a column, and binding a
+  // column a row lacks throws. An unset text column is "" and any other type is
+  // null, since "" is no value an int, a bool or a timestamp can hold; a
+  // binding renders both as empty. fill() patches the stored rows; blank() the
+  // rows created later.
+  const unset = (type) => (type === "text" ? "" : null);
+  async function fill(table) {
+    const cols = cfg.optional?.[table];
+    if (cols === undefined) return;
+    const c = client.collections[table];
+    if (c === undefined) throw new Error(`optional columns on unknown table: ${table}`);
+    if (!c.isReady()) await c.toArrayWhenReady();
+    const key = keyOf(table);
+    const edits = [];
+    for (const r of c.toArray) {
+      const missing = cols.filter((col) => !(col.name in r));
+      if (missing.length === 0) continue;
+      edits.push({ key: r[key], changes: Object.fromEntries(missing.map((col) => [col.name, unset(col.type)])) });
+    }
+    if (edits.length > 0) await client.update(table, edits);
+  }
+  const blank = (table, row) => {
+    const cols = cfg.optional?.[table];
+    if (cols === undefined) return row;
+    const filled = { ...row };
+    for (const col of cols) if (!(col.name in filled)) filled[col.name] = unset(col.type);
+    return filled;
+  };
 
   // Written straight through the client, not through create(): a seed is the
   // program stating the collection's initial world, not a reader's gesture, so
@@ -957,7 +989,7 @@ export function createStore(base = "", cfg = {}) {
     const edgeIndex = new Map();
     for (const row of rows) {
       const have = byKey.get(String(row[key]));
-      if (have === undefined) await validate(table, "insert", row, undefined, edgeIndex);
+      if (have === undefined) await validate(table, "insert", blank(table, row), undefined, edgeIndex);
       else await validate(table, "update", row, have, edgeIndex);
     }
     // Judging awaits, so the collection may have moved under the snapshot the
@@ -968,17 +1000,20 @@ export function createStore(base = "", cfg = {}) {
     const standing = [];
     for (const row of rows) {
       const have = now.get(String(row[key]));
-      if (have === undefined) fresh.push(row);
+      if (have === undefined) fresh.push(blank(table, row));
       else standing.push({ key: have[key], changes: row });
     }
+    // Standing rows change before fresh ones arrive, so a batch that demotes one
+    // row and promotes another never holds both in a unique's domain, not even
+    // for the one change event between the two calls.
     await Promise.all([
-      fresh.length === 0 ? undefined : settle(
-        onSettled(client.insert(table, fresh), table, fresh.map((r) => String(r[key]))),
+      standing.length === 0 ? undefined : settle(
+        onSettled(client.update(table, standing), table, standing.map((e) => String(e.key))),
         ACCEPT_MS,
         onRefused,
       ),
-      standing.length === 0 ? undefined : settle(
-        onSettled(client.update(table, standing), table, standing.map((e) => String(e.key))),
+      fresh.length === 0 ? undefined : settle(
+        onSettled(client.insert(table, fresh), table, fresh.map((r) => String(r[key]))),
         ACCEPT_MS,
         onRefused,
       ),
@@ -992,10 +1027,11 @@ export function createStore(base = "", cfg = {}) {
     if (rows.length === 0) return;
     await ensurePrepared(table);
     const key = keyOf(table);
+    const filled = rows.map((r) => blank(table, r));
     const edgeIndex = new Map();
-    for (const row of rows) await validate(table, "insert", row, undefined, edgeIndex);
+    for (const row of filled) await validate(table, "insert", row, undefined, edgeIndex);
     await settle(
-      onSettled(client.insert(table, rows), table, rows.map((r) => String(r[key]))),
+      onSettled(client.insert(table, filled), table, filled.map((r) => String(r[key]))),
       ACCEPT_MS,
       onRefused,
     );

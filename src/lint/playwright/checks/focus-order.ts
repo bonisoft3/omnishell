@@ -19,7 +19,7 @@ export async function checkFocusOrder(page: Page): Promise<VisualBug[]> {
   const positions = await page.evaluate(() => {
     const results: Array<{ id: string; top: number; left: number; group: string }> = []
     const focusable = document.querySelectorAll(
-      'a[href], button, input, textarea, select, [tabindex]:not([tabindex="-1"])'
+      'a[href], button, input, textarea, select, [tabindex]'
     )
 
     const groupIds = new Map<Element, string>()
@@ -39,6 +39,8 @@ export async function checkFocusOrder(page: Page): Promise<VisualBug[]> {
       // An unseen control is not a stop in the tab sequence being judged.
       if (!htmlEl.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true, contentVisibilityAuto: true })) continue
       if (htmlEl.offsetWidth === 0 || htmlEl.offsetHeight === 0) continue
+      // Nor is a control Tab skips: a negative tabIndex, or an inert ancestor.
+      if (htmlEl.tabIndex < 0 || htmlEl.closest("[inert]")) continue
 
       const rect = htmlEl.getBoundingClientRect()
       if (rect.bottom < 0 || rect.top > window.innerHeight) continue

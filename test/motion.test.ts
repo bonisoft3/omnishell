@@ -8,10 +8,12 @@ import { interpretScreen } from "../interpreter/screen.js"
 // does not wait removes the node before it can play.
 const SCREEN_HTML = `<section class="screen" data-screen="wall">
   <ul class="cards" data-live="note" data-order="position.asc" data-empty="Nothing here">
-    <template data-item><li><span data-text="{title}"></span></li></template>
+    <template data-item><li id="card-{id}"><span data-text="{title}"></span><i id="mark-{id}"></i></li></template>
   </ul>
 </section>`
 
+// The same list, declaring that its rows leave without exit motion.
+const STILL_HTML = SCREEN_HTML.replace('data-order="position.asc"', 'data-order="position.asc" data-exit-motion="none"')
 const ROUTE = {
   screen: "wall",
   files: { html: "shell/screens/wall.html", css: "shell/screens/wall.css", handlers: [] },
@@ -21,14 +23,14 @@ const ROUTE = {
 const tick = () => new Promise((r) => setTimeout(r, 5))
 const row = (id: string, title: string) => ({ id, title, position: 1 })
 
-async function boot(initial: any[]) {
+async function boot(initial: any[], html = SCREEN_HTML) {
   const { document } = parseHTML(
     "<!doctype html><html><head></head><body><div id=shell></div></body></html>",
   )
   globalThis.document = document as any
   globalThis.fetch = ((url: any) => {
     const u = String(url)
-    if (u.endsWith(".html")) return Promise.resolve(new Response(SCREEN_HTML))
+    if (u.endsWith(".html")) return Promise.resolve(new Response(html))
     if (u.endsWith(".css")) return Promise.resolve(new Response(""))
     return Promise.reject(new Error(`unexpected fetch ${u}`))
   }) as any
@@ -199,6 +201,34 @@ describe("motion slots", () => {
 
     await app.tick()
     expect(leaving.isConnected).toBe(false)
+    expect(app.items().length).toBe(1)
+  })
+
+  // A leaving row is no longer the data: nothing may click it, read it or
+  // resolve an id to it while it plays.
+  it("makes a departing row inert, hidden and id-less until it is removed", async () => {
+    const app = await boot([row("a", "Alpha"), row("b", "Beta")])
+    const leaving = app.items()[1]
+    expect(leaving.getAttribute("id")).toBe("card-b")
+
+    await app.render([row("a", "Alpha")])
+    expect(leaving.hasAttribute("data-exit")).toBe(true)
+    expect(leaving.hasAttribute("inert")).toBe(true)
+    expect(leaving.getAttribute("aria-hidden")).toBe("true")
+    expect(leaving.hasAttribute("id")).toBe(false)
+    expect(leaving.querySelectorAll("[id]").length).toBe(0)
+    // The survivor keeps its ids.
+    expect(app.document.getElementById("card-a")).not.toBeNull()
+    expect(app.document.getElementById("mark-a")).not.toBeNull()
+  })
+
+  it("removes a departing row at once in a region whose rows leave without motion", async () => {
+    const app = await boot([row("a", "Alpha"), row("b", "Beta")], STILL_HTML)
+    const leaving = app.items()[1]
+
+    await app.render([row("a", "Alpha")])
+    expect(leaving.isConnected).toBe(false)
+    expect(app.document.querySelectorAll("[data-exit]").length).toBe(0)
     expect(app.items().length).toBe(1)
   })
 

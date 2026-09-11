@@ -124,6 +124,89 @@ Deno.test({
 });
 
 Deno.test({
+  name: "surviving rows gain the optional columns they predate: text blank, any other type null",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withDeviceStorage(
+      {
+        "mecha:match": stored([
+          { id: "m1", status: "over" },
+          { id: "m2", status: "over", result: "1-0" },
+          { id: "m3", status: "playing", result: "", opening: "C20", lie: 3 },
+        ]),
+      },
+      async (createStore) => {
+        const store = await createStore("", {
+          local: { match: "device" },
+          optional: {
+            match: [
+              { name: "result", type: "text" },
+              { name: "opening", type: "text" },
+              { name: "lie", type: "int" },
+            ],
+          },
+        });
+        const byId = Object.fromEntries((await store.query("match", null, {})).map((r) => [r.id, r]));
+        const cols = (r) => JSON.stringify([r.result, r.opening, r.lie]);
+        assert(cols(byId.m1) === `["","",null]`, `a row lacking all three gains text blank and int null, got ${cols(byId.m1)}`);
+        assert(cols(byId.m2) === `["1-0","",null]`, `a stored value is kept, got ${cols(byId.m2)}`);
+        assert(cols(byId.m3) === `["","C20",3]`, `a complete row is untouched, got ${cols(byId.m3)}`);
+
+        // Neither is refused: both resolve rather than throw.
+        await store.add("match", [{ id: "m4", status: "playing" }]);
+        await store.write("match", [{ key: "m5", row: { status: "playing", opening: "B00" } }]);
+        const made = Object.fromEntries((await store.query("match", null, {})).map((r) => [r.id, r]));
+        assert(cols(made.m4) === `["","",null]`, `a row added without them carries them unset, got ${cols(made.m4)}`);
+        assert(cols(made.m5) === `["","B00",null]`, `a row written without two carries them unset, got ${cols(made.m5)}`);
+      },
+    );
+  },
+});
+
+Deno.test({
+  name: "a write that demotes one row and promotes another never holds both in a unique's domain",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withDeviceStorage(
+      {
+        "mecha:game": stored([{ id: "g1", current: "yes", ordinal: "0001" }]),
+      },
+      async (createStore, warnings) => {
+        const opts = { filter: "current=eq.yes", order: "ordinal.desc" };
+        const store = await createStore("", {
+          local: { game: "device" },
+          partialUniques: { game: [{ cols: ["current"], where: "current=eq.yes" }] },
+        });
+        await store.query("game", null, opts);
+        // Every change event, read synchronously, and every region wake.
+        const seen = [];
+        const current = () => globalThis.__mechaClient.collections.game.toArray.filter((r) => r.current === "yes");
+        globalThis.__mechaClient.collections.game.subscribeChanges(
+          () => seen.push(["change", current().map((r) => r.id)]),
+          { includeInitialState: false },
+        );
+        const wakes = [];
+        const stop = store.subscribe("game", () => {
+          store.query("game", null, opts).then((rows) => wakes.push(rows.map((r) => r.id)));
+        }, opts);
+        await store.write("game", [
+          { key: "g1", row: { current: "no" } },
+          { key: "g2", row: { current: "yes", ordinal: "0002" } },
+        ]);
+        await new Promise((r) => setTimeout(r, 20));
+        stop();
+        const doubled = seen.filter(([, ids]) => ids.length > 1);
+        assert(doubled.length === 0, `no change event holds two current rows, got ${JSON.stringify(seen)}`);
+        assert(wakes.length > 0 && wakes.every((ids) => ids.length === 1 && ids[0] === "g2"), `every wake reads g2 alone, got ${JSON.stringify(wakes)}`);
+        assert(warnings.length === 0, `no reconcile warning, got ${JSON.stringify(warnings)}`);
+      },
+    );
+  },
+});
+
+Deno.test({
   name: "a clean collection loads silently",
   sanitizeOps: false,
   sanitizeResources: false,
