@@ -1,8 +1,7 @@
 // omnishell markup projection: what one app's screens SAY, as JSON.
 //
-//   deno run --no-lock --no-check --node-modules-dir=none --allow-read=. \
-//     ../../plugins/omnishell/read-markup.ts <appDir>
-//   deno run read-markup.ts --self-test
+//   omnishell read markup <appDir>
+//   omnishell read markup --self-test
 //
 // The terminal publishes the markup's grammar, so it publishes the readings of
 // it too (interpreter/lint.ts, interpreter/fragment.js). A compiler needs the
@@ -185,14 +184,16 @@ export function selfTest(): { failures: string[] } {
   return { failures };
 }
 
-if (import.meta.main) {
-  if (Deno.args[0] === "--self-test") {
+// What the `read markup` leaf of the command line is: runtime/cli.ts resolves
+// the permissions this needs and hands over what followed the subcommand.
+export async function run(args: string[]): Promise<void> {
+  if (args[0] === "--self-test") {
     const { failures } = selfTest();
     for (const f of failures) console.error(`FAIL ${f}`);
     console.error(failures.length === 0 ? "read-markup self-test: passed" : `read-markup self-test: ${failures.length} failed`);
     Deno.exit(failures.length === 0 ? 0 : 1);
   }
-  const appDir = Deno.args[0];
+  const appDir = args[0];
   if (appDir === undefined) {
     console.error("usage: read-markup.ts <appDir> | --self-test");
     Deno.exit(1);
@@ -204,3 +205,5 @@ if (import.meta.main) {
   if (errors.length > 0) Deno.exit(1);
   console.log(JSON.stringify({ screens }));
 }
+
+if (import.meta.main) await run(Deno.args);

@@ -1,0 +1,23 @@
+#!/usr/bin/env -S mise tool-stub
+bin = "deno"
+
+[platforms.darwin-arm64]
+url = "https://github.com/denoland/deno/releases/download/v2.3.7/deno-aarch64-apple-darwin.zip"
+checksum = "sha256:764389a4d499c56e7b950d4d7d9bb52a9a55b87717d25f6ce65faee895dfa2f0"
+
+[platforms.darwin-amd64]
+url = "https://github.com/denoland/deno/releases/download/v2.3.7/deno-x86_64-apple-darwin.zip"
+checksum = "sha256:49655e8059ffd59976bf23f9ed0d843c9c6e33ceb3d0e780bd3d87ee5e051734"
+
+[platforms.linux-amd64]
+url = "https://github.com/denoland/deno/releases/download/v2.3.7/deno-x86_64-unknown-linux-gnu.zip"
+checksum = "sha256:63f55a621441fbbc8830324baf3d9c7a94928c7fb6b8ad54265dc9442dcd1dd2"
+
+[platforms.linux-arm64]
+url = "https://github.com/denoland/deno/releases/download/v2.3.7/deno-aarch64-unknown-linux-gnu.zip"
+checksum = "sha256:fbf420aee4469094bd91e595dd78814c94737dfb1d26e640b13aa938a9663cf8"
+
+[platforms.windows-amd64]
+url = "https://github.com/denoland/deno/releases/download/v2.3.7/deno-x86_64-pc-windows-msvc.zip"
+checksum = "sha256:5c3b396d190efa2c348a1935cbfec8e7eac2d428efef3b413174ebebbb6817d4"
+bin = "deno.exe"

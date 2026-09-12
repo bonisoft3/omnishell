@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+# The PATH entry of an installed terminal: what `mise install
+# github:bonisoft3/omnishell` puts in front of `omnishell check markup .`.
+set -e
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "$DIR/../runtime/omnishell" "$@"

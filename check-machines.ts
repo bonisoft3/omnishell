@@ -1,10 +1,8 @@
 // omnishell machine walk: every arrow of every emitted chart fires, and the
 // interpreter agrees with XState about where each one lands.
 //
-//   deno run --node-modules-dir=none --config ../../plugins/omnishell/test/deno.json \
-//     --allow-read=.,../../plugins/omnishell/interpreter --allow-env \
-//     ../../plugins/omnishell/check-machines.ts <appDir>
-//   deno run check-machines.ts --self-test
+//   omnishell check machines <appDir>
+//   omnishell check machines --self-test
 //
 // The app supplies nothing but its emitted tree: each route's markup is scanned
 // for machine regions and every one is handed to the path walker (test/walker.ts
@@ -698,20 +696,23 @@ export async function selfTest(): Promise<{ failures: string[] }> {
   return { failures };
 }
 
-if (import.meta.main) {
+// What the `check machines` leaf of the command line is: runtime/cli.ts
+// resolves the permissions this needs and hands over what followed the
+// subcommand.
+export async function run(args: string[]): Promise<void> {
   // A mount that stalls — a rejection the DOM swallowed, a permission the
   // interpreter needed and did not have — drains the event loop with nothing
   // reported, and Deno exits 0 on an empty loop. So the run is failed until it
   // has said what it found.
   Deno.exitCode = 1;
-  if (Deno.args[0] === "--self-test") {
+  if (args[0] === "--self-test") {
     const { failures } = await selfTest();
     const say = (line: string) => Deno.stderr.writeSync(new TextEncoder().encode(`${line}\n`));
     for (const f of failures) say(`FAIL ${f}`);
     say(failures.length === 0 ? "check-machines self-test: passed" : `check-machines self-test: ${failures.length} failed`);
     Deno.exit(failures.length === 0 ? 0 : 1);
   }
-  const appDir = Deno.args[0];
+  const appDir = args[0];
   if (appDir === undefined) {
     console.error("usage: check-machines.ts <appDir> | --self-test");
     Deno.exit(1);
@@ -720,3 +721,5 @@ if (import.meta.main) {
   console.log(JSON.stringify(findings, null, 2));
   if (!fails(findings)) Deno.exitCode = 0;
 }
+
+if (import.meta.main) await run(Deno.args);

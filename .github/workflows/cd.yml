@@ -1,4 +1,5 @@
-# Publish this component's CUE module to the Central Registry.
+# Publish this component: its CUE module to the Central Registry, and its tree
+# as release assets a `mise install github:` reaches it by.
 #
 # GitHub reads workflows only from a repository's root .github/, so this file
 # is inert in the monorepo and active only in the mirror, where copybara moves
@@ -22,7 +23,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
@@ -52,6 +53,32 @@ jobs:
         run: cue mod tidy --check
 
       # `source: kind: "git"` in module.cue makes publish reject an unclean
-      # working tree, so nothing may write to the checkout before this runs.
+      # working tree, so nothing may write to the checkout before this runs —
+      # which is why the staging below, whose dist/ and omnishell-stage/ are
+      # untracked, comes after it.
       - name: Publish CUE module
         run: cue mod publish "${GITHUB_REF_NAME}"
+
+      - name: Stage release content
+        run: |
+          mkdir -p dist
+          # The terminal is pure source (cue + ts + js) — no compile step. Its
+          # command line runs off this tree, and every checker reaches the
+          # interpreter and the harness under test/, so the whole tree ships
+          # minus what only a repository needs.
+          mkdir omnishell-stage
+          tar cf - --exclude=.git --exclude=.github --exclude=node_modules --exclude=dist --exclude=omnishell-stage . | tar xf - -C omnishell-stage
+          # Ship per-platform-named tarballs (same content). Mise's `github:`
+          # backend matches the consumer runner's platform against the asset
+          # name; for a source-only tool we publish one universal payload under
+          # every platform name.
+          for triple in linux-x64 linux-arm64 linux-armv7 macos-x64 macos-arm64 windows-x64 windows-arm64; do
+            tar czf "dist/omnishell-${triple}.tar.gz" -C omnishell-stage .
+          done
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

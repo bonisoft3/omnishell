@@ -103,6 +103,9 @@ _omnishell: bayt.#project & {
 				"check-markup.ts",
 				"check-visual.ts",
 				"read-markup.ts",
+				// The command line the checkers are reached through, which the
+				// check script typechecks beside them.
+				"runtime/**/*",
 				"package.json",
 				"bun.lock",
 				"tsconfig.json",

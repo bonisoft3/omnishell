@@ -36,6 +36,34 @@ are documented below.
 The interpreter is loaded by `interpreter/shell.js` at runtime; it is plain ES
 modules and takes no build step.
 
+### The command line
+
+What a program reaches the terminal's checks through. Pin the release in the
+project's `.mise.toml` and `omnishell` is on PATH:
+
+```toml
+[tools]
+"github:bonisoft3/omnishell" = "0.1.0"
+```
+
+```
+omnishell check markup   <appDir>    # every screen says what the grammar admits
+omnishell check handlers <appDir>    # every Jessie module loads in its role's compartment
+omnishell check machines <appDir>    # every arrow of every emitted chart fires
+omnishell read  markup   <appDir>    # what one app's screens say, as JSON
+omnishell mode  <appDir> [--local]   # the stanza naming which omnishell the checks run
+```
+
+A check takes `--self-test` in the directory's place, and answers on its own
+fixtures. Findings print as `{severity, path, message}` JSON on stdout; a
+finding that is not advisory is a non-zero exit.
+
+The deno flags and the permission grants each leaf runs on live behind
+`runtime/cli.ts`, so a caller states the check and the directory and nothing
+else. `omnishell mode` is what `terminal.cue`'s `surface.runtime` reads: a
+checkout beside the program names its launcher by a path, anything else names
+the bare token.
+
 ## The React library
 
 ### Auth

@@ -231,6 +231,31 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 		interpreterRoot: #Path
 		interpreterRoot: *"../../plugins/omnishell/interpreter" | string
 
+		// Where this app reaches the terminal's command line: a runtime
+		// directory of this plugin's own tree, app-relative, or the empty
+		// string for the `omnishell` a consumer has on PATH. The layout an app
+		// is built in decides, and `omnishell mode` writes that decision into
+		// the app's package as a stanza unifying here — which is the whole
+		// reason this is a field and not a path written into someone's source.
+		runtime: #Path
+		runtime: *"" | string
+
+		// One leaf of that command line, run over the app's own directory.
+		// A rule's cmd is nushell source, so the entry a checkout is reached
+		// by branches in nushell: Windows has no shebang dispatch and runs
+		// the PowerShell twin beside the launcher. A consumer names the bare
+		// token, whose platform-native entry the install put on PATH.
+		_command: {
+			for leaf in ["check markup", "check handlers", "check machines"] {
+				(leaf): [
+					if T.surface.runtime != "" {
+						"if $nu.os-info.name == \"windows\" { ^pwsh -NoProfile -File \(T.surface.runtime)/omnishell.ps1 \(leaf) . } else { ^\(T.surface.runtime)/omnishell \(leaf) . }"
+					},
+					"omnishell \(leaf) .",
+				][0]
+			}
+		}
+
 		// What a compiler reaches this plugin through, rather than importing
 		// it: the command that prints one app's markup as JSON
 		// (read-markup.ts's header is the contract), and the published
@@ -327,66 +352,35 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 			]
 			note: "DOM checks over every route at two viewports, run in a container beside the app; only critical findings fail"
 		}
+		// The three checks below are COMMANDS: which interpreter runs a
+		// checker, on which lockfile and type-check policy, reaching which
+		// files and which of the environment, is the terminal's own business
+		// and lives behind its command line (runtime/cli.ts). What a caller
+		// states is the leaf and the directory to answer for.
 		checks: machines: {
 			verb: "test"
-			cmds: [
-				// The walker's plan and differ come from npm (xstate,
-				// @xstate/graph): --node-modules-dir=none resolves them from
-				// deno's own cache, and the version is pinned in the import
-				// specifier itself (test/walker.ts), not by this config.
-				// Read reaches the app and the interpreter — screen.js and the
-				// ses bundle are dynamic imports, which the app's own scope does
-				// not cover. Env is unscoped because a partial allowlist stalls
-				// the mecha client mid-load rather than refusing.
-				"deno run --no-lock --no-check --node-modules-dir=none --config \(T.surface.machinesDeno) " +
-				"--allow-read=.,\(T.surface.interpreterRoot) --allow-env \(T.surface.machinesCheck) .",
-			]
+			cmds: [T.surface._command["check machines"]]
 			note: "every arrow of every emitted chart fires, and XState agrees where each one lands"
 		}
-		machinesCheck: #Path
-		machinesCheck: *"../../plugins/omnishell/check-machines.ts" | string
-		machinesDeno:  #Path
-		machinesDeno:  *"../../plugins/omnishell/test/deno.json" | string
 
 		checks: handlers: {
 			// Source and a compartment are the whole of what it needs — no
 			// cluster, no page — so it answers at the cheapest verb there is.
 			verb: "lint"
-			cmds: [
-				// Read reaches the app and the interpreter: the compartment is
-				// the ses bundle vendored beside jessie.js, which the app's own
-				// scope does not cover. --allow-env is lockdown's, which probes
-				// LOCKDOWN_* as it seals the realm.
-				"deno run --no-lock --no-check --node-modules-dir=none --config \(T.surface.handlersDeno) " +
-				"--allow-read=.,\(T.surface.interpreterRoot) --allow-env \(T.surface.handlersCheck) .",
-			]
+			cmds: [T.surface._command["check handlers"]]
 			note: "every Jessie module the app declares loads in the compartment its role runs in"
 		}
-		handlersCheck: #Path
-		handlersCheck: *"../../plugins/omnishell/check-handlers.ts" | string
-		handlersDeno:  #Path
-		handlersDeno:  *"../../plugins/omnishell/test/deno.json" | string
 
 		checks: markup: {
 			// The screens and the emitted schema are the whole of what it needs
 			// — no cluster, no page, and nothing evaluated — so it answers at
-			// the cheapest verb there is.
+			// the cheapest verb there is. The rules are the terminal's own
+			// (interpreter/lint.ts), so a terminal consumed on its own brings
+			// them along.
 			verb: "lint"
-			cmds: [
-				// Read reaches the app and nothing else: every module the checker
-				// loads is a static import of its own, which costs no permission,
-				// and it runs no app source. The rules are the terminal's own
-				// (interpreter/lint.ts), so a terminal consumed on its own brings
-				// them along.
-				"deno run --no-lock --no-check --node-modules-dir=none --config \(T.surface.markupDeno) " +
-				"--allow-read=. \(T.surface.markupCheck) .",
-			]
+			cmds: [T.surface._command["check markup"]]
 			note: "every screen's markup says something the terminal's grammar admits, about entities the program declares"
 		}
-		markupCheck: #Path
-		markupCheck: *"../../plugins/omnishell/check-markup.ts" | string
-		markupDeno:  #Path
-		markupDeno:  *"../../plugins/omnishell/test/deno.json" | string
 
 		statics: [...#Static]
 		statics: list.Concat([
