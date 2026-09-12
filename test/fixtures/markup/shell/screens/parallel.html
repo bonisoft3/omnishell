@@ -1,0 +1,4 @@
+<!-- Two charts on one region, sharing a row and both writing "mark": which
+     value survives is which chart stepped last. -->
+<div data-live="note" data-filter="id=eq.the" data-empty-row='{"id":"the","state":"off","mark":"no"}'
+     data-machine='[{"field":"state","initial":"off","states":{"off":{"on":{"click":{"target":"on","assign":{"mark":"yes"}}}},"on":{}}},{"field":"mark","initial":"no","states":{"no":{"on":{"click":"yes"}},"yes":{}}}]'></div>

@@ -21,6 +21,8 @@ interpreter/       the runtime: vanilla ES modules, no build step
   lint.ts          the markup rules, stated beside the vocabulary
   *-smoke.js       the fast tier (deno + linkedom)
 check-*.ts       compile-time checkers
+read-markup.ts   what an app's screens say, as JSON, for the compilers that
+                 need the same readings without importing them
 test/            unit tests for the checkers and lint rules
 playwright-tests/ the browser tier
 src/             the React library, published as @omnishell/core

@@ -23,7 +23,9 @@
       "test/**/*",
       "interpreter/**/*",
       "check-handlers.ts",
-      "check-machines.ts"
+      "check-machines.ts",
+      "check-markup.ts",
+      "read-markup.ts"
     ],
     "exclude": []
   },
@@ -84,7 +86,9 @@
           "test/**/*",
           "interpreter/**/*",
           "check-handlers.ts",
-          "check-machines.ts"
+          "check-machines.ts",
+          "check-markup.ts",
+          "read-markup.ts"
         ],
         "exclude": [],
         "defaultGlobs": null,
@@ -101,7 +105,9 @@
           "test/**/*",
           "interpreter/**/*",
           "check-handlers.ts",
-          "check-machines.ts"
+          "check-machines.ts",
+          "check-markup.ts",
+          "read-markup.ts"
         ],
         "exclude": [],
         "defaultGlobs": null,

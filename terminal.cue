@@ -231,6 +231,19 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 		interpreterRoot: #Path
 		interpreterRoot: *"../../plugins/omnishell/interpreter" | string
 
+		// What a compiler reaches this plugin through, rather than importing
+		// it: the command that prints one app's markup as JSON
+		// (read-markup.ts's header is the contract), and the published
+		// #Machine every chart in that markup is vetted against. Both are
+		// spawned from the app's own directory, so both are app-relative, and
+		// a consumer that keeps the terminal somewhere else states where by
+		// unifying these — which is the whole reason they are fields and not
+		// paths written into someone's source.
+		markupReader: #Path
+		markupReader: *"../../plugins/omnishell/read-markup.ts" | string
+		machineSchema: #Path
+		machineSchema: *"../../plugins/omnishell/machine.cue" | string
+
 		// The entry page fetches the boot graph in parallel at t=0 instead of
 		// discovering each import a round-trip after its parent executes.
 		// storybook.js is tier-gated and stays lazy; ses stays undeclared here
@@ -353,6 +366,27 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 		handlersCheck: *"../../plugins/omnishell/check-handlers.ts" | string
 		handlersDeno:  #Path
 		handlersDeno:  *"../../plugins/omnishell/test/deno.json" | string
+
+		checks: markup: {
+			// The screens and the emitted schema are the whole of what it needs
+			// — no cluster, no page, and nothing evaluated — so it answers at
+			// the cheapest verb there is.
+			verb: "lint"
+			cmds: [
+				// Read reaches the app and nothing else: every module the checker
+				// loads is a static import of its own, which costs no permission,
+				// and it runs no app source. The rules are the terminal's own
+				// (interpreter/lint.ts), so a terminal consumed on its own brings
+				// them along.
+				"deno run --no-lock --no-check --node-modules-dir=none --config \(T.surface.markupDeno) " +
+				"--allow-read=. \(T.surface.markupCheck) .",
+			]
+			note: "every screen's markup says something the terminal's grammar admits, about entities the program declares"
+		}
+		markupCheck: #Path
+		markupCheck: *"../../plugins/omnishell/check-markup.ts" | string
+		markupDeno:  #Path
+		markupDeno:  *"../../plugins/omnishell/test/deno.json" | string
 
 		statics: [...#Static]
 		statics: list.Concat([

@@ -1,14 +1,14 @@
 # generated from bayt.cue — do not edit
 FROM plugins_omnishell-build AS integrate
 WORKDIR /monorepo/plugins/omnishell
-COPY --parents test/**/* interpreter/**/* check-handlers.ts check-machines.ts ./
+COPY --parents test/**/* interpreter/**/* check-handlers.ts check-machines.ts check-markup.ts read-markup.ts ./
 RUN ["mise", "x", "--", "deno", "cache", "--config", "interpreter/deno.json", "--lock", "interpreter/deno.lock", "--frozen", "--allow-import=cdn.jsdelivr.net:443", "interpreter/clock-smoke.js", "interpreter/handler-smoke.js", "interpreter/hatch-smoke.js", "interpreter/login-smoke.js", "interpreter/nav-smoke.js", "interpreter/pending-smoke.js", "interpreter/renderer-smoke.js", "interpreter/validate-smoke.js", "interpreter/worker-smoke.js"]
 RUN mise x -- sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys --ignore=test/design-tokens.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read interpreter/clock-smoke.js interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/validate-smoke.js interpreter/worker-smoke.js'
 COPY .bayt/Taskfile.yml .bayt/Taskfile.bayt.yml .bayt/Taskfile.integrate.yaml .bayt/bayt.integrate.json ./.bayt/
 
 FROM busybox:musl@sha256:03db190ed4c1ceb1c55d179a0940e2d71d42130636a780272629735893292223 AS integrate_ctxs
 WORKDIR /monorepo/plugins/omnishell
-COPY --parents test/**/* interpreter/**/* check-handlers.ts check-machines.ts ./
+COPY --parents test/**/* interpreter/**/* check-handlers.ts check-machines.ts check-markup.ts read-markup.ts ./
 COPY --from=plugins_omnishell-build_srcs /monorepo /monorepo
 ARG SOURCE_DATE_EPOCH
 ARG BAYT_CLAMP=1

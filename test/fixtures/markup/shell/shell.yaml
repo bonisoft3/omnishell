@@ -1,0 +1,35 @@
+# A fixture app for check-markup. Not emitted by pronto — hand-written, and
+# check-markup's self-test is its only reader, which is why the screens that
+# break a rule live here beside the one that breaks none rather than in an app.
+#
+# Only `schema:` is declared. The check reads the screens off shell/screens/
+# and the shipped modules off shell/handlers/, so the routes an emitted
+# shell.yaml carries would be shape nothing here reads.
+#
+# `note` is the browser tier every rule about writes and carets needs, `post`
+# the server tier they refuse, and `detail` the second table a nested region
+# binds. The partial unique on `note` is declared with a predicate this
+# grammar cannot read: it witnesses nothing, and saying so is the schema's own
+# finding.
+schema:
+  note:
+    durability: tab
+    fields:
+      - {name: id, type: text, pk: true}
+      - {name: kind, type: text, enum: [note, link]}
+      - {name: title, type: text}
+      - {name: state, type: text}
+      - {name: mark, type: text}
+      - {name: step, type: int}
+    uniques:
+      - {name: one-pinned, cols: [title], where: "title=fts.rain"}
+  detail:
+    durability: tab
+    fields:
+      - {name: id, type: text, pk: true}
+      - {name: body, type: text}
+  post:
+    durability: live
+    fields:
+      - {name: id, type: text, pk: true}
+      - {name: cursor, type: text}

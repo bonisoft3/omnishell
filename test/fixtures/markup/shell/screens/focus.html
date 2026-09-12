@@ -1,0 +1,6 @@
+<!-- A focus target on the reader's own tier, whose chart draws no focusin:
+     a reader who Tabs elsewhere is dragged back on every refresh. -->
+<ul data-live="note" data-filter="id=eq.the" data-empty-row='{"id":"the","state":"off"}'
+    data-machine='{"field":"state","initial":"off","states":{"off":{"on":{"click":"on"}},"on":{}}}'>
+  <template data-item><li data-focus="{title}"></li></template>
+</ul>

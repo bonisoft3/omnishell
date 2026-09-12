@@ -1,0 +1,8 @@
+<!-- Reports nothing: a list over a declared table, and a chart whose guard
+     names the module this app ships. The screen every other one here is the
+     counterexample to. -->
+<section data-live="note" data-filter="kind=eq.note">
+  <template data-item><li data-text="{title}"></li></template>
+</section>
+<div data-live="note" data-filter="id=eq.the" data-empty-row='{"id":"the","state":"off"}'
+     data-machine='{"field":"state","initial":"off","states":{"off":{"on":{"click":{"target":"on","guard":"spun"}}},"on":{}}}'></div>
