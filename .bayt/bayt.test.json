@@ -1,19 +1,5 @@
 {
   "_generated_from": "bayt.cue (do not edit)",
-  "bake": {
-    "platforms": [],
-    "tags": [],
-    "args": {},
-    "cache": {
-      "from": [
-        "type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE:-unscoped}-test",
-        "type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE_FALLBACK:-unscoped}-test"
-      ],
-      "to": [
-        "type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE:-unscoped}-test,mode=min,image-manifest=true,oci-mediatypes=true,compression=zstd,compression-level=3"
-      ]
-    }
-  },
   "name": "test",
   "project": "plugins_omnishell",
   "dir": "plugins/omnishell",

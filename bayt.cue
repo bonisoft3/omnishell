@@ -24,7 +24,6 @@ import (
 	bayt "github.com/bonisoft3/bayt/core:bayt"
 	mise "github.com/bonisoft3/bayt/stacks/mise"
 	sayt "github.com/bonisoft3/bayt/stacks/sayt"
-	Bake "bonisoft.org/bake"
 )
 
 // Unit tests: the deno suite over test/ (per test/deno.json, which maps
@@ -68,11 +67,11 @@ _omnishell: bayt.#project & {
 	dir:      "plugins/omnishell"
 	activate: "mise x --"
 
-	// Per-target cache scope for cross-project consumers (iris's
-	// dindbox cascade transitively builds omnishell-setup / build /
-	// ops; without this they run fresh every time, breaking the
-	// outer cacheonly probe's cache-hit chain).
-	bake: cache: Bake.monorepoCache
+	// No bake.cache: the shared scope lives in bonisoft.org/bake, a
+	// monorepo-root package with no mirror, and this project is
+	// published as a CUE module — an import a consumer cannot resolve
+	// leaves the mirror untidy, which `cue mod publish` refuses.
+	// Cross-project consumers rebuild these targets uncached.
 
 	targets: {
 		"setup": sayt.setup & mise.install & {

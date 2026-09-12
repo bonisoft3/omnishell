@@ -1,19 +1,5 @@
 {
   "_generated_from": "bayt.cue (do not edit)",
-  "bake": {
-    "platforms": [],
-    "tags": [],
-    "args": {},
-    "cache": {
-      "from": [
-        "type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE:-unscoped}-build",
-        "type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE_FALLBACK:-unscoped}-build"
-      ],
-      "to": [
-        "type=registry,ref=registry.depot.dev/${DEPOT_PROJECT_ID:-f5k5087x1b}:monorepo-bake-cache-v2-${CACHE_SCOPE:-unscoped}-build,mode=min,image-manifest=true,oci-mediatypes=true,compression=zstd,compression-level=3"
-      ]
-    }
-  },
   "dockerfile": {
     "preamble": [],
     "preambleCopyContexts": [],
