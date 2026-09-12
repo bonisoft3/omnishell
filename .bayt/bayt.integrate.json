@@ -49,6 +49,7 @@
     "globs": [
       "test/**/*",
       "interpreter/**/*",
+      "check-handlers.ts",
       "check-machines.ts"
     ],
     "exclude": []
@@ -143,6 +144,7 @@
         "globs": [
           "test/**/*",
           "interpreter/**/*",
+          "check-handlers.ts",
           "check-machines.ts",
           "src/**/*",
           "check-visual.ts",
@@ -170,6 +172,7 @@
               "src/**/*",
               "test/**/*",
               "interpreter/**/*",
+              "check-handlers.ts",
               "check-machines.ts",
               "check-visual.ts",
               "package.json",
@@ -243,6 +246,7 @@
         "globs": [
           "test/**/*",
           "interpreter/**/*",
+          "check-handlers.ts",
           "check-machines.ts"
         ],
         "exclude": [],
@@ -259,6 +263,7 @@
         "globs": [
           "test/**/*",
           "interpreter/**/*",
+          "check-handlers.ts",
           "check-machines.ts"
         ],
         "exclude": [],

@@ -335,6 +335,25 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 		machinesDeno:  #Path
 		machinesDeno:  *"../../plugins/omnishell/test/deno.json" | string
 
+		checks: handlers: {
+			// Source and a compartment are the whole of what it needs — no
+			// cluster, no page — so it answers at the cheapest verb there is.
+			verb: "lint"
+			cmds: [
+				// Read reaches the app and the interpreter: the compartment is
+				// the ses bundle vendored beside jessie.js, which the app's own
+				// scope does not cover. --allow-env is lockdown's, which probes
+				// LOCKDOWN_* as it seals the realm.
+				"deno run --no-lock --no-check --node-modules-dir=none --config \(T.surface.handlersDeno) " +
+				"--allow-read=.,\(T.surface.interpreterRoot) --allow-env \(T.surface.handlersCheck) .",
+			]
+			note: "every Jessie module the app declares loads in the compartment its role runs in"
+		}
+		handlersCheck: #Path
+		handlersCheck: *"../../plugins/omnishell/check-handlers.ts" | string
+		handlersDeno:  #Path
+		handlersDeno:  *"../../plugins/omnishell/test/deno.json" | string
+
 		statics: [...#Static]
 		statics: list.Concat([
 			[

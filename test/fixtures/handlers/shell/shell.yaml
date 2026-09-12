@@ -1,0 +1,55 @@
+# A fixture app for check-handlers. Not emitted by pronto — hand-written, and
+# check-handlers' self-test is its only reader, which is why the modules that
+# do not load live here beside the ones that do rather than in an app.
+#
+# Only the Jessie modules below are ever opened: the check reads source and
+# loads it as a role, so the html and css each route names are declared for
+# shape and never fetched.
+#
+# Every module here parses: the check runs under the same `deno check` that
+# walks test/, which reads a source file whether or not anything imports it, so
+# an unparseable fixture would fail the typecheck rather than this check.
+#
+# `absent.js` is declared and not shipped. It is the defect a directory listing
+# cannot see and shell.yaml can: the terminal fetches a handler by the path the
+# route names, so a name with no file behind it dies on a reader's first
+# gesture.
+routes:
+  - path: /
+    screen: sound
+    files:
+      html: shell/screens/sound.html
+      css: shell/screens/sound.css
+      handlers:
+        - shell/handlers/sound.js
+        - shell/handlers/not-a-reduce.js
+        - shell/handlers/reaches-for-ambient.js
+        - shell/handlers/absent.js
+      renderers:
+        - shell/renderers/sound.js
+  # The same handler named twice is one load: routes share modules.
+  - path: /again
+    screen: again
+    files:
+      html: shell/screens/again.html
+      css: shell/screens/again.css
+      handlers:
+        - shell/handlers/sound.js
+validations:
+  favorite:
+    sound:
+      src: shell/validations/sound.js
+      edges:
+        - table: article
+          key: id
+          from: article_id
+pipelines:
+  - fold: pipelines/sound-fold.js
+    name: sound-fold
+    to: sink
+  - fold: pipelines/partial-fold.js
+    name: partial-fold
+    to: sink
+  - fold: pipelines/function-fold.js
+    name: function-fold
+    to: sink
