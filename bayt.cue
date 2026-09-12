@@ -174,7 +174,7 @@ _omnishell: bayt.#project & {
 			dockerfile: from: ref: ":setup"
 		}
 
-		"generate": sayt.generate & {deps: [":bundle"], cmd: "builtin": do: "true"}
+		"generate": sayt.generate & {deps: [":bundle"], cmd: "builtin": do: "nu -c \"null\""}
 	}
 }
 
