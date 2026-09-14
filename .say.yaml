@@ -6,6 +6,12 @@
 # unit test must run from the ide tier's own `.mise.toml`, and a browser binary
 # is the container tier's to provide.
 say:
+  test:
+    rulemap:
+      runtime:
+        priority: -1
+        cmds:
+          - do: "deno test --config test/deno.json --allow-read --allow-write --allow-run runtime/cli_test.ts"
   integrate:
     rulemap:
       builtin:
