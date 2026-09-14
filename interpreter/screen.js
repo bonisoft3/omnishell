@@ -1726,6 +1726,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       // owning the draw is also what lets a screen be replayed: with ?seed= it
       // draws from that instead, and the same run comes back.
       if (next.seed === true) carried.seed = draw();
+      if (next.with !== undefined) carried.with = next.with;
       await step(reduce, carried, depth + 1);
     };
 
