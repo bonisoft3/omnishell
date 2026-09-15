@@ -1,0 +1,6 @@
+say:
+  test:
+    rulemap:
+      native:
+        cmds:
+          - do: "./gradlew test"

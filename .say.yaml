@@ -8,6 +8,11 @@
 say:
   test:
     rulemap:
+      native:
+        priority: 0
+        cmds:
+          - do: "sh -c 'cd android && ./gradlew test'"
+          - do: "sh -c 'cd ios && swift test'"
       runtime:
         priority: -1
         cmds:

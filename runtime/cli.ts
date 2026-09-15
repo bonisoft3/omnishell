@@ -27,7 +27,7 @@ function toolDir(name: string): string {
 }
 
 const usage = [
-  "usage: omnishell check markup|handlers|machines <appDir> | --self-test",
+  "usage: omnishell check markup|handlers|machines|parity <appDir> | --self-test",
   "       omnishell read markup <appDir> | --self-test",
   "       omnishell mode <appDir> [--local]",
   "       omnishell materialize <appDir>",
@@ -159,6 +159,12 @@ if (verb === "where") {
     }
     case "check machines": {
       const { run } = await import("../check-machines.ts");
+      await narrow(true);
+      await run(args);
+      break;
+    }
+    case "check parity": {
+      const { run } = await import("../check-parity.ts");
       await narrow(true);
       await run(args);
       break;
