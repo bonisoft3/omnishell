@@ -22,6 +22,7 @@ import {
   eq,
   isNull,
   not,
+  or,
 } from "./vendor/mecha-client.js";
 import { embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect } from "./fragment.js";
 import { evaluateRole } from "./jessie.js";
@@ -563,14 +564,20 @@ export function createStore(base = "", cfg = {}) {
     // Only a subscription opens a view; a read joins one already open, so a
     // server-computed region cannot leave a view behind it never closes.
     if (!create) return null;
-    const clause = (row, { col, op, value }) =>
-      op === "eq"
-        ? eq(row[col], value)
+    const clause = (row, { col, op, value }) => {
+      const num = Number(value);
+      const isNum = value !== "" && !Number.isNaN(num) && String(num) === value;
+      const test = isNum
+        ? or(eq(row[col], value), eq(row[col], num))
+        : eq(row[col], value);
+      return op === "eq"
+        ? test
         : op === "neq"
-          ? not(eq(row[col], value))
+          ? not(test)
           : op === "null"
             ? isNull(row[col])
             : not(isNull(row[col]));
+    };
     // Without an index on the joined side's key the engine says so and loads
     // the whole collection per join. Created before the query is built, never
     // inside its builder: mutating a collection while its query is compiling
@@ -986,18 +993,20 @@ export function createStore(base = "", cfg = {}) {
     // Standing rows change before fresh ones arrive, so a batch that demotes one
     // row and promotes another never holds both in a unique's domain, not even
     // for the one change event between the two calls.
-    await Promise.all([
-      standing.length === 0 ? undefined : settle(
+    if (standing.length > 0) {
+      await settle(
         onSettled(client.update(table, standing), table, standing.map((e) => String(e.key))),
         ACCEPT_MS,
         onRefused,
-      ),
-      fresh.length === 0 ? undefined : settle(
+      );
+    }
+    if (fresh.length > 0) {
+      await settle(
         onSettled(client.insert(table, fresh), table, fresh.map((r) => String(r[key]))),
         ACCEPT_MS,
         onRefused,
-      ),
-    ].filter(Boolean));
+      );
+    }
   }
 
   /** Rows asserted to be new. A form's create says so, and saying so is what

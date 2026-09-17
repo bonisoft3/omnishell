@@ -331,6 +331,29 @@ export async function createShell({ config, mount }) {
         mount.replaceChildren();
         sessionStorage.setItem("pronto-token", JSON.stringify(session));
       }
+    } else if ((cfg.tables?.length ?? 0) > 0) {
+      let stored = sessionStorage.getItem("pronto-token");
+      if (stored) {
+        try {
+          if (!(await accountLives(JSON.parse(stored)))) {
+            sessionStorage.removeItem("pronto-token");
+            stored = null;
+          }
+        } catch {
+          sessionStorage.removeItem("pronto-token");
+          stored = null;
+        }
+      }
+      if (stored) {
+        session = JSON.parse(stored);
+      } else {
+        const res = await fetch(`${cfg.auth?.service ?? "/auth"}/guest`, { method: "POST" });
+        if (!res.ok) {
+          throw new Error(`Guest auth failed with status ${res.status}: ${await res.text()}`);
+        }
+        session = await res.json();
+        sessionStorage.setItem("pronto-token", JSON.stringify(session));
+      }
     }
 
     const { createStore } = await import("./data-crud.js");
