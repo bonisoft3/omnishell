@@ -241,20 +241,38 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 		runtime: *"" | string
 
 		// One leaf of that command line, run over the app's own directory.
-		// A rule's cmd is nushell source, so the entry a checkout is reached
-		// by branches in nushell: Windows has no shebang dispatch and runs
-		// the PowerShell twin beside the launcher. A consumer names the bare
-		// token, whose platform-native entry the install put on PATH.
+		// Both spellings are one word and a leaf, because which entry answers
+		// to the word is the toolchain's to say: a checkout answers with the
+		// task below, naming the tree it is standing in, and an install with
+		// the platform-native entry it put on PATH. Neither asks the rule
+		// which OS it woke up on.
 		_command: {
 			for leaf in ["check markup", "check handlers", "check machines", "check battery"] {
 				(leaf): [
-					if T.surface.runtime != "" {
-						"if $nu.os-info.name == \"windows\" { ^pwsh -NoProfile -File \(T.surface.runtime)/omnishell.ps1 \(leaf) . } else { ^\(T.surface.runtime)/omnishell \(leaf) . }"
-					},
+					if T.surface.runtime != "" {"mise run omnishell -- \(leaf) ."},
 					"omnishell \(leaf) .",
 				][0]
 			}
 		}
+
+		// The tree the runtime sits in, which is what the command reads beside
+		// its own source: the suite config it type-checks against and the
+		// interpreter the checkers load.
+		_pluginRoot: strings.TrimSuffix(T.surface.runtime, "/runtime")
+
+		// The task that word names in a checkout, for mise to merge from the
+		// app's own conf.d. `dir` is what makes the leaf's `.` the app rather
+		// than wherever the config was found, and the file is this plugin's
+		// to write so the bootstrap config beside it never learns the name.
+		miseConf: [
+			if T.surface.runtime != "" {"""
+				[tasks.omnishell]
+				dir = "{{cwd}}"
+				run = "deno run --no-lock --no-check --node-modules-dir=none --config \(_pluginRoot)/test/deno.json --allow-read=.,\(_pluginRoot) --allow-write=. --allow-env \(T.surface.runtime)/cli.ts"
+
+				"""},
+			"",
+		][0]
 
 		// What a compiler reaches this plugin through, rather than importing
 		// it: the command that prints one app's markup as JSON
