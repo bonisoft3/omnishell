@@ -1,0 +1,54 @@
+# A fixture app, not a generated one: one module per property this check
+# holds, and a schema whose columns state every kind of domain the generators
+# read — a closed set, a length, a range, a pattern.
+app: battery-fixture
+schema:
+  note:
+    durability: device
+    fields:
+      - name: id
+        type: text
+        pk: true
+        bounds:
+          sizeMin: 2
+          sizeMax: 6
+      - name: kind
+        type: text
+        enum:
+          - note
+          - link
+      - name: rank
+        type: int
+        bounds:
+          intMin: 1
+          intMax: 9
+      - name: code
+        type: text
+        bounds:
+          regex: ^[a-f]{3}$
+routes:
+  - path: /
+    screen: home
+    files:
+      handlers:
+        - shell/handlers/sound.js
+        - shell/handlers/bounded.js
+        - shell/handlers/params-read.js
+        - shell/handlers/mutating.js
+        - shell/handlers/shapeless.js
+        - shell/handlers/spinning.js
+        - shell/handlers/unshipped.js
+validations:
+  note:
+    is-sound:
+      src: shell/validations/sound-predicate.js
+      edges:
+        - table: note
+          key: id
+          from: id
+    not-a-predicate:
+      src: shell/validations/not-a-predicate.js
+      edges:
+        - table: note
+          key: id
+          from: id

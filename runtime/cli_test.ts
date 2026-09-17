@@ -45,7 +45,6 @@ Deno.test("Omnishell materializes relocatable source assets and names its evalua
     const mode = await run(["mode", "."]);
     assert(mode.includes('interpreterRoot: ".omnishell/interpreter"'), "external mode leaked its source location");
     assert(mode.includes('markupReader: ".omnishell/read-markup.ts"'), "external reader still names a checkout");
-    assert((await run(["where", "cage"])).trim() === new URL("../interpreter/jessie.js", import.meta.url).href, "cage does not name the production evaluator");
     const reader = await new Deno.Command(Deno.execPath(), {
       args: ["run", "--no-config", "--no-check", "--no-lock", "--allow-read", ".omnishell/read-markup.ts", "."],
       cwd: app, stdout: "piped", stderr: "piped",

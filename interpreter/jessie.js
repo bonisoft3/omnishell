@@ -119,7 +119,22 @@ const ROLES = {
  */
 export async function evaluateCaged(source, endowments = {}) {
   await ensureSes();
-  return new Compartment(endowments).evaluate(source);
+  const cage = new Compartment(endowments);
+  // An endowment is authority the platform hands INTO the cage, and source
+  // that could overwrite one holds it rather than uses it — the battery's
+  // meter most of all, which the rewritten module is supposed to spend and
+  // not to supply. So each is sealed onto the compartment's global: writing
+  // it, redefining it and deleting it are all TypeErrors, whether the name is
+  // spelled or computed.
+  for (const [name, value] of Object.entries(endowments)) {
+    Object.defineProperty(cage.globalThis, name, {
+      value,
+      writable: false,
+      enumerable: false,
+      configurable: false,
+    });
+  }
+  return cage.evaluate(source);
 }
 
 export async function evaluateRole(source, role = "handler") {

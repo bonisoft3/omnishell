@@ -1,7 +1,7 @@
 // omnishell's command line: the entry point every consumer of the terminal
 // reaches its checkers through.
 //
-//   omnishell check markup|handlers|machines <appDir> | --self-test
+//   omnishell check markup|handlers|machines|battery <appDir> | --self-test
 //   omnishell read markup <appDir> | --self-test
 //   omnishell mode <appDir> [--local]
 //
@@ -27,11 +27,10 @@ function toolDir(name: string): string {
 }
 
 const usage = [
-  "usage: omnishell check markup|handlers|machines|parity <appDir> | --self-test",
+  "usage: omnishell check markup|handlers|machines|battery|parity <appDir> | --self-test",
   "       omnishell read markup <appDir> | --self-test",
   "       omnishell mode <appDir> [--local]",
   "       omnishell materialize <appDir>",
-  "       omnishell where cage",
 ].join("\n");
 
 function refuse(message: string): never {
@@ -125,10 +124,7 @@ async function materialize(appDir: string): Promise<void> {
 
 const [verb, ...rest] = Deno.args;
 
-if (verb === "where") {
-  if (rest.length !== 1 || rest[0] !== "cage") refuse("where: cage");
-  console.log(new URL("interpreter/jessie.js", root).href);
-} else if (verb === "materialize") {
+if (verb === "materialize") {
   if (rest.length !== 1) refuse("materialize: one <appDir>");
   await materialize(rest[0]);
 } else if (verb === "mode") {
@@ -153,6 +149,12 @@ if (verb === "where") {
     }
     case "check handlers": {
       const { run } = await import("../check-handlers.ts");
+      await narrow(true);
+      await run(args);
+      break;
+    }
+    case "check battery": {
+      const { run } = await import("../check-battery.ts");
       await narrow(true);
       await run(args);
       break;

@@ -96,12 +96,17 @@ _omnishell: bayt.#project & {
 				"test/**/*",
 				"interpreter/**/*",
 				// The check tests import three of these beside them and the
-				// check script typechecks check-visual; a checker or a reader
-				// at the plugin root is in no other glob.
+				// check script typechecks check-visual and the command line
+				// every other checker hangs off; a checker, a reader or one of
+				// the battery's two halves at the plugin root is in no other
+				// glob.
+				"arbitrary.ts",
+				"check-battery.ts",
 				"check-handlers.ts",
 				"check-machines.ts",
 				"check-markup.ts",
 				"check-visual.ts",
+				"instrument.ts",
 				"read-markup.ts",
 				// The command line the checkers are reached through, which the
 				// check script typechecks beside them.

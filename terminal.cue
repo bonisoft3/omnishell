@@ -246,7 +246,7 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 		// the PowerShell twin beside the launcher. A consumer names the bare
 		// token, whose platform-native entry the install put on PATH.
 		_command: {
-			for leaf in ["check markup", "check handlers", "check machines"] {
+			for leaf in ["check markup", "check handlers", "check machines", "check battery"] {
 				(leaf): [
 					if T.surface.runtime != "" {
 						"if $nu.os-info.name == \"windows\" { ^pwsh -NoProfile -File \(T.surface.runtime)/omnishell.ps1 \(leaf) . } else { ^\(T.surface.runtime)/omnishell \(leaf) . }"
@@ -352,7 +352,7 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 			]
 			note: "DOM checks over every route at two viewports, run in a container beside the app; only critical findings fail"
 		}
-		// The three checks below are COMMANDS: which interpreter runs a
+		// The four checks below are COMMANDS: which interpreter runs a
 		// checker, on which lockfile and type-check policy, reaching which
 		// files and which of the environment, is the terminal's own business
 		// and lives behind its command line (runtime/cli.ts). What a caller
@@ -369,6 +369,16 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 			verb: "lint"
 			cmds: [T.surface._command["check handlers"]]
 			note: "every Jessie module the app declares loads in the compartment its role runs in"
+		}
+
+		checks: battery: {
+			// Source, a compartment and the emitted schema are the whole of
+			// what it needs — no cluster, no page — but every module is run
+			// hundreds of times over, so it answers at the verb that admits
+			// work rather than at the one whose promise is that it does none.
+			verb: "test"
+			cmds: [T.surface._command["check battery"]]
+			note: "every Jessie module the app declares survives inputs drawn from its own schema: confined, within its fuel budget, deterministic, and mutating nothing it was handed"
 		}
 
 		checks: markup: {

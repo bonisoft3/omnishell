@@ -17,6 +17,15 @@ say:
         priority: -1
         cmds:
           - do: "deno test --config test/deno.json --allow-read --allow-write --allow-run runtime/cli_test.ts"
+      # The battery's own claims, run through the command line that is the
+      # surface, on the pins the tool stub states — deno's version for this
+      # checker travels with the command and not with the suite beside it.
+      # The stub is named rather than the launchers wrapping it: a shebang
+      # elects one platform, and this rule stands on every platform sayt does.
+      battery:
+        priority: -1
+        cmds:
+          - do: "with-env {MISE_LOCKED: '0'} { mise tool-stub runtime/deno.toml run --no-lock --no-check --node-modules-dir=none --config test/deno.json --allow-read=. --allow-write=. --allow-env runtime/cli.ts check battery --self-test }"
   integrate:
     rulemap:
       builtin:
