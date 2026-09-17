@@ -101,11 +101,12 @@ message as markup beside the field.
 
 ## The escape
 
-`data-hatch` mounts a vendored unit inside an iframe, and `data-prop-*` are its
-props in — resolved against the row by the same binder as every other attribute
-and resynchronised on every refresh, so a hatch sees a current-value feed rather
+`data-hatch` mounts a vendored unit, and `data-prop-*` are its props in —
+resolved against the row by the same binder as every other attribute and
+resynchronised on every refresh, so a hatch sees a current-value feed rather
 than a message it has to keep up with. What comes back out is named and
 request-shaped. This is the only rung where code the terminal did not emit runs
-against a reader's screen, and the iframe is why: a vendored unit is trusted
-because an engineer audited it, and contained because what it renders was
-audited by nobody.
+on a reader's device. The unit declares its seat, and the seats answer
+different risks: a frame contains what the unit renders and shares the thread;
+a worker owns a thread and shares the origin. What each seat grants and
+performs is `terminal.cue`'s `hatch`, keyed by boundary.
