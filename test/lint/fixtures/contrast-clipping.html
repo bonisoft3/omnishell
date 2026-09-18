@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root { color-scheme: light dark; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: sans-serif; background: light-dark(#fff, #111); color: light-dark(#000, #eee); font-size: 16px; padding: 8px; }
+    .board { overflow: hidden; height: 60px; background: #eee; margin-bottom: 8px; }
+    .wall { overflow: clip; height: 60px; background: #eee; margin-bottom: 8px; }
+    .scroller { overflow-y: auto; height: 60px; background: #eee; margin-bottom: 8px; }
+    .anchor { position: relative; }
+    .static-clip { overflow: hidden; height: 30px; background: #eee; }
+    .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+    button { display: block; height: 40px; width: 120px; }
+    /* Every ink here is a flat colour on a flat backdrop, so the ratio the
+       arithmetic reports is the ratio the colours have. The fixed ones fail in
+       light and clear the dark body; #twin is the other way round. */
+    #ghost { color: #f4f4f4; }
+    #invisible { color: #fff; }
+    #dim { color: #a0a0a0; }
+    #near { color: #8a8a8a; }
+    #ok { color: light-dark(#333, #ddd); }
+    #veiled { color: #333; background: rgb(0 0 0 / 0.85); }
+    #twin { color: light-dark(#333333, #bbbbbb); background: light-dark(#ffffff, #cccccc); }
+    #mixed { color: color-mix(in oklch, #ffffff 70%, #000000); }
+    #eased { color: light-dark(#000000, #ffffff); background: light-dark(#ffffff, #000000); transition: color 300ms; }
+    #outlined { color: light-dark(#ffffff, #111111); -webkit-text-stroke: 0.6px light-dark(#000000, #eeeeee); }
+    dialog::backdrop { background: rgb(0 0 0 / 0.9); }
+  </style>
+</head>
+<body>
+  <p id="ghost">ghost text, painted in its own backdrop</p>
+  <p id="invisible">invisible text, painted in the backdrop's own colour</p>
+  <p id="dim">dim text, legible and under every floor</p>
+  <p id="near">near text, a miss on AA alone</p>
+  <p id="ok">ok text, well over its floor</p>
+  <p id="veiled">veiled text, under a translucent layer composited to black</p>
+  <p id="twin">twin text, legible in light and not in dark</p>
+  <p id="mixed">mixed text, a colour computed in oklch</p>
+  <p id="eased">eased text, whose ink follows the appearance a transition late</p>
+  <p id="outlined">outlined text, in the backdrop's colour with a stroke that is not</p>
+
+  <div class="board">
+    <button id="under-board" style="margin-top: 100px">under the board</button>
+  </div>
+
+  <div class="board">
+    <button id="above-board" style="margin-top: -100px">above the board</button>
+  </div>
+
+  <div class="wall">
+    <!-- a spacer, not a margin: `clip` is no formatting context, so a margin
+         would collapse through the wall and move it instead -->
+    <div style="height: 100px"></div>
+    <button id="behind-wall">behind the wall</button>
+  </div>
+
+  <div class="board">
+    <button id="half-cut" style="margin-top: 44px">most of me is cut</button>
+  </div>
+
+  <div class="scroller">
+    <button id="in-scroller" style="margin-top: 200px">a scroll away</button>
+  </div>
+
+  <div class="board">
+    <div class="scroller" style="height: 40px">
+      <button id="in-nested-scroller" style="margin-top: 500px">a scroll away, inside a board</button>
+    </div>
+  </div>
+
+  <div class="anchor">
+    <div class="static-clip">
+      <button id="escapes" style="position: absolute; top: 60px">not this box's to clip</button>
+    </div>
+  </div>
+
+  <div class="anchor" style="height: 80px">
+    <div class="board" style="height: 20px">
+      <div style="position: absolute; top: 30px">
+        <button id="popped">in a popover</button>
+      </div>
+    </div>
+  </div>
+
+  <p>text <span style="overflow: hidden"><a href="#" id="inline-link">inline link</a></span> more</p>
+
+  <div class="sr"><button id="caret" aria-hidden="true" tabindex="-1">caret</button></div>
+
+  <dialog id="modal"><p>dialog text</p></dialog>
+</body>
+</html>

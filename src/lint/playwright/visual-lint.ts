@@ -11,6 +11,8 @@ import { checkConstrainedImages } from "./checks/constrained-images"
 import { checkViewportBounds } from "./checks/viewport-bounds"
 import { checkTouchTargets } from "./checks/touch-targets"
 import { checkFocusOrder } from "./checks/focus-order"
+import { checkClippedControls } from "./checks/clipped-controls"
+import { checkContrast } from "./checks/contrast"
 import { checkThemeStability } from "./checks/theme-stability"
 import type { ConsoleCapture } from "./checks/console-messages"
 import { analyzeConsole } from "./checks/console-messages"
@@ -37,12 +39,15 @@ export async function visualLint(
     checkViewportBounds(page),
     checkTouchTargets(page),
     checkFocusOrder(page),
+    checkClippedControls(page),
     checkThemeStability(page),
     // CLS is not in this battery: it is the one check that has to be armed
     // before its own navigation, which this entry point does not own. A caller
     // that wants it runs armCLS(page) before goto and checkCLS(page) after.
   ])
   const bugs = results.flat()
+  // After the battery, not in it: checkContrast says why.
+  bugs.push(...(await checkContrast(page)))
   if (consoleCapture) {
     bugs.push(...analyzeConsole(consoleCapture))
   }

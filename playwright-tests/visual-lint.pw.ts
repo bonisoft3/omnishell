@@ -5,6 +5,8 @@
 // safe reason to call a box constrained.
 import { describe, expect, it, withPage, asCheckPage } from "./harness.ts"
 import { assertVisualLint, visualLint } from "../src/lint/playwright/visual-lint.ts"
+import { checkClippedControls } from "../src/lint/playwright/checks/clipped-controls.ts"
+import { checkContrast } from "../src/lint/playwright/checks/contrast.ts"
 import { checkFocusOrder } from "../src/lint/playwright/checks/focus-order.ts"
 import { checkInteractiveOverlap } from "../src/lint/playwright/checks/interactive-overlap.ts"
 import { checkThemeStability } from "../src/lint/playwright/checks/theme-stability.ts"
@@ -166,5 +168,76 @@ describe("visualLint - the cheapest fix", () => {
       const dodged = ["viewport-bounds", "touch-target-size", "interactive-overlap"]
       expect(bugs.filter((b) => dodged.includes(b.rule))).toHaveLength(0)
       expect(bugs.filter((b) => b.rule === "focusable-but-invisible").length).toBeGreaterThan(0)
+    }))
+})
+
+const CLIPPED = `${fixtures}contrast-clipping.html`
+
+describe("checkClippedControls", () => {
+  it("reports only a control nothing can bring back", () =>
+    withPage(async (page) => {
+      await page.goto(CLIPPED)
+      const bugs = await checkClippedControls(asCheckPage(page))
+      // The silent ones pin the rule's edges: a control inside a hidden box's
+      // scrollable overflow, or cut in part, is not decided; a scroll container
+      // holds its content a scroll away, even inside a board; a static box is
+      // not the containing block of an absolute inside it, nor of an absolute
+      // wrapper inside it; an inline box clips nothing; the screen-reader idiom
+      // is not on the screen by design.
+      expect(Object.fromEntries(bugs.map((b) => [b.element, b.severity]))).toEqual({
+        "above the board": "critical",
+        "behind the wall": "critical",
+      })
+    }))
+})
+
+describe("checkContrast", () => {
+  it("holds every decidable pair to the floor, in each appearance", () =>
+    withPage(async (page) => {
+      await page.goto(CLIPPED)
+      const bugs = await checkContrast(asCheckPage(page))
+      // `veiled text` sits under a translucent layer, composited to the flat
+      // colour it makes; `mixed text` is a colour the browser computes in
+      // oklch; `twin text` fails in dark alone, and says so; `eased text` is
+      // read once the transition the flip starts has ended, where it passes;
+      // `outlined text` is read by its stroke, which passes on both grounds.
+      expect([...new Set(bugs.map((b) => b.element?.split(",")[0]))].sort()).toEqual(
+        ["dim text", "ghost text", "invisible text", "mixed text", "near text", "twin text", "veiled text"],
+      )
+      const twin = bugs.filter((b) => b.element?.startsWith("twin text"))
+      expect(twin.map((b) => b.description.endsWith("(dark)"))).toEqual([true])
+      expect(bugs.every((b) => b.severity === "critical")).toBe(true)
+    }))
+
+  it("skips a backdrop it cannot decide", () =>
+    withPage(async (page) => {
+      await page.goto(CLIPPED)
+      await page.evaluate(() => {
+        (document.querySelector("#ok") as HTMLElement).style.backgroundImage =
+          "linear-gradient(#2b2b2b, #2b2b2b)"
+      })
+      const bugs = await checkContrast(asCheckPage(page))
+      expect(bugs.filter((b) => b.element?.startsWith("ok text"))).toEqual([])
+    }))
+
+  it("reads only the dialog while one is modal", () =>
+    withPage(async (page) => {
+      await page.goto(CLIPPED)
+      await page.evaluate(() => (document.querySelector("#modal") as HTMLDialogElement).showModal())
+      expect(await checkContrast(asCheckPage(page))).toEqual([])
+    }))
+
+  it("leaves the page where it found it", () =>
+    withPage(async (page) => {
+      await page.goto(CLIPPED)
+      await page.evaluate(() => {
+        document.body.style.minHeight = "300vh"
+        scrollTo(0, 40)
+      })
+      const state = () => page.evaluate(() => [scrollY, matchMedia("(prefers-color-scheme: dark)").matches])
+      const before = await state()
+      await checkContrast(asCheckPage(page))
+      expect(await state()).toEqual(before)
+      expect(before[0]).toBe(40)
     }))
 })

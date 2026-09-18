@@ -77,20 +77,17 @@ const PAGE = `<!doctype html>
       return eq === null ? rows : rows.filter((r) => String(r.id) === eq[1])
     },
     subscribe: (_t, fn) => { subs.push(fn); return () => {} },
-    create: async () => {},
+    add: async () => {},
     // The forms state every column including the key, which is what lets one
     // form off an option's row write the choice row rather than its own.
-    upsert: async (table, row) => {
+    upsertBy: async (table, row) => {
       Object.assign(tables[table].find((r) => String(r.id) === String(row.id)), row)
       await wake()
     },
-    put: async () => {},
-    remove: async () => {},
-    removeWhere: async () => {},
-    update: async (table, id, patch) => {
-      Object.assign(tables[table].find((r) => String(r.id) === String(id)), patch)
-      await wake()
-    },
+    write: async () => {},
+    patch: async () => {},
+    drop: async () => {},
+    dropWhere: async () => {},
   }
   // A row arriving with nobody asking: the store talking, not the reader.
   window.__arrive = async () => {

@@ -84,26 +84,25 @@ const PAGE = `<!doctype html>
   const store = {
     query: async (table) => rows[table].slice(),
     subscribe: (_t, fn) => { subs.push(fn); return () => {} },
-    create: async () => {},
-    upsert: async () => {},
-    // A machine states a whole row, which is the write this screen makes.
-    put: async (table, row) => {
-      const at = rows[table].findIndex((r) => String(r.id) === String(row.id))
-      if (at === -1) rows[table].push(row)
-      else rows[table][at] = row
+    add: async () => {},
+    upsertBy: async () => {},
+    // A machine states whole rows, keyed beside them: the write this screen makes.
+    write: async (table, edits) => {
+      for (const { key, row } of edits) {
+        const at = rows[table].findIndex((r) => String(r.id) === String(key))
+        if (at === -1) rows[table].push({ ...row, id: key })
+        else rows[table][at] = { ...row, id: key }
+      }
       await wake()
     },
-    remove: async () => {},
-    removeWhere: async () => {},
-    update: async (table, id, patch) => {
-      Object.assign(rows[table].find((r) => String(r.id) === String(id)), patch)
-      await wake()
-    },
+    patch: async () => {},
+    drop: async () => {},
+    dropWhere: async () => {},
   }
   // A row moving with nobody asking: the store talking, not the reader.
   window.__moveCaret = async (to) => {
-    await store.put("acc", { id: "the", caret: to, cur_one: String(to === "one"),
-      cur_two: String(to === "two"), cur_three: String(to === "three") })
+    await store.write("acc", [{ key: "the", row: { id: "the", caret: to, cur_one: String(to === "one"),
+      cur_two: String(to === "two"), cur_three: String(to === "three") } }])
   }
   window.__caret = () => rows.acc[0].caret
   window.__active = () => document.activeElement?.id ?? null

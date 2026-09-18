@@ -45,9 +45,10 @@ import (
 // empty.
 // --lock is explicit because deno anchors the lockfile at the workspace root
 // (this package.json), not beside --config; without it the pins go unread.
-// test/design-tokens.test.ts is left out HERE and only here: it reads pronto's
-// schema from the repository root, which this image does not carry. The host
-// run (`sayt test`, which CI's tests job drives on a full checkout) gates it.
+// test/design-tokens.test.ts and test/check-parity.test.ts read the repository
+// root — pronto's schema and apps/realworld — which no image here carries, so
+// both targets leave them out. The host test verb runs package.json's test
+// script on a full checkout, and that is where they run.
 _smokes: strings.Join([
 	for f in ["clock", "handler", "hatch", "login", "nav", "pending", "renderer", "validate", "worker"] {"interpreter/\(f)-smoke.js"},
 ], " ")
@@ -59,7 +60,7 @@ _smokeCmd: {
 	}
 	"builtin": {
 		shell: "sh"
-		do:    "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys --ignore=test/design-tokens.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read \(_smokes)'"
+		do:    "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys --ignore=test/design-tokens.test.ts,test/check-parity.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read \(_smokes)'"
 	}
 }
 
@@ -105,6 +106,7 @@ _omnishell: bayt.#project & {
 				"check-handlers.ts",
 				"check-machines.ts",
 				"check-markup.ts",
+				"check-parity.ts",
 				"check-visual.ts",
 				"instrument.ts",
 				"read-markup.ts",

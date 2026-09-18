@@ -25,6 +25,8 @@ import { checkConstrainedImages } from "./src/lint/playwright/checks/constrained
 import { checkViewportBounds } from "./src/lint/playwright/checks/viewport-bounds.ts"
 import { checkTouchTargets } from "./src/lint/playwright/checks/touch-targets.ts"
 import { checkFocusOrder } from "./src/lint/playwright/checks/focus-order.ts"
+import { checkClippedControls } from "./src/lint/playwright/checks/clipped-controls.ts"
+import { checkContrast, contrastFloor, contrastRatio } from "./src/lint/playwright/checks/contrast.ts"
 import { armCLS, checkCLS } from "./src/lint/playwright/checks/cls.ts"
 import { captureConsole, analyzeConsole } from "./src/lint/playwright/checks/console-messages.ts"
 import type { VisualBug } from "./src/lint/playwright/types.ts"
@@ -385,6 +387,14 @@ export async function settle(
         // any list taken earlier. `complete` covers errored images too, where
         // awaiting decode() would wait on a promise that never settles.
         const loading = () => [...document.images].some((img) => !img.complete)
+        // A fade moves no box and mutates no node, and a screen read inside one
+        // is a screen at some opacity between the two it will have. The finite
+        // ones are waited out, by the rule checkContrast states.
+        const fading = () =>
+          document.getAnimations().some((a) =>
+            a.timeline instanceof DocumentTimeline && a.playState === "running" && a.playbackRate !== 0 &&
+            a.effect?.getTiming().iterations !== Infinity
+          )
 
         let previous = fingerprint()
         let stableSince = performance.now()
@@ -392,7 +402,7 @@ export async function settle(
           if (done) return
           const now = performance.now()
           const current = fingerprint()
-          if (mutated || current !== previous || loading()) {
+          if (mutated || current !== previous || loading() || fading()) {
             mutated = false
             previous = current
             stableSince = now
@@ -594,9 +604,12 @@ async function main(appDir: string): Promise<number> {
           checkViewportBounds(p),
           checkTouchTargets(p, { minSize: floors.touch }),
           checkFocusOrder(p),
+          checkClippedControls(p),
           checkCLS(p),
         ])
       ).flat()
+      // After the battery, not in it: checkContrast says why.
+      bugs.push(...await checkContrast(p))
       bugs.push(...analyzeConsole(console_, { ignore: IGNORE }))
       // The sampler above and this settled read are one scan over one projection,
       // taken at two times: it catches braces painted during hydration, this
@@ -816,6 +829,13 @@ function selfTest() {
     "n",
     "through two hops, the second to-one",
   )
+  eq(contrastFloor(12, 400), 4.5, "body text floor")
+  eq(contrastFloor(24, 400), 3, "24px is large text")
+  eq(contrastFloor(19, 700), 3, "18.66px at 700 is large text")
+  eq(contrastFloor(19, 400), 4.5, "18.66px at 400 is not")
+  eq(contrastRatio([0, 0, 0], [255, 255, 255]), 21, "black on white is the criterion's 21")
+  eq(Math.round(contrastRatio([119, 119, 119], [255, 255, 255]) * 100) / 100, 4.48, "#777 on white misses AA")
+  eq(contrastRatio([255, 255, 255], [0, 0, 0]), contrastRatio([0, 0, 0], [255, 255, 255]), "the ratio has no direction")
   console.log("check-visual: self-test ok")
 }
 

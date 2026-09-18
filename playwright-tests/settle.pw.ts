@@ -19,6 +19,10 @@ const PAGES: Record<string, string> = {
   "/mutating": `<div id="w">widget</div><script>
     setInterval(() => document.getElementById("w").setAttribute("data-tick", String(Date.now())), 40)
   </script>`,
+  "/fading": `<p id="f" style="opacity:0;transition:opacity 300ms linear">arriving</p><script>
+    requestAnimationFrame(() => requestAnimationFrame(() => { document.getElementById("f").style.opacity = "1" }))
+  </script>`,
+  "/pulsing": `<style>@keyframes pulse { to { opacity: .4 } } p { animation: pulse 200ms infinite alternate }</style><p>steady</p>`,
 }
 
 function serve() {
@@ -83,6 +87,31 @@ describe("settle", () => {
       await withPage(async (page) => {
         await page.goto(`${server.base}/stalling-image`, { waitUntil: "domcontentloaded" })
         expect(await settleWithin(page as never, 10_000)).toBe(false)
+      })
+    } finally {
+      await server.close()
+    }
+  })
+
+  it("clears a fade only once it has ended", async () => {
+    const server = serve()
+    try {
+      await withPage(async (page) => {
+        await page.goto(`${server.base}/fading`, { waitUntil: "domcontentloaded" })
+        expect(await settle(page as never, { capMs: 5_000 })).toBe(true)
+        expect(await page.evaluate(() => getComputedStyle(document.getElementById("f")!).opacity)).toBe("1")
+      })
+    } finally {
+      await server.close()
+    }
+  })
+
+  it("clears a page whose only motion never ends", async () => {
+    const server = serve()
+    try {
+      await withPage(async (page) => {
+        await page.goto(`${server.base}/pulsing`, { waitUntil: "domcontentloaded" })
+        expect(await settleWithin(page as never, 10_000)).toBe(true)
       })
     } finally {
       await server.close()
