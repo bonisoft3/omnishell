@@ -26,6 +26,7 @@ import { checkViewportBounds } from "./src/lint/playwright/checks/viewport-bound
 import { checkTouchTargets } from "./src/lint/playwright/checks/touch-targets.ts"
 import { checkFocusOrder } from "./src/lint/playwright/checks/focus-order.ts"
 import { checkClippedControls } from "./src/lint/playwright/checks/clipped-controls.ts"
+import { baseUrl } from "./base-url.ts"
 import { checkContrast, contrastFloor, contrastRatio } from "./src/lint/playwright/checks/contrast.ts"
 import { armCLS, checkCLS } from "./src/lint/playwright/checks/cls.ts"
 import { captureConsole, analyzeConsole } from "./src/lint/playwright/checks/console-messages.ts"
@@ -416,24 +417,6 @@ export async function settle(
       }),
     { stableMs, capMs },
   ) as boolean
-}
-
-/** The host port compose actually published, rather than the compose default. */
-async function baseUrl(appDir: string): Promise<string> {
-  const fromEnv = Deno.env.get("APP_URL")
-  if (fromEnv) return fromEnv
-  const out = await new Deno.Command("docker", {
-    args: ["compose", "port", "caddy", "8443"],
-    cwd: appDir,
-    stdout: "piped",
-    stderr: "piped",
-  }).output()
-  const text = new TextDecoder().decode(out.stdout).trim()
-  const port = text.split("\n")[0]?.split(":").pop()
-  if (!out.success || !port) {
-    throw new Error(`could not read the published caddy port: ${new TextDecoder().decode(out.stderr).trim()}`)
-  }
-  return `https://localhost:${port}`
 }
 
 async function main(appDir: string): Promise<number> {

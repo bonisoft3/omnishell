@@ -112,7 +112,7 @@ async function materialize(appDir: string): Promise<void> {
   }
   const staged = await Deno.makeTempDir({ dir: appDir, prefix: ".omnishell-" });
   try {
-    for (const entry of ["interpreter", "src", "check-visual.ts", "read-markup.ts", "machine.cue"]) {
+    for (const entry of ["interpreter", "src", "base-url.ts", "check-visual.ts", "read-markup.ts", "machine.cue"]) {
       await copy(toolDir(entry), `${staged}/${entry}`);
     }
     await removeIfPresent(destination);

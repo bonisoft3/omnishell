@@ -102,6 +102,7 @@ _omnishell: bayt.#project & {
 				// the battery's two halves at the plugin root is in no other
 				// glob.
 				"arbitrary.ts",
+				"base-url.ts",
 				"check-battery.ts",
 				"check-handlers.ts",
 				"check-machines.ts",
