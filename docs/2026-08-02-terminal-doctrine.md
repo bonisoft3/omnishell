@@ -151,7 +151,7 @@ form participation with the code coming from a bundle instead of an import.
 
 ## The questions this left open
 
-Listed as pending work in `PENDING.md`; the arguments are here.
+Open, and the arguments are here rather than in a list elsewhere.
 
 1. **Is "returned requests" right for every Jessie role**, or only the pure
    mapping ones?
