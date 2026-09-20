@@ -252,7 +252,7 @@ until fixed point. Two consequences:
   handler is no longer referenced and is removed with it**. Patch the emitted
   file instead; the next write overwrites it correctly. If a handler does go,
   the last container image still carries it —
-  `docker compose exec caddy cat /srv/shell/handlers/<name>.js`.
+  `docker compose exec apps_<app>-caddy cat /srv/shell/handlers/<name>.js` (the service carries its bayt name).
 
 Bootstrapping a brand-new app needs `program_derived.cue` to exist before the
 first export can complete, because the export requires every decision's `note`

@@ -28,7 +28,6 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 // note on why terminal.cue and cluster.cue each define their own copy
 // rather than coupling the two packages together.
 #Static: {
-	source: string
 	file:   #Path
 	target: string
 	watch:  *false | bool
@@ -417,38 +416,33 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 				// `just generate` from the program, and a design token or a seed
 				// row that does not reach the running container is a hot reload
 				// that works for some edits and not others.
-				{source: "shell-entry", file: T.surface.entry, target: "/srv/\(T.surface.entry)", watch: true},
-				{source: "shell-css", file: T.surface.css, target: "/srv/\(T.surface.css)", watch: true},
-				{source: "shell-boot", file: T.surface.boot, target: "/srv/\(T.surface.boot)", watch: true},
-				{source: "shell-config", file: "shell/shell.yaml", target: "/srv/shell/shell.yaml", watch: true},
-				{source: "shell-design-css", file: "shell/design.css", target: "/srv/shell/design.css", watch: true},
+				{file: T.surface.entry, target: "/srv/\(T.surface.entry)", watch: true},
+				{file: T.surface.css, target: "/srv/\(T.surface.css)", watch: true},
+				{file: T.surface.boot, target: "/srv/\(T.surface.boot)", watch: true},
+				{file: "shell/shell.yaml", target: "/srv/shell/shell.yaml", watch: true},
+				{file: "shell/design.css", target: "/srv/shell/design.css", watch: true},
 			],
 			[for s in T.surface.screens for kind in ["html", "css"] {
-				source: "screen-\(s.name)-\(kind)"
 				file:   s[kind]
 				target: "/srv/\(s[kind])"
 				watch:  true
 			}],
 			[for h in T.surface.handlers {
-				source: "handler-\(strings.Replace(h, "/", "-", -1))"
 				file:   h
 				target: "/srv/\(h)"
 				watch:  true
 			}],
 			[for r in T.surface.renderers {
-				source: "renderer-\(strings.Replace(r, "/", "-", -1))"
 				file:   r
 				target: "/srv/\(r)"
 				watch:  true
 			}],
 			[for c in T.surface.shared {
-				source: "shared-\(strings.Replace(c, "/", "-", -1))"
 				file:   c
 				target: "/srv/\(c)"
 				watch:  true
 			}],
 			[for f in T.surface.folds {
-				source: "fold-\(strings.Replace(f, "/", "-", -1))"
 				file:   f
 				target: "/srv/\(f)"
 				watch:  true
@@ -458,7 +452,6 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 			// unaudited half is megabytes that would restart the proxy on every
 			// launch. Editing a unit is a rebuild.
 			[for u in T.surface.units {
-				source: "unit-\(strings.Replace(u, "/", "-", -1))"
 				file:   u
 				target: "/srv/\(u)"
 				watch:  false
@@ -466,7 +459,6 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 			// The interpreter is hand-written and edited in the loop, so it is
 			// watched like an app's own screens are.
 			[for m in T.surface.modules {
-				source: "omnishell-\(strings.Replace(m, "/", "-", -1))"
 				file:   "\(T.surface.interpreterRoot)/\(m)"
 				target: "/omnishell/interpreter/\(m)"
 				watch:  true
