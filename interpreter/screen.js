@@ -3,7 +3,18 @@
 // effect and the whole state machine — screens only style states.
 import { renderInto } from "./render.js";
 import { mountHatch } from "./hatch.js";
-import { machineCandidates, machineShape, parseFilter, parseFilterSpec, parseReadSpec, PLACEHOLDER, PLACEHOLDERS } from "./fragment.js";
+import {
+  directionOf,
+  machineCandidates,
+  machineShape,
+  parseFilter,
+  parseFilterSpec,
+  parseReadSpec,
+  PLACEHOLDER,
+  PLACEHOLDERS,
+  ProgramError,
+  routeHref,
+} from "./fragment.js";
 import { evaluateRole } from "./jessie.js";
 
 async function fetchText(url) {
@@ -14,10 +25,6 @@ async function fetchText(url) {
 
 // A slot read that matched more than one row. Its own type so the outage
 // guard can tell a broken cardinality invariant from a dead gateway.
-/** A broken invariant rather than an outage: no retry repairs it, and the
- * network-error dressing would say the store is down when the program is
- * wrong. Everything under this is rethrown past the outage guard. */
-export class ProgramError extends Error {}
 export class SlotCardinalityError extends ProgramError {}
 export class KindAdmissionError extends ProgramError {}
 // A row hydrating inside its own shape. Its own type so the outage guard can
@@ -234,11 +241,14 @@ const withTemplates = (screen) => {
   return scopes;
 };
 
-// data-text-format names one of two things. plain and datetime are value
-// formatting — text in, text out, no DOM. Any other name is a renderer: a
-// Jessie module the app declared in files.renderers, resolved by basename
-// exactly as a handler is.
-const TEXT_FORMATS = new Set(["plain", "datetime"]);
+// data-text-format names one of two things. plain, datetime, number and money
+// are value formatting — text in, text out, no DOM. Any other name is a
+// renderer: a Jessie module the app declared in files.renderers, resolved by
+// basename exactly as a handler is.
+const TEXT_FORMATS = new Set(["plain", "datetime", "number", "money"]);
+// The built-ins that format the looked-up VALUE rather than interpolate a
+// sentence around it. plain is not one: it is the default spelled out.
+const VALUE_FORMATS = new Set(["datetime", "number", "money"]);
 
 async function loadRenderers(screen, appBase, route) {
   const declared = route.files.renderers ?? [];
@@ -325,15 +335,72 @@ const BOOL_ATTRS = new Set([
 ]);
 const BLANK_PIXEL = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
 
+/** The language a screen is rendering in, from the most explicit thing its
+ * context carries. The app's own default at the end and never a literal: a
+ * language spelled here would outlive the catalogue it names the moment an app
+ * renames its default, and every lookup would miss against a tag nothing
+ * ships. Undefined for an app declaring no locales at all, which is most of
+ * them. */
+function localeOf(ctx) {
+  return ctx?.params?.locale || ctx?.locale || ctx?.row?.locale || ctx?.i18n?.default;
+}
+
 // {param.x} reads route params; any other expression is a dot path into the
 // row ({a.b} descends into embedded objects). Fixture rows answer the whole
 // dotted key directly (their `has` is total), so the whole-key probe comes
 // before the walk.
-function lookup(expr, { row, params }) {
+//
+// `arm` is the catalogue arm the element selected (armOf), and only a message
+// has arms to select from.
+function lookup(expr, ctx, arm) {
+  const { row, params, messages, locale, i18n } = ctx ?? {};
   if (expr.startsWith("param.")) {
     const name = expr.slice("param.".length);
     if (!params || !(name in params)) throw new Error(`unknown route param {${expr}}`);
     return params[name];
+  }
+  // {msg[column]} names the message a ROW carries: the writer stored a key
+  // rather than a sentence, so the text it stands for is the reader's to
+  // choose. A column that has said nothing yet stands for nothing, which is
+  // not the same as naming a message the catalogue is missing.
+  const rowMsg = /^msg\[([a-z][a-z0-9_]*)\]$/.exec(expr);
+  if (expr.startsWith("msg.") || rowMsg !== null) {
+    const key = rowMsg === null ? expr.slice("msg.".length) : String((row ?? {})[rowMsg[1]] ?? "");
+    if (rowMsg !== null && key === "") return "";
+    const activeLocale = localeOf(ctx);
+    let catalog = messages;
+    if (catalog && activeLocale && activeLocale in catalog && typeof catalog[activeLocale] === "object") {
+      catalog = catalog[activeLocale];
+    }
+    const resolveFrom = (dict) => {
+      if (!dict || typeof dict !== "object") return undefined;
+      if (key in dict) return dict[key];
+      let v = dict;
+      for (const seg of key.split(".")) {
+        if (v == null || !(seg in Object(v))) return undefined;
+        v = v[seg];
+      }
+      return v;
+    };
+    let val = resolveFrom(catalog);
+    // The app's declared default and nothing else. A language spelled here
+    // names a catalogue the app may not ship — `pt` stood here and stopped
+    // answering the day truco declared `pt-BR` — and a miss against one is
+    // indistinguishable from a key nobody wrote.
+    if (val === undefined && messages && catalog !== messages) {
+      val = resolveFrom(messages[i18n?.default]) ?? resolveFrom(messages.default);
+    }
+    if (val === undefined) {
+      // A name written in the markup that no catalogue answers is the author's
+      // mistake and stops the screen. A name a ROW carries is data: the
+      // catalogue may not have caught up with it yet, and a row is never
+      // allowed to take the screen down — it surfaces as the key itself, which
+      // is what check-i18n reads and reports.
+      if (rowMsg !== null) return key;
+      throw new Error(`unknown message {${expr}}`);
+    }
+    if (val !== null && typeof val === "object") return selectArm(expr, val, arm, ctx);
+    return val;
   }
   const r = row ?? {};
   if (expr in r) return r[expr];
@@ -355,23 +422,107 @@ function lookup(expr, { row, params }) {
   return v;
 }
 
-// The app's ONE fixed UTC human timestamp format ("Aug 2, 09:00") for
-// data-text-format="datetime" bindings — raw column text (ISO / postgres
-// timestamptz) never reaches the user. Unparsable values pass through so
-// fixture rows stay visible in the storybook.
+/* --- a message with more than one wording --------------------------------
+ *
+ * A catalogue value is a string or a flat map of arm name to string, and the
+ * element names which arm it reads: data-msg-plural runs a count through
+ * Intl.PluralRules and indexes by the CLDR category, data-msg-select indexes
+ * by the value itself — one selection, two selectors.
+ *
+ * It resolves here because Intl is endowed in the interpreter and in nothing a
+ * screen can reach otherwise; it is an attribute rather than new {placeholder}
+ * syntax because the bracket arm of PLACEHOLDER is taken and says the opposite
+ * thing — {msg[said]} means the ROW carries the key.
+ */
+
+/** An arm's own {column} bindings resolve in the element's context. A plain
+ * string value stays single-pass: making every value two-pass would change
+ * what every catalogue already ships. */
+function selectArm(expr, val, arm, ctx) {
+  const arms = Object.keys(val).join(", ");
+  if (arm === undefined) {
+    throw new ProgramError(`message {${expr}} is a map of [${arms}]; name data-msg-plural or data-msg-select to pick one`);
+  }
+  if (!Object.hasOwn(val, arm)) throw new ProgramError(`message {${expr}} has no arm "${arm}"; it carries [${arms}]`);
+  return String(val[arm]).replace(PLACEHOLDERS, (_, inner) => {
+    if (inner.startsWith("msg.") || inner.startsWith("msg[")) {
+      throw new ProgramError(`message {${expr}} arm "${arm}" names {${inner}}: an arm is text, not another key`);
+    }
+    return String(lookup(inner, ctx) ?? "");
+  });
+}
+
+/** The arm an element selects, or undefined where it selects none.
+ *
+ * Intl.PluralRules.select answers "other" for NaN, undefined, "" and "abc"
+ * alike, so a column that is not a count would quietly render a plural; the
+ * count is refused here rather than left to Intl. */
+function armOf(el, ctx) {
+  const plural = el.dataset?.msgPlural;
+  const select = el.dataset?.msgSelect;
+  if (plural !== undefined && select !== undefined) {
+    throw new ProgramError(`data-msg-plural="${plural}" and data-msg-select="${select}" on one element: an arm is selected once`);
+  }
+  if (select !== undefined) return String(lookup(select, ctx) ?? "");
+  if (plural === undefined) return undefined;
+  const count = lookup(plural, ctx);
+  if (count === null || count === undefined || count === "" || !Number.isFinite(Number(count))) {
+    throw new ProgramError(`data-msg-plural="${plural}" reads ${JSON.stringify(count)}, which is not a count`);
+  }
+  return pluralRulesFor(localeOf(ctx) ?? "en-US").select(Number(count));
+}
+
+// Constructing a PluralRules is expensive and this runs per binding per
+// refresh, which is what FORMATTERS below is kept for too.
+const PLURALS = new Map();
+function pluralRulesFor(locale) {
+  let rules = PLURALS.get(locale);
+  if (rules === undefined) {
+    rules = new Intl.PluralRules(locale);
+    PLURALS.set(locale, rules);
+  }
+  return rules;
+}
+
+// The human timestamp behind data-text-format="datetime" bindings — raw column
+// text (ISO / postgres timestamptz) never reaches the user. Unparsable values
+// pass through so fixture rows stay visible in the storybook.
 //
-// Date and time are formatted apart and joined with our own ", ": one
-// formatter carrying both would interpose CLDR's date-time connector, which
-// reads ", " on V8 but " at " on JSC, making the format browser-dependent.
-// Exported so tests can pin the shape without hydrating a screen.
-const DATE = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric" });
-const TIME = new Intl.DateTimeFormat("en-US", {
-  timeZone: "UTC",
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-});
-export function formatDatetime(value) {
+// Date and time are formatted APART and joined with our own ", ": one formatter
+// carrying both would interpose CLDR's date-time connector, which reads ", " on
+// V8 but " at " on JSC, making the format browser-dependent. That hazard is
+// about one formatter spanning both fields, not about locales — so the split
+// is what lets the reader's own language through rather than an argument for
+// pinning it.
+//
+// The zone is the reader's, and `undefined` is how Intl spells that. It is
+// passed rather than read because the checking tiers render the same screens
+// off a reader's machine — linkedom under deno, chromium under CI — where an
+// ambient zone would make every date-bearing frame differ by where it was
+// rendered. Those tiers pin UTC; nothing else does.
+//
+// Constructing a DateTimeFormat is expensive and this runs per binding per
+// refresh, so the pair is built once per (locale, zone) and kept.
+const FORMATTERS = new Map();
+function formattersFor(locale, timeZone) {
+  const key = `${locale} ${timeZone ?? ""}`;
+  let pair = FORMATTERS.get(key);
+  if (pair === undefined) {
+    pair = {
+      date: new Intl.DateTimeFormat(locale, { timeZone, month: "short", day: "numeric" }),
+      // h23, because the adjacent h24 cycle renders midnight "24:00" and
+      // omitting the cycle gives an en-US reader "12:00 AM".
+      time: new Intl.DateTimeFormat(locale, { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }),
+    };
+    FORMATTERS.set(key, pair);
+  }
+  return pair;
+}
+
+/** Exported so tests can pin the shape without hydrating a screen. `ctx` is a
+ * screen's, and a caller that has none is asking for the app's default
+ * language in the reader's own zone. */
+export function formatDatetime(value, ctx) {
   if (value == null || value === "") return "";
   // Date takes postgres' "2026-08-02 09:00:00+00" as it stands; it is the
   // T-substitution that forces the offset repair beside it. Neither survives a
@@ -379,7 +530,97 @@ export function formatDatetime(value) {
   const iso = String(value).replace(" ", "T").replace(/([+-]\d{2})$/, "$1:00");
   const d = new Date(iso);
   if (isNaN(d.getTime())) return String(value);
-  return `${DATE.format(d)}, ${TIME.format(d)}`;
+  // An app that declares no locales names no language, and this is every such
+  // app's every screen — not an error path. It renders what every app rendered
+  // before a declared locale reached here at all, which is the change this is
+  // deliberately not making: an app wanting its dates in its own language says
+  // so by declaring one.
+  const { date, time } = formattersFor(localeOf(ctx) ?? "en-US", ctx?.timeZone);
+  return `${date.format(d)}, ${time.format(d)}`;
+}
+
+// The reader's own digits behind data-text-format="number" and "money" — a
+// group separator is "." to a Brazilian and "," to an American, and a column's
+// ASCII spelling is neither.
+//
+// A money column is an INTEGER count of minor units and says so on the column
+// (schema.cue #Field.money), never in the markup: the integer alone does not
+// say what it counts — xpense stores whole reais where the ordinary convention
+// is cents — and a scale spelled into an attribute is a second place to look
+// for the same fact. check-markup grades every such binding against the
+// emitted schema for exactly that reason.
+//
+// Built once per (locale, currency, scale) for the same reason FORMATTERS
+// above is: this runs per binding per refresh.
+const NUMBERS = new Map();
+function numberFormatFor(locale, money) {
+  const key = `${locale} ${money?.currency ?? ""} ${money?.minorUnits ?? ""}`;
+  let fmt = NUMBERS.get(key);
+  if (fmt === undefined) {
+    fmt = new Intl.NumberFormat(
+      locale,
+      money === undefined ? {} : {
+        style: "currency",
+        currency: money.currency,
+        // The column states the scale, so the amount shows exactly that many
+        // places rather than CLDR's idea of the currency's — a ledger in whole
+        // reais would otherwise grow a ",00" it does not hold.
+        minimumFractionDigits: money.minorUnits,
+        maximumFractionDigits: money.minorUnits,
+      },
+    );
+    NUMBERS.set(key, fmt);
+  }
+  return fmt;
+}
+
+/** A count of minor units placed as a decimal string.
+ *
+ * On the DIGITS and never by dividing: 123456789012345678 cents is exact as
+ * text and rounds to ...568,00 as a double, and Intl.NumberFormat takes the
+ * string as it stands. */
+function scaled(digits, minorUnits) {
+  if (minorUnits === 0) return digits;
+  const sign = digits.startsWith("-") ? "-" : "";
+  const body = (sign === "" ? digits : digits.slice(1)).padStart(minorUnits + 1, "0");
+  return `${sign}${body.slice(0, -minorUnits)}.${body.slice(-minorUnits)}`;
+}
+
+/** Exported so tests can pin the shape without hydrating a screen. `money` is
+ * the bound column's own declaration, and its absence is a plain number rather
+ * than a currency with no code. */
+export function formatNumber(value, ctx, money) {
+  if (value == null || value === "") return "";
+  const text = String(value).trim();
+  // Storybook fixtures synthesize a sentence for every column they cannot name
+  // (storybook.js fixture()), so without the passthrough every money frame
+  // would read "NaN" — Intl.NumberFormat answers that string for anything it
+  // cannot read. formatDatetime passes an unparsable value through for the
+  // same reason.
+  if (money !== undefined) {
+    if (!/^-?\d+$/.test(text)) return text;
+    return numberFormatFor(localeOf(ctx) ?? "en-US", money).format(scaled(text, money.minorUnits));
+  }
+  if (!Number.isFinite(Number(text))) return text;
+  // The string, not Number(text): a value wider than a double survives to the
+  // formatter, which reads a decimal literal exactly.
+  return numberFormatFor(localeOf(ctx) ?? "en-US").format(text);
+}
+
+/** The money declaration of a column a format is bound to.
+ *
+ * Refused rather than defaulted: a currency this cannot resolve has no code to
+ * render with, and rendering the bare integer would be a ledger silently
+ * showing cents as reais. check-markup answers the same question statically, so
+ * reaching here means the markup was never graded. */
+function moneyOf(ctx, expr) {
+  const money = ctx?.cfg?.schema?.[ctx?.table]?.fields?.find((f) => f.name === expr)?.money;
+  if (money === undefined) {
+    throw new ProgramError(
+      `data-text-format="money" reads {${expr}}, which declares no money: on "${ctx?.table ?? "no data-live region"}"`,
+    );
+  }
+  return money;
 }
 
 /**
@@ -594,6 +835,7 @@ function declared(spec, table, what) {
 }
 
 function nestedBindings(el, ctx) {
+  const arm = armOf(el, ctx);
   const stash = el._prontoAttrs ?? {};
   const names = new Set([...(el.attributes ?? [])].map((a) => a.name));
   for (const name of Object.keys(stash)) names.add(name);
@@ -602,13 +844,16 @@ function nestedBindings(el, ctx) {
     if (name !== "data-project" && regionAttr(name)) continue;
     const template = stash[name] ?? el.getAttribute(name);
     if (template === null || !PLACEHOLDER.test(template)) continue;
-    out.push(`${name}=${fromEnclosing(() => interpolate(template, ctx), el.dataset.live, name)}`);
+    out.push(`${name}=${fromEnclosing(() => interpolate(template, ctx, arm), el.dataset.live, name)}`);
   }
   return out.join("\u0000");
 }
 
-function interpolate(template, ctx) {
-  return template.replace(PLACEHOLDERS, (_, expr) => String(lookup(expr, ctx) ?? ""));
+// `arm` reaches only the callers that have an element to read it off: a filter
+// fragment, an order clause and a data-when probe bind row columns, and a map
+// arriving there gets lookup's own refusal.
+function interpolate(template, ctx, arm) {
+  return template.replace(PLACEHOLDERS, (_, expr) => String(lookup(expr, ctx, arm) ?? ""));
 }
 
 // Filter fragments land in a query string, so resolved values are URI-encoded.
@@ -626,16 +871,29 @@ function resolveHidden(template, ctx) {
   );
 }
 
-// data-action="navigate" hash grammar: data-target's {field} placeholders name
-// the form's inputs; values are URI-encoded. Exported so tests can assert the
-// hash without a browser location.
-export function navigationHash(target, form) {
-  const inputs = {};
-  for (const input of form.querySelectorAll("[name]")) inputs[input.name] = input.value;
-  return target.replace(PLACEHOLDERS, (_, name) => {
-    if (!(name in inputs)) throw new Error(`navigate target {${name}} names no form input`);
-    return encodeURIComponent(inputs[name]);
-  });
+/* --- a route's address, as markup states it ------------------------------
+ *
+ * The composition itself is fragment.js's (routeHref); these two read the
+ * :param values off the DOM that is asking for an address.
+ */
+
+/** The data-param-<name> values an element carries. Read off the attributes
+ * rather than the dataset, so a :param spelled `note_id` survives the
+ * camel-casing the dataset would impose on it. */
+export function routeParams(el) {
+  const out = {};
+  for (const attr of el.attributes ?? []) {
+    if (attr.name.startsWith("data-param-")) out[attr.name.slice("data-param-".length)] = attr.value;
+  }
+  return out;
+}
+
+/** The form's own inputs, by name: what a data-action="navigate" form fills
+ * its route's :params from. */
+export function formParams(form) {
+  const out = {};
+  for (const input of form.querySelectorAll("[name]")) out[input.name] = input.value;
+  return out;
 }
 
 const raf = (fn) => (globalThis.requestAnimationFrame ?? ((f) => setTimeout(f, 0)))(fn);
@@ -781,13 +1039,15 @@ function submitsOnChange(form) {
   return form !== null && form !== undefined && !form.querySelector('button, [type="submit"]');
 }
 
-function emptyNote(region, copy) {
+function emptyNote(region, copy, ctx) {
   region._prontoEmpty?.remove();
   region._prontoEmpty = undefined;
   if (!copy) return;
   const note = document.createElement(noteTag(region.tagName));
   note.className = "empty";
-  note.textContent = copy;
+  note.textContent = ctx && PLACEHOLDER.test(copy)
+    ? interpolate(copy, ctx)
+    : copy;
   region._prontoEmpty = note;
   region.append(note);
 }
@@ -797,10 +1057,18 @@ function bindTexts(scope, ctx, renderers = {}) {
   targets.push(...scope.querySelectorAll("[data-text]"));
   for (const el of targets) {
     if (!ownedBy(el, scope)) continue;
+    const arm = armOf(el, ctx);
     const format = el.dataset.textFormat;
-    if (format === "datetime") {
+    if (VALUE_FORMATS.has(format)) {
+      // These branches format the looked-up VALUE, and an arm is a sentence
+      // rather than a value.
+      if (arm !== undefined) {
+        throw new ProgramError(`data-text="${el.dataset.text}" formats as a ${format} and selects the arm "${arm}": an arm is not a value`);
+      }
       el.textContent = el.dataset.text.replace(PLACEHOLDERS, (_, expr) =>
-        formatDatetime(lookup(expr, ctx)),
+        format === "datetime"
+          ? formatDatetime(lookup(expr, ctx), ctx)
+          : formatNumber(lookup(expr, ctx), ctx, format === "money" ? moneyOf(ctx, expr) : undefined),
       );
       continue;
     }
@@ -809,11 +1077,11 @@ function bindTexts(scope, ctx, renderers = {}) {
       // Every format resolves at hydration, so an unresolved one can only be
       // the fixture tier, which evaluates no Jessie. It shows the value as
       // text there, the way it shows a widget's markup unenhanced.
-      if (render === undefined) el.textContent = interpolate(el.dataset.text, ctx);
-      else renderInto(render, interpolate(el.dataset.text, ctx), el);
+      if (render === undefined) el.textContent = interpolate(el.dataset.text, ctx, arm);
+      else renderInto(render, interpolate(el.dataset.text, ctx, arm), el);
       continue;
     }
-    el.textContent = interpolate(el.dataset.text, ctx);
+    el.textContent = interpolate(el.dataset.text, ctx, arm);
   }
 }
 
@@ -837,6 +1105,8 @@ function bindElementAttributes(el, ctx) {
   // markup: nothing in them is a binding, and the braces an author wrote
   // name no column.
   if (el.parentElement?.closest("[data-text-format]")) return;
+  // A message bound into an attribute selects the same arm its text does.
+  const arm = armOf(el, ctx);
   // setAttribute would consume the placeholder template; persistent regions
   // (singletons) re-bind on every refresh, so originals are stashed.
   const stash = (el._prontoAttrs ??= {});
@@ -885,7 +1155,7 @@ function bindElementAttributes(el, ctx) {
         }
       }
       if (el.type === "checkbox") {
-        el.checked = Boolean(lookup(template.slice(1, -1), ctx));
+        el.checked = Boolean(lookup(template.slice(1, -1), ctx, arm));
         continue;
       }
       // The inverse of what values() reads back: a group's members share one
@@ -893,25 +1163,25 @@ function bindElementAttributes(el, ctx) {
       // member whose value the column already holds and a round trip is a
       // fixed point.
       if (el.type === "radio") {
-        el.checked = String(lookup(template.slice(1, -1), ctx) ?? "") === el.value;
+        el.checked = String(lookup(template.slice(1, -1), ctx, arm) ?? "") === el.value;
         continue;
       }
       if (el.type === "datetime-local") {
         // The control accepts only YYYY-MM-DDTHH:MM; rows carry full ISO.
-        el.value = interpolate(template, ctx).slice(0, 16);
+        el.value = interpolate(template, ctx, arm).slice(0, 16);
         continue;
       }
       if (el.type === "date") {
         // Day precision: the control accepts only YYYY-MM-DD.
-        el.value = interpolate(template, ctx).slice(0, 10);
+        el.value = interpolate(template, ctx, arm).slice(0, 10);
         continue;
       }
       if (el.localName === "textarea" || el.localName === "select") {
-        el.value = interpolate(template, ctx);
+        el.value = interpolate(template, ctx, arm);
         continue;
       }
     }
-    const value = interpolate(template, ctx);
+    const value = interpolate(template, ctx, arm);
     // A URL attribute that resolves to nothing must not stay empty: the
     // empty string is a valid relative URL meaning "this document", so
     // `src=""` fetches the page and paints it as a broken image.
@@ -932,6 +1202,23 @@ function bindElementAttributes(el, ctx) {
     }
     el.setAttribute(attr.name, value);
     if (attr.name === "data-open") openPopover(el, value);
+  }
+  // Last, because the params it reads are the ones the loop above just
+  // resolved. A row-bound link therefore re-addresses itself whenever its
+  // region re-binds, and data-locale is how a language switcher links to the
+  // page it is on in another language. A navigate form names a route too, and
+  // takes no href: its :params are its inputs, and they are read at submit.
+  if (el.dataset?.route !== undefined && el.localName !== "form") {
+    const args = routeParams(el);
+    // A param that bound to nothing is a destination that does not exist —
+    // the row this link points at has no id yet. The href goes with it, the
+    // way an empty URL attribute's does above, so the screen's own
+    // `:not([href])` treatment is what the reader gets. A param the markup
+    // never declared is a different thing and still raises: routeHref reads
+    // undefined, and the link lint refused it at generate.
+    const href = routeHref(ctx.cfg, el.dataset.route, args, el.dataset.locale ?? ctx.locale);
+    if (href === undefined) el.removeAttribute("href");
+    else el.setAttribute("href", href);
   }
 }
 
@@ -1064,15 +1351,18 @@ function wireInterest(el) {
   }
 }
 
-function paramOnly(template) {
+function staticOrParam(template) {
   const exprs = [...template.matchAll(PLACEHOLDERS)].map((m) => m[1]);
-  return exprs.length > 0 && exprs.every((e) => e.startsWith("param."));
+  return exprs.length > 0 && exprs.every((e) => e.startsWith("param.") || e.startsWith("msg."));
 }
 
 // opts.handlers: false skips handler loading (storybook's fixture tier — drag
 // stays inert there). opts.units carries shell.yaml's vendored-unit
-// declarations, which is what a data-hatch name resolves against.
+// declarations, which is what a data-hatch name resolves against. opts.routes
+// and opts.i18n are the table every link's address is composed from, and
+// opts.navigate is how a navigate form reaches the terminal's stack.
 export async function interpretScreen(mount, appBase, route, store, params = {}, opts = {}) {
+  const screenOpts = opts;
   const [html, css] = await Promise.all([
     fetchText(new URL(route.files.html, appBase)),
     fetchText(new URL(route.files.css, appBase)),
@@ -1098,17 +1388,85 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   holder.innerHTML = html;
   const screen = holder.content.firstElementChild;
 
-  // {param.x} resolves anywhere in the screen; expressions that also touch
-  // row fields wait for their region's hydration.
-  for (const el of [screen, ...screen.querySelectorAll("*")]) {
-    if (el.dataset?.text && paramOnly(el.dataset.text)) {
-      el.textContent = interpolate(el.dataset.text, { params });
+  let currentLocale = opts.locale ?? params.locale ?? opts.i18n?.default;
+  screen.dataset.locale = currentLocale;
+  // A screen's own script says things the markup cannot bind — chrome that
+  // outlives the row it speaks for. It reads the catalogue the bindings read,
+  // so one app never keeps the same sentence in two places.
+  globalThis.__prontoMessages = opts.messages;
+  // What a binding reads off the app rather than off its row: the route table
+  // and the locales every link's address is composed from (routeHref), and the
+  // emitted entity schema a value format resolves a column's declaration in
+  // (moneyOf).
+  const cfg = { routes: opts.routes, i18n: opts.i18n, schema: opts.schema };
+  const screenCtx = {
+    params,
+    inert: opts.fixtures === true,
+    messages: opts.messages,
+    i18n: opts.i18n,
+    // Undefined in a browser, which is how Intl spells the reader's own zone.
+    // The checking tiers pass UTC so a rendered moment does not differ by the
+    // machine that rendered it; it rides the ctx the way locale does because
+    // every formatted binding reads it from there.
+    timeZone: opts.timeZone,
+    cfg,
+    get locale() {
+      return currentLocale;
+    },
+  };
+
+  // {param.*} and {msg.*} resolve anywhere in the screen; row-level locale
+  // switches re-evaluate them in place without remounting the DOM.
+  const applyLocale = (newLocale) => {
+    currentLocale = newLocale;
+    screen.dataset.locale = currentLocale;
+    // A screen can be in a language the document is not: a row carrying its own
+    // `locale` switches this one and leaves the rest of the page alone. The
+    // document's dir is the chrome's; this one is the screen's, and without it
+    // an Arabic match inside a Portuguese app lays out left-to-right.
+    if (currentLocale !== undefined) screen.dir = directionOf(currentLocale);
+    for (const el of [screen, ...screen.querySelectorAll("*")]) {
+      // An arm selected out of a row is the region's to render: this pass runs
+      // with no row, and the region re-binds on every refresh anyway. One
+      // selected from a route param is resolvable here and is resolved.
+      const selector = el.dataset?.msgSelect ?? el.dataset?.msgPlural;
+      if (selector !== undefined && !selector.startsWith("param.")) continue;
+      const arm = armOf(el, screenCtx);
+      if (el.dataset?.text && staticOrParam(el.dataset.text)) {
+        el.textContent = interpolate(el.dataset.text, screenCtx, arm);
+      }
+      for (const attr of [...(el.attributes ?? [])]) {
+        if (regionAttr(attr.name) || attr.name === "data-value") continue;
+        const template = (el._prontoAttrs ?? {})[attr.name] ?? attr.value;
+        if (staticOrParam(template)) {
+          if (PLACEHOLDER.test(template)) {
+            (el._prontoAttrs ??= {})[attr.name] = template;
+          }
+          el.setAttribute(attr.name, interpolate(template, screenCtx, arm));
+        }
+      }
     }
-    for (const attr of [...(el.attributes ?? [])]) {
-      if (regionAttr(attr.name) || attr.name === "data-value") continue;
-      if (paramOnly(attr.value)) el.setAttribute(attr.name, interpolate(attr.value, { params }));
+    // A link carries the locale of the page it is on, so a switch re-addresses
+    // every one whose :params are already known. A row-bound link still holds
+    // its placeholders here and is addressed when its region binds.
+    for (const el of screen.querySelectorAll("[data-route]:not(form)")) {
+      const routeArgs = routeParams(el);
+      if (Object.values(routeArgs).some((v) => PLACEHOLDER.test(v))) continue;
+      const href = routeHref(cfg, el.dataset.route, routeArgs, el.dataset.locale ?? currentLocale);
+      if (href === undefined) el.removeAttribute("href");
+      else el.setAttribute("href", href);
+      // Which option of a language switcher is the page the reader is already
+      // on. It rides the address rather than the mount because it moves when
+      // the address does, and this pass is what a switch re-runs. Only an
+      // element NAMING a locale can be the current one: every other link is in
+      // the reader's language already, so marking them all would say nothing.
+      if (el.dataset.localeCurrent !== undefined) {
+        if (el.dataset.locale === currentLocale) el.setAttribute("aria-current", el.dataset.localeCurrent || "page");
+        else el.removeAttribute("aria-current");
+      }
     }
-  }
+  };
+  applyLocale(currentLocale);
 
   // A URL still carrying its placeholder is a URL the document would fetch the
   // instant this tree is connected — `src="{image_url}"` is a relative path,
@@ -1392,10 +1750,17 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         return;
       }
       invalid?.setAttribute("hidden", "");
-      // navigate forms carry no data-entity: the hash change is the whole
-      // effect and its feedback — no store call, no success state.
+      // navigate forms carry no data-entity: the navigation is the whole
+      // effect and its feedback — no store call, no success state. The
+      // terminal owns the stack, so the move is made through it.
       if (action === "navigate") {
-        location.hash = navigationHash(form.dataset.target, form);
+        if (screenOpts.navigate === undefined) {
+          throw new ProgramError("a navigate form needs the terminal's navigation; this screen was mounted without it");
+        }
+        // A form whose route has no address yet submits to nowhere, which is
+        // not an error: the same row that empties a link empties this.
+        const target = routeHref(cfg, form.dataset.route, formParams(form), currentLocale);
+        if (target !== undefined) screenOpts.navigate(target);
         return;
       }
       setState("form-submit");
@@ -2229,7 +2594,21 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // listener once, and the step/worldOf closures it captures read this
     // object — a fresh ctx per refresh would pin every named read and hidden
     // value to the first row the slot ever bound.
-    const slotCtx = { params: ctx.params, inert: ctx.inert, row: undefined };
+    const slotCtx = {
+      params: ctx.params,
+      inert: ctx.inert,
+      messages: ctx.messages,
+      i18n: ctx.i18n,
+      cfg: ctx.cfg,
+      timeZone: ctx.timeZone,
+      // The entity a bound column belongs to, for the formats that resolve a
+      // declaration rather than render the value as it stands.
+      table,
+      get locale() {
+        return ctx.locale ?? currentLocale;
+      },
+      row: undefined,
+    };
     // A named template may reference itself, so nesting depth is data-driven
     // and its floor is a leaf whose child read returns no rows. Cyclic data
     // removes the floor: the same (template, row) pair hydrating inside itself
@@ -2588,7 +2967,20 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             if (arrived) {
               const tmpl = templateFor(row);
               entry = {
-                ctx: { params: ctx.params, inert: ctx.inert, row, chain: chainInto(tmpl, row) },
+                ctx: {
+                  params: ctx.params,
+                  inert: ctx.inert,
+                  messages: ctx.messages,
+                  i18n: ctx.i18n,
+                  cfg: ctx.cfg,
+                  timeZone: ctx.timeZone,
+                  table,
+                  get locale() {
+                    return ctx.locale ?? currentLocale;
+                  },
+                  row,
+                  chain: chainInto(tmpl, row),
+                },
                 nested: new Map(),
               };
               stamp(entry, tmpl);
@@ -2704,7 +3096,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           }
           rove();
           moveFocus();
-          emptyNote(region, order.length === 0 ? region.dataset.empty : undefined);
+          emptyNote(region, order.length === 0 ? region.dataset.empty : undefined, ctx);
           // The region's own element, from the ENCLOSING row rather than any
           // of its rows: a container naming one of them — a listbox's
           // aria-activedescendant — states a fact about the choice, not about
@@ -2771,11 +3163,21 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             );
           }
           clearBindings(region);
-          emptyNote(region, region.dataset.empty);
+          emptyNote(region, region.dataset.empty, slotCtx);
           return;
         }
         emptyNote(region, undefined);
         if (top && screen.dataset.state === "gone") setState(base);
+        if (
+          !screenOpts.fixtures &&
+          row !== fallbackRow &&
+          typeof row.locale === "string" &&
+          (screenOpts.messages ? row.locale in screenOpts.messages : true) &&
+          !params.locale &&
+          row.locale !== currentLocale
+        ) {
+          applyLocale(row.locale);
+        }
         slotCtx.row = row;
         // A singleton has affordances too, and its one row is what they act
         // on: the reduce is handed it the way a list's is handed its rows.
@@ -2914,7 +3316,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   const pending = [];
   for (const region of screen.querySelectorAll("[data-live]")) {
     if (region.parentElement.closest("[data-live]")) continue;
-    const h = hydrateRegion(region, { params, inert: opts.fixtures === true }, true);
+    const h = hydrateRegion(region, screenCtx, true);
     regions.push(h);
     pending.push(h.ready);
   }
@@ -2935,7 +3337,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       if (onAttrs(el).length > 0) {
         throw new Error(`data-hatch="${el.dataset.hatch}" declares data-on-* outside every [data-live]`);
       }
-      bindHatches(el, { params, inert: opts.fixtures === true });
+      bindHatches(el, screenCtx);
     }
   }
 

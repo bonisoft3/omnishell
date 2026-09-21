@@ -311,7 +311,11 @@ async function openRoute(
   base: string,
   url: string,
 ): Promise<{ state: string; settled: boolean }> {
-  await page.goto(`${base}/shell/#${url}`, { waitUntil: "domcontentloaded" })
+  // A route is a real path, so this asks the door for it the way a reader does
+  // — the proxy's try_files is what hands back the entry document, and a URL
+  // the route table does not answer stays a 404 here rather than a screen that
+  // silently never settles.
+  await page.goto(`${base}${url}`, { waitUntil: "domcontentloaded" })
   const state = await page
     .waitForFunction(
       () => {

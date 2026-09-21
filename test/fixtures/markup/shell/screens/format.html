@@ -1,0 +1,21 @@
+<!-- Formatted bindings the emitted schema cannot answer for. money reads its
+     currency and its scale off the column, so a binding this cannot resolve
+     has none to render with; number is held only to a column the schema does
+     declare. The sound bindings stand beside the broken ones so the rule is
+     shown to be silent where it should be. -->
+<p data-text="{msg.total}" data-text-format="money"></p>
+<ul data-live="note">
+  <template data-item><li>
+    <span data-text="{amount}" data-text-format="money"></span>
+    <span data-text="{step}" data-text-format="number"></span>
+    <span data-text="{title}" data-text-format="number"></span>
+    <span data-text="{step}" data-text-format="money"></span>
+    <span data-text="{category.budget}" data-text-format="money"></span>
+    <!-- The nested region's own table is what its children resolve against:
+         "cents" is detail's and "amount" is not. -->
+    <div data-live="detail" data-filter="id=eq.{id}" data-empty="">
+      <span data-text="{cents}" data-text-format="money"></span>
+      <span data-text="{amount}" data-text-format="money"></span>
+    </div>
+  </li></template>
+</ul>

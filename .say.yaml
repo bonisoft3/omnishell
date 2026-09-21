@@ -6,6 +6,15 @@
 # unit test must run from the ide tier's own `.mise.toml`, and a browser binary
 # is the container tier's to provide.
 say:
+  # The checkers are reached through the command line that dispatches to them,
+  # which imports every one: a checker this list never names is typed anyway,
+  # and one added later is typed the day it is dispatched rather than the day
+  # somebody remembers a glob.
+  lint:
+    rulemap:
+      types:
+        cmds:
+          - do: "deno check --config test/deno.json src/ test/ check-visual.ts runtime/cli.ts"
   test:
     rulemap:
       native:

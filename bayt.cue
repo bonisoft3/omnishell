@@ -45,9 +45,12 @@ import (
 // empty.
 // --lock is explicit because deno anchors the lockfile at the workspace root
 // (this package.json), not beside --config; without it the pins go unread.
-// test/design-tokens.test.ts and test/check-parity.test.ts read the repository
-// root — pronto's schema and apps/realworld — which no image here carries, so
-// both targets leave them out. The host test verb runs package.json's test
+// test/design-tokens.test.ts, test/check-parity.test.ts,
+// test/chrome-direction.test.ts, test/entry-document.test.ts and
+// test/locale-resolver.test.ts read the repository root — pronto's schema,
+// apps/realworld, every app's emitted design.css, every app's entry document
+// and every app's declared locales — which no image here carries, so both
+// targets leave them out. The host test verb runs package.json's test
 // script on a full checkout, and that is where they run.
 _smokes: strings.Join([
 	for f in ["clock", "handler", "hatch", "login", "nav", "pending", "renderer", "validate", "worker"] {"interpreter/\(f)-smoke.js"},
@@ -60,7 +63,7 @@ _smokeCmd: {
 	}
 	"builtin": {
 		shell: "sh"
-		do:    "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys --ignore=test/design-tokens.test.ts,test/check-parity.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read \(_smokes)'"
+		do:    "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys --ignore=test/design-tokens.test.ts,test/check-parity.test.ts,test/chrome-direction.test.ts,test/entry-document.test.ts,test/locale-resolver.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read \(_smokes)'"
 	}
 }
 
@@ -96,19 +99,20 @@ _omnishell: bayt.#project & {
 				// interpreter modules, so those are check inputs as well.
 				"test/**/*",
 				"interpreter/**/*",
-				// The check tests import three of these beside them and the
-				// check script typechecks check-visual and the command line
-				// every other checker hangs off; a checker, a reader or one of
-				// the battery's two halves at the plugin root is in no other
-				// glob.
+				// A checker, a reader or one of the battery's two halves at the
+				// plugin root is in no other glob. Matched by shape rather than
+				// named one by one: a checker the command line dispatches to and
+				// this list has not learned of typechecks against a context it
+				// is absent from, which is a container that builds and a verb
+				// that fails.
+				"check-*.ts",
 				"arbitrary.ts",
+				// What a checker imports and the shape glob cannot reach:
+				// check-visual reads the door's address from base-url, and the
+				// list of served modules test/served-modules grades the
+				// interpreter's import graph against lives in terminal.cue.
 				"base-url.ts",
-				"check-battery.ts",
-				"check-handlers.ts",
-				"check-machines.ts",
-				"check-markup.ts",
-				"check-parity.ts",
-				"check-visual.ts",
+				"terminal.cue",
 				"instrument.ts",
 				"read-markup.ts",
 				// The command line the checkers are reached through, which the
@@ -139,7 +143,7 @@ _omnishell: bayt.#project & {
 		// Stays parallel to integrate, which re-uses the same command —
 		// omnishell has no separate integration suite.
 		"test": sayt.test & mise.exec & {
-			srcs: globs: ["test/**/*", "interpreter/**/*", "check-handlers.ts", "check-machines.ts", "check-markup.ts", "read-markup.ts"]
+			srcs: globs: ["test/**/*", "interpreter/**/*", "check-*.ts", "base-url.ts", "terminal.cue", "read-markup.ts"]
 			cmd: _smokeCmd
 		}
 
@@ -148,7 +152,7 @@ _omnishell: bayt.#project & {
 		// (from the build chain) + the same unit tests. No dind.sh wrap
 		// (no docker socket needed).
 		"integrate": sayt.integrate & mise.exec & {
-			srcs: globs: ["test/**/*", "interpreter/**/*", "check-handlers.ts", "check-machines.ts", "check-markup.ts", "read-markup.ts"]
+			srcs: globs: ["test/**/*", "interpreter/**/*", "check-*.ts", "base-url.ts", "terminal.cue", "read-markup.ts"]
 			dockerfile: {
 				from: ref: ":build"
 			}

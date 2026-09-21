@@ -1,6 +1,6 @@
 // createShell: the omnishell entry for pronto-emitted apps. Reads the file
 // map (shell.yaml), boots the store, mounts the route matching the location
-// hash, and hands the screen to the interpreter. No build step exists on
+// path, and hands the screen to the interpreter. No build step exists on
 // this path by design.
 //
 // The store is the local virtual cluster through the /crud gateway (sayt
@@ -14,7 +14,9 @@
 // service exists to sign against.
 
 import { load } from "./vendor/js-yaml.js";
-import { interpretScreen } from "./screen.js";
+import { chromeText } from "./chrome.js";
+import { directionOf, localeByPath, localeTable, resolveLocale, routeHref, routePattern, screenEnv } from "./fragment.js";
+import { interpretScreen, routeParams } from "./screen.js";
 
 /** Whether the account a stored token names still exists.
  *
@@ -55,6 +57,11 @@ async function fetchText(url) {
   if (!res.ok) throw new Error(`${res.status} fetching ${url}`);
   return res.text();
 }
+
+// A screen's fade covers its first load. The cap is what keeps it from covering
+// a load that never lands: one region whose read queues behind the shape
+// long-polls is enough to leave the whole screen at opacity 0 for good.
+const SCREEN_LOAD_CAP_MS = 2000;
 
 // WebAuthn wire format: the auth service speaks @simplewebauthn JSON
 // (base64url strings) while navigator.credentials wants ArrayBuffers.
@@ -144,18 +151,25 @@ async function loginCeremony(service) {
 }
 
 // Resolves {token, user} once a ceremony succeeds; failures surface inline
-// and leave the form live for another attempt.
-function renderLogin(mount, cfg) {
+// and leave the form live for another attempt. `chrome` answers the terminal's
+// own copy in the reader's language.
+function renderLogin(mount, cfg, chrome) {
   const wrap = document.createElement("div");
   wrap.className = "shell-login";
+  // Every word is written in after the template rather than interpolated into
+  // it: a catalogue is app data, and data spliced into markup is an injection
+  // seam where a literal was none.
   wrap.innerHTML = `<form>
     <h1></h1>
-    <p class="login-hint">One tap with your passkey — new here, one is created for you.</p>
+    <p class="login-hint"></p>
     <p class="login-error" hidden></p>
-    <button type="submit">Continue</button>
-    <button type="button" class="login-guest">Continue as guest</button>
+    <button type="submit"></button>
+    <button type="button" class="login-guest"></button>
   </form>`;
   wrap.querySelector("h1").textContent = cfg.app;
+  wrap.querySelector(".login-hint").textContent = chrome("chrome_signin_hint");
+  wrap.querySelector("button[type=submit]").textContent = chrome("chrome_signin");
+  wrap.querySelector(".login-guest").textContent = chrome("chrome_signin_guest");
   mount.replaceChildren(wrap);
   return new Promise((resolve) => {
     const form = wrap.querySelector("form");
@@ -174,8 +188,12 @@ function renderLogin(mount, cfg) {
         try {
           resolve(await registerCeremony(cfg.auth.service));
         } catch (err) {
+          // What failed is the platform's own sentence, in whatever language
+          // the browser threw it in and about a ceremony the reader did not
+          // ask to know the shape of. It goes to the console, where it is
+          // diagnosable; the reader is told, in theirs, that it did not work.
           console.error(err);
-          error.textContent = String(err?.message ?? err);
+          error.textContent = chrome("chrome_signin_failed");
           error.removeAttribute("hidden");
         }
       }
@@ -189,7 +207,7 @@ function renderLogin(mount, cfg) {
         resolve(await postJson(`${cfg.auth.service}/guest`, {}));
       } catch (err) {
         console.error(err);
-        error.textContent = String(err?.message ?? err);
+        error.textContent = chrome("chrome_signin_failed");
         error.removeAttribute("hidden");
       }
     });
@@ -198,10 +216,10 @@ function renderLogin(mount, cfg) {
 
 // The signed-in person, at the end of the nav strip: who they are, the way to
 // their own page, and the way out. `cfg.auth.self` is the app naming that page
-// — `path` is a route whose :params are filled from the session user, `name`
+// — `route` names it, its :params are filled from the session user, `name` is
 // the table and column their chosen name lives in. An app with no page for a
 // person declares no `self`, and the handle stands on its own.
-function renderSession(session, cfg, store, signOut) {
+function renderSession(session, cfg, store, signOut, chrome) {
   const box = document.createElement("span");
   box.className = "shell-me";
 
@@ -209,7 +227,14 @@ function renderSession(session, cfg, store, signOut) {
   const who = document.createElement(self === undefined ? "span" : "a");
   who.className = "shell-who";
   if (self !== undefined) {
-    who.href = `#${self.path.replace(/:(\w+)/g, (_, k) => encodeURIComponent(session.user[k]))}`;
+    const route = cfg.routes.find((r) => r.screen === self.route);
+    if (route === undefined) throw new Error(`auth.self names "${self.route}", which is no route of this app`);
+    // The person is fixed for the session; only the locale of their address
+    // moves, so the strip's own pass composes the href (localizeStrip).
+    who.dataset.route = self.route;
+    for (const [, name] of route.path.matchAll(/:(\w+)/g)) {
+      who.setAttribute(`data-param-${name}`, session.user[name]);
+    }
   }
   const name = document.createElement("span");
   name.className = "name";
@@ -221,7 +246,12 @@ function renderSession(session, cfg, store, signOut) {
   const out = document.createElement("a");
   out.className = "shell-signout";
   out.href = "#";
-  out.textContent = "sign out";
+  // Written twice on purpose. localizeStrip moves it to the page's language on
+  // every navigation, like the labels beside it — but it runs from show(),
+  // past a currentRoute() that throws on an address the app has no route for,
+  // and the strip outlives that banner because it hangs beside the mount. The
+  // only way out of a session may not be a control with no word on it.
+  out.textContent = chrome("chrome_signout", cfg.i18n?.default);
   out.addEventListener("click", (e) => {
     e.preventDefault();
     signOut();
@@ -242,6 +272,100 @@ function renderSession(session, cfg, store, signOut) {
     paint();
   }
   return box;
+}
+
+// Route patterns may contain :name segments, each matching exactly one
+// non-empty path segment; matched values arrive decoded as route params. The
+// query string is folded in under its own names, so `?q=x` reaches a screen as
+// {param.q}.
+function matchRoute(pattern, path) {
+  const [cleanPath, queryString] = path.split("?");
+  const ps = pattern.split("/");
+  const xs = cleanPath.split("/");
+  if (ps.length !== xs.length) return null;
+  const params = {};
+  // The query is read FIRST so the pattern's own captures land over it: a
+  // :param is part of the address and a query is what rode along beside it, so
+  // /note/7?id=9 is note 7. Refusing the pair instead would let any pasted URL
+  // take the screen down, which is not a visitor's to do.
+  if (queryString) {
+    for (const [k, v] of new URLSearchParams(queryString)) params[k] = v;
+  }
+  for (let i = 0; i < ps.length; i++) {
+    if (ps[i].startsWith(":") && xs[i]) params[ps[i].slice(1)] = decodeURIComponent(xs[i]);
+    else if (ps[i] !== xs[i]) return null;
+  }
+  return params;
+}
+
+/** The language an address is in, and what is left of it once a locale prefix
+ * is taken off. Separate from routeAt because the chrome is drawn before any
+ * route is mounted — the gate, the strip — and has to ask the same resolution
+ * order: a second order is how an address and a screen come to disagree. */
+function localeAt(cfg, pathname, search, preferred) {
+  // Segment -> tag, so the first segment is asked of a map rather than guessed
+  // from the shape of the word: anything the app does not declare is already a
+  // slug of the default language.
+  const byPath = localeByPath(cfg.i18n);
+  const [, first, ...rest] = pathname.split("/");
+  const prefixed = Object.hasOwn(byPath, first);
+  const path = prefixed ? byPath[first] : undefined;
+  const query = new URLSearchParams(search).get("lang") ?? undefined;
+  return {
+    rel: prefixed ? `/${rest.join("/")}` : pathname,
+    path,
+    query,
+    // One resolver, so a row and an address cannot disagree about the language
+    // a screen is in. navigator.languages is the browser's Accept-Language,
+    // and loses to anything the reader was handed.
+    locale: resolveLocale(cfg.i18n, { path, query, preferred }),
+    // The language the ADDRESS is written in, which only the prefix decides:
+    // /regras is Portuguese whatever ?lang= asks for, and the ask is honoured
+    // by redirecting to /es/reglas rather than by matching it here.
+    written: path ?? cfg.i18n?.default,
+  };
+}
+
+/** What an address says, or null where it names no screen. The locale is part
+ * of the answer: the first render is then correct rather than corrected, and
+ * the screen never discovers its own language. `preferred` is the browser's
+ * Accept-Language, passed in so this function decides nothing from ambient
+ * state and can be asked about an address the terminal is not at. */
+export function routeAt(cfg, pathname, search, preferred) {
+  const { rel, path, query, locale, written } = localeAt(cfg, pathname, search, preferred);
+  for (const r of cfg.routes) {
+    const params = matchRoute(routePattern(r, written), rel + search);
+    if (params === null) continue;
+    // `lang` is the wire's name for a locale and dies at this boundary;
+    // `locale` is the model's. It is set only where the ADDRESS decided — a
+    // prefix, or a ?lang= naming a locale the app declares — which is what
+    // leaves a row free to decide on a plain route, and what keeps an app
+    // declaring no locales at all from carrying the key.
+    delete params.lang;
+    if (path !== undefined || (query !== undefined && locale === query)) params.locale = locale;
+    return { route: r, params, locale, written };
+  }
+  return null;
+}
+
+/** Every catalogue the app declares, keyed by tag. A locale whose file does not
+ * answer is left out of the map, and what reads it — a screen through
+ * screenEnv, the chrome through chromeText — shows the copy it was written
+ * with. */
+async function loadMessages(appBase, i18n) {
+  const messages = {};
+  if (!i18n?.locales) return messages;
+  await Promise.all(
+    Object.keys(localeTable(i18n)).map(async (loc) => {
+      try {
+        const res = await fetch(new URL(`messages/${loc}.json`, appBase));
+        if (res.ok) {
+          messages[loc] = await res.json();
+        }
+      } catch (_) {}
+    }),
+  );
+  return messages;
 }
 
 export async function createShell({ config, mount }) {
@@ -269,38 +393,41 @@ export async function createShell({ config, mount }) {
   });
 
   try {
-    const configUrl = new URL(config, location.href);
+    // Against the document's base, not the address it arrived under: one entry
+    // answers at every route, so location.href is /games as readily as
+    // /shell/, and resolving there asks for a shell.yaml beside the route.
+    const configUrl = new URL(config, document.baseURI);
     const appBase = new URL("..", configUrl);
     const cfg = load(await fetchText(configUrl));
     document.title = cfg.app;
 
     const search = new URLSearchParams(location.search);
-    // Route patterns may contain :name segments, each matching exactly one
-    // non-empty path segment; matched values arrive decoded as route params.
-    const matchRoute = (pattern, path) => {
-      const ps = pattern.split("/");
-      const xs = path.split("/");
-      if (ps.length !== xs.length) return null;
-      const params = {};
-      for (let i = 0; i < ps.length; i++) {
-        if (ps[i].startsWith(":") && xs[i]) params[ps[i].slice(1)] = decodeURIComponent(xs[i]);
-        else if (ps[i] !== xs[i]) return null;
-      }
-      return params;
-    };
+    // This app's own reading of an address, at the terminal's preferences.
+    const addresses = (url) => routeAt(cfg, url.pathname || "/", url.search ?? "", globalThis.navigator?.languages);
     const currentRoute = () => {
-      const path = location.hash.slice(1) || "/";
-      for (const r of cfg.routes) {
-        const params = matchRoute(r.path, path);
-        if (params) return { route: r, params };
-      }
-      throw new Error(`no route for ${path}`);
+      const found = addresses(location);
+      if (found === null) throw new Error(`no route for ${location.pathname}`);
+      return found;
     };
+
+    // Ahead of the gate, not beside the screens: the terminal's own chrome is
+    // drawn before any route is mounted and speaks the reader's language too.
+    const messages = await loadMessages(appBase, cfg.i18n);
+    // The terminal's own words, in whichever language the caller resolved: the
+    // gate and the strip are both drawn before a screen is, so neither can take
+    // a locale off one.
+    const chrome = (key, locale) => chromeText(key, { messages, locale });
 
     if (search.has("storybook")) {
       const { renderStorybook } = await import("./storybook.js");
-      const { route, params } = currentRoute();
-      await renderStorybook(mount, appBase, route, params, cfg.units ?? {});
+      const { route, params, locale } = currentRoute();
+      await renderStorybook(mount, appBase, route, params, cfg.units ?? {}, {
+        messages,
+        locale,
+        routes: cfg.routes,
+        i18n: cfg.i18n,
+        schema: cfg.schema,
+      });
       return;
     }
 
@@ -323,7 +450,8 @@ export async function createShell({ config, mount }) {
       if (live) {
         session = JSON.parse(live);
       } else {
-        session = await renderLogin(mount, cfg);
+        const gate = localeAt(cfg, location.pathname || "/", location.search ?? "", globalThis.navigator?.languages);
+        session = await renderLogin(mount, cfg, (key) => chrome(key, gate.locale));
         // The gate takes its own chrome down. The navigation stack appends
         // each screen beside whatever is already mounted rather than replacing
         // it, so nothing else will: left here, the login form outlives the
@@ -371,9 +499,13 @@ export async function createShell({ config, mount }) {
     const raf = (fn) => (globalThis.requestAnimationFrame ?? ((f) => setTimeout(f, 0)))(fn);
     // The arriving-screen slot, released a frame later so the browser has a
     // style to transition from (the design layer's .shell-screen rules).
+    // Releasing stands on its own because the fresh path stamps at creation and
+    // must come back to opacity 1 on every ending, including the ones that
+    // never produce a screen.
+    const release = (el) => raf(() => raf(() => delete el.dataset.entering));
     const enter = (el) => {
       el.dataset.entering = "";
-      raf(() => raf(() => delete el.dataset.entering));
+      release(el);
     };
     const keepOf = (route) => route.keep ?? 1;
     const keyOf = (route, params) => `${route.screen} ${JSON.stringify(params)}`;
@@ -416,23 +548,113 @@ export async function createShell({ config, mount }) {
       nav = document.createElement("nav");
       for (const r of navRoutes) {
         const a = document.createElement("a");
-        a.href = `#${r.path}`;
+        // The strip is built before any locale is resolved, and its addresses
+        // change with the one the reader is in: it names routes, and
+        // localizeStrip writes the hrefs on every navigation.
+        a.dataset.route = r.screen;
         a.textContent = r.nav.label;
         nav.append(a);
       }
-      if (session) nav.append(renderSession(session, cfg, store, signOut));
+      if (session) nav.append(renderSession(session, cfg, store, signOut, chrome));
       mount.before(nav);
     }
 
-    const show = async (navigationType = "push") => {
-      const { route, params } = currentRoute();
-      // The strip's state is an attribute, not a style: aria-current names
-      // the link that is this page (none, on parametrized routes) and CSS
-      // decides what that looks like.
-      for (const a of nav?.querySelectorAll("a") ?? []) {
-        if (a.getAttribute("href") === `#${route.path}`) a.setAttribute("aria-current", "page");
+    // The strip's addresses, its words and its state, all re-derived per
+    // navigation: an href carries the locale of the page it is on, so does a
+    // label, and aria-current names the link that IS this page — which is the
+    // link whose address is this one, not merely a link to the same route with
+    // someone else's :params.
+    const localizeStrip = (locale) => {
+      for (const a of nav?.querySelectorAll("a[data-route]") ?? []) {
+        const href = routeHref(cfg, a.dataset.route, routeParams(a), locale);
+        if (href === undefined) a.removeAttribute("href");
+        else a.setAttribute("href", href);
+        if (a.getAttribute("href") === location.pathname) a.setAttribute("aria-current", "page");
         else a.removeAttribute("aria-current");
       }
+      // The strip's own links, and not the person's: renderSession's anchor
+      // names a route too, and is a name and a handle rather than a word — a
+      // label written onto it takes both down.
+      for (const a of nav?.querySelectorAll(":scope > a[data-route]") ?? []) {
+        // Absent on a route the app declares no label key for, and on every
+        // route of an app declaring no catalogues: the table's own spelling
+        // stands, which is the language it was written in.
+        const label = cfg.routes.find((r) => r.screen === a.dataset.route)?.nav.labels?.[locale];
+        if (label !== undefined) a.textContent = label;
+      }
+      const out = nav?.querySelector(".shell-signout");
+      if (out) out.textContent = chrome("chrome_signout", locale);
+    };
+
+    // What the document says it IS, rewritten on every navigation. One entry
+    // file answers at every address, so its head names no screen and no
+    // language of its own: until this runs, every route of every locale is
+    // `lang="en"` titled with the app. A screen reader takes the document's
+    // language from that attribute, and a crawler that renders the page has no
+    // other source for the title or for the fact that three addresses are one
+    // page in three languages.
+    const describe = (route, params, locale, written, el) => {
+      // The language RENDERED, which is what a screen reader has to pronounce,
+      // and which way its script runs, which is what the nav strip, the
+      // scrollbar and every unstyled box take their side from. It is the
+      // address's own everywhere but a plain route carrying `?lang=`, which
+      // names a language without naming an address. An app that declares no
+      // locales resolves none and makes no claim: the entry document's own
+      // attributes stand rather than being overwritten with `undefined`.
+      if (locale !== undefined) {
+        document.documentElement.lang = locale;
+        document.documentElement.dir = directionOf(locale);
+      }
+      // A screen's h1 names it; a screen without one — the home screen — is
+      // the app itself.
+      const name = el.querySelector("h1")?.textContent?.trim();
+      document.title = name ? `${name} — ${cfg.app}` : cfg.app;
+
+      for (const old of document.head.querySelectorAll('link[rel="canonical"], link[rel="alternate"][hreflang]')) {
+        old.remove();
+      }
+      const link = (rel, href, hreflang) => {
+        const node = document.createElement("link");
+        node.rel = rel;
+        // Absolute, which is what a crawler is asked to compare across
+        // locales — and absolute against the address the reader arrived under,
+        // so nothing here has to be told where the app is deployed. Every href
+        // composed here is root-relative, so the document's own path drops out.
+        node.href = new URL(href, location.href).href;
+        if (hreflang !== undefined) node.hreflang = hreflang;
+        document.head.append(node);
+      };
+      // The language the ADDRESS is written in, never the rendered one. The
+      // two part only on a plain route carrying `?lang=`, which is the case
+      // that would otherwise make a canonical vary per reader — and a
+      // canonical two readers of one URL disagree about is the one thing a
+      // canonical exists not to be.
+      const here = routeHref(cfg, route.screen, params, written);
+      // A route whose param carries nothing has no address, so this document
+      // has none to name — and none in any other locale either, since the
+      // param is the same in all of them.
+      if (here === undefined) return;
+      link("canonical", here);
+      if (cfg.i18n === undefined) return;
+      for (const tag of Object.keys(localeTable(cfg.i18n))) {
+        link("alternate", routeHref(cfg, route.screen, params, tag), tag);
+      }
+      // x-default names the default locale's unprefixed address: where a
+      // crawler is told to send a reader whose language matches no alternate.
+      link("alternate", routeHref(cfg, route.screen, params, cfg.i18n.default), "x-default");
+    };
+
+    const show = async (navigationType = "push") => {
+      let { route, params, locale, written } = currentRoute();
+      // A localized route has one address, so `?lang=` on one is replaced by
+      // the address it names rather than rendered — the server answers the
+      // same case with a 301.
+      if (route.paths !== undefined && new URLSearchParams(location.search).has("lang")) {
+        const canonical = routeHref(cfg, route.screen, params, locale);
+        if (canonical !== undefined) history.replaceState(null, "", canonical);
+        ({ route, params, locale, written } = currentRoute());
+      }
+      localizeStrip(locale);
       const key = keyOf(route, params);
       if (current) {
         current.scrollY = window.scrollY;
@@ -448,12 +670,10 @@ export async function createShell({ config, mount }) {
         enter(entry.el);
         current = entry;
         evict(route);
+        describe(route, params, locale, written, entry.el);
         // Following a link to a screen visited before is a fresh arrival
         // however warm its DOM is, and an arrival starts at the top; going
-        // back resumes. Only "push" is treated as an arrival, so the
-        // hashchange fallback — which cannot tell the two apart and says
-        // "unknown" — keeps resuming, the better half to be wrong on: a back
-        // button that jumps to the top is worse than a link that remembers.
+        // back resumes. Only "push" is treated as an arrival.
         window.scrollTo(0, navigationType === "push" ? 0 : entry.scrollY);
         await entry.handle.resume();
         return;
@@ -466,37 +686,85 @@ export async function createShell({ config, mount }) {
       held.set(key, fresh);
       current = fresh;
       evict(route);
-      fresh.handle = await interpretScreen(el, appBase, route, store, params, { units: cfg.units });
-      // A screen arrived at starts at its own top. This lands there anyway
-      // today, but only because hiding the outgoing screen collapses the page
-      // and the browser clamps — an accident of ordering that any overlap of
-      // the two screens would undo, and a cross-fade needs exactly that
-      // overlap.
-      window.scrollTo(0, 0);
-      // Released only once the screen has content, so the fade covers the
-      // fetch rather than racing it.
-      enter(el);
+      // The fade is released once the screen has content, so it covers the
+      // fetch rather than racing it — and released anyway when the fetch
+      // throws or outlasts the cap, because a stamp that outlives its load is
+      // a screen nobody can see.
+      const capped = setTimeout(() => release(el), SCREEN_LOAD_CAP_MS);
+      try {
+        // A screen composes its own links and hands the move back: the stack is
+        // the terminal's, and a screen that pushed its own entry would be
+        // deciding scroll and history for a back button it does not own.
+        fresh.handle = await interpretScreen(el, appBase, route, store, params, screenEnv(cfg, {
+          messages,
+          locale,
+          navigate,
+        }));
+        // After the render: the screen's own h1 is where its name comes from.
+        describe(route, params, locale, written, el);
+        // A screen arrived at starts at its own top. This lands there anyway
+        // today, but only because hiding the outgoing screen collapses the page
+        // and the browser clamps — an accident of ordering that any overlap of
+        // the two screens would undo, and a cross-fade needs exactly that
+        // overlap.
+        window.scrollTo(0, 0);
+      } catch (err) {
+        // A slot whose load threw has no handle, and every later eviction calls
+        // one: held onto, it turns the next visit to any screen into a
+        // TypeError instead of the error that actually happened. The element
+        // stays where it is — whatever rendered before the throw is what the
+        // reader has — but the terminal stops counting it as a live screen.
+        held.delete(key);
+        if (current === fresh) current = null;
+        throw err;
+      } finally {
+        clearTimeout(capped);
+        release(el);
+      }
     };
+    // The one way anything inside the app moves. Through the platform's stack
+    // where there is one, so a push and a traverse stay distinguishable; by
+    // hand where there is not.
+    const navigate = (href) =>
+      "navigation" in globalThis
+        ? navigation.navigate(href)
+        : (history.pushState(null, "", href), show("push"));
     // The Navigation API is the platform's own navigation stack, and the only
     // thing that can tell a push from a traverse — which is what decides
     // whether a held screen resumes its scroll. It also takes scroll policy as
     // configuration: "manual", because the stack owns scroll and the browser
     // cannot know that a held screen is already painted at the right offset.
-    // hashchange stays as the fallback and cannot distinguish the two, so it
-    // calls everything a push, which is the safe half.
+    // Where it is missing, the terminal takes the click itself: a click it
+    // pushed is the push, and popstate is the traverse.
     if ("navigation" in globalThis) {
       navigation.addEventListener("navigate", (e) => {
         if (!e.canIntercept || e.downloadRequest !== null || e.formData) return;
-        // The stack owns same-document navigation and nothing else. canIntercept
-        // is true for a reload and for any same-origin document navigation too,
-        // and intercepting one of those turns a document replacement into a
-        // re-render of the screen already on show — which would leave sign-out,
-        // whose whole job is to replace the document, doing nothing visible.
-        if (!e.destination.sameDocument) return;
+        // A reload is a document replacement on purpose — sign-out's whole
+        // effect — and intercepting one turns it into a re-render of the
+        // screen already on show, which leaves sign-out doing nothing visible.
+        if (e.navigationType === "reload") return;
+        const url = new URL(e.destination.url, location.href);
+        // Only a path names a screen. An in-page fragment (an href="#id", the
+        // chrome's own sign-out anchor) changes nothing the stack owns, and a
+        // path this app has no route for belongs to the server.
+        if (url.origin !== location.origin) return;
+        if (url.pathname === location.pathname && url.search === (location.search ?? "")) return;
+        if (addresses(url) === null) return;
         e.intercept({scroll: "manual", handler: () => show(e.navigationType)});
       });
     } else {
-      addEventListener("hashchange", () => show("unknown"));
+      addEventListener("click", (e) => {
+        if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        const a = e.target?.closest?.("a[href]");
+        if (a === null || a === undefined || a.target || a.hasAttribute("download")) return;
+        const href = a.getAttribute("href");
+        if (href.startsWith("#")) return;
+        const url = new URL(href, location.href);
+        if (url.origin !== location.origin || addresses(url) === null) return;
+        e.preventDefault();
+        navigate(url.pathname + url.search);
+      }, true);
+      addEventListener("popstate", () => show("traverse"));
     }
     await show();
     booted = true;

@@ -71,8 +71,12 @@ The closed set, and it is closed in code — `REGION_ATTRS` in
 
 | Attribute | Meaning |
 |---|---|
-| `data-text-format="datetime"` | render the interpolated value as the app's one fixed UTC timestamp |
+| `data-text-format="datetime"` | render the interpolated value as a moment in the reader's own language and clock — `Aug 2, 09:00` to an American, `2 de ago., 09:00` to a Brazilian. Only the checking tiers pin a zone, so a frame they compare does not differ by the machine that rendered it |
+| `data-text-format="number"` | render the interpolated value grouped and punctuated for the reader's language — `1.234,5` to a Brazilian, `1,234.5` to an American |
+| `data-text-format="money"` | the same, with the currency the bound column declares (`#Field.money`), placed where the reader's language places it. The column is an integer count of minor units and the code and the scale are the column's, never the attribute's; a binding whose column declares none is refused at hydration and by `check markup` |
 | `data-text-format="<name>"` | an app renderer, resolved by basename out of the route's `files.renderers` — a pure `(value) => nodes` Jessie module. `interpreter/render.js` owns the node schema, the tag and attribute allowlists, the URL-scheme check and the DOM write, so a renderer can emit no markup it was not granted |
+| `data-msg-plural="<column>"` | the message this element binds carries a map of arms rather than one sentence, and the arm is the CLDR category `Intl.PluralRules(locale).select()` gives the named column. A column that is not a count is refused rather than left to answer `other` |
+| `data-msg-select="<column>"` | the same map, indexed by the column's own value — gender, and any other closed set the author names. Refused together with `data-msg-plural`, and the arms are the same in every locale |
 | `data-value` | bind a form control's value from the row. A control the reader has touched is left alone until its form submits or resets — regions re-bind on any change to their table, so binding through would wipe an unsent edit. Checkboxes are exempt: their value is the state, and a refused toggle must roll back where the reader can see it |
 
 ## Mutations

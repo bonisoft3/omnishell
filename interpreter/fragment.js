@@ -5,8 +5,10 @@
 // parse of the same sentences.
 
 /** A binding as the renderer spells it: one grammar, read by the renderer to
- * fill it, and by every lint that asks whether a text is one. */
-export const PLACEHOLDER = /\{([\w.]+)\}/;
+ * fill it, and by every lint that asks whether a text is one. The bracketed
+ * form indexes by a row's value rather than by a name written here — what a
+ * column holding a message key needs, since the key is the row's to say. */
+export const PLACEHOLDER = /\{([\w.]+(?:\[\w+\])?)\}/;
 /** The same grammar over a whole text. */
 export const PLACEHOLDERS = new RegExp(PLACEHOLDER.source, "g");
 
@@ -254,5 +256,184 @@ export function machineShape(machine) {
     handled: [...handled],
     arrows,
     pointer,
+  };
+}
+
+/* --- where a screen's language comes from ------------------------------- */
+
+/** The locales an app declares, as tag -> {path}. A locale is a KEY, so pt-BR
+ * and pt cannot be given two disagreeing names, and the segment is the app's to
+ * state — the tag lowercased only where it states none.
+ *
+ * The return is annotated because an empty object literal infers as `{}`, which
+ * a caller indexing by tag cannot use — the deno-side checkers type-check under
+ * `build` and would refuse every read of it.
+ *
+ * @returns {Record<string, {path: string}>}
+ */
+export function localeTable(i18n) {
+  /** @type {Record<string, {path: string}>} */
+  const out = {};
+  for (const [tag, spec] of Object.entries(i18n?.locales ?? {})) {
+    out[tag] = { path: String(spec?.path ?? tag).toLowerCase() };
+  }
+  return out;
+}
+
+/** Segment -> tag, for the router's first question. The DEFAULT locale is
+ * included: its segment addresses no document and exists so the server can
+ * redirect a reader who guessed the symmetrical spelling. */
+export function localeByPath(i18n) {
+  /** @type {Record<string, string>} */
+  const out = {};
+  for (const [tag, spec] of Object.entries(localeTable(i18n))) out[spec.path] = tag;
+  return out;
+}
+
+/** The best declared locale for a list of preferred tags, most-wanted first —
+ * `Accept-Language` on a server, `navigator.languages` in a browser. An exact
+ * tag wins over its own language, so a reader asking for `pt-BR` is not handed
+ * `pt-PT` while `pt-BR` is declared. Undefined rather than a guess when nothing
+ * matches, because the caller's default is a better answer than a near one. */
+export function negotiateLocale(i18n, preferred) {
+  const tags = Object.keys(localeTable(i18n));
+  for (const want of preferred ?? []) {
+    const lower = String(want).toLowerCase();
+    const exact = tags.find((t) => t.toLowerCase() === lower);
+    if (exact) return exact;
+    const base = lower.split("-")[0];
+    const sameLanguage = tags.find((t) => t.toLowerCase().split("-")[0] === base);
+    if (sameLanguage) return sameLanguage;
+  }
+  return undefined;
+}
+
+/** THE order, in one place. A localized route is told by its path and asks
+ * nothing else; a plain one takes the most explicit thing it carries. Every
+ * caller — the router, the prerenderer, the storybook — reads it here, because
+ * four sources re-derived at three call sites is how a row and a path come to
+ * disagree about what language a screen is in.
+ *
+ * Accept-Language is a standing need and loses to present intent: a link
+ * someone was handed, or a choice made in this app. */
+export function resolveLocale(i18n, sources = {}) {
+  const table = localeTable(i18n);
+  const known = (tag) => typeof tag === "string" && tag !== "" && Object.hasOwn(table, tag);
+  if (known(sources.path)) return sources.path;
+  if (known(sources.query)) return sources.query;
+  if (known(sources.row)) return sources.row;
+  return negotiateLocale(i18n, sources.preferred) ?? i18n?.default;
+}
+
+/** Which way a tag's script reads. The engine already carries CLDR's answer,
+ * so nothing here is a list of languages that would go stale the day an app
+ * declares one more. `getTextInfo()` is the spelling TC39 settled on; the
+ * `textInfo` getter is what shipped first and is still what an older WebKit
+ * answers. An engine offering neither cannot be asked, and "ltr" is not a safe
+ * thing to assume — it renders Hebrew backwards and calls it an answer.
+ *
+ * The one caller that holds no Intl is CUE, which is why the emitter resolves
+ * the entry document's direction against terminal.cue's #RtlLanguages instead;
+ * test/locale-resolver.test.ts grades that list against this function.
+ */
+export function directionOf(tag) {
+  const locale = new Intl.Locale(tag);
+  const info = locale.getTextInfo?.() ?? locale.textInfo;
+  if (info === undefined) {
+    throw new Error(`cannot tell which way ${tag} reads: Intl.Locale offers neither getTextInfo() nor textInfo`);
+  }
+  return info.direction;
+}
+
+/* --- a route's address ---------------------------------------------------
+ *
+ * Every internal link is composed here, from the route table and the locale
+ * the page is in, so no author ever spells a path: markup names a route
+ * (data-route) and its :params (data-param-<name>), and the same markup
+ * addresses /regras and /es/reglas. It sits in this leaf module rather than in
+ * the interpreter because the router, the binder, the storybook and the
+ * deno-side checkers all compose one way or serve two tables.
+ */
+
+/** A broken invariant rather than an outage: no retry repairs it, and the
+ * network-error dressing would say the store is down when the program is
+ * wrong. Everything under this is rethrown past the interpreter's outage
+ * guard. */
+export class ProgramError extends Error {}
+
+/** A route's pattern in one locale. A route with no translated spellings is
+ * the same in every language. */
+export function routePattern(route, locale) {
+  return route.paths === undefined ? route.path : route.paths[locale];
+}
+
+/** Where a route lives, in one locale. The default locale is served
+ * unprefixed — its prefixed spelling is an alias the server redirects — and
+ * every other locale wears the segment it declares.
+ *
+ * Undefined when the address cannot be composed from data the row holds, and
+ * the caller drops the attribute rather than writing a broken one. That is the
+ * same answer URL_ATTRS and BOOL_ATTRS already give for an empty binding, and
+ * what the renderer's URL check gives for a refused one: a reader's data must
+ * not take the screen down. A NAME the app got wrong still throws, because
+ * that is the author's mistake and no row can fix it. */
+export function routeHref(cfg, screen, params, locale) {
+  const route = cfg.routes?.find((r) => r.screen === screen);
+  if (route === undefined) throw new ProgramError(`data-route names "${screen}", which is no route of this app`);
+  const pattern = routePattern(route, locale);
+  if (pattern === undefined) throw new ProgramError(`route "${screen}" has no pattern in ${locale}`);
+  // The two ways a param can have no value are not the same thing. No
+  // data-param-<name> at all is the author naming a route whose shape they did
+  // not supply, and no row can put that right. One that IS written and carries
+  // nothing is the row saying there is nowhere to go — the first month has no
+  // month before it — and the link simply has no address.
+  let unaddressed = false;
+  const filled = pattern.replace(/:(\w+)/g, (_, name) => {
+    if (params === undefined || !(name in params)) {
+      throw new ProgramError(`route "${screen}" takes a ${name}; no data-param-${name} gives it one`);
+    }
+    const value = params[name];
+    if (value === "" || value === undefined) {
+      unaddressed = true;
+      return "";
+    }
+    return encodeURIComponent(value);
+  });
+  if (unaddressed) return undefined;
+  // An app declaring no locales has one language and no prefixes at all.
+  if (cfg.i18n === undefined || locale === cfg.i18n.default) return filled;
+  const declared = localeTable(cfg.i18n)[locale];
+  if (declared === undefined) throw new ProgramError(`locale "${locale}" is not one this app declares`);
+  return `/${declared.path}${filled === "/" ? "" : filled}`;
+}
+
+/** What a screen needs from the app it belongs to, in one place.
+ *
+ * Four callers reach interpretScreen — the shell, the storybook, the test
+ * harness and the machine walk — and a set spelled at each of them is a set
+ * three of them can lack a field of, silently, until a screen that needs it
+ * renders somewhere nobody looked. A caller states only what only it knows:
+ * whether handlers run, whether units mount, where a navigation goes.
+ *
+ * `messages` and `locale` ride along rather than being read from cfg: the
+ * catalogues are fetched asynchronously and the locale is resolved per
+ * navigation, so neither is a property of the configuration alone.
+ *
+ * @template {object} T
+ * The app-config fields are `any` because each caller's own signature is what
+ * types them — the harness knows its Unit, the shell knows its Route — and this
+ * only decides WHICH fields travel, not what they hold.
+ *
+ * @param {{units?: any, routes?: any, i18n?: any, schema?: any} | undefined} cfg
+ * @param {T} [over]
+ * @returns {{units: any, routes: any, i18n: any, schema: any} & T}
+ */
+export function screenEnv(cfg, over = /** @type {T} */ ({})) {
+  return {
+    units: cfg?.units ?? {},
+    routes: cfg?.routes,
+    i18n: cfg?.i18n,
+    schema: cfg?.schema,
+    ...over,
   };
 }

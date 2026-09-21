@@ -11,23 +11,33 @@ auth:
   required: true
   service: /auth
   self:
-    path: /profile/:handle
+    route: profile
     name: {table: app_user, column: display_name}
+i18n:
+  default: pt-BR
+  locales:
+    pt-BR: {path: pt-br}
 tables: []
 routes:
   - path: /
     screen: home
-    nav: {label: Home}
+    nav: {label: Home, key: nav_home, labels: {pt-BR: Início}}
     files: {html: shell/screens/home.html, css: shell/screens/home.css, handlers: []}
   - path: /other
     screen: other
-    nav: {label: Other}
+    nav: {label: Other, key: nav_other, labels: {pt-BR: Outra}}
     files: {html: shell/screens/other.html, css: shell/screens/other.css, handlers: []}
+  - path: /profile/:handle
+    screen: profile
+    nav: {label: Profile, key: nav_profile, labels: {pt-BR: Perfil}}
+    files: {html: shell/screens/profile.html, css: shell/screens/profile.css, handlers: []}
 `;
+
+const CATALOGUE = { chrome_signout: "sair", nav_home: "Início", nav_other: "Outra", nav_profile: "Perfil" };
 
 const screenHtml = (name) => `<section class="screen" data-screen="${name}"><h2>${name}</h2></section>`;
 
-function boot() {
+function boot(at = "/") {
   const { document, Event } = parseHTML(
     "<!doctype html><html><head></head><body><div id=shell></div></body></html>",
   );
@@ -48,7 +58,8 @@ function boot() {
   const app = { reloaded: false, intercepted: false };
   Object.defineProperty(globalThis, "location", {
     value: {
-      href: "http://localhost:8080/shell/",
+      href: `http://localhost:8080${at}`,
+      pathname: at,
       search: "",
       hash: "",
       reload: () => (app.reloaded = true),
@@ -74,6 +85,7 @@ function boot() {
         }),
       );
     }
+    if (u.includes("/messages/")) return Promise.resolve(new Response(JSON.stringify(CATALOGUE)));
     if (u.endsWith("home.html")) return Promise.resolve(new Response(screenHtml("home")));
     if (u.endsWith(".css")) return Promise.resolve(new Response(""));
     return Promise.reject(new Error(`unexpected fetch ${u}`));
@@ -91,7 +103,7 @@ function boot() {
       guest.dispatchEvent(new Event("click", { bubbles: true }));
     },
     // The navigate event as the platform raises it for something that replaces
-    // the document: a reload, or a link off the hash routes.
+    // the document: a reload, or a link off this app's routes.
     async leaveDocument() {
       await onNavigate({
         canIntercept: true,
@@ -110,8 +122,8 @@ const assert = (cond, msg) => {
   if (!cond) throw new Error(`smoke failed: ${msg}`);
 };
 
-async function signedIn() {
-  const app = boot();
+async function signedIn(at) {
+  const app = boot(at);
   const { createShell } = await import("./shell.js");
   createShell({ config: "./shell.yaml", mount: app.mount });
   await settle();
@@ -151,6 +163,22 @@ Deno.test({
 });
 
 Deno.test({
+  name: "the way out is a word even at an address the app has no route for",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    // The strip hangs beside the mount, so it survives the banner show() raises
+    // when currentRoute() finds no route — and localizeStrip, which writes this
+    // word on every navigation, is past that throw. Written once at creation
+    // too, or the only way out of a session is an anchor with nothing in it.
+    const app = await signedIn("/nowhere");
+    const out = app.document.querySelector("nav .shell-signout");
+    assert(out !== null, "the strip is up even where the route is not");
+    assert(out.textContent !== "", `the way out reads ${JSON.stringify(out.textContent)}`);
+  },
+});
+
+Deno.test({
   name: "the signed-in person is named, and their name leads to their own page",
   sanitizeOps: false,
   sanitizeResources: false,
@@ -159,7 +187,7 @@ Deno.test({
     const who = app.document.querySelector("nav a.shell-who");
     assert(who !== null, "the person's name in the strip is a link");
     assert(
-      who.getAttribute("href") === "#/profile/sunlit-fox-01",
+      who.getAttribute("href") === "/profile/sunlit-fox-01",
       `links to ${who.getAttribute("href")}, not the person's own page`,
     );
     assert(
@@ -177,13 +205,32 @@ Deno.test({
 });
 
 Deno.test({
+  name: "the strip's words are the page's language, and the person is not one of them",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const app = await signedIn();
+    const out = app.document.querySelector("nav .shell-signout");
+    assert(out.textContent === CATALOGUE.chrome_signout, `the way out reads ${JSON.stringify(out.textContent)}`);
+    assert(app.document.querySelector('nav > a[data-route="home"]').textContent === "Início", "the strip is localized");
+    // The person's own anchor names a route too, so a label pass that asked the
+    // route table for every `a[data-route]` in the strip would find it and
+    // write a word over the name and handle it holds — the only place a signed
+    // in reader is told who they are.
+    const who = app.document.querySelector("nav a.shell-who");
+    assert(who.querySelector(".handle")?.textContent === "sunlit-fox-01", `the handle is ${who.innerHTML}`);
+    assert(who.querySelector(".name")?.textContent === "Ada", `the name is ${who.innerHTML}`);
+  },
+});
+
+Deno.test({
   name: "the stack lets a navigation that replaces the document through",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
     const app = await signedIn();
     await app.leaveDocument();
-    // canIntercept is true for a reload as well as for a hash change.
+    // canIntercept is true for a reload as well as for a route change.
     // Intercepting it turns the document replacement into a re-render of the
     // screen already on show, and sign-out's reload never happens.
     assert(!app.intercepted, "the stack intercepted a navigation that leaves the document");

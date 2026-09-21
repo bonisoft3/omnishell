@@ -35,12 +35,15 @@ import {
   appCluster,
   appCollections,
   appFiles,
+  appI18n,
+  appMessages,
   appRoutes,
   appSeed,
   appUnits,
   boxOf,
   type Cluster,
   type El,
+  type I18n,
   type Mounted,
   mountScreen,
   type Route,
@@ -243,6 +246,9 @@ async function walkScreen(
   cluster: Cluster,
   files: Record<string, string>,
   units: Record<string, Unit>,
+  messages: Record<string, Record<string, string>> = {},
+  routes: Route[] = [],
+  i18n?: I18n,
 ): Promise<Walked> {
   const html = route.files.html;
   const markup = await Deno.readTextFile(new URL(html, appDir));
@@ -282,6 +288,10 @@ async function walkScreen(
         // has neither of the boundaries one could be given.
         units,
         mountUnits: false,
+        messages,
+        // The table a data-route link on the screen composes its href from.
+        routes,
+        i18n,
       });
       // Quiet, not settled: the clock must not move before the walk arms its
       // trace, or a state whose way out is `after: 0` has already taken it and
@@ -401,13 +411,20 @@ export async function checkApp(appDir: URL): Promise<Walked> {
   // re-parse it for every one.
   const cluster = await appCluster(appDir);
   const units = await appUnits(appDir);
+  const messages = await appMessages(appDir);
+  const routes = await appRoutes(appDir);
+  const i18n = await appI18n(appDir);
   const findings: Finding[] = [];
   let walked = 0;
   let authored = 0;
-  for (const route of await appRoutes(appDir)) {
+  for (const route of routes) {
     let one: Walked;
     try {
-      one = await walkScreen(appDir, route, tables, cluster, await appFiles(appDir, route), units);
+      const files = await appFiles(appDir, route);
+      for (const [loc, content] of Object.entries(messages)) {
+        files[`messages/${loc}.json`] = JSON.stringify(content);
+      }
+      one = await walkScreen(appDir, route, tables, cluster, files, units, messages, routes, i18n);
     } catch (err) {
       findings.push({ severity: "error", path: route.files.html, message: said(err) });
       continue;

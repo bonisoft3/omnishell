@@ -2,15 +2,18 @@
 # check-markup's self-test is its only reader, which is why the screens that
 # break a rule live here beside the one that breaks none rather than in an app.
 #
-# Only `schema:` is declared. The check reads the screens off shell/screens/
-# and the shipped modules off shell/handlers/, so the routes an emitted
-# shell.yaml carries would be shape nothing here reads.
+# `schema:` and `routes:` are declared, which is what the check reads; the
+# screens come off shell/screens/ and the shipped modules off shell/handlers/,
+# so the rest of an emitted shell.yaml would be shape nothing here reads.
+# `routes:` carries the two shapes the link rule distinguishes — a pattern with
+# no hole, and one with a `:param` a link has to fill.
 #
 # `note` is the browser tier every rule about writes and carets needs, `post`
 # the server tier they refuse, and `detail` the second table a nested region
-# binds. The partial unique on `note` is declared with a predicate this
-# grammar cannot read: it witnesses nothing, and saying so is the schema's own
-# finding.
+# binds. Each of the two carries a money column, so the format rule has both a
+# declaration to resolve and a table to resolve it on. The partial unique on
+# `note` is declared with a predicate this grammar cannot read: it witnesses
+# nothing, and saying so is the schema's own finding.
 schema:
   note:
     durability: tab
@@ -21,6 +24,7 @@ schema:
       - {name: state, type: text}
       - {name: mark, type: text}
       - {name: step, type: int}
+      - {name: amount, type: int, money: {currency: BRL, minorUnits: 0}}
     uniques:
       - {name: one-pinned, cols: [title], where: "title=fts.rain"}
   detail:
@@ -28,8 +32,12 @@ schema:
     fields:
       - {name: id, type: text, pk: true}
       - {name: body, type: text}
+      - {name: cents, type: int, money: {currency: USD, minorUnits: 2}}
   post:
     durability: live
     fields:
       - {name: id, type: text, pk: true}
       - {name: cursor, type: text}
+routes:
+  - {path: /, screen: sound}
+  - {path: /note/:id, screen: detail}

@@ -15,6 +15,16 @@ import (
 #Path:   string
 #Jessie: #Path & =~"\\.js$"
 
+// The base languages written right-to-left, as data, because the emitter needs
+// a direction at compile time and CUE has no Intl to ask. Every other tier asks
+// the engine instead (interpreter/fragment.js directionOf), and
+// test/locale-resolver.test.ts grades this list against that answer for every
+// member AND for every tag any app declares. Two ways it can be wrong, both
+// caught there: a language nobody has declared yet is missing, or a tag names a
+// script that flips its language's direction (sd-Deva reads left-to-right where
+// sd reads right-to-left) — matching on the base language cannot see that.
+#RtlLanguages: ["ar", "arc", "ckb", "dv", "fa", "he", "ks", "mzn", "nqo", "ps", "sd", "syr", "ug", "ur", "yi"]
+
 // Embedded locally: @embed cannot cross a directory boundary, so this only
 // works because shell.html/shell.css/boot.js live beside this file. Exposed
 // on #Terminal.surface.assets; emit.cue reads them as plain CUE values
@@ -39,6 +49,16 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 	// attribute they land in.
 	description: string
 	description: !~ "\""
+	// What the entry document says it is in before any script runs. The shell
+	// rewrites it per screen once a locale is resolved, but a crawler that does
+	// not render and the paint before boot both read this one — so it is the
+	// app's declared default, and "en" only for an app that declares nothing.
+	language: string | *"en"
+	// And which way that language reads, for the same pre-boot paint: without
+	// it a Hebrew app lays out left-to-right until a script runs, and never at
+	// all for a crawler that runs none. The emitter resolves it from `language`
+	// against #RtlLanguages.
+	direction: *"ltr" | "rtl"
 
 	state: {
 		navigation: true
@@ -53,7 +73,7 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 		// issues the same identity shape; social hand-off (firebase) is the
 		// planned third mode.
 		// `chrome` is the strip the terminal draws for a signed-in person and
-		// what an app may tell it about that person: `self.path`, the route
+		// what an app may tell it about that person: `self.route`, the route
 		// that is their own page, whose :params the terminal fills from the
 		// session user; and `self.name`, the table and column the name they
 		// chose lives in, read live so a rename reaches the strip as it
@@ -68,18 +88,34 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 		auth: {
 			modes:    ["passkey", "guest"]
 			identity: "generated"
-			chrome:   "<name · handle> · sign out; self.path and self.name are the app's"
+			chrome:   "<name · handle> · sign out; self.route and self.name are the app's"
 		}
 
 		// What data-text-format may name without the app declaring anything.
-		// plain and datetime are value formatting, text in and text out; an app
-		// formatting its own timestamps has reimplemented a platform affordance
-		// and will differ from every other app for no reason a reader benefits
-		// from. The list is not closed — any other name is an app's own
-		// renderer, per `renderer` below.
+		// These are value formatting, text in and text out; an app formatting
+		// its own timestamps or grouping its own digits has reimplemented a
+		// platform affordance and will differ from every other app for no
+		// reason a reader benefits from. The list is not closed — any other
+		// name is an app's own renderer, per `renderer` below.
 		"text-formats": [Name=string]: {renders: string, note: string}
 		"text-formats": plain:    {renders: "the column's text, placeholders interpolated", note: "the default when data-text-format is absent"}
-		"text-formats": datetime: {renders: "one fixed UTC human timestamp (\"Aug 2, 09:00\")", note: "raw ISO / postgres timestamptz never reaches a reader"}
+		"text-formats": datetime: {renders: "the moment in the reader's own language and clock (\"Aug 2, 09:00\" to an American, \"2 de ago., 09:00\" to a Brazilian)", note: "raw ISO / postgres timestamptz never reaches a reader; only the checking tiers pin a zone"}
+		"text-formats": number:   {renders: "the number in the reader's own digits and grouping (\"1.234,5\" to a Brazilian)", note: "the column's ASCII spelling is nobody's"}
+		"text-formats": money:    {renders: "the amount with its currency, placed and grouped for the reader (\"R$ 1.204\")", note: "the code and the minor-unit scale ride the column (#Field.money), never the attribute"}
+
+		// A message with more than one wording. A catalogue value may be a flat
+		// map of arm name to sentence, and the element names which arm it
+		// reads; the arm's own {column} bindings resolve against the same row
+		// the element's other bindings do. Selection is the terminal's because
+		// Intl is endowed here and in nothing a screen can reach otherwise —
+		// a Jessie compartment has no Intl and plv8 has none either. The list
+		// IS closed, unlike text-formats above: what indexes the map is the
+		// terminal's own arithmetic, so an unknown selector is not an app's to
+		// define. A map reaching a binding with no selector over it is refused
+		// rather than rendered, because it can only render as [object Object].
+		"message-arms": [Name=string]: {selects: string, note: string}
+		"message-arms": "data-msg-plural": {selects: "the CLDR category Intl.PluralRules gives the named column in the reader's language", note: "a column that is not a count is refused rather than left to answer \"other\""}
+		"message-arms": "data-msg-select": {selects: "the arm the named column's own value spells", note: "gender and any other closed set; every locale offers the same arms"}
 
 		// The renderer role, and the terminal's DOM mutation story. A renderer
 		// is a pure (value) => nodes function; interpreter/render.js states why
@@ -221,7 +257,11 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 
 		assets: {
 			html: strings.Replace(
-				strings.Replace(_shellHtmlAsset, "{description}", T.description, 1),
+				strings.Replace(
+					strings.Replace(
+						strings.Replace(_shellHtmlAsset, "{description}", T.description, 1),
+						"{language}", T.language, 1),
+					"{direction}", T.direction, 1),
 				"{modulepreload}", _preloadHtml, 1)
 			css:  _shellCssAsset
 			boot: _bootJsAsset
@@ -246,7 +286,7 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 		// the platform-native entry it put on PATH. Neither asks the rule
 		// which OS it woke up on.
 		_command: {
-			for leaf in ["check markup", "check handlers", "check machines", "check battery"] {
+			for leaf in ["check markup", "check handlers", "check machines", "check battery", "check i18n"] {
 				(leaf): [
 					if T.surface.runtime != "" {"mise run omnishell -- \(leaf) ."},
 					"omnishell \(leaf) .",
@@ -299,7 +339,7 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 
 		modules: [...#Path]
 		modules: [
-			"shell.js", "screen.js", "fragment.js", "data-crud.js", "validate.js", "render.js",
+			"shell.js", "chrome.js", "screen.js", "fragment.js", "data-crud.js", "validate.js", "render.js",
 			"hatch.js", "hatch-worker.js", "storybook.js", "jessie.js",
 			"vendor/mecha-client.js", "vendor/js-yaml.js", "vendor/ses.umd.min.js",
 		]
@@ -332,6 +372,11 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 		// unit's files land as siblings under one directory.
 		units: [...#Path]
 		units: *[] | [...#Path]
+
+		// Served as plain statics so the terminal fetches active and default
+		// catalogs by URL rather than embedding them into screen markup.
+		messages: [...#Path]
+		messages: *[] | [...#Path]
 
 		// Invariants of the terminal's own rendering surface, which no app can
 		// re-derive — the same reason auth and text-formats are published here.
@@ -378,6 +423,13 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 			verb: "test"
 			cmds: [T.surface._command["check machines"]]
 			note: "every arrow of every emitted chart fires, and XState agrees where each one lands"
+		}
+		if len(T.surface.messages) > 0 {
+			checks: i18n: {
+				verb: "test"
+				cmds: [T.surface._command["check i18n"]]
+				note: "every route and state hydrates under every declared locale without unlocalized leaks or un-interpolated placeholders"
+			}
 		}
 
 		checks: handlers: {
@@ -455,6 +507,11 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 				file:   u
 				target: "/srv/\(u)"
 				watch:  false
+			}],
+			[for m in T.surface.messages {
+				file:   m
+				target: "/srv/\(m)"
+				watch:  true
 			}],
 			// The interpreter is hand-written and edited in the loop, so it is
 			// watched like an app's own screens are.

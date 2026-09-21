@@ -13,7 +13,7 @@
 
 import { parseHTML } from "npm:linkedom@0.18.4";
 import { load as parseYaml } from "../interpreter/vendor/js-yaml.js";
-import { embedTables, parseFilter, parseLimit, parseSelect } from "../interpreter/fragment.js";
+import { embedTables, parseFilter, parseLimit, parseSelect, screenEnv } from "../interpreter/fragment.js";
 import { upsertKey as resolveKey } from "../interpreter/data-crud.js";
 import { batched } from "../interpreter/batched-store.js";
 import "../interpreter/vendor/ses.umd.min.js";
@@ -94,13 +94,28 @@ export const only = (rows: Row[], what: string): Row => {
 type Change = { value?: Row; previousValue?: Row };
 
 export type Route = {
-  /** The hash route the screen answers, `:param` segments and all. Absent on
-   * a route a test builds by hand: only shell.yaml states one. */
+  /** The path the screen answers, `:param` segments and all. Absent on a route
+   * a test builds by hand: only shell.yaml states one. */
   path?: string;
+  /** The same path in each declared locale, on a route carrying a slug. */
+  paths?: Record<string, string>;
   screen: string;
   files: { html: string; css: string; handlers: string[]; renderers?: string[]; shared?: string[] };
   states?: string[];
 };
+
+/** The locales an app declares, as shell.yaml states them. */
+export type I18n = { default: string; locales: Record<string, { path: string }> };
+
+/** shell.yaml's `schema:`, keyed by table, in the one shape a mount reads out
+ * of it: the columns, and what an integer counts where it counts money. */
+export type Schema = Record<string, {
+  fields: { name: string; type: string; money?: { currency: string; minorUnits: number } }[];
+}>;
+
+/** A catalogue per locale. A value is a sentence, or the map of arms an
+ * element's data-msg-plural / data-msg-select picks one of. */
+export type Catalogs = Record<string, Record<string, string | Record<string, string>>>;
 
 /** One store contact, in the order it was made. `op` is what the store RESOLVED
  * to and not what the markup declared: an upsert lands here as the create or the
@@ -447,6 +462,15 @@ export async function appRoutes(appDir: URL): Promise<Route[]> {
   return shell.routes ?? [];
 }
 
+/** The locales the app declares, or undefined where it declares none — which
+ * is what decides whether a composed href wears a locale prefix. */
+export async function appI18n(appDir: URL): Promise<I18n | undefined> {
+  const shell = parseYaml(await Deno.readTextFile(new URL("shell/shell.yaml", appDir))) as {
+    i18n?: I18n;
+  };
+  return shell.i18n;
+}
+
 /** The route a screen ships under, read from the emitted shell.yaml so a test
  * cannot drift from what the app actually mounts. */
 export async function appRoute(appDir: URL, screen: string): Promise<Route> {
@@ -506,7 +530,14 @@ type Interpreter = {
     route: Route,
     store: MemoryStore,
     params: Record<string, string>,
-    opts: { units: Record<string, Unit>; mountUnits: boolean },
+    opts: {
+      units: Record<string, Unit>;
+      mountUnits: boolean;
+      messages?: Catalogs;
+      locale?: string;
+      routes?: Route[];
+      i18n?: I18n;
+    },
   ): Promise<{ pause(): void; resume(): Promise<unknown>; stop(): void }>;
 };
 
@@ -609,6 +640,19 @@ export type MountSpec = {
    * false: linkedom has neither a Worker nor a frame, and a unit renders
    * nothing and declares no machine, so mounting one adds nothing to a walk. */
   mountUnits?: boolean;
+  messages?: Catalogs;
+  locale?: string;
+  /** The whole route table, because a link names a route and the binder
+   * composes its href from that table — the screen under test links to screens
+   * it is not. mountApp reads it from the app's own shell.yaml; a hand-built
+   * spec states the routes its markup names. */
+  routes?: Route[];
+  i18n?: I18n;
+  /** The emitted entity projection, which a value format resolves a column's
+   * declaration in — data-text-format="money" reads its currency and its
+   * minor-unit scale off the column. mountApp reads it from the app's own
+   * shell.yaml. */
+  schema?: Schema;
 };
 
 /** linkedom's HTMLFormElement carries no constraint API, and the interpreter
@@ -989,10 +1033,14 @@ export async function mountScreen(spec: MountSpec): Promise<Mounted> {
   let handle: Awaited<ReturnType<typeof interpretScreen>>;
   try {
     if (mount === null) throw new Error("the harness document has no mount");
-    handle = await interpretScreen(mount, base, spec.route, store, spec.params ?? {}, {
-      units: spec.units ?? {},
+    handle = await interpretScreen(mount, base, spec.route, store, spec.params ?? {}, screenEnv(spec, {
       mountUnits: spec.mountUnits ?? true,
-    });
+      messages: spec.messages,
+      locale: spec.locale,
+      // A case asserts on rendered text, so the zone is the harness's and not
+      // the machine's — see storybook.js for the same pin.
+      timeZone: "UTC",
+    }));
   } catch (err) {
     disarm();
     throw err;
@@ -1143,21 +1191,56 @@ export async function mountScreen(spec: MountSpec): Promise<Mounted> {
   };
 }
 
+export async function appMessages(appDir: URL): Promise<Record<string, Record<string, string>>> {
+  const messages: Record<string, Record<string, string>> = {};
+  try {
+    const dir = new URL("messages/", appDir);
+    for await (const entry of Deno.readDir(dir)) {
+      if (entry.isFile && entry.name.endsWith(".json")) {
+        const locale = entry.name.slice(0, -".json".length);
+        const text = await Deno.readTextFile(new URL(entry.name, dir));
+        messages[locale] = JSON.parse(text);
+      }
+    }
+  } catch {}
+  return messages;
+}
+
 /** mountScreen against an app's emitted tree: its shell.yaml names the route,
  * and the route names its own files. */
 export async function mountApp(
   spec: Omit<MountSpec, "route" | "files"> & { appDir: URL; screen: string },
 ): Promise<Mounted> {
+  const routes = await appRoutes(spec.appDir);
   const route = await appRoute(spec.appDir, spec.screen);
   const declared = await appCluster(spec.appDir);
+  const discoveredMessages = await appMessages(spec.appDir);
+  const messages = { ...discoveredMessages, ...spec.messages };
+  const files = await appFiles(spec.appDir, route);
+  for (const [loc, content] of Object.entries(messages)) {
+    files[`messages/${loc}.json`] = JSON.stringify(content);
+  }
   return mountScreen({
     ...spec,
     route,
-    files: await appFiles(spec.appDir, route),
+    routes,
+    i18n: await appI18n(spec.appDir),
+    files,
+    messages,
     tables: { ...(await appSeed(spec.appDir)), ...spec.tables },
     cluster: { ...declared, ...spec.cluster },
     units: { ...(await appUnits(spec.appDir)), ...spec.units },
+    schema: spec.schema ?? await appSchema(spec.appDir),
   });
+}
+
+/** The entity projection an app emits (shell.yaml `schema:`), which is what a
+ * money binding resolves its column's currency and scale against. */
+export async function appSchema(appDir: URL): Promise<Schema | undefined> {
+  const shell = parseYaml(await Deno.readTextFile(new URL("shell/shell.yaml", appDir))) as {
+    schema?: Schema;
+  };
+  return shell.schema;
 }
 
 /** The vendored units an app declares (shell.yaml `units:`), which is what a

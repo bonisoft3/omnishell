@@ -4,7 +4,7 @@
 // orchestrates these per app; the terminal's own tests exercise them here —
 // nothing in this file touches the filesystem or an app.
 
-import { machineCandidates, machineShape, parseFilterSpec, parseReadSpec, PLACEHOLDER } from "./fragment.js";
+import { machineCandidates, machineShape, parseFilterSpec, parseReadSpec, PLACEHOLDER, PLACEHOLDERS } from "./fragment.js";
 
 type Unique = { name: string; cols: string[]; where?: string };
 export type Entity = {
@@ -16,6 +16,8 @@ export type Entity = {
     pk?: boolean;
     unique?: boolean;
     default?: string;
+    /** What the integer counts, where it counts money (schema.cue #Field). */
+    money?: { currency: string; minorUnits: number };
   }[];
   uniques?: Unique[];
   access?: { mode: string; owner?: string; shared?: unknown };
@@ -343,6 +345,86 @@ export function undeclaredSlot(slot: Slot): string | null {
   if (!slot.nested || slot.declares) return null;
   return "is nested and declares no empty treatment: give it data-empty, empty to mean it shows nothing, " +
     "or a data-empty-row to bind instead";
+}
+
+export type FormatBinding = {
+  /** Verbatim data-text-format: a built-in, or an app renderer's basename. */
+  format: string;
+  /** One {placeholder} of the element's data-text, as authored. */
+  expr: string;
+  /** The region whose row the element binds — its own data-live, or the
+   * nearest enclosing one. Absent where the element sits under none. */
+  table?: string;
+};
+
+/** Every formatted binding on a screen, one per placeholder. Template content
+ * is no boundary here: an item template's markup binds a row of the region
+ * holding it, which is the table the stack already carries. */
+export function formatBindings(html: string): FormatBinding[] {
+  const out: FormatBinding[] = [];
+  type Open = { tag: string; table?: string };
+  const stack: Open[] = [];
+  const enclosing = () => {
+    for (let i = stack.length - 1; i >= 0; i--) if (stack[i].table !== undefined) return stack[i].table;
+    return undefined;
+  };
+  for (const m of strip(html).matchAll(ANY_TAG)) {
+    const [, closing, rawTag, attrText] = m;
+    const tag = rawTag.toLowerCase();
+    if (closing === "/") {
+      for (let i = stack.length - 1; i >= 0; i--) {
+        if (stack[i].tag !== tag) continue;
+        stack.splice(i);
+        break;
+      }
+      continue;
+    }
+    const { attr } = attrsOf(attrText);
+    implied(stack, tag);
+    const open: Open = { tag, table: attr("data-live") };
+    const format = attr("data-text-format");
+    const text = attr("data-text");
+    if (format !== undefined && text !== undefined) {
+      // Its own region first, when it is one: the interpreter binds a region's
+      // own data-text in that region's context, not its parent's (bindTexts is
+      // handed the region as its scope and matches it).
+      const table = open.table ?? enclosing();
+      for (const [, expr] of text.matchAll(PLACEHOLDERS)) out.push({ format, expr, table });
+    }
+    if (VOID.has(tag) || /\/\s*$/.test(attrText)) continue;
+    stack.push(open);
+  }
+  return out;
+}
+
+/** Why a formatted binding cannot resolve what it renders, or null.
+ *
+ * `money` is the format that needs a declaration: the code and the minor-unit
+ * scale ride the column (schema.cue #Field.money), so a binding whose column
+ * this cannot find has no currency to render and would show cents as reais.
+ * `number` needs nothing but the value, so it is held only to what IS
+ * declared — a derived column (data-project's index, count, lanes) is a number
+ * the schema never mentions, and refusing it would be a rule about the wrong
+ * tier. datetime, plain and an app's own renderer resolve nothing here. */
+export function formatLint(b: FormatBinding, entity: Entity | undefined): string | null {
+  if (b.format !== "number" && b.format !== "money") return null;
+  const column = /^\w+$/.test(b.expr) ? entity?.fields.find((f) => f.name === b.expr) : undefined;
+  if (b.format === "number") {
+    if (column === undefined || column.type === "int" || column.type === "bigint") return null;
+    return `data-text-format="number" reads {${b.expr}}, which is ${column.type} on "${b.table}"`;
+  }
+  if (b.table === undefined) {
+    return `data-text-format="money" reads {${b.expr}} outside every data-live region: no row, so no column to read a currency off`;
+  }
+  if (entity === undefined) return null;
+  if (column === undefined) {
+    return `data-text-format="money" reads {${b.expr}}, which is not a column of "${b.table}": ` +
+      "money is declared on the column it counts, so an embedded join, a route param or a message cannot carry one";
+  }
+  if (column.money === undefined) {
+    return `data-text-format="money" reads {${b.expr}}, which declares no money: on "${b.table}"`;
+  }
+  return null;
 }
 
 export type KindedRegion = { table: string; whens: (string | undefined)[] };
@@ -1024,4 +1106,72 @@ export function writeLint(writes: Write[], e: Entity): string | null {
       `a ${tier} passes through no Postgres to coerce it; write it as a string`;
   }
   return null;
+}
+
+/** A route as the link rule needs it: the screen a link names it by, and the
+ * pattern its `:param` holes are read off. */
+export type LinkRoute = { screen: string; path: string };
+
+/** The `:param` holes of a pattern, in order. */
+const holesOf = (pattern: string): string[] =>
+  pattern.split("/").filter((s) => s.startsWith(":")).map((s) => s.slice(1));
+
+/**
+ * An internal link says which ROUTE it goes to, never which path.
+ *
+ * A path written by hand is one spelling of a URL that now has one per locale,
+ * so `href="/regras"` sends a Spanish reader to the Portuguese document, and
+ * `href="#/regras"` names an address the server never sees at all. The
+ * vocabulary is `data-route` naming a route's screen plus one
+ * `data-param-<name>` per hole; the binder composes the href from the route
+ * table and the page's active locale.
+ *
+ * An in-page fragment (`href="#top"`), an external URL — absolute or
+ * protocol-relative, whose `//host` is another origin rather than a path of
+ * this one — `mailto:` and `tel:` address something other than a route and stay
+ * legal.
+ *
+ * Only the FIRST segment of a pattern is translated, so the authored pattern
+ * answers for the holes in every locale and this rule needs no catalogue.
+ */
+export function linkLint(html: string, routes: LinkRoute[]): string[] {
+  const out: string[] = [];
+  const byScreen = new Map(routes.map((r) => [r.screen, r]));
+  for (const [, closing, tag, attrText] of strip(html).matchAll(ANY_TAG)) {
+    if (closing === "/") continue;
+    const { attr } = attrsOf(attrText);
+    const href = attr("href");
+    // One leading slash is a path of this origin; two are an authority, so
+    // "//cdn.example.test/x" is somebody else's site written without a scheme.
+    if (href !== undefined && ((href.startsWith("/") && !href.startsWith("//")) || href.startsWith("#/"))) {
+      out.push(
+        `<${tag.toLowerCase()} href="${href}"> writes an internal path by hand: a route has one address per ` +
+          `locale, so name it with data-route and let the binder compose the href`,
+      );
+    }
+    const screen = attr("data-route");
+    if (screen === undefined) continue;
+    // A row names the route — a navigation rail whose items are rows. Which
+    // route it will be is not decidable here, and neither are its holes;
+    // routeHref refuses a name no route answers when the region binds.
+    if (PLACEHOLDER.test(screen)) continue;
+    const route = byScreen.get(screen);
+    if (route === undefined) {
+      out.push(`data-route="${screen}" names no route in shell.yaml`);
+      continue;
+    }
+    const holes = holesOf(route.path);
+    const given = new Set<string>();
+    for (const [, name] of ` ${attrText}`.matchAll(ATTR)) {
+      if (name.startsWith("data-param-")) given.add(name.slice("data-param-".length));
+    }
+    for (const hole of holes) {
+      if (!given.has(hole)) out.push(`data-route="${screen}" fills no :${hole} of "${route.path}"`);
+    }
+    for (const name of given) {
+      if (holes.includes(name)) continue;
+      out.push(`data-param-${name} on data-route="${screen}" names no :param of "${route.path}"`);
+    }
+  }
+  return out;
 }

@@ -23,6 +23,7 @@
 package components
 
 import (
+	"list"
 	"strings"
 
 	terminal "github.com/bonisoft3/omnishell:terminal"
@@ -49,18 +50,34 @@ import (
 	// extra columns (literals or {type, params} leaves) into every arrow
 	// TARGETING that option — a choice carrying its declared consequences on
 	// the row without leaving it.
+	msgLabel?: string
 	options: [...{
-		name:  string
-		label: string
-		item:  *label | string
+		name:      string
+		label:     string
+		item:      *label | string
+		msg?:      string
+		msgLabel?: string
+		// Tags the row's <li> as data-group so a consumer's stylesheet can
+		// gather or order the list without a second listbox. readout "text".
+		group?: string
+		// A second, quieter value on the row — what the choice costs the
+		// reader, beside what it is called. The label moves into a child span
+		// when a note is set, because the label's binding writes the button's
+		// textContent and would wipe a sibling. readout "text".
+		note?: string
 		assign?: [string]: string | number | bool | {type: string, params?: [string]: string | number | bool}
 	}] & [_, _, ...]
+	// Inert rows the consumer's stylesheet places: `at` names the option the
+	// heading precedes, and a heading naming none leads the list. Presentational
+	// and with no id and no command — a heading is not an option, and the
+	// consumer's [data-opt] observers never see one. readout "text".
+	heads?: [...{name: string, label: string, msgLabel?: string, at: *"" | or([for o in P.options {o.name}])}]
 	// Applied to every arrow as its one guarded candidate — the picker-wide
 	// admission (truco: "a sitting exists").
 	guard?: string | {type: string, params?: [string]: string | number | bool}
 	readout: *"columns" | "text"
 
-	_pop:          "picker-pop-\(P.key)"
+	_pop: "picker-pop-\(P.key)"
 	_initialLabel: [for o in P.options if o.name == P.initial {o.label}][0]
 
 	_assignOf: {for o in P.options {
@@ -113,10 +130,14 @@ import (
 		"",
 	][0]
 
+	_srAttr: [if P.msgLabel != _|_ {" data-text=\"{\(P.msgLabel)}\""}, ""][0]
+	_ariaAttr: [if P.msgLabel != _|_ {"{\(P.msgLabel)}"}, P.label][0]
+
 	if P.readout == "columns" {
 		_options: strings.Join([for o in P.options {
+			let _optText = [if o.msg != _|_ {" data-text=\"{\(o.msg)}\""}, ""][0]
 			"""
-				      <li><button type="button" role="option" id="\(P.key)-trigger-\(o.name)" class="picker-option"
+				      <li><button type="button" role="option" id="\(P.key)-trigger-\(o.name)" class="picker-option"\(_optText)
 				              aria-selected="{sel_\(o.name)}"
 				              commandfor="\(P._pop)" command="hide-popover">\(o.item)</button></li>
 				"""
@@ -129,10 +150,10 @@ import (
 			       data-machine='\((#attrJSON & {in: P.machine}).out)'>
 			    <button type="button" id="picker-open-\(P.key)" class="picker-trigger"
 			            commandfor="\(P._pop)" command="toggle-popover" aria-haspopup="listbox">
-			      <span class="picker-label">\(P.label)</span>
+			      <span class="picker-label"\(_srAttr)>\(P.label)</span>
 			      <span class="picker-value" data-text="{label}">\(P._initialLabel)</span>
 			    </button>
-			    <ul id="\(P._pop)" class="picker-list" popover role="listbox" aria-label="\(P.label)">
+			    <ul id="\(P._pop)" class="picker-list" popover role="listbox" aria-label="\(_ariaAttr)">
 			\(P._options)
 			    </ul>
 			  </div>
@@ -141,13 +162,33 @@ import (
 	}
 
 	if P.readout == "text" {
-		_options: strings.Join([for o in P.options {
-			"""
-				      <li><button type="button" role="option" id="\(P.key)-trigger-\(o.name)" data-opt="\(o.name)"
-				              commandfor="\(P._pop)" command="hide-popover">\(o.item)</button></li>
+		_optionRow: {for o in P.options {
+			let _optText = [if o.msg != _|_ {" data-text=\"{\(o.msg)}\""}, ""][0]
+			let _grp = [if o.group != _|_ {" data-group=\"\(o.group)\""}, ""][0]
+			let _btnText = [if o.note != _|_ {""}, _optText][0]
+			let _line = [if o.note != _|_ {"<span\(_optText)>\(o.item)</span> <small class=\"picker-note\">\(o.note)</small>"}, o.item][0]
+			(o.name): """
+				      <li\(_grp)><button type="button" role="option" id="\(P.key)-trigger-\(o.name)" data-opt="\(o.name)"\(_btnText)
+				              commandfor="\(P._pop)" command="hide-popover">\(_line)</button></li>
 				"""
-		}], "\n")
-		_spans: strings.Join([for o in P.options {"<i data-t=\"\(o.name)\">\(o.label)</i>"}], "")
+		}}
+		_headList: [if P.heads != _|_ {P.heads}, []][0]
+		_headRow: {for h in P._headList {
+			let _headText = [if h.msgLabel != _|_ {" data-text=\"{\(h.msgLabel)}\""}, ""][0]
+			(h.name): "      <li class=\"picker-head\" role=\"presentation\" data-head=\"\(h.name)\"\(_headText)>\(h.label)</li>"
+		}}
+		_options: strings.Join(list.Concat([
+			[for h in P._headList if h.at == "" {P._headRow[h.name]}],
+			[for o in P.options {strings.Join(list.Concat([
+				[for h in P._headList if h.at == o.name {P._headRow[h.name]}],
+				[P._optionRow[o.name]],
+			]), "\n")
+			}],
+		]), "\n")
+		_spans: strings.Join([for o in P.options {
+			let _spanText = [if o.msgLabel != _|_ {" data-text=\"{\(o.msgLabel)}\""}, ""][0]
+			"<i data-t=\"\(o.name)\"\(_spanText)>\(o.label)</i>"
+		}], "")
 		// The trigger names the chosen option with no app stylesheet: one rule per
 		// option shows its span, scoped to the picker's key and more specific
 		// than a screen's own rule over every span.
@@ -167,10 +208,10 @@ import (
 			       data-machine='\((#attrJSON & {in: P.machine}).out)'>
 			    <button type="button" id="picker-open-\(P.key)"
 			            commandfor="\(P._pop)" command="toggle-popover" aria-haspopup="listbox">
-			      <span class="sr">\(P.label):</span>
-			      <span class="pick-label">\(P._spans)</span>
+			      <span class="sr"\(_srAttr)>\(P.label):</span>
+			      <span class="pick-label">\(_spans)</span>
 			    </button>
-			    <ul id="\(P._pop)" class="picker-list" popover role="listbox" aria-label="\(P.label)">
+			    <ul id="\(P._pop)" class="picker-list" popover role="listbox" aria-label="\(_ariaAttr)">
 			\(P._options)
 			    </ul>
 			  </div>

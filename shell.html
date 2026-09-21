@@ -1,9 +1,14 @@
 <!doctype html>
-<html lang="en">
+<html lang="{language}" dir="{direction}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="{description}">
+<!-- This one document answers at every route, so the URL it arrives under is
+     not where it lives: without a base, ./boot.js is /boot.js at /games and
+     nothing on the page runs at all. Links are composed absolute and are
+     unaffected. -->
+<base href="/shell/">
 <title>Loading…</title>
 <link rel="stylesheet" href="./shell.css">
 <link rel="stylesheet" href="./design.css">
