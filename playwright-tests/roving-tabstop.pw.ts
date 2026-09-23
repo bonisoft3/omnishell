@@ -1,4 +1,4 @@
-// Playwright (run: `bun x playwright test roving-tabstop`): the half of the
+// Playwright (run: `pnpm exec playwright test roving-tabstop`): the half of the
 // roving tabstop no DOM shim can answer.
 //
 // linkedom has a focus() that records nothing and never sets activeElement, so

@@ -1,4 +1,4 @@
-// Playwright (run: `bun x playwright test focus-target`): the half of
+// Playwright (run: `pnpm exec playwright test focus-target`): the half of
 // `data-focus` no DOM shim can answer.
 //
 // The whole-screen tier (test/focus-target.test.ts) can say which element the

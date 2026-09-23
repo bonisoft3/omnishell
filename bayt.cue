@@ -1,18 +1,14 @@
 // plugins/omnishell/bayt.cue — bayt configuration for the omnishell
 // linting/auth plugin.
 //
-// TypeScript/Bun project. Uses bayt.nubox + mise.install with the
-// github-backend bun plugin (`github:oven-sh/bun = "bun-v1.3.12"` in
-// .mise.toml). mise's core bun plugin always picks the musl variant
-// which fails on opensuse/leap (glibc); the github backend with mise
-// >= 2026.5.2 (bundled in lazybox v0.8.3) correctly picks
-// bun-linux-x64.zip.
+// TypeScript project with no package manager of its own: every module it
+// imports is an `npm:` or `jsr:` specifier deno resolves into its own cache,
+// so nothing here installs a node_modules. The one runner that needs a real
+// one is playwright, which the repository installs once at its root.
 //
-// No language stack exists for bun in plugins/bayt/stacks yet (only
-// gradle/mise/pnpm/sayt), so this composes mise + sayt verbs directly
-// with hand-written `bun` commands — same shape as services/boxer
-// (Rust) and services/tracker-tx (yaml-only) where no language stack
-// exists either.
+// It composes mise + sayt verbs directly rather than a language stack — same
+// shape as services/boxer (Rust) and services/tracker-tx (yaml-only), where
+// no stack exists either.
 //
 // release / launch / verify stay in .say.yaml as direct invocations
 // (omnishell publishes via npm, not a release image).
@@ -27,8 +23,7 @@ import (
 )
 
 // Unit tests: the deno suite over test/ (per test/deno.json, which maps
-// @test/harness — bun cannot read that import map, so bun never runs
-// these), then a curated subset of the deno interpreter smokes — this
+// @test/harness), then a curated subset of the deno interpreter smokes — this
 // target's share, not the whole list.
 //
 // A smoke is named and invoked by path, never discovered: the non-.test name
@@ -83,11 +78,10 @@ _omnishell: bayt.#project & {
 		}
 		"doctor": sayt.doctor & mise.doctor
 
-		// Build = `bun install --frozen-lockfile && bun run check`. The
-		// check script (`bun x tsc --noEmit`) is the typecheck — that's
-		// what gates a successful "build". No emitted JS artifact:
-		// downstream consumers (iris e2e helpers) `FROM` this stage and
-		// import .ts directly, so the typecheck IS the build.
+		// Build = the typecheck, which is what gates a successful "build".
+		// No emitted JS artifact: downstream consumers (iris e2e helpers)
+		// `FROM` this stage and import .ts directly, so the typecheck IS the
+		// build.
 		"build": sayt.build & mise.exec & {
 			// Public so iris's integrate target can FROM-COPY the
 			// playwright lint helpers under src/lint/playwright/.
@@ -119,23 +113,14 @@ _omnishell: bayt.#project & {
 				// check script typechecks beside them.
 				"runtime/**/*",
 				"package.json",
-				"bun.lock",
 				"tsconfig.json",
-				"bunfig.toml",
 			]
 			// Typecheck-only build, no artifact. Cross-project consumers
 			// of the omnishell source tree (e.g. iris's pnpm workspace
 			// symlink) use `plugins_omnishell:build:srcs` instead.
-			// `mise.exec` wraps the cmd with `mise x --`, which only
-			// activates the env for a single argv. Chained commands
-			// (`bun install && bun run check`) need an explicit `sh -c`
-			// so both run under the same mise activation. `shell: "sh"`
-			// switches RUN to shell-form so the inner single quotes are
-			// parsed correctly.
-			cmd: "builtin": {
-				shell: "sh"
-				do:    "sh -c 'bun install --frozen-lockfile && bun run check'"
-			}
+			// package.json's `check`, spelled again: bayt scans this file
+			// outside the CUE module, where @embed cannot read a sibling.
+			cmd: "builtin": do: "deno check --config test/deno.json src/ test/ check-visual.ts runtime/cli.ts"
 			dockerfile: from: ref: ":setup"
 		}
 

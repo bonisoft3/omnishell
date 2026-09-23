@@ -36,9 +36,7 @@
       "read-markup.ts",
       "runtime/**/*",
       "package.json",
-      "bun.lock",
-      "tsconfig.json",
-      "bunfig.toml"
+      "tsconfig.json"
     ],
     "exclude": []
   },
@@ -138,9 +136,7 @@
           "read-markup.ts",
           "runtime/**/*",
           "package.json",
-          "bun.lock",
-          "tsconfig.json",
-          "bunfig.toml"
+          "tsconfig.json"
         ],
         "exclude": []
       },
@@ -210,17 +206,15 @@
           "read-markup.ts",
           "runtime/**/*",
           "package.json",
-          "bun.lock",
-          "tsconfig.json",
-          "bunfig.toml"
+          "tsconfig.json"
         ],
         "exclude": [],
         "defaultGlobs": null,
         "defaultExclude": null
       },
-      "shell": "sh",
-      "do": "sh -c 'bun install --frozen-lockfile && bun run check'",
+      "do": "deno check --config test/deno.json src/ test/ check-visual.ts runtime/cli.ts",
       "name": "builtin",
+      "shell": "exec",
       "stop": false
     }
   ],

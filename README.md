@@ -66,8 +66,8 @@ the bare token.
 ## Development
 
 ```bash
-just setup     # install bun via mise
-just build     # typecheck (tsc --noEmit)
+just setup     # install tools via mise
+just build     # typecheck via deno check
 just test      # the deno unit suite over test/
 just integrate # Docker build, then that suite plus this target's share of the smokes
 ```

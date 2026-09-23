@@ -12,11 +12,6 @@ aqua.slsa = false
 aqua.minisign = false
 
 [tools]
-# github backend instead of mise's core bun plugin: the core plugin
-# always picks the musl variant, which fails on bayt.nubox's leap base
-# (glibc). github backend with mise >= 2026.5.2 (bundled in lazybox
-# v0.8.3) correctly picks bun-linux-x64.zip for glibc.
-"github:oven-sh/bun" = "bun-v1.3.12"
-# interpreter/*-smoke.js run under deno, not bun: they lock down SES and need
-# deno's own permission flags and lockfile.
-"github:denoland/deno" = "v2.3.7"
+# Everything here runs under deno: the suites, the smokes that lock down SES
+# and need deno's own permission flags and lockfile, and the typecheck.
+"github:denoland/deno" = "v2.9.7"

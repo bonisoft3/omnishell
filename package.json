@@ -15,9 +15,10 @@
     "test:pw:snapcards": "deno test --config playwright-tests/deno.json --no-check --allow-env --allow-read --allow-write --allow-net --allow-run --allow-sys --allow-import playwright-tests/snapcards-visual-qa.pw.ts",
     "check": "deno check --config test/deno.json src/ test/ check-visual.ts runtime/cli.ts",
     "bundle:mecha-client": "deno bundle --config ../../libraries/mecha/packages/client/deno.json --platform browser --format esm --minify interpreter/vendor/entry.ts -o interpreter/vendor/mecha-client.js",
+    "bundle:lint": "deno bundle --platform deno --format esm src/lint/eslint/index.ts -o dist/lint.mjs",
     "bundle:ses": "curl -fsSL https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js -o interpreter/vendor/ses.umd.min.js",
-    "bundle:js-yaml": "deno bundle --platform browser --format esm --minify interpreter/vendor/entry-js-yaml.ts -o interpreter/vendor/js-yaml.js",
-    "test:browser": "playwright test --config playwright.config.ts"
+    "bundle:js-yaml": "deno bundle --config interpreter/deno.json --platform browser --format esm --minify interpreter/vendor/entry-js-yaml.ts -o interpreter/vendor/js-yaml.js",
+    "test:browser": "pnpm exec playwright test --config playwright.config.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.89.0",
@@ -28,7 +29,6 @@
   "devDependencies": {
     "@playwright/test": "1.59.1",
     "@tanstack/react-router": "^1.121.0",
-    "@types/bun": "^1.2.13",
     "@types/react": "^19.0.0",
     "@typescript-eslint/parser": "^8.31.0",
     "@typescript-eslint/utils": "^8.31.0",

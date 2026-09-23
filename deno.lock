@@ -78,7 +78,6 @@
         "npm:@simplewebauthn/browser@^13.1.0",
         "npm:@simplewebauthn/server@^13.1.1",
         "npm:@tanstack/react-router@^1.121.0",
-        "npm:@types/bun@^1.2.13",
         "npm:@types/react@19",
         "npm:@typescript-eslint/parser@^8.31.0",
         "npm:@typescript-eslint/utils@^8.31.0",

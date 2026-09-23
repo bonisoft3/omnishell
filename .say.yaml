@@ -44,11 +44,11 @@ say:
             use: ./integrate.nu
       browser:
         cmds:
-          - do: bun run test:browser
+          - do: mise exec -- pnpm run test:browser
       # The deno-driven browser suites: the battery's checks over their fixture
       # pages, settle, CLS, the picker and select-change. package.json's test:pw
       # is their one roster, in the browser playwright installed at the version
       # harness.ts imports.
       visual:
         cmds:
-          - do: bun run test:pw
+          - do: pnpm run test:pw

@@ -2,27 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "install",
-      "type": "shell",
-      "command": "mise",
-      "args": [
-        "exec",
-        "--",
-        "bun",
-        "install",
-        "--frozen-lockfile"
-      ],
-      "problemMatcher": [],
-      "group": {
-        "kind": "build"
-      }
-    },
-    {
-      "command": "mise x -- sh",
-      "args": [
-        "-c",
-        "sh -c 'bun install --frozen-lockfile && bun run check'"
-      ],
+      "command": "mise x -- deno check --config test/deno.json src/ test/ check-visual.ts runtime/cli.ts",
       "group": {
         "kind": "build",
         "isDefault": true

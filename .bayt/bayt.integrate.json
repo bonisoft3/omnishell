@@ -141,9 +141,7 @@
           "instrument.ts",
           "runtime/**/*",
           "package.json",
-          "bun.lock",
-          "tsconfig.json",
-          "bunfig.toml"
+          "tsconfig.json"
         ],
         "exclude": []
       },
@@ -172,9 +170,7 @@
               "read-markup.ts",
               "runtime/**/*",
               "package.json",
-              "bun.lock",
-              "tsconfig.json",
-              "bunfig.toml"
+              "tsconfig.json"
             ],
             "exclude": []
           }

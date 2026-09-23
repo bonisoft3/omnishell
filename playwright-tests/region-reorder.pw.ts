@@ -1,4 +1,4 @@
-// Playwright (run: `bun x playwright test region-reorder`): a live region's
+// Playwright (run: `pnpm exec playwright test region-reorder`): a live region's
 // rows keep their state when the region reorders them. This cannot be asserted
 // in a DOM shim — linkedom has no focus, no iframes and no moveBefore, so it
 // would only ever be able to check which method was called, and which method

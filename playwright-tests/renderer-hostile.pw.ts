@@ -1,4 +1,4 @@
-// Playwright (run: `bun x playwright test renderer-hostile`): the renderer's
+// Playwright (run: `pnpm exec playwright test renderer-hostile`): the renderer's
 // safety claims, checked in a real browser rather than a DOM shim. A shim can
 // say no <script> element was created; only a browser can say nothing
 // executed, nothing navigated, and nothing left the page. Those are the claims
