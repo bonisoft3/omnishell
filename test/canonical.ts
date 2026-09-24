@@ -22,12 +22,19 @@ type Candidate = {
   assign?: Record<string, unknown>;
   raise?: string;
 };
+export type StateNode = {
+  initial?: string;
+  on?: Record<string, unknown>;
+  after?: Record<string, unknown>;
+  states?: Record<string, StateNode>;
+};
+
 export type Machine = {
   field: string;
   initial: string;
   context?: Record<string, unknown>;
   on?: Record<string, unknown>;
-  states: Record<string, { on?: Record<string, unknown>; after?: Record<string, unknown> }>;
+  states: Record<string, StateNode>;
 };
 
 const candidates = (value: unknown): Candidate[] => {
@@ -55,23 +62,35 @@ function transition(c: Candidate, opts: { drive: boolean; atRoot: boolean }): Re
 const mapValue = (value: unknown, opts: { drive: boolean; atRoot: boolean }) =>
   candidates(value).map((c) => transition(c, opts));
 
+function mapStateNode(s: StateNode, opts: { drive: boolean }): Record<string, unknown> {
+  const node: Record<string, unknown> = {};
+  if (s.initial !== undefined) node.initial = s.initial;
+  const on: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(s.on ?? {})) {
+    on[key] = mapValue(value, { drive: opts.drive, atRoot: false });
+  }
+  const after: Record<string, unknown> = {};
+  for (const [delay, value] of Object.entries(s.after ?? {})) {
+    if (opts.drive) on[`after:${delay}`] = mapValue(value, { drive: opts.drive, atRoot: false });
+    else after[delay] = mapValue(value, { drive: opts.drive, atRoot: false });
+  }
+  if (Object.keys(on).length > 0) node.on = on;
+  if (Object.keys(after).length > 0) node.after = after;
+  if (s.states !== undefined) {
+    const subStates: Record<string, unknown> = {};
+    for (const [subName, subNode] of Object.entries(s.states)) {
+      subStates[subName] = mapStateNode(subNode, opts);
+    }
+    node.states = subStates;
+  }
+  return node;
+}
+
 export function canonical(machine: Machine, opts: { drive?: boolean } = {}): Record<string, unknown> {
   const drive = opts.drive === true;
   const states: Record<string, unknown> = {};
   for (const [name, s] of Object.entries(machine.states)) {
-    const node: Record<string, unknown> = {};
-    const on: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(s.on ?? {})) {
-      on[key] = mapValue(value, { drive, atRoot: false });
-    }
-    const after: Record<string, unknown> = {};
-    for (const [delay, value] of Object.entries(s.after ?? {})) {
-      if (drive) on[`after:${delay}`] = mapValue(value, { drive, atRoot: false });
-      else after[delay] = mapValue(value, { drive, atRoot: false });
-    }
-    if (Object.keys(on).length > 0) node.on = on;
-    if (Object.keys(after).length > 0) node.after = after;
-    states[name] = node;
+    states[name] = mapStateNode(s, { drive });
   }
   const out: Record<string, unknown> = { id: "machine", initial: machine.initial, states };
   if (machine.context !== undefined) out.context = machine.context;
@@ -86,17 +105,19 @@ export function canonical(machine: Machine, opts: { drive?: boolean } = {}): Rec
 /** The guard names a machine references, for a consumer's provide map. */
 export function guardNames(machine: Machine): string[] {
   const names = new Set<string>();
-  const all = [
-    ...Object.values(machine.on ?? {}),
-    ...Object.values(machine.states).flatMap((s) => [
-      ...Object.values(s.on ?? {}),
-      ...Object.values(s.after ?? {}),
-    ]),
-  ];
-  for (const v of all) {
+  const collect = (s: StateNode) => {
+    for (const v of [...Object.values(s.on ?? {}), ...Object.values(s.after ?? {})]) {
+      for (const c of candidates(v)) {
+        if (c.guard !== undefined) names.add(typeof c.guard === "string" ? c.guard : c.guard.type);
+      }
+    }
+    for (const sub of Object.values(s.states ?? {})) collect(sub);
+  };
+  for (const v of Object.values(machine.on ?? {})) {
     for (const c of candidates(v)) {
       if (c.guard !== undefined) names.add(typeof c.guard === "string" ? c.guard : c.guard.type);
     }
   }
+  for (const s of Object.values(machine.states)) collect(s);
   return [...names];
 }

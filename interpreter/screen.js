@@ -1944,6 +1944,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // Assigned by the machine block below when the machine declares "refused";
     // a refusal is then the machine's onError before it is anything else.
     const machineRefused = [];
+    const machineAck = [];
 
     // A refusal is an event, not a callback. A write settles twice — accepted
     // optimistically, then confirmed or withdrawn — so the withdrawal cannot
@@ -1976,15 +1977,15 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     };
     const deliver = (entity, id, err) => {
       console.error(err);
-      // The store withdrew the write, so the chain-local machine view holding
-      // it is withdrawn with it — the refusal transition concludes from what
-      // the store still holds, not from the state that was just rolled back.
-      region._prontoMachineRow = undefined;
       const fired = refusal(entity, id, err);
       if (machineRefused.length > 0) {
         for (const hear of machineRefused) hear(fired);
         return;
       }
+      // The store withdrew the write, so the chain-local machine view holding
+      // it is withdrawn with it — the refusal transition concludes from what
+      // the store still holds, not from the state that was just rolled back.
+      region._prontoMachineRow = undefined;
       if (rowsReduce) {
         step(rowsReduce, fired, 0).catch((e) => {
           console.error(e);
@@ -2068,6 +2069,48 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       return true;
     };
 
+    const applyEffects = async (effects, deliver) => {
+      for (const eff of effects) {
+        const entity = eff.entity ?? region.dataset.live;
+        const id = eff.values?.id;
+        try {
+          let refused = false;
+          const wrappedRefused = (err) => {
+            refused = true;
+            deliver(entity, id, err);
+          };
+          if (eff.op === "upsert") {
+            const upsertFn = store.upsertBy ?? store.upsert;
+            if (typeof upsertFn !== "function") throw new Error(`store has no upsertBy or upsert`);
+            await upsertFn.call(store, entity, eff.values, wrappedRefused);
+          } else if (eff.op === "create") {
+            const row = eff.values?.id === undefined ? { id: mintUuid(), ...eff.values } : eff.values;
+            await store.add(entity, [row], wrappedRefused);
+          } else if (eff.op === "update") {
+            await store.patch(entity, [{ key: id, changes: eff.values }], wrappedRefused);
+          } else if (eff.op === "delete") {
+            if (eff.filter !== undefined) {
+              await store.dropWhere(entity, eff.filter, wrappedRefused);
+            } else {
+              await store.drop(entity, [id], wrappedRefused);
+            }
+          } else {
+            throw new Error(`unknown effect op: ${eff.op}`);
+          }
+          if (refused) return false;
+          if (machineAck.length > 0) {
+            const ackEvent = { type: "sync_ack", entity, token: eff.token };
+            for (const hear of machineAck) hear(ackEvent);
+          }
+        } catch (err) {
+          if (err?.name !== "NonRetriableError") throw err;
+          deliver(entity, id, err);
+          return false;
+        }
+      }
+      return true;
+    };
+
     const step = async (reduce, event, depth) => {
       const result = reduce({ items: getRows(), rows: await worldOf() }, event);
       // A `then` that is callable is a promise, not a command: an async reduce
@@ -2076,6 +2119,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         throw new Error(`handler for "${event.type}" returned a promise; a reduce returns its updates`);
       }
       if (!await applyUpdates(result?.updates ?? [], deliver)) return;
+      if (result?.effects && result.effects.length > 0) {
+        if (!await applyEffects(result.effects, deliver)) return;
+      }
       const next = result?.then;
       if (!next?.type) return;
       // The terminal owns the depth. A cascade with no owner has no end, and
@@ -2204,17 +2250,64 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         return v;
       };
 
+      const resolveStateNode = (path) => {
+        if (!path) return undefined;
+        if (machine.states[path]) return machine.states[path];
+        const parts = path.split(".");
+        let curr = machine.states[parts[0]];
+        for (let i = 1; i < parts.length && curr; i++) {
+          curr = curr.states?.[parts[i]];
+        }
+        return curr;
+      };
+
+      const resolveTarget = (target, currentState) => {
+        if (target === undefined) return undefined;
+        let resolved = target;
+        if (!target.includes(".") && currentState?.includes(".")) {
+          const parent = currentState.slice(0, currentState.lastIndexOf("."));
+          const parentNode = resolveStateNode(parent);
+          if (parentNode?.states?.[target]) {
+            resolved = `${parent}.${target}`;
+          }
+        }
+        let node = resolveStateNode(resolved);
+        while (node?.initial && node?.states?.[node.initial]) {
+          resolved = `${resolved}.${node.initial}`;
+          node = node.states[node.initial];
+        }
+        return resolved;
+      };
+
       const candidatesFor = (stateName, event) => {
-        const stateOn = machine.states[stateName]?.on ?? {};
-        const rootOn = machine.on ?? {};
         const out = [];
         const keys = event.from !== undefined ? [`${event.type}@${event.from}`, event.type] : [event.type];
+        const chain = [];
+        if (stateName) {
+          chain.push(stateName);
+          let s = stateName;
+          while (s.includes(".")) {
+            s = s.slice(0, s.lastIndexOf("."));
+            chain.push(s);
+          }
+        }
         for (const key of keys) {
-          const own = stateOn[key];
-          const v = own ?? rootOn[key];
-          if (v === undefined) continue;
-          const origin = own !== undefined ? stateName : "*";
-          machineCandidates(v).forEach((c, index) => out.push({ c, key, index, origin }));
+          let foundInState = false;
+          for (const st of chain) {
+            const node = resolveStateNode(st);
+            const v = node?.on?.[key];
+            if (v !== undefined) {
+              machineCandidates(v).forEach((c, index) => out.push({ c, key, index, origin: st }));
+              foundInState = true;
+              break;
+            }
+          }
+          if (!foundInState) {
+            const v = machine.on?.[key];
+            if (v !== undefined) {
+              machineCandidates(v).forEach((c, index) => out.push({ c, key, index, origin: "*" }));
+            }
+          }
         }
         return out;
       };
@@ -2249,6 +2342,60 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           if (value === NO_FIELD) return { updates: [] };
           patch[col] = value;
         }
+
+        const effectiveCtx = { ...row, ...patch };
+        const effects = [];
+        const rawEffects = Array.isArray(chosen.c.effect)
+          ? chosen.c.effect
+          : (chosen.c.effect ? [chosen.c.effect] : []);
+        for (const eff of rawEffects) {
+          const values = {};
+          for (const [k, v] of Object.entries(eff.values ?? {})) {
+            let val;
+            if (typeof v === "string") {
+              if (v === "null" || v === "{null}") val = null;
+              else if (v === "{now}") val = now();
+              else if (v.startsWith("{") && v.endsWith("}")) {
+                const expr = v.slice(1, -1);
+                val = expr in effectiveCtx ? effectiveCtx[expr] : lookup(expr, effectiveCtx);
+              } else if (PLACEHOLDERS.test(v)) {
+                val = resolveHidden(v, effectiveCtx);
+              } else {
+                val = leafVal(v, world, event);
+              }
+            } else {
+              val = leafVal(v, world, event);
+            }
+            if (val === NO_FIELD) return { updates: [] };
+            values[k] = val;
+          }
+          let token = eff.token;
+          if (typeof token === "string") {
+            if (token.startsWith("{") && token.endsWith("}")) {
+              const expr = token.slice(1, -1);
+              token = expr in effectiveCtx ? effectiveCtx[expr] : lookup(expr, effectiveCtx);
+            } else if (PLACEHOLDERS.test(token)) {
+              token = interpolate(token, effectiveCtx);
+            }
+          }
+          let filter = eff.filter;
+          if (typeof filter === "string") {
+            filter = interpolateFilter(filter, effectiveCtx);
+          }
+          effects.push({
+            level: eff.level ?? 2,
+            op: eff.op,
+            entity: eff.entity ?? region.dataset.live,
+            token,
+            filter,
+            values,
+          });
+        }
+
+        const targetState = chosen.c.target !== undefined
+          ? resolveTarget(chosen.c.target, row[machine.field])
+          : undefined;
+
         // Debug seam, like __prontoViews: which arrow fired, where it landed,
         // and the region that fired it. Nothing is pushed unless something
         // armed the array.
@@ -2261,13 +2408,13 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           state: chosen.origin,
           key: chosen.key,
           index: chosen.index,
-          to: chosen.c.target ??
+          to: targetState ??
             (Object.hasOwn(patch, machine.field) ? patch[machine.field] : row[machine.field]),
         });
         const out = { updates: [] };
-        if (chosen.c.target !== undefined || Object.keys(patch).length > 0) {
+        if (targetState !== undefined || Object.keys(patch).length > 0) {
           const stated = { ...(row === region._prontoFallbackRow ? row : { id: row.id, [machine.field]: row[machine.field] }), ...patch };
-          if (chosen.c.target !== undefined) stated[machine.field] = chosen.c.target;
+          if (targetState !== undefined) stated[machine.field] = targetState;
           out.updates = [{ op: "put", id: stated.id, row: stated }];
           // The chain's own view of the row: a raise delivered after this
           // write must conclude from it, not from the slot's last refresh —
@@ -2275,7 +2422,8 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           region._prontoMachineRow = { ...row, ...stated };
         }
         // Entered even on a self-target: re-entry is what re-arms `after`.
-        if (chosen.c.target !== undefined) entered = chosen.c.target;
+        if (targetState !== undefined) entered = targetState;
+        if (effects.length > 0) out.effects = effects;
         // raise is the reduce's then: under XState's name — delivered after
         // the writes, depth-bounded by the terminal.
         if (chosen.c.raise !== undefined) out.then = { type: chosen.c.raise };
@@ -2307,7 +2455,8 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         region[mine("afterGen")] = (region[mine("afterGen")] ?? 0) + 1;
         const gen = region[mine("afterGen")];
         region[mine("armed")] = stateName;
-        const spec = machine.states[stateName]?.after;
+        const node = resolveStateNode(stateName);
+        const spec = node?.after ?? machine.states[stateName]?.after;
         if (spec === undefined) return;
         for (const [key, t] of Object.entries(spec)) {
           const row = region._prontoMachineRow ?? getRows()[0];
@@ -2335,7 +2484,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             table: region.dataset.live,
             field: machine.field,
             state: stateName,
-            periodic: list.length > 0 && list.every(({ c }) => c.target === stateName && c.raise === undefined),
+            periodic: list.length > 0 && list.every(({ c }) => resolveTarget(c.target, stateName) === stateName && c.raise === undefined),
           };
           (async () => {
             await rest(ms / TEMPO, label);
@@ -2348,10 +2497,11 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         }
       };
 
+      const SYNTHESIZED_EVENTS = new Set(["refused", "sync_ack"]);
       const shape = machineShape(machine);
       for (const type of shape.handled) {
         // Synthesized by the terminal, never dispatched by the DOM.
-        if (type === "refused") continue;
+        if (SYNTHESIZED_EVENTS.has(type)) continue;
         const once = mine(`on:${type}`);
         if (region[once]) continue;
         region[once] = true;
@@ -2409,6 +2559,14 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         // form's refusal must route here rather than to the .store-error
         // default.
         region._prontoRefusal = deliver;
+      }
+      if (shape.handled.includes("sync_ack")) {
+        machineAck.push((fired) => {
+          runMachine(machineReduce, fired).catch((err) => {
+            console.error(err);
+            setState("network-error");
+          });
+        });
       }
       // A state change the machine did not make — a refusal's rollback among
       // them — re-arms on the refresh it causes; the entered flag covers the
@@ -2583,7 +2741,13 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       // union of what they each said, which is the row they all then write to.
       fallbackRow = { ...eqs };
       for (const chart of mounted) {
-        fallbackRow = { ...(chart.context ?? {}), ...fallbackRow, [chart.field]: chart.initial };
+        let initialVal = chart.initial;
+        let node = chart.states?.[initialVal];
+        while (node?.initial && node?.states?.[node.initial]) {
+          initialVal = `${initialVal}.${node.initial}`;
+          node = node.states[node.initial];
+        }
+        fallbackRow = { ...(chart.context ?? {}), ...fallbackRow, [chart.field]: initialVal };
       }
     }
     // Read back by the machine reduce (wired per refresh, outside this scope):

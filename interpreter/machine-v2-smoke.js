@@ -74,15 +74,19 @@ function boot(html = SCREEN_HTML, rows = []) {
   );
   globalThis.document = document;
   const puts = [];
+  const upserts = [];
+  const creates = [];
   const subs = new Set();
-  const knobs = { refuseNext: false };
-  const store = batched({
+  const knobs = { refuseNext: false, refuseUpsert: false, slowUpsertMs: 0 };
+  const baseStore = {
     query: async () => rows,
     subscribe: (_table, cb) => {
       subs.add(cb);
       return () => subs.delete(cb);
     },
-    create: async () => {},
+    create: async (_table, row) => {
+      creates.push(row);
+    },
     update: async () => {},
     put: async (_table, row) => {
       if (knobs.refuseNext) {
@@ -98,7 +102,24 @@ function boot(html = SCREEN_HTML, rows = []) {
       for (const cb of subs) setTimeout(cb, 0);
     },
     remove: async () => {},
-  });
+    upsertBy: async (table, values, onRefused) => {
+      upserts.push({ table, ...values });
+      if (knobs.refuseUpsert) {
+        knobs.refuseUpsert = false;
+        const err = new Error("409 duplicate");
+        err.name = "NonRetriableError";
+        if (onRefused) onRefused(err);
+        else throw err;
+        return;
+      }
+      if (knobs.slowUpsertMs > 0) {
+        const ms = knobs.slowUpsertMs;
+        knobs.slowUpsertMs = 0;
+        await tick(ms);
+      }
+    },
+  };
+  const store = batched(baseStore);
   globalThis.fetch = (url) => {
     const u = String(url);
     if (u.endsWith(".html")) return Promise.resolve(new Response(html));
@@ -107,7 +128,7 @@ function boot(html = SCREEN_HTML, rows = []) {
     if (mod) return Promise.resolve(new Response(MODULES[mod]));
     return Promise.reject(new Error(`unexpected fetch ${u}`));
   };
-  return { document, Event, store, rows, puts, knobs };
+  return { document, Event, store, rows, puts, upserts, creates, knobs };
 }
 
 const assert = (cond, msg) => {
@@ -323,5 +344,212 @@ Deno.test({
     await tick(30);
     assert(rows[0].phase === "done" && rows[0].n === 3,
       `under's params.limit decided the guard, got ${JSON.stringify(rows[0])}`);
+  },
+});
+
+MODULES["normalizeInput.js"] = "const f = (state, event) => String(event.value ?? '').trim().toLowerCase();\nf;";
+
+const FAVORITE_MACHINE = {
+  field: "phase",
+  initial: "unfavorited",
+  context: { count: 0, favorited: false, token: "" },
+  states: {
+    unfavorited: {
+      on: {
+        click: {
+          target: "favoriting",
+          assign: { count: 1, favorited: true, token: "tok-fav" },
+          effect: {
+            level: 2,
+            op: "upsert",
+            entity: "favorite",
+            token: "{token}",
+            values: { article_id: "{id}", deleted_at: null },
+          },
+        },
+      },
+    },
+    favoriting: {
+      initial: "inflight",
+      on: {
+        sync_ack: { target: "favorited" },
+        refused: { target: "unfavorited", assign: { count: 0, favorited: false } },
+      },
+      states: {
+        inflight: {
+          after: { 50: "delayed" },
+        },
+        delayed: {},
+      },
+    },
+    favorited: {
+      on: {
+        click: {
+          target: "unfavorited",
+          assign: { count: 0, favorited: false },
+          effect: {
+            level: 2,
+            op: "delete",
+            entity: "favorite",
+            filter: "article_id=eq.{id}",
+          },
+        },
+      },
+    },
+  },
+};
+
+const FAVORITE_HTML = `<section class="screen" data-screen="fav">
+  <button id="fav" data-live="favorite" data-filter="id=eq.art-1"
+          data-text="{count}" data-phase="{phase}"
+          data-machine='${JSON.stringify(FAVORITE_MACHINE)}'>0</button>
+</section>`;
+
+Deno.test({
+  name: "declarative transition effects: upsertBy executes into store, sync_ack auto-dispatches and transitions machine",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const { document, Event, store, upserts } = boot(FAVORITE_HTML);
+    const { interpretScreen } = await import("./screen.js");
+    const mount = document.getElementById("shell");
+    const route = { ...ROUTE, files: { ...ROUTE.files, handlers: Object.keys(MODULES).map((m) => `shell/handlers/${m}`) } };
+    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {});
+    const btn = mount.querySelector("#fav");
+
+    assert(btn.getAttribute("data-phase") === "unfavorited", "starts unfavorited");
+    btn.dispatchEvent(new Event("click"));
+    await tick(30);
+
+    assert(upserts.length === 1, `upsertBy was called, got ${upserts.length} calls`);
+    assert(upserts[0].table === "favorite" && upserts[0].article_id === "art-1" && upserts[0].deleted_at === null,
+      `effect values interpolated correctly: ${JSON.stringify(upserts[0])}`);
+    assert(btn.getAttribute("data-phase") === "favorited",
+      `sync_ack transitioned machine to favorited, got "${btn.getAttribute("data-phase")}"`);
+    assert(btn.textContent === "1", `count reflects assign, got "${btn.textContent}"`);
+  },
+});
+
+Deno.test({
+  name: "nested states and after timeout: delayed substate displays degraded state while parent catches late sync_ack",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const { document, Event, store, knobs } = boot(FAVORITE_HTML);
+    knobs.slowUpsertMs = 80; // Longer than after: 50ms
+    const { interpretScreen } = await import("./screen.js");
+    const mount = document.getElementById("shell");
+    const route = { ...ROUTE, files: { ...ROUTE.files, handlers: Object.keys(MODULES).map((m) => `shell/handlers/${m}`) } };
+    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {});
+    const btn = mount.querySelector("#fav");
+
+    btn.dispatchEvent(new Event("click"));
+    await tick(15);
+    assert(btn.getAttribute("data-phase") === "favoriting.inflight",
+      `entered initial compound substate, got "${btn.getAttribute("data-phase")}"`);
+
+    // Wait past the 50ms delay for inflight -> delayed transition
+    await tick(50);
+    assert(btn.getAttribute("data-phase") === "favoriting.delayed",
+      `timed out to delayed substate for degraded UI, got "${btn.getAttribute("data-phase")}"`);
+
+    // Wait for the slow upsert to resolve (80ms) and dispatch late sync_ack
+    await tick(40);
+    assert(btn.getAttribute("data-phase") === "favorited",
+      `parent favoriting state cleanly caught late sync_ack while in delayed, got "${btn.getAttribute("data-phase")}"`);
+  },
+});
+
+Deno.test({
+  name: "late refusal: parent catches refused from inflight or delayed substate and rolls back cleanly",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const { document, Event, store, knobs } = boot(FAVORITE_HTML);
+    knobs.refuseUpsert = true;
+    const { interpretScreen } = await import("./screen.js");
+    const mount = document.getElementById("shell");
+    const route = { ...ROUTE, files: { ...ROUTE.files, handlers: Object.keys(MODULES).map((m) => `shell/handlers/${m}`) } };
+    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {});
+    const btn = mount.querySelector("#fav");
+
+    btn.dispatchEvent(new Event("click"));
+    await tick(30);
+
+    assert(btn.getAttribute("data-phase") === "unfavorited",
+      `refusal caught by parent and rolled back to unfavorited, got "${btn.getAttribute("data-phase")}"`);
+    assert(btn.textContent === "0", `count rolled back to 0, got "${btn.textContent}"`);
+  },
+});
+
+Deno.test({
+  name: "inspectable side effects: machine effect is pure data descriptor, inspectable without execution",
+  fn() {
+    const eff = FAVORITE_MACHINE.states.unfavorited.on.click.effect;
+    assert(eff !== undefined && typeof eff === "object", "effect is an object");
+    assert(eff.level === 2, "effect declares Level 2 (compensable mutation)");
+    assert(eff.op === "upsert", "effect op is upsert");
+    assert(eff.entity === "favorite", "effect entity is favorite");
+    assert(eff.token === "{token}", "effect token is {token}");
+    assert(eff.values.article_id === "{id}" && eff.values.deleted_at === null, "values are pure data");
+    // Verify it is JSON-serializable (no closures, no DOM nodes, no side channels)
+    const serialized = JSON.stringify(eff);
+    assert(JSON.parse(serialized).op === "upsert", "effect survives JSON round-trip");
+  },
+});
+
+Deno.test({
+  name: "pure reduction form normalization: transforms input value on submit without race conditions",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const NORMALIZE_MACHINE = {
+      field: "status",
+      initial: "idle",
+      context: { email: "" },
+      states: {
+        idle: {
+          on: {
+            click: {
+              target: "done",
+              assign: { email: "normalizeInput" },
+              effect: {
+                op: "create",
+                entity: "profile",
+                values: { email: "{email}" },
+              },
+            },
+          },
+        },
+        done: {},
+      },
+    };
+    const NORMALIZE_HTML = `<section class="screen" data-screen="norm">
+      <button id="norm-btn" data-live="profile" data-filter="id=eq.u1"
+              data-status="{status}"
+              data-machine='${JSON.stringify(NORMALIZE_MACHINE)}'>Save</button>
+    </section>`;
+
+    const { document, Event, store, creates } = boot(NORMALIZE_HTML);
+    const { interpretScreen } = await import("./screen.js");
+    const mount = document.getElementById("shell");
+    const route = { ...ROUTE, files: { ...ROUTE.files, handlers: Object.keys(MODULES).map((m) => `shell/handlers/${m}`) } };
+    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {});
+    const btn = mount.querySelector("#norm-btn");
+
+    const clickEvent = new Event("click");
+    // Control / input value attached to event at gesture time
+    btn.value = "   Alice@Example.COM   ";
+    btn.dispatchEvent(clickEvent);
+    await tick(30);
+
+    assert(btn.getAttribute("data-status") === "done", "status is done");
+    assert(creates.length === 1, `created 1 row, got ${creates.length}`);
+    assert(creates[0].email === "alice@example.com",
+      `email was normalized synchronously at gesture time: "${creates[0].email}"`);
   },
 });

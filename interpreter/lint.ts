@@ -792,8 +792,10 @@ export function unwitnessedSlot(filter: string | undefined, e: Entity): string |
 // the authority (cue vet runs at generate) — this mirror is what lets the
 // rule report structure findings from the same pass that checks references,
 // unit-testable with no cue spawn.
-const TRANSITION_KEYS = new Set(["guard", "target", "assign", "raise"]);
+const TRANSITION_KEYS = new Set(["guard", "target", "assign", "effect", "raise"]);
 const REF_KEYS = new Set(["type", "params"]);
+const EFFECT_KEYS = new Set(["level", "op", "entity", "token", "filter", "values"]);
+const EFFECT_OPS = new Set(["create", "update", "delete", "upsert"]);
 
 /** The reason an object in a value position is not a well-formed {type,
  * params} reference (XState's spelling), or null. Strings and literals are not this rule's —
@@ -813,13 +815,33 @@ const badRef = (r: unknown): string | null => {
   return null;
 };
 
+type StateNode = {
+  initial?: string;
+  on?: Record<string, unknown>;
+  after?: Record<string, unknown>;
+  states?: Record<string, StateNode>;
+};
+
 type Machine = {
   field: string;
   initial: string;
   context?: Record<string, unknown>;
   on?: Record<string, unknown>;
-  states: Record<string, { on?: Record<string, unknown>; after?: Record<string, unknown> }>;
+  states: Record<string, StateNode>;
 };
+
+function collectValues(state: StateNode): unknown[] {
+  const vals: unknown[] = [
+    ...Object.values(state.on ?? {}),
+    ...Object.values(state.after ?? {}),
+  ];
+  if (state.states) {
+    for (const sub of Object.values(state.states)) {
+      vals.push(...collectValues(sub));
+    }
+  }
+  return vals;
+}
 
 /** Machine lint: the reason a data-machine's leaves or cascade are unsound,
  * or null. References (guards, non-numeric after keys) must name modules in
@@ -829,10 +851,7 @@ type Machine = {
 export function machineLint(machine: Machine, available: Set<string>): string | null {
   const values: unknown[] = [
     ...Object.values(machine.on ?? {}),
-    ...Object.values(machine.states).flatMap((s) => [
-      ...Object.values(s.on ?? {}),
-      ...Object.values(s.after ?? {}),
-    ]),
+    ...Object.values(machine.states).flatMap(collectValues),
   ];
   for (const v of values) {
     for (const c of machineCandidates(v)) {
@@ -841,10 +860,28 @@ export function machineLint(machine: Machine, available: Set<string>): string | 
       if (unknown.length > 0) {
         return `transition carries ${unknown.map((k) => `"${k}"`).join(", ")} — outside the #Machine subset`;
       }
-      const cand = c as { guard?: unknown; assign?: Record<string, unknown> };
+      const cand = c as { guard?: unknown; assign?: Record<string, unknown>; effect?: unknown };
       for (const r of [cand.guard, ...Object.values(cand.assign ?? {})]) {
         const why = badRef(r);
         if (why !== null) return why;
+      }
+      if (cand.effect !== undefined) {
+        const effects = Array.isArray(cand.effect) ? cand.effect : [cand.effect];
+        for (const eff of effects) {
+          if (typeof eff !== "object" || eff === null) return `effect ${JSON.stringify(eff)} is not an object`;
+          const effUnknown = Object.keys(eff).filter((k) => !EFFECT_KEYS.has(k));
+          if (effUnknown.length > 0) {
+            return `effect carries ${effUnknown.map((k) => `"${k}"`).join(", ")} — outside the #Effect subset`;
+          }
+          const e = eff as { op?: unknown; values?: Record<string, unknown> };
+          if (typeof e.op !== "string" || !EFFECT_OPS.has(e.op)) {
+            return `effect op ${JSON.stringify(e.op)} is not in ${[...EFFECT_OPS].join(" | ")}`;
+          }
+          for (const r of Object.values(e.values ?? {})) {
+            const why = badRef(r);
+            if (why !== null) return why;
+          }
+        }
       }
     }
   }
@@ -884,10 +921,7 @@ export function machineWrites(machine: Machine, emptyRow?: string): Write[] {
   for (const [k, v] of Object.entries(machine.context ?? {})) push(k, v);
   const values: unknown[] = [
     ...Object.values(machine.on ?? {}),
-    ...Object.values(machine.states).flatMap((s) => [
-      ...Object.values(s.on ?? {}),
-      ...Object.values(s.after ?? {}),
-    ]),
+    ...Object.values(machine.states).flatMap(collectValues),
   ];
   // The state IS a column: initial: seeds it and every target restates it, so
   // a machine whose arrows spell it one way and whose assigns spell it another

@@ -233,13 +233,21 @@ export function machineShape(machine) {
         else if (v !== null && typeof v === "object" && !RESERVED_LEAVES.has(v.type)) refs.add(v.type);
         else if (v !== null && typeof v === "object" && POINTER_FIELDS.has(v.params?.field)) pointer = true;
       }
+      const rawEffects = Array.isArray(c.effect) ? c.effect : (c.effect ? [c.effect] : []);
+      for (const eff of rawEffects) {
+        for (const v of Object.values(eff.values ?? {})) {
+          if (typeof v === "string") assignStrings.add(v);
+          else if (v !== null && typeof v === "object" && !RESERVED_LEAVES.has(v.type)) refs.add(v.type);
+          else if (v !== null && typeof v === "object" && POINTER_FIELDS.has(v.params?.field)) pointer = true;
+        }
+      }
     });
   };
   for (const [key, value] of Object.entries(machine.on ?? {})) {
     handled.add(key.split("@")[0]);
     walk("*", key, value);
   }
-  for (const [name, s] of Object.entries(machine.states)) {
+  const walkState = (name, s) => {
     for (const [key, value] of Object.entries(s.on ?? {})) {
       handled.add(key.split("@")[0]);
       walk(name, key, value);
@@ -248,6 +256,14 @@ export function machineShape(machine) {
       if (!/^\d+$/.test(delay)) refs.add(delay);
       walk(name, `after:${delay}`, value);
     }
+    if (s.states) {
+      for (const [subName, subState] of Object.entries(s.states)) {
+        walkState(`${name}.${subName}`, subState);
+      }
+    }
+  };
+  for (const [name, s] of Object.entries(machine.states)) {
+    walkState(name, s);
   }
   return {
     refs: [...refs],

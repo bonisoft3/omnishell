@@ -106,22 +106,25 @@ import (
 				}
 			}
 		}
-		states: {for s in P.options {
-			(s.name): on: {for o in P.options if o.name != s.name {
-				("click@\(P.key)-trigger-\(o.name)"): [
-					if P.guard != _|_ {
-						[{
-							guard:  P.guard
-							target: o.name
-							if P._hasAssign[o.name] {assign: P._assignOf[o.name]}
-						}]
-					},
-					{
+		on: {for o in P.options {
+			("click@\(P.key)-trigger-\(o.name)"): [
+				if P.guard != _|_ {
+					[{
+						guard:  P.guard
 						target: o.name
 						if P._hasAssign[o.name] {assign: P._assignOf[o.name]}
-					},
-				][0]
-			}}
+					}]
+				},
+				{
+					target: o.name
+					if P._hasAssign[o.name] {assign: P._assignOf[o.name]}
+				},
+			][0]
+		}}
+		states: {for s in P.options {
+			(s.name): on: {
+				("click@\(P.key)-trigger-\(s.name)"): []
+			}
 		}}
 	}
 
@@ -137,7 +140,7 @@ import (
 		_options: strings.Join([for o in P.options {
 			let _optText = [if o.msg != _|_ {" data-text=\"{\(o.msg)}\""}, ""][0]
 			"""
-				      <li><button type="button" role="option" id="\(P.key)-trigger-\(o.name)" class="picker-option"\(_optText)
+				      <li><button type="button" role="option" value="\(o.name)" id="\(P.key)-trigger-\(o.name)" class="picker-option"\(_optText)
 				              aria-selected="{sel_\(o.name)}"
 				              commandfor="\(P._pop)" command="hide-popover">\(o.item)</button></li>
 				"""
@@ -168,7 +171,7 @@ import (
 			let _btnText = [if o.note != _|_ {""}, _optText][0]
 			let _line = [if o.note != _|_ {"<span\(_optText)>\(o.item)</span> <small class=\"picker-note\">\(o.note)</small>"}, o.item][0]
 			(o.name): """
-				      <li\(_grp)><button type="button" role="option" id="\(P.key)-trigger-\(o.name)" data-opt="\(o.name)"\(_btnText)
+				      <li\(_grp)><button type="button" role="option" value="\(o.name)" id="\(P.key)-trigger-\(o.name)" data-opt="\(o.name)"\(_btnText)
 				              commandfor="\(P._pop)" command="hide-popover">\(_line)</button></li>
 				"""
 		}}

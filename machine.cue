@@ -49,21 +49,28 @@ package terminal
 	// Literal initial values for the row's other columns; with `initial` this
 	// makes the machine the complete statement of the initial world. Never the
 	// machine's own field — one fact, one writer.
-	context?: [string]: string | number | bool
+	context?: [string]: string | number | bool | null
 	// Root-level transitions, applied in every state unless the state declares
 	// the same event key.
 	on?: M.#On
 	states: [Name=string]: close({
-		on?: M.#On
+		initial?: string
+		on?:      M.#On
 		// The relocated invoke: key is milliseconds (digits) or the name of a
 		// Jessie module returning them; armed on entry, canceled on exit,
 		// re-armed by a self-target.
 		after?: [string]: M.#TransitionValue
+		states?: [SubName=string]: close({
+			initial?: string
+			on?:      M.#On
+			after?: [string]: M.#TransitionValue
+		})
 	})
 
+	#TargetState: string
 	// A bare state name is the v1 shorthand for {target}; an array is XState's
 	// ordered candidate list — first guard-pass wins, every arrow drawn.
-	#TransitionValue: or([for k, _ in M.states {k}]) | M.#Transition | [...M.#Transition]
+	#TransitionValue: M.#TargetState | M.#Transition | [...M.#Transition]
 	// A parameterized reference in XState's own spelling: the module is
 	// called (state, event, params), params are literals only — thresholds
 	// live in the chart as data, so one module serves every instance a
@@ -90,14 +97,26 @@ package terminal
 		type: "event"
 		params: close({field: "value" | "checked" | "valueAsNumber" | "key" | "pointerX" | "pointerY"})
 	})
+	// Declarative mutation effect executed by the terminal runtime into store.
+	// Closed and pure: never arbitrary code, never touches DOM directly.
+	#Effect: close({
+		level?:  0 | 1 | 2 | 3 | 4
+		op:      "create" | "update" | "delete" | "upsert"
+		entity?: string
+		token?:  string
+		filter?: string
+		values?: [string]: null | string | number | bool | M.#EventRef | M.#Ref
+	})
 	#Transition: close({
 		guard?:  string | M.#Ref // Jessie module; (state, event, params?) => boolean
-		target?: or([for k, _ in M.states {k}])
+		target?: M.#TargetState
 		// Values for the machine's own row's columns: a literal, a Jessie
 		// module name computing one, or a parameterized #Ref. All assigns read
 		// the pre-transition snapshot and merge with the field write into ONE
 		// stated row.
-		assign?: [string]: string | number | bool | M.#EventRef | M.#Ref
+		assign?: [string]: null | string | number | bool | M.#EventRef | M.#Ref
+		// Declarative effect executed by the terminal runtime into store.
+		effect?: M.#Effect | [...M.#Effect]
 		// A self-addressed event, XState's raise ≡ the reduce's then: literal
 		// type, delivered by the terminal after the writes.
 		raise?: string

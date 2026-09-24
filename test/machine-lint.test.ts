@@ -133,3 +133,69 @@ describe("a chart says whether it wants the pointer measured", () => {
     }
   })
 })
+
+describe("machineLint effects and nested states", () => {
+  const nestedMachine = {
+    field: "phase",
+    initial: "unfavorited",
+    states: {
+      unfavorited: {
+        on: {
+          click: {
+            target: "favoriting",
+            effect: {
+              level: 2,
+              op: "upsert",
+              entity: "favorite",
+              token: "tok-1",
+              values: { article_id: "a1", custom: { type: "myHandler", params: { foo: "bar" } } },
+            },
+          },
+        },
+      },
+      favoriting: {
+        initial: "inflight",
+        on: {
+          sync_ack: { target: "favorited" },
+          refused: { target: "unfavorited" },
+        },
+        states: {
+          inflight: {
+            after: { 50: "delayed" },
+          },
+          delayed: {},
+        },
+      },
+      favorited: {},
+    },
+  }
+
+  it("passes a machine with nested states and valid effect", () => {
+    expect(machineLint(nestedMachine, new Set(["myHandler"]))).toBe(null)
+  })
+
+  it("machineShape extracts handler refs from effect values and walks nested states", () => {
+    const shape = machineShape(nestedMachine)
+    expect(shape.refs).toContain("myHandler")
+    expect(shape.handled).toContain("click")
+    expect(shape.handled).toContain("sync_ack")
+    expect(shape.handled).toContain("refused")
+    expect(shape.arrows.some((a) => a.state === "favoriting.inflight")).toBe(true)
+  })
+
+  it("reports missing handler in effect values", () => {
+    expect(machineLint(nestedMachine, new Set())).toContain('"myHandler" name no module')
+  })
+
+  it("reports an unknown key in an effect", () => {
+    const bad = JSON.parse(JSON.stringify(nestedMachine))
+    bad.states.unfavorited.on.click.effect.bogus = "value"
+    expect(machineLint(bad, new Set(["myHandler"]))).toContain('"bogus"')
+  })
+
+  it("reports an invalid effect op", () => {
+    const bad = JSON.parse(JSON.stringify(nestedMachine))
+    bad.states.unfavorited.on.click.effect.op = "not_an_op"
+    expect(machineLint(bad, new Set(["myHandler"]))).toContain('effect op "not_an_op"')
+  })
+})

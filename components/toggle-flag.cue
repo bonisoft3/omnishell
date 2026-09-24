@@ -1,24 +1,11 @@
-// omnishell--toggle-flag: the pair-of-forms flag — a probe region carrying
-// whether the reader's row exists, and one form per direction. Forms, never a
-// machine: the flag's state is a row whose retraction may be a server-minted
-// timestamp ({now}), and the clock is an effect the terminal owns.
-//
-// Two retraction algebras, chosen by `retract`:
-//   - "stamp": both directions are upserts on the reader's natural key, the
-//     stamp column carrying null / {now}; the probe filters the stamp null.
-//   - "delete": setting creates the row, retracting is a filter-scoped delete
-//     (a bare sibling delete would address the enclosing row's id and remove
-//     nothing; RLS narrows the filter to the reader's own row).
-//
-// The markup carries no wrapper tag: an arm's visibility is the probe's
-// :empty reaching it through a sibling combinator, and a wrapper would put
-// the probe out of the arms' selector reach — the probe and both forms land
-// as siblings of whatever surrounds the instance.
+// omnishell--toggle-flag: a unified statechart toggle flag powered by
+// #Machine and #Effect. Instead of two forms and a probe span, a single
+// button runs a 2-state toggle machine that executes declarative mutation
+// effects (upsert or create/delete) directly into the store.
 package components
 
 import (
-	"list"
-	"strings"
+	terminal "github.com/bonisoft3/omnishell:terminal"
 )
 
 #ToggleFlag: F={
@@ -26,12 +13,6 @@ import (
 	entity: string
 	on:     string
 	value:  string
-
-	probeClass: string
-	// Per direction: the form's declared id, its visibility class (styled off
-	// the probe's :empty), and the words both refusal paragraphs carry.
-	set: {id: string, class: string, words: string}
-	unset: {id: string, class: string, words: string}
 
 	buttonClass: string
 	// The button's face per direction; when `count` is set, the face is
@@ -45,8 +26,7 @@ import (
 	retract: "stamp" | "delete"
 	stamp:   *"deleted_at" | string
 
-	// Prefixed to every emitted line: the block reproduces at the depth its
-	// screen authored it.
+	// Prefixed to every emitted line.
 	indent: *"            " | string
 
 	_countSpan: [
@@ -57,61 +37,77 @@ import (
 	][0]
 	_ariaOff: [if F.aria != _|_ {" aria-label=\"\(F.aria.off)\""}, ""][0]
 	_ariaOn: [if F.aria != _|_ {" aria-label=\"\(F.aria.on)\""}, ""][0]
-	// A counted face carries its purpose as hidden text instead of aria-label:
-	// the live count is part of the visible label, and an accessible name that
-	// omits it fails label-content-name-mismatch.
 	_srOff: [if F.aria != _|_ {"<span class=\"sr-only\">\(F.aria.off) — </span>"}, ""][0]
 	_srOn: [if F.aria != _|_ {"<span class=\"sr-only\">\(F.aria.on) — </span>"}, ""][0]
 
-	_probeFilter: [
+	_filter: [
 		if F.retract == "stamp" {"\(F.on)=eq.\(F.value)&\(F.stamp)=is.null"},
 		"\(F.on)=eq.\(F.value)",
 	][0]
 
-	_probe: [
-		"<span class=\"\(F.probeClass)\" data-live=\"\(F.entity)\" data-filter=\"\(_probeFilter)\">",
-		"  <template data-item><i></i></template>",
-		"</span>",
-	]
-	_setRefusals: [
-		"  <p class=\"invalid role-meta-sm\" hidden>\(F.set.words)</p>",
-		"  <p class=\"store-error role-meta-sm\" hidden>\(F.set.words)</p>",
-	]
-	_unsetRefusals: [
-		"  <p class=\"invalid role-meta-sm\" hidden>\(F.unset.words)</p>",
-		"  <p class=\"store-error role-meta-sm\" hidden>\(F.unset.words)</p>",
-	]
+	_setEffect: [
+		if F.retract == "stamp" {
+			terminal.#Effect & {
+				op:     "upsert"
+				entity: F.entity
+				values: {
+					(F.on):    F.value
+					(F.stamp): null
+				}
+			}
+		},
+		terminal.#Effect & {
+			op:     "create"
+			entity: F.entity
+			values: {
+				(F.on): F.value
+			}
+		},
+	][0]
 
-	_lines: [...string]
-	if F.retract == "stamp" {
-		_lines: list.Concat([_probe, [
-			"<form class=\"\(F.set.class)\" data-form=\"\(F.set.id)\" data-entity=\"\(F.entity)\" data-action=\"upsert\">",
-			"  <input type=\"hidden\" name=\"\(F.on)\" data-value=\"\(F.value)\">",
-			"  <input type=\"hidden\" name=\"\(F.stamp)\" data-value=\"null\">",
-			"  <button class=\"\(F.buttonClass) role-meta-sm\" type=\"submit\">\(_srOff)\(F.label.off)\(_countSpan)</button>",
-		], _setRefusals, [
-			"</form>",
-			"<form class=\"\(F.unset.class)\" data-form=\"\(F.unset.id)\" data-entity=\"\(F.entity)\" data-action=\"upsert\">",
-			"  <input type=\"hidden\" name=\"\(F.on)\" data-value=\"\(F.value)\">",
-			"  <input type=\"hidden\" name=\"\(F.stamp)\" data-value=\"{now}\">",
-			"  <button class=\"\(F.buttonClass) set role-meta-sm\" type=\"submit\">\(_srOn)\(F.label.on)\(_countSpan)</button>",
-		], _unsetRefusals, [
-			"</form>",
-		]])
-	}
-	if F.retract == "delete" {
-		_lines: list.Concat([_probe, [
-			"<form class=\"\(F.set.class)\" data-form=\"\(F.set.id)\" data-entity=\"\(F.entity)\" data-action=\"create\">",
-			"  <input type=\"hidden\" name=\"\(F.on)\" data-value=\"\(F.value)\">",
-			"  <button class=\"\(F.buttonClass) role-meta-sm\" type=\"submit\"\(_ariaOff)>\(F.label.off)</button>",
-		], _setRefusals, [
-			"</form>",
-			"<form class=\"\(F.unset.class)\" data-form=\"\(F.unset.id)\" data-entity=\"\(F.entity)\" data-action=\"delete\" data-filter=\"\(F.on)=eq.\(F.value)\">",
-			"  <button class=\"\(F.buttonClass) set role-meta-sm\" type=\"submit\"\(_ariaOn)>\(F.label.on)</button>",
-		], _unsetRefusals, [
-			"</form>",
-		]])
+	_unsetEffect: [
+		if F.retract == "stamp" {
+			terminal.#Effect & {
+				op:     "upsert"
+				entity: F.entity
+				values: {
+					(F.on):    F.value
+					(F.stamp): "{now}"
+				}
+			}
+		},
+		terminal.#Effect & {
+			op:     "delete"
+			entity: F.entity
+			filter: "\(F.on)=eq.\(F.value)"
+		},
+	][0]
+
+	machine: terminal.#Machine & {
+		field:   "status"
+		initial: "unset"
+		states: {
+			unset: on: click: {
+				target: "set"
+				effect: _setEffect
+			}
+			set: on: click: {
+				target: "unset"
+				effect: _unsetEffect
+			}
+		}
 	}
 
-	markup: F.indent + strings.Join(_lines, "\n"+F.indent)
+	markup: """
+\(F.indent)<omnishell--toggle-flag>
+\(F.indent)  <button type="button" class="\(F.buttonClass) role-meta-sm"
+\(F.indent)          data-live="\(F.entity)" data-filter="\(_filter)"
+\(F.indent)          data-empty-row='{"id":"","status":"unset"}'
+\(F.indent)          data-state="{status}"
+\(F.indent)          data-machine='\((#attrJSON & {in: F.machine}).out)'>
+\(F.indent)    <span class="face-off">\(_srOff)\(F.label.off)\(_countSpan)</span>
+\(F.indent)    <span class="face-on">\(_srOn)\(F.label.on)\(_countSpan)</span>
+\(F.indent)  </button>
+\(F.indent)</omnishell--toggle-flag>
+"""
 }
