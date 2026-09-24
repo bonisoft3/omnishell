@@ -40,7 +40,7 @@ unless said otherwise.
   is not 408/429 becomes `NonRetriableError`; the offline executor rolls the
   optimistic row back. Everything else stays retryable and the IndexedDB
   outbox keeps trying, across reloads, without the app ever hearing.
-- `data-crud.js:267-290` — `settle` resolves after `ACCEPT_MS = 2500`. A
+- `data-sync.js:267-290` — `settle` resolves after `ACCEPT_MS = 2500`. A
   refusal *inside* that window rejects the caller; one *after* it can only
   reach the app through `onRefused`, because the write already reported
   success.
@@ -178,7 +178,7 @@ consumer at all and is deleted rather than rederived. The derivation
 ### 4. Two small removals
 
 - **`upsert` falls back to the pk** when no `uniques` is declared
-  (`data-crud.js:791` requires a declared natural key today, so a single-row
+  (`data-sync.js:791` requires a declared natural key today, so a single-row
   toggle must restate its own primary key as a unique).
 - **`check:` derived from `cel:`, or omitted for browser-tier entities.** It is
   dead text there, written twice by hand, and it is emitted into no SQL.

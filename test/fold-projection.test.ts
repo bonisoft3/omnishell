@@ -6,7 +6,7 @@
 // the pipeline DECLARED — the interpreter is generic, and a literal column
 // name here is right for one app and silently undefined for the next.
 import { describe, expect, it } from "@test/harness"
-import { othersFor } from "../interpreter/data-crud.js"
+import { othersFor } from "../interpreter/data-sync.js"
 
 // realworld's favorite-recount, as emit.cue hands it to the client.
 const FOLD = {

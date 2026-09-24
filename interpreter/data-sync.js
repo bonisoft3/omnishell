@@ -125,14 +125,14 @@ export function isMaintainable(spec, embeds, access, accessOf = () => undefined)
   // So only an embedded table everyone may read can be joined here.
   if (embeds.some((e) => isRestricted(accessOf(e.table)))) return false;
   if (access === undefined) return true;
-  // Only a table everyone may read: not even `owned` can admit an unconfirmed
+  // Only a table everyone may read: not even `private` can admit an unconfirmed
   // optimistic row — see subscribe-smoke.js, "only visibility the query can
   // restate is maintainable".
-  return access.mode === "public-read";
+  return access.scope === "public";
 }
 
 /** A table not everyone may read. undefined means no policy at all, so anyone may. */
-const isRestricted = (a) => a !== undefined && a.mode !== "public-read";
+const isRestricted = (a) => a !== undefined && a.scope !== "public";
 
 /**
  * Whether a read is the whole table: no predicate, no embed, no cap.
@@ -485,10 +485,10 @@ export function createStore(base = "", cfg = {}) {
     // Optimistic rows are this session's own writes; their DB-defaulted
     // owner column has not materialized yet.
     if (row.$synced === false) return true;
-    if (a.mode === "public-read") return true;
-    if (a.mode === "service-only") return false;
+    if (a.scope === "public") return true;
+    if (a.scope === "internal") return false;
     const uid = userId();
-    if (a.mode === "owned") {
+    if (a.scope === "private") {
       if (row[a.owner] === uid) return true;
       if (a.shared) {
         const via = client.collections[a.shared.via];
@@ -500,21 +500,24 @@ export function createStore(base = "", cfg = {}) {
       }
       return false;
     }
-    // through: visible exactly when the parent row is (a vanished parent
+    // folder: visible exactly when the parent row is (a vanished parent
     // hides the child, matching the policy's EXISTS).
-    const parent = client.collections[a.parent];
-    const p = parent?.get(row[a.on]);
-    return p !== undefined && visible(a.parent, p);
+    if (a.scope === "folder") {
+      const parent = client.collections[a.parent];
+      const p = parent?.get(row[a.on]);
+      return p !== undefined && visible(a.parent, p);
+    }
+    return true;
   }
 
-  // Tables whose changes can flip a row's visibility (the share table of an
-  // owned mode, the parent chain of a through mode): regions must re-render
+  // Tables whose changes can flip a row's visibility (the share table of a
+  // private scope, the parent chain of a folder scope): regions must re-render
   // when they change — an unshare must revoke the row from the open wall.
   function accessDeps(table, out = new Set()) {
     const a = access[table];
     if (!a) return out;
-    if (a.mode === "owned" && a.shared) out.add(a.shared.via);
-    if (a.mode === "through" && !out.has(a.parent)) {
+    if (a.scope === "private" && a.shared) out.add(a.shared.via);
+    if (a.scope === "folder" && !out.has(a.parent)) {
       out.add(a.parent);
       accessDeps(a.parent, out);
     }

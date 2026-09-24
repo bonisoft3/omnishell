@@ -103,5 +103,5 @@ So the two missing tiers are not a research question. A `tab` entity is
 another input node entered through the same door — read by a `data-live`
 region, mutated by a form, with no migration, no publication entry, no RLS
 policy and no outbox to emit. What remains is the emitter deciding those tiers
-from `#Entity` and `data-crud.js` building the collection from the right
+from `#Entity` and `data-sync.js` building the collection from the right
 factory.

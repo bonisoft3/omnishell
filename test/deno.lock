@@ -1,6 +1,7 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@std/assert@*": "1.0.19",
     "jsr:@std/assert@^1.0.19": "1.0.19",
     "jsr:@std/expect@1": "1.0.20",
     "jsr:@std/internal@^1.0.12": "1.0.14",
@@ -10,13 +11,14 @@
     "jsr:@std/yaml@1.0.5": "1.0.5",
     "npm:@playwright/test@1.59.1": "1.59.1",
     "npm:@simplewebauthn/server@13.1.1": "13.1.1",
-    "npm:@tanstack/react-router@1.121.0": "1.121.0_react@19.0.0_react-dom@19.2.8__react@19.0.0",
-    "npm:@types/node@*": "22.15.15",
+    "npm:@tanstack/react-router@1.121.0": "1.121.0_react@19.2.8",
+    "npm:@types/node@*": "22.20.1",
     "npm:@types/react@19.0.0": "19.0.0",
     "npm:@xstate/graph@3.0.4": "3.0.4_xstate@5.32.6",
     "npm:acorn-walk@8.3.4": "8.3.4",
     "npm:acorn@8.14.0": "8.14.0",
     "npm:eslint@9.25.0": "9.25.0",
+    "npm:fake-indexeddb@6.2.5": "6.2.5",
     "npm:fast-check@3.23.2": "3.23.2",
     "npm:firebase-admin@13.0.0": "13.0.0",
     "npm:jose@6.0.11": "6.0.11",
@@ -36,7 +38,7 @@
     "@std/expect@1.0.20": {
       "integrity": "ffc4f3c33f732417e3e9acf3d995818c89984313c37d933b9ebbb4571d2887e9",
       "dependencies": [
-        "jsr:@std/assert",
+        "jsr:@std/assert@^1.0.19",
         "jsr:@std/internal@^1.0.14",
         "jsr:@std/path"
       ]
@@ -53,7 +55,7 @@
     "@std/testing@1.0.20": {
       "integrity": "21380ed438672762e4ec549cbf4fe41c5b68f5598773a30b64abe7375513e721",
       "dependencies": [
-        "jsr:@std/assert",
+        "jsr:@std/assert@^1.0.19",
         "jsr:@std/internal@^1.0.14"
       ]
     },
@@ -389,24 +391,24 @@
     "@tanstack/history@1.120.17": {
       "integrity": "sha512-k07LFI4Qo074IIaWzT/XjD0KlkGx2w1V3fnNtclKx0oAl8z4O9kCh6za+FPEIRe98xLgNFEiddDbJeAYGSlPtw=="
     },
-    "@tanstack/react-router@1.121.0_react@19.0.0_react-dom@19.2.8__react@19.0.0": {
+    "@tanstack/react-router@1.121.0_react@19.2.8": {
       "integrity": "sha512-l+hwNPzAPuCb/V4K6E1ZwKplnk8/nYUTQrXdtfXro5xOT1zNedJOm+juZsNKyoHokvhH+uT+I1s+mrkaykctcA==",
       "dependencies": [
         "@tanstack/history",
         "@tanstack/react-store",
         "@tanstack/router-core",
         "jsesc",
-        "react@19.0.0",
+        "react@19.2.8",
         "react-dom",
         "tiny-invariant",
         "tiny-warning"
       ]
     },
-    "@tanstack/react-store@0.7.7_react@19.0.0_react-dom@19.2.8__react@19.0.0": {
+    "@tanstack/react-store@0.7.7_react@19.2.8_react-dom@19.2.8__react@19.2.8": {
       "integrity": "sha512-qqT0ufegFRDGSof9D/VqaZgjNgp4tRPHZIJq2+QIHkMUtHjaJ0lYrrXjeIUJvjnTbgPfSD1XgOMEt0lmANn6Zg==",
       "dependencies": [
         "@tanstack/store",
-        "react@19.0.0",
+        "react@19.2.8",
         "react-dom",
         "use-sync-external-store"
       ]
@@ -438,7 +440,7 @@
       "integrity": "sha512-asx5hIG9Qmf/1oStypjanR7iKTv0gXQ1Ov/jfrX6kS/EO0OFni8orbmGCn0672NHR3kXHwpAwR+B368ZGN/2rA==",
       "dependencies": [
         "@types/ms",
-        "@types/node@22.15.15"
+        "@types/node"
       ]
     },
     "@types/long@4.0.2": {
@@ -446,12 +448,6 @@
     },
     "@types/ms@2.1.0": {
       "integrity": "sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA=="
-    },
-    "@types/node@22.15.15": {
-      "integrity": "sha512-R5muMcZob3/Jjchn5LcO8jdKwSCbzqmPB6ruBxMcf9kbxtniZHP327s6C37iOfuw8mbKK3cAQa7sEl7afLrQ8A==",
-      "dependencies": [
-        "undici-types"
-      ]
     },
     "@types/node@22.20.1": {
       "integrity": "sha512-EANqOCF9QFyra+4pfxUcX9STKJpCLjMbObVzljIJomAWSnuSIEAvyzEU53GaajbXJEgdh0iEcPL+DGvpUd4k1Q==",
@@ -469,7 +465,7 @@
       "integrity": "sha512-FGJ6udDNUCjd19pp0Q3iTiDkwhYup7J8hpMW9c4k53NrccQFFWKRho6hvtPPEhnXWKvukfwAlB6DbDz4yhH5Gg==",
       "dependencies": [
         "@types/caseless",
-        "@types/node@22.15.15",
+        "@types/node",
         "@types/tough-cookie",
         "form-data"
       ]
@@ -840,6 +836,9 @@
     "extend@3.0.2": {
       "integrity": "sha512-fjquC59cD7CyW6urNXK0FBufkZcoiGG80wTuPujX590cB5Ttln20E2UB4S/WARVqhXffZl2LNgS+gQdPIIim/g=="
     },
+    "fake-indexeddb@6.2.5": {
+      "integrity": "sha512-CGnyrvbhPlWYMngksqrSSUT1BAVP49dZocrHuK0SvtR0D5TMs5wP0o3j7jexDJW01KSadjBp1M/71o/KR3nD1w=="
+    },
     "farmhash-modern@1.1.0": {
       "integrity": "sha512-6ypT4XfgqJk/F3Yuv4SX26I3doUjt0GTG4a+JgWxXQpxXzTBq8fPUeGHfcYMMDPHJHm3yPOSjaeBwBGAHWXCdA=="
     },
@@ -902,7 +901,7 @@
         "@fastify/busboy",
         "@firebase/database-compat",
         "@firebase/database-types",
-        "@types/node@22.20.1",
+        "@types/node",
         "farmhash-modern",
         "google-auth-library",
         "jsonwebtoken",
@@ -1410,7 +1409,7 @@
         "@protobufjs/path",
         "@protobufjs/pool",
         "@protobufjs/utf8",
-        "@types/node@22.20.1",
+        "@types/node",
         "long"
       ],
       "scripts": true
@@ -1430,10 +1429,10 @@
     "pvutils@1.1.5": {
       "integrity": "sha512-KTqnxsgGiQ6ZAzZCVlJH5eOjSnvlyEgx1m8bkRJfOhmGRqfo5KLvmAlACQkrjEtOQ4B7wF9TdSLIs9O90MX9xA=="
     },
-    "react-dom@19.2.8_react@19.0.0": {
+    "react-dom@19.2.8_react@19.2.8": {
       "integrity": "sha512-rVprimfGBG3DR+Tq0IQG2DT5PxKth1WIGDmj5yPmlzr4YBe7uyE+Du4oVqTDXZSHGGGXRtTJEGSSePyQCMBglQ==",
       "dependencies": [
-        "react@19.0.0",
+        "react@19.2.8",
         "scheduler"
       ]
     },
@@ -1574,10 +1573,10 @@
         "punycode"
       ]
     },
-    "use-sync-external-store@1.6.0_react@19.0.0": {
+    "use-sync-external-store@1.6.0_react@19.2.8": {
       "integrity": "sha512-Pp6GSwGP/NrPIrxVFAIkOQeyw8lFenOHijQWkUTrDvrF4ALqylP2C/KCkeS9dpUM3KvYRQhna5vt7IL95+ZQ9w==",
       "dependencies": [
-        "react@19.0.0"
+        "react@19.2.8"
       ]
     },
     "util-deprecate@1.0.2": {
@@ -1665,6 +1664,9 @@
       "integrity": "sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q=="
     }
   },
+  "remote": {
+    "https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js": "d6a22c7c6dea2a8e9b1ea8613e649c8ae58aec86ad677a7118fdf0e19678a468"
+  },
   "workspace": {
     "dependencies": [
       "npm:@playwright/test@1.59.1",
@@ -1672,6 +1674,7 @@
       "npm:@tanstack/react-router@1.121.0",
       "npm:@types/react@19.0.0",
       "npm:eslint@9.25.0",
+      "npm:fake-indexeddb@6.2.5",
       "npm:firebase-admin@13.0.0",
       "npm:jose@6.0.11",
       "npm:linkedom@0.18.4",

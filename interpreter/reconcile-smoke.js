@@ -47,13 +47,15 @@ async function withDeviceStorage(entries, fn) {
       location: { origin: "http://localhost" },
       addEventListener: () => {},
       removeEventListener: () => {},
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
     };
   }
   const warnings = [];
   const warn = console.warn;
   console.warn = (...args) => warnings.push(args.join(" "));
   try {
-    const { createStore } = await import("./data-crud.js");
+    const { createStore } = await import("./data-sync.js");
     await fn(createStore, warnings);
   } finally {
     console.warn = warn;

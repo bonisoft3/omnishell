@@ -17,7 +17,7 @@ import {
   parseLimit,
   parseSelect,
   touches,
-} from "./data-crud.js";
+} from "./data-sync.js";
 import * as fragment from "./fragment.js";
 
 const { parseReadSpec } = fragment;
@@ -99,32 +99,32 @@ const can = (filter, select, access, embedAccess = {}) =>
   isMaintainable(parseFilterSpec(filter), parseSelect(select), access, (t) => embedAccess[t]);
 
 Deno.test("a plain read on a public table is maintainable", () => {
-  assert(can("article_id=eq.a1", undefined, { mode: "public-read" }), "eq on public-read");
+  assert(can("article_id=eq.a1", undefined, { scope: "public" }), "eq on public");
   assert(can(undefined, undefined, undefined), "unfiltered, no access rule");
   assert(can("deleted_at=is.null", undefined, undefined), "is.null");
 });
 
 Deno.test("an embed everyone may read becomes a join", () => {
-  const pub = { app_user: { mode: "public-read" }, label: { mode: "public-read" } };
-  assert(can("slug=eq.x", "*,author:app_user(handle,image_url)", { mode: "public-read" }, pub), "aliased embed");
-  assert(can("slug=eq.x", "*,label(name)", { mode: "public-read" }, pub), "unaliased embed");
-  assert(can("slug=eq.x", "*,label(name)", { mode: "public-read" }, {}), "no policy at all means anyone may read");
+  const pub = { app_user: { scope: "public" }, label: { scope: "public" } };
+  assert(can("slug=eq.x", "*,author:app_user(handle,image_url)", { scope: "public" }, pub), "aliased embed");
+  assert(can("slug=eq.x", "*,label(name)", { scope: "public" }, pub), "unaliased embed");
+  assert(can("slug=eq.x", "*,label(name)", { scope: "public" }, {}), "no policy at all means anyone may read");
 });
 
 // A left join has nowhere to put a per-row visibility test. The snapshot path
 // binds the whole embed null for a row this reader cannot see; a join would
 // hand over its columns instead.
 Deno.test("an embed of a restricted table is not joined here", () => {
-  assert(!can("id=eq.x", "*,owner:me(handle)", { mode: "public-read" }, { me: { mode: "owned", owner: "id" } }), "owned embed");
-  assert(!can("id=eq.x", "*,f:follow(follower_id)", { mode: "public-read" }, { follow: { mode: "owned", owner: "follower_id" } }), "another owned embed");
-  assert(!can("id=eq.x", "*,s:secret(v)", { mode: "public-read" }, { secret: { mode: "service-only" } }), "service-only embed");
+  assert(!can("id=eq.x", "*,owner:me(handle)", { scope: "public" }, { me: { scope: "private", owner: "id" } }), "private embed");
+  assert(!can("id=eq.x", "*,f:follow(follower_id)", { scope: "public" }, { follow: { scope: "private", owner: "follower_id" } }), "another private embed");
+  assert(!can("id=eq.x", "*,s:secret(v)", { scope: "public" }, { secret: { scope: "internal" } }), "internal embed");
 });
 
 Deno.test("a hinted embed is server-computed, not embed-free", () => {
   // null must read as "server-computed" rather than "no embeds" — collapsing
   // those built a view whose rows were missing the columns the region binds.
   assert(parseSelect("*,follow!followed_id!inner(follower_id)") === null, "hinted embed does not parse");
-  assert(!can("slug=eq.x", "*,follow!followed_id!inner(follower_id)", { mode: "public-read" }), "and is not maintainable");
+  assert(!can("slug=eq.x", "*,follow!followed_id!inner(follower_id)", { scope: "public" }), "and is not maintainable");
 });
 
 Deno.test("reads the query cannot state stay on the snapshot path", () => {
@@ -137,7 +137,7 @@ Deno.test("reads the query cannot state stay on the snapshot path", () => {
   assert(!can("pinned=is.true", undefined, undefined), "is.true");
 });
 
-// Only a table everyone may read. `owned` looks like one more eq on the owner
+// Only a table everyone may read. `private` looks like one more eq on the owner
 // column, and measured against the running cluster it excluded exactly the row
 // it must not: an optimistic insert carries no owner column — auth_uid() fills
 // it server-side — and isNull matches a null, not a missing, property. So a
@@ -145,12 +145,12 @@ Deno.test("reads the query cannot state stay on the snapshot path", () => {
 // row through `$synced === false`, which is a fact about the client's own
 // pending write rather than anything a query over the data can state.
 Deno.test("only visibility the query can restate is maintainable", () => {
-  assert(can("id=eq.x", undefined, { mode: "public-read" }), "public-read adds no clause");
+  assert(can("id=eq.x", undefined, { scope: "public" }), "public adds no clause");
   assert(can("id=eq.x", undefined, undefined), "no policy at all");
-  assert(!can("id=eq.x", undefined, { mode: "owned", owner: "user_id" }), "owned cannot admit an unconfirmed row");
-  assert(!can("id=eq.x", undefined, { mode: "owned", owner: "user_id", shared: { via: "share", on: "note_id", user: "user_id" } }), "a share needs a subquery");
-  assert(!can("id=eq.x", undefined, { mode: "through", parent: "note", on: "note_id" }), "a parent chain needs a subquery");
-  assert(!can("id=eq.x", undefined, { mode: "service-only" }), "service-only is never readable here");
+  assert(!can("id=eq.x", undefined, { scope: "private", owner: "user_id" }), "private cannot admit an unconfirmed row");
+  assert(!can("id=eq.x", undefined, { scope: "private", owner: "user_id", shared: { via: "share", on: "note_id", user: "user_id" } }), "a share needs a subquery");
+  assert(!can("id=eq.x", undefined, { scope: "folder", parent: "note", on: "note_id" }), "a parent chain needs a subquery");
+  assert(!can("id=eq.x", undefined, { scope: "internal" }), "internal is never readable here");
 });
 
 // PostgREST names a flat embed two ways, and the aliased one is what an app
@@ -202,7 +202,7 @@ Deno.test("a row cap is read apart from the predicates", () => {
   // The cap leaves the predicate list, and what remains still translates.
   eqj(parseFilterSpec("limit=20"), [], "a cap on its own is no predicate");
   eqj(parseFilterSpec("author_id=eq.x&limit=5"), [{ col: "author_id", op: "eq", value: "x" }], "and does not disturb one");
-  assert(can("limit=20", undefined, { mode: "public-read" }), "a capped read is maintainable");
+  assert(can("limit=20", undefined, { scope: "public" }), "a capped read is maintainable");
   // Paging over a set that is still arriving is a different question.
   assert(!can("offset=20&limit=20", undefined, undefined), "offset stays the server's");
   eqj(parseLimit("limit=abc"), undefined, "a non-numeric cap is not a cap");

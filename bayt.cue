@@ -159,15 +159,21 @@ _omnishell: bayt.#project & {
 			visibility: "public"
 			taskfile: run: "when_changed"
 			deps: ["libraries_mecha:setup:srcs"]
-			srcs: globs: ["interpreter/vendor/entry.ts"]
-			outs: globs: ["interpreter/vendor/mecha-client.js"]
-			cmd: "builtin": do: strings.Join([
-				"deno bundle",
-				"--config ../../libraries/mecha/packages/client/deno.json",
-				"--platform browser --format esm --minify",
+			srcs: globs: [
 				"interpreter/vendor/entry.ts",
-				"-o interpreter/vendor/mecha-client.js",
-			], " ")
+				"interpreter/vendor/entry-morphlex.ts",
+				"interpreter/vendor/bundle-morphlex.ts",
+				"interpreter/vendor/entry-js-yaml.ts",
+			]
+			outs: globs: [
+				"interpreter/vendor/mecha-client.js",
+				"interpreter/vendor/morphlex.js",
+				"interpreter/vendor/js-yaml.js",
+			]
+			cmd: "builtin": {
+				shell: "sh"
+				do:    "sh -c 'deno bundle --config ../../libraries/mecha/packages/client/deno.json --platform browser --format esm --minify interpreter/vendor/entry.ts -o interpreter/vendor/mecha-client.js && deno run --allow-run=deno --allow-read --allow-write interpreter/vendor/bundle-morphlex.ts && deno bundle --config interpreter/deno.json --platform browser --format esm --minify interpreter/vendor/entry-js-yaml.ts -o interpreter/vendor/js-yaml.js'"
+			}
 			dockerfile: from: ref: ":setup"
 		}
 

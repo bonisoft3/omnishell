@@ -107,7 +107,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    // The store contract data-crud's settle() provides: the promise resolves
+    // The store contract data-sync's settle() provides: the promise resolves
     // once the write is durably queued even when confirmation lags (offline
     // outbox). The screen must ride that resolution out of form-submit.
     const { document, Event, store, calls, settleWrite } = boot([]);
@@ -142,7 +142,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const { embedTables, parseSelect } = await import("./data-crud.js");
+    const { embedTables, parseSelect } = await import("./data-sync.js");
     // accept-label-file regression: a hinted embed must contribute its table
     // names to the dependency set — capturing the "!inner" hint instead left
     // the label-wall deaf to note_label/label changes.
@@ -189,7 +189,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const { settle } = await import("./data-crud.js");
+    const { settle } = await import("./data-sync.js");
     // Never-settling client promise = offline outbox / starved long-poll:
     // the caller must not wedge.
     let done = false;

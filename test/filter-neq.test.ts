@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@test/harness"
-import { isMaintainable, parseFilter, parseFilterSpec } from "../interpreter/data-crud.js"
+import { isMaintainable, parseFilter, parseFilterSpec } from "../interpreter/data-sync.js"
 
 // A filter has two readers — the snapshot predicate and the maintained view —
 // and they must agree. A spec the parser admits but the view compiles wrong is

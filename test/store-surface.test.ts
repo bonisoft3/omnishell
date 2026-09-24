@@ -1,7 +1,7 @@
 // The store is one surface with two things behind it, and they have to stay the
 // same shape.
 //
-// data-crud is the store. batched-store is the adapter that decomposes the same
+// data-sync is the store. batched-store is the adapter that decomposes the same
 // calls for the test doubles, so a smoke exercises the interpreter's real write
 // path against a double that only knows one row at a time. Nothing else makes
 // them agree, and a method renamed on one side is invisible until an app breaks:
@@ -23,7 +23,7 @@ const SURFACE = ["query", "add", "write", "patch", "drop", "dropWhere", "upsertB
 const SINGULAR = ["create", "put", "update", "remove"]
 
 describe("the store surface", () => {
-  it("is what data-crud offers", async () => {
+  it("is what data-sync offers", async () => {
     // The store reads localStorage at construction for its device identity.
     const had = Object.prototype.hasOwnProperty.call(globalThis, "localStorage")
     if (!had) {
@@ -35,7 +35,7 @@ describe("the store surface", () => {
       }
     }
     try {
-      const { createStore } = await import("../interpreter/data-crud.js")
+      const { createStore } = await import("../interpreter/data-sync.js")
       const store = await createStore("", { app: "surface", entities: {}, migrations: [], pipelines: [] })
       expect(Object.keys(store).sort()).toEqual([...SURFACE].sort())
     } finally {

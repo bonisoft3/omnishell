@@ -6,7 +6,7 @@ import type { ParamPlan } from "../interpreter/lint.ts"
 // row lives where the app's program put the entity: shell.yaml `local:` names
 // the browser tiers the store builds from a local factory and fills from
 // `seed:`, and every other table is read through /crud. That is the decision
-// createStore (interpreter/data-crud.js) takes on the same two keys, so the
+// createStore (interpreter/data-sync.js) takes on the same two keys, so the
 // battery resolves the same way — a device-tier app has no crud service to ask,
 // and asking it anyway is a 502 dressed as a coverage hole.
 describe("check-visual param resolution follows the app's declared tier", () => {

@@ -482,3 +482,12 @@ which is a different problem from this one.
    call. No `moveBefore`, 201 iframe reloads and lost focus on one post
    arriving at the head of a feed. Its earlier pass in "Measurement 2" was
    against a workload with no keys and no embeds, and remains valid *there*.
+
+---
+
+### Amendment (September 2026): Item 3 Landed for Static Skeleton Morphing (`morphScreen`)
+
+Item 3 materialized as predicted: when hot-swapping CAS templates or mutating screen chrome during route transitions, Omnishell uses `morphInner` from vendored Morphlex (`interpreter/vendor/morphlex.js`).
+
+Crucially, it does **not** reconcile dynamic rows: `morphScreen` passes `beforeChildrenVisited` to immediately halt descent when encountering `[data-live]` (reconciled surgically via primary keys and `moveBefore`) or `[data-hatch]` (sandboxed frames). Only the surrounding static skeleton (headers, badges, layout chrome) morphs, with `preserveChanges: true` protecting dirty input fields. Row reconciliation remains 100% library-free.
+

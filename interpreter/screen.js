@@ -2886,8 +2886,21 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // is not inside itself, and querySelectorAll alone would leave it unwired,
     // clicking into silence.
     const stamp = (entry, tmpl) => {
-      const node = tmpl.content.firstElementChild.cloneNode(true);
-      node.dataset.id = entry.ctx.row.id;
+      // Pre-rendered DOM carries data-id; adopting avoids hydration teardown.
+      let node = null;
+      if (first) {
+        const key = String(entry.ctx.row.id);
+        for (const child of region.children) {
+          if (child.dataset?.id === key) {
+            node = child;
+            break;
+          }
+        }
+      }
+      if (!node) {
+        node = tmpl.content.firstElementChild.cloneNode(true);
+        node.dataset.id = entry.ctx.row.id;
+      }
       for (const form of formsIn(node)) {
         if (ownedBy(form, node)) wireForm(form, () => node.dataset.id, () => entry.ctx, region);
       }
@@ -3370,5 +3383,32 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     stop: () => {
       for (const r of regions) r.stop();
     },
+    morph: (newHtml) => morphScreen(screen, newHtml),
   };
+}
+
+// Morphlex diffs the static skeleton in-place. beforeChildrenVisited prunes
+// descent into [data-live] islands (owned by store queries) and [data-hatch]
+// (sandboxed frames/workers); preserveChanges retains user inputs in flight.
+export async function morphScreen(liveScreen, newHtml) {
+  if (!liveScreen || liveScreen.nodeType !== 1) {
+    throw new Error("morphScreen: liveScreen element missing");
+  }
+  const holder = document.createElement("template");
+  holder.innerHTML = newHtml;
+  const newScreen = holder.content.firstElementChild;
+  if (!newScreen) {
+    throw new Error("morphScreen: incoming markup has no root element");
+  }
+
+  const { morphInner } = await import("./vendor/morphlex.js");
+  morphInner(liveScreen, newScreen, {
+    preserveChanges: true,
+    beforeChildrenVisited: (fromEl) => {
+      if (fromEl.nodeType === 1 && (fromEl.hasAttribute("data-live") || fromEl.hasAttribute("data-hatch"))) {
+        return false;
+      }
+      return true;
+    },
+  });
 }

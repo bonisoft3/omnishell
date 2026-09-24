@@ -12,14 +12,15 @@
 // means is the caller's.
 
 import { parseHTML } from "npm:linkedom@0.18.4";
+import "npm:fake-indexeddb@6.2.5/auto";
 import { load as parseYaml } from "../interpreter/vendor/js-yaml.js";
 import { embedTables, parseFilter, parseLimit, parseSelect, screenEnv } from "../interpreter/fragment.js";
-import { upsertKey as resolveKey } from "../interpreter/data-crud.js";
+import { upsertKey as resolveKey } from "../interpreter/data-sync.js";
 import { batched } from "../interpreter/batched-store.js";
 import "../interpreter/vendor/ses.umd.min.js";
 import { ensureSes } from "../interpreter/jessie.js";
 
-/** data-crud.js is the shipped store, not a typed module: the natural key an
+/** data-sync.js is the shipped store, not a typed module: the natural key an
  * upsert resolves against comes from there so there is one resolution and not
  * a second. */
 const upsertKey = resolveKey as (
@@ -156,7 +157,7 @@ export type MemoryStore = {
 /**
  * The store's ordering, which is not part of the fragment grammar: a
  * comma-separated `col.dir` list, nulls last on asc and first on desc, JS
- * relational comparison. It mirrors data-crud.js's compareBy, so a column of
+ * relational comparison. It mirrors data-sync.js's compareBy, so a column of
  * strings compares lexically here exactly as it does in the browser.
  */
 function compareBy(order?: string | null) {
@@ -187,12 +188,12 @@ export type Cluster = {
   /** The pk of every table whose pk is not `id` (shell.yaml `keys:`), which is
    * how a pipeline sink keys on its subject. */
   keys?: Record<string, string>;
-  /** Each entity's access mode (shell.yaml `access:`), which decides which
+  /** Each entity's access scope (shell.yaml `access:`), which decides which
    * rows a reader can see at all. Answered only for a mount that names its
    * reader: with nobody reading there is no visibility question to settle. */
   access?: Record<
     string,
-    { mode: string; owner?: string; parent?: string; on?: string; shared?: { via: string; on: string; user: string } }
+    { scope: string; owner?: string; parent?: string; on?: string; shared?: { via: string; on: string; user: string } }
   >;
   me?: string;
   /** Column DEFAULTs the database fills and the browser never computes, per
@@ -244,9 +245,9 @@ export function memoryStore(tables: Record<string, Row[]>, cluster: Cluster = {}
   const visible = (table: string, row: Row): boolean => {
     const a = cluster.access?.[table];
     if (a === undefined || cluster.me === undefined) return true;
-    if (a.mode === "public-read") return true;
-    if (a.mode === "service-only") return false;
-    if (a.mode === "owned") {
+    if (a.scope === "public") return true;
+    if (a.scope === "internal") return false;
+    if (a.scope === "private") {
       if (row[a.owner as string] === cluster.me) return true;
       if (a.shared === undefined) return false;
       const pk = row[keyOf(table)];
@@ -355,7 +356,7 @@ export function memoryStore(tables: Record<string, Row[]>, cluster: Cluster = {}
 
   store.create = async (table, values) => {
     // The shipped store mints the key when the form does not carry one
-    // (data-crud.js: retries are idempotent only because the id travels with
+    // (data-sync.js: retries are idempotent only because the id travels with
     // every attempt), so a fake that refused would fail writes the browser
     // accepts. Minted from the mount's seeded entropy, not crypto, so a
     // created row's id is the same on every run.

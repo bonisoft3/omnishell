@@ -113,7 +113,7 @@ seam rather than scattered access.
 0.1.18 ships `map`, `filter`, `filterBy`, `join`, `count`, `distinct`,
 `reduce`, `concat`, `consolidate`, `groupBy`, `orderBy`, `topK` (with
 fractional-index variants), plus `pipe`, `tap`, `debug`, `output`, `negate`,
-`keying`. `data-crud.js:436` already calls `.join(` — embeds are maintained
+`keying`. `data-sync.js:436` already calls `.join(` — embeds are maintained
 through it. `@tanstack/store` 0.11.0 (2026-04-17) has zero dependencies.
 
 ## The four tiers

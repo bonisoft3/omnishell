@@ -18,6 +18,7 @@
     "bundle:lint": "deno bundle --platform deno --format esm src/lint/eslint/index.ts -o dist/lint.mjs",
     "bundle:ses": "curl -fsSL https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js -o interpreter/vendor/ses.umd.min.js",
     "bundle:js-yaml": "deno bundle --config interpreter/deno.json --platform browser --format esm --minify interpreter/vendor/entry-js-yaml.ts -o interpreter/vendor/js-yaml.js",
+    "bundle:morphlex": "deno run --allow-run=deno --allow-read --allow-write interpreter/vendor/bundle-morphlex.ts",
     "test:browser": "pnpm exec playwright test --config playwright.config.ts"
   },
   "dependencies": {

@@ -33,6 +33,7 @@ import (
 _shellHtmlAsset: _ @embed(file="shell.html", type=text)
 _shellCssAsset:  _ @embed(file="shell.css", type=text)
 _bootJsAsset:    _ @embed(file="boot.js", type=text)
+_swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 
 // cluster.#Static-shaped, not imported — see the terminal-planes doc's
 // note on why terminal.cue and cluster.cue each define their own copy
@@ -254,6 +255,8 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 		css: *"shell/shell.css" | string
 		boot: #Path
 		boot: *"shell/boot.js" | string
+		sw: #Path
+		sw: *"offline-first-sw.js" | string
 
 		assets: {
 			html: strings.Replace(
@@ -265,6 +268,7 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 				"{modulepreload}", _preloadHtml, 1)
 			css:  _shellCssAsset
 			boot: _bootJsAsset
+			sw:   _swJsAsset
 		}
 
 		interpreterRoot: #Path
@@ -328,20 +332,30 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 
 		// The entry page fetches the boot graph in parallel at t=0 instead of
 		// discovering each import a round-trip after its parent executes.
-		// storybook.js is tier-gated and stays lazy; ses stays undeclared here
-		// too — jessie.js injects it for handlers, after first paint, and
-		// preloading its bytes at t=0 starves the paint-critical modules on a
-		// slow link.
-		_preloadSkip: {"storybook.js": true, "vendor/ses.umd.min.js": true}
+		// storybook.js is tier-gated and stays lazy; ses/jessie stay undeclared
+		// here too — loaded after first paint; mecha-client, data-sync, and
+		// hatch are deferred so cold first paint loads minimal paint-critical weight.
+		_preloadSkip: {
+			"storybook.js":           true
+			"vendor/ses.umd.min.js":  true
+			"vendor/js-yaml.js":      true
+			"vendor/mecha-client.js": true
+			"data-sync.js":           true
+			"validate.js":            true
+			"hatch.js":               true
+			"hatch-worker.js":        true
+			"jessie.js":              true
+			"vendor/morphlex.js":     true
+		}
 		_preloadHtml: strings.Join([for m in modules if _preloadSkip[m] == _|_ {
 			"<link rel=\"modulepreload\" href=\"/omnishell/interpreter/\(m)\">"
 		}], "\n")
 
 		modules: [...#Path]
 		modules: [
-			"shell.js", "chrome.js", "screen.js", "fragment.js", "data-crud.js", "validate.js", "render.js",
+			"shell.js", "chrome.js", "screen.js", "fragment.js", "data-sync.js", "validate.js", "render.js",
 			"hatch.js", "hatch-worker.js", "storybook.js", "jessie.js",
-			"vendor/mecha-client.js", "vendor/js-yaml.js", "vendor/ses.umd.min.js",
+			"vendor/mecha-client.js", "vendor/js-yaml.js", "vendor/ses.umd.min.js", "vendor/morphlex.js",
 		]
 
 		screens: [...{name: string, html: #Path, css: #Path}]
@@ -365,6 +379,10 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 		// before the CDC loop has folded this session's own writes in.
 		folds: [...#Jessie]
 		folds: *[] | [...#Jessie]
+
+		// Validation modules backing entity predicates, fetched before write.
+		validations: [...#Jessie]
+		validations: *[] | [...#Jessie]
 
 		// Every file a vendored unit needs served, its own `src` among them:
 		// the wrapper an engineer audited, and whatever that wrapper loads. A
@@ -471,7 +489,9 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 				{file: T.surface.entry, target: "/srv/\(T.surface.entry)", watch: true},
 				{file: T.surface.css, target: "/srv/\(T.surface.css)", watch: true},
 				{file: T.surface.boot, target: "/srv/\(T.surface.boot)", watch: true},
+				{file: T.surface.sw, target: "/srv/\(T.surface.sw)", watch: true},
 				{file: "shell/shell.yaml", target: "/srv/shell/shell.yaml", watch: true},
+				{file: "shell/shell.json", target: "/srv/shell/shell.json", watch: true},
 				{file: "shell/design.css", target: "/srv/shell/design.css", watch: true},
 			],
 			[for s in T.surface.screens for kind in ["html", "css"] {
@@ -497,6 +517,11 @@ _bootJsAsset:    _ @embed(file="boot.js", type=text)
 			[for f in T.surface.folds {
 				file:   f
 				target: "/srv/\(f)"
+				watch:  true
+			}],
+			[for v in T.surface.validations {
+				file:   v
+				target: "/srv/\(v)"
 				watch:  true
 			}],
 			// Unwatched, unlike every other app-authored file here: the watch

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@test/harness"
-import { upsertKey } from "../interpreter/data-crud.js"
+import { upsertKey } from "../interpreter/data-sync.js"
 
 describe("upsertKey", () => {
   it("resolves against a declared natural key that the values cover", () => {

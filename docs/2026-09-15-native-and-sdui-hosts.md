@@ -68,8 +68,8 @@ two platform-native capability bridges:
 Instead of HTML/CSS, the engine evaluates screen state and calls `emitUiAst(jsonString)`.
 The emitted JSON conforms to the DivKit Server-Driven UI specification.
 Platform-native hosts render this JSON directly into native UI primitives:
-- On Android, [`DivKitAndroidViewRenderer`](../../apps/realworld/android/app/src/main/kotlin/com/pronto/realworld/DivKitAndroidViewRenderer.kt) mounts `Div2View` inside Jetpack Compose.
-- On iOS, [`DivKitSwiftUIRenderer`](../../apps/realworld/ios/Sources/RealWorld/DivKitSwiftUIRenderer.swift) mounts `DivViewProvider` into SwiftUI via `UIViewRepresentable`.
+- On Android, [`DivKitAndroidViewRenderer`](../../../apps/realworld/android/app/src/main/kotlin/com/pronto/realworld/DivKitAndroidViewRenderer.kt) mounts `Div2View` inside Jetpack Compose.
+- On iOS, [`DivKitSwiftUIRenderer`](../../../apps/realworld/ios/Sources/RealWorld/DivKitSwiftUIRenderer.swift) mounts `DivViewProvider` into SwiftUI via `UIViewRepresentable`.
 
 UI interactions emit standard URI intents (`pronto://event/<ACTION>?<PARAMS>`)
 dispatched back to the engine via `onAction`.
@@ -133,7 +133,7 @@ Any drift fails compile-time verification before native binaries are packaged.
 
 ## 4. Animation and Non-CRUD Applications (The Truco Doctrine)
 
-Applications like [`apps/truco`](../../apps/truco) rely heavily on 2D motion:
+Applications like [`apps/truco`](../../../apps/truco) rely heavily on 2D motion:
 card deals, score chip animations, speech bubbles, and phase transitions.
 
 A common question is whether dynamic or animated applications require an entirely

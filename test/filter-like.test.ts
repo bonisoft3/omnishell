@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@test/harness"
-import { isMaintainable, parseFilter, parseFilterSpec } from "../interpreter/data-crud.js"
+import { isMaintainable, parseFilter, parseFilterSpec } from "../interpreter/data-sync.js"
 
 // The same two-reader hazard filter-neq.test.ts guards, for the operator a
 // browser-tier search depends on: with no server to compute an fts read, a

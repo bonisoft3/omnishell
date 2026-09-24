@@ -13,7 +13,6 @@
 // bypasses it entirely: the fixture tier runs without the cluster, so no auth
 // service exists to sign against.
 
-import { load } from "./vendor/js-yaml.js";
 import { chromeText } from "./chrome.js";
 import { directionOf, localeByPath, localeTable, resolveLocale, routeHref, routePattern, screenEnv } from "./fragment.js";
 import { interpretScreen, routeParams } from "./screen.js";
@@ -398,7 +397,10 @@ export async function createShell({ config, mount }) {
     // /shell/, and resolving there asks for a shell.yaml beside the route.
     const configUrl = new URL(config, document.baseURI);
     const appBase = new URL("..", configUrl);
-    const cfg = load(await fetchText(configUrl));
+    const text = await fetchText(configUrl);
+    const cfg = configUrl.pathname.endsWith(".json")
+      ? JSON.parse(text)
+      : (await import("./vendor/js-yaml.js")).load(text);
     document.title = cfg.app;
 
     const search = new URLSearchParams(location.search);
@@ -484,7 +486,7 @@ export async function createShell({ config, mount }) {
       }
     }
 
-    const { createStore } = await import("./data-crud.js");
+    const { createStore } = await import("./data-sync.js");
     const store = createStore("", { ...cfg, appBase });
 
     // The navigation stack belongs to the terminal — there is one back button,

@@ -48,7 +48,7 @@ at the top of `createShell`:
 
 - it runs **before** the auth gate, so `auth.required: true` never reaches
   the login ceremony and no `/auth` call is made;
-- it runs **before** the store is built, so `data-crud.js` (the `/crud`
+- it runs **before** the store is built, so `data-sync.js` (the `/crud`
   gateway) is never imported;
 - it returns before nav chrome and before the navigation stack.
 

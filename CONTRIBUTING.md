@@ -12,7 +12,7 @@ interpreter/       the runtime: vanilla ES modules, no build step
   screen.js        the binder — regions, rows, attributes, events, and the
                    chart executor, whose grammar is ../machine.cue
   fragment.js      the filter/select/read grammar, parsed once for both readings
-  data-crud.js     the store adapter
+  data-sync.js     the store adapter
   validate.js      the judge a store asks before a write: validations in order
   render.js        the renderer's node schema and allowlists
   hatch.js         the vendored-unit boundary; hatch-worker.js is its worker half

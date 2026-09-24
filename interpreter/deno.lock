@@ -6,6 +6,7 @@
     "npm:@xstate/graph@3.0.4": "3.0.4_xstate@5.32.6",
     "npm:js-yaml@4.1.0": "4.1.0",
     "npm:linkedom@0.18.4": "0.18.4",
+    "npm:morphlex@1.4.0": "1.4.0",
     "npm:xstate@5.32.6": "5.32.6"
   },
   "jsr": {
@@ -104,6 +105,9 @@
         "htmlparser2",
         "uhyphen"
       ]
+    },
+    "morphlex@1.4.0": {
+      "integrity": "sha512-20/rnlsvvzExLmdq8o9yRz4btq7ZV8bmFaRbkgvlmWYUyFQ31nvORHyKgvCdBIx83HWzxulPAoKNq2Hq1VjYmg=="
     },
     "nth-check@2.1.1": {
       "integrity": "sha512-lqjrjmaOoAnWfMmBPL+XNnynZh2+swxiX3WUE0s4yEHI6m+AwrK2UZOimIRl3X/4QctVqS8AiZjFqyOGrMXb/w==",

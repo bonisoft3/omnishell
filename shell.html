@@ -10,9 +10,30 @@
      unaffected. -->
 <base href="/shell/">
 <title>Loading…</title>
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="./shell.css">
 <link rel="stylesheet" href="./design.css">
 {modulepreload}
+<script type="speculationrules">
+{
+  "prefetch": [
+    {
+      "source": "document",
+      "where": {
+        "and": [
+          { "href_matches": "/*" },
+          { "not": { "href_matches": "/auth/*" } },
+          { "not": { "href_matches": "/crud/*" } },
+          { "not": { "href_matches": "/electric/*" } },
+          { "not": { "href_matches": "/srv/*" } },
+          { "not": { "href_matches": "/shell/*" } }
+        ]
+      },
+      "eagerness": "moderate"
+    }
+  ]
+}
+</script>
 </head>
 <body>
 <main id="app"></main>

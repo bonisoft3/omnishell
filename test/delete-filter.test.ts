@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@test/harness"
 import { deleteSpec } from "../interpreter/fragment.js"
-import { createStore } from "../interpreter/data-crud.js"
+import { createStore } from "../interpreter/data-sync.js"
 
 // The parser reads limit as a cap and drops it from the spec, so a delete
 // that honored the remaining predicates would remove every matching row —
@@ -35,7 +35,7 @@ describe("deleteSpec", () => {
 })
 
 // The synced tier refuses the same cap, before it touches any collection.
-describe("data-crud dropWhere", () => {
+describe("data-sync dropWhere", () => {
   it("refuses a limit before reconciling", async () => {
     const store = await createStore()
     let err: Error | undefined

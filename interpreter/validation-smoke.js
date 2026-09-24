@@ -33,10 +33,12 @@ async function withBrowser(fn) {
       location: { origin: "http://localhost" },
       addEventListener: () => {},
       removeEventListener: () => {},
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
     };
   }
   try {
-    const { createStore } = await import("./data-crud.js");
+    const { createStore } = await import("./data-sync.js");
     await fn(createStore);
   } finally {
     delete globalThis.localStorage;
@@ -63,7 +65,7 @@ const config = (src) => ({
 // form omits, the way the server's DEFAULT would.
 const owned = (src) => ({
   ...config(src),
-  access: { favorite: { mode: "owned", owner: "user_id" } },
+  access: { favorite: { scope: "private", owner: "user_id" } },
 });
 
 // The same app with a natural key, so `upsertBy` resolves one and a favorite
