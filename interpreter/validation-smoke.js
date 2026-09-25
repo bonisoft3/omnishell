@@ -4,6 +4,8 @@
 // lands; a predicate answering a non-boolean is a program error, not a
 // refusal — the seat has no fallback for a rule that did not answer.
 
+import { FIXTURE_CARRIERS } from "./fixture-types.js";
+
 const assert = (cond, msg) => {
   if (!cond) throw new Error(`smoke failed: ${msg}`);
 };
@@ -51,6 +53,7 @@ const OWN_ARTICLE = `(state, event) => state.rows.article.every((a) => a.author_
 const UNANSWERED = `(state, event) => "maybe";\n`;
 
 const config = (src) => ({
+  carriers: FIXTURE_CARRIERS,
   appBase: "http://localhost/app/",
   local: { article: "tab", favorite: "tab" },
   seed: { article: [{ id: "a1", author_id: "u1" }, { id: "a2", author_id: "u2" }] },

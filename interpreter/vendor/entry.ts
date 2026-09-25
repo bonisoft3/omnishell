@@ -6,8 +6,11 @@ export { createMechaClient } from "../../../../libraries/mecha/packages/client/s
 // exports so this entry never reaches past it into @tanstack/db.
 export {
 	and,
+	types,
+	carriers,
 	BasicIndex,
 	BTreeIndex,
+	createCollection,
 	createLiveQueryCollection,
 	eq,
 	gt,
@@ -15,6 +18,8 @@ export {
 	inArray,
 	isNull,
 	liveQueryCollectionOptions,
+	localOnlyCollectionOptions,
+	localStorageCollectionOptions,
 	lt,
 	lte,
 	not,

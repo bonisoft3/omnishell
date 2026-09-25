@@ -124,6 +124,19 @@ describe("writeLint", () => {
     expect(why).toContain("write it as a string")
   })
 
+  it("accepts numeric machine writes to portable numbers but keeps exact strings distinct", () => {
+    for (const type of ["int32", "double"]) {
+      const e = match({ fields: [{ name: "value", type }] })
+      expect(writeLint(w(["value", 10], ["value", 20]), e)).toBe(null)
+      expect(writeLint(w(["value", 10], ["value", "20"]), e)).toContain("2 spellings")
+    }
+    for (const type of ["int64", "decimal"]) {
+      const e = match({ fields: [{ name: "value", type }] })
+      expect(writeLint(w(["value", "10"], ["value", "20"]), e)).toBe(null)
+      expect(writeLint(w(["value", 10]), e)).toContain("write it as a string")
+    }
+  })
+
   it("refuses a write naming no field of the entity", () => {
     expect(writeLint(w(["ghost", "x"]), match())).toContain('not a field of "match"')
   })

@@ -17,10 +17,14 @@
 import {
   BasicIndex,
   BTreeIndex,
+  carriers,
+  createCollection,
   createLiveQueryCollection,
   createMechaClient,
   eq,
   isNull,
+  localOnlyCollectionOptions,
+  localStorageCollectionOptions,
   not,
   or,
 } from "./vendor/mecha-client.js";
@@ -111,10 +115,9 @@ export function isMaintainable(spec, embeds, access, accessOf = () => undefined)
   // A boolean the schema defaults is absent on an unconfirmed optimistic row,
   // which the snapshot predicate admits and a column comparison would not.
   if (spec.some((s) => s.op === "true" || s.op === "false")) return false;
-  // A cursor reads client-side but is not maintained. The predicate above
-  // leans on JS coercion to compare a string value against a column whose
-  // type is not knowable here; the engine has its own comparison semantics,
-  // and handing it a string for a numeric column is not the same question.
+  // A cursor reads client-side but is not maintained: the engine's clause
+  // vocabulary has no lt/gt, and an unstatable clause would widen to every
+  // row.
   if (spec.some((s) => s.op === "lt" || s.op === "lte" || s.op === "gt" || s.op === "gte")) return false;
   // A pattern is a predicate the engine's clause vocabulary cannot state, and
   // an unstatable clause would silently widen to "every row" — see `clause`.
@@ -149,7 +152,30 @@ function isWhole(spec, embeds, limit) {
     Array.isArray(embeds) && embeds.length === 0 && limit === undefined;
 }
 
-function compareBy(order) {
+// Every mecha table's txid is the platform's int8, delivered as its int64
+// carrier string. It is set after the schema's own fields below, so a table
+// that declares a column of that name is still compared as the platform's.
+const TXID = { name: "txid", type: "int64" };
+
+/** The value order of one table's columns, for parseFilter and compareBy:
+ * undefined for a column the schema does not type. The comparator is the
+ * store's, bound to the carrier table the shell was served.
+ *
+ * @param {(field: object, a: unknown, b: unknown) => number | void} compare
+ *
+ * @returns {(col: string, a: unknown, b: unknown) => number | undefined}
+ */
+export function columnOrder(compare, fields = []) {
+  const byName = new Map(fields.map((f) => [f.name, f]));
+  byName.set(TXID.name, TXID);
+  return (col, a, b) => {
+    const field = byName.get(col);
+    return field === undefined ? undefined : compare(field, a, b);
+  };
+}
+
+/** @param {(col: string, a: unknown, b: unknown) => number | undefined} [compare] */
+export function compareBy(order, compare = () => undefined) {
   const keys = (order ?? "").split(",").filter(Boolean).map((k) => {
     const [col, dir] = k.split(".");
     return { col, sign: dir === "desc" ? -1 : 1 };
@@ -161,6 +187,11 @@ function compareBy(order) {
       if (x == null && y == null) continue;
       if (x == null) return sign;
       if (y == null) return -sign;
+      const typed = compare(col, x, y);
+      if (typed !== undefined) {
+        if (typed !== 0) return typed * sign;
+        continue;
+      }
       if (x < y) return -sign;
       if (x > y) return sign;
     }
@@ -227,7 +258,7 @@ const stateOf = (p, r) => (r[p.retracted] == null ? 1 : 0);
 
 // Every input is a synced, persisted collection, so this answers at boot and
 // stays answerable offline — there is no branch that waits on the network.
-export function othersFor(p, sinkRow, mine, pair) {
+export function othersFor(p, sinkRow, mine, pair, compareTxid) {
   const total = sinkRow[p.projects];
   const acked = mine !== undefined && mine.$synced !== false && mine.txid != null;
   // The public total's read is at or after this exact acknowledged version,
@@ -236,7 +267,7 @@ export function othersFor(p, sinkRow, mine, pair) {
   // versions that exist. It is also what keeps a first favourite from
   // spiking — the total starts including the reader before their pair
   // arrives, and without this the reader adds themselves twice.
-  if (acked && sinkRow[p.watermark] != null && sinkRow[p.watermark] >= mine.txid) {
+  if (acked && sinkRow[p.watermark] != null && compareTxid(sinkRow[p.watermark], mine.txid) >= 0) {
     return total - stateOf(p, mine);
   }
   // The read predates the reader's latest change, so the freshest total
@@ -255,7 +286,18 @@ export function createStore(base = "", cfg = {}) {
   // listed apart from the tables the terminal subscribes.
   const local = cfg.local ?? {};
   const tables = [...(cfg.tables ?? []), ...Object.keys(local)];
+  // The carrier table the shell was served with (shell.yaml `carriers`); it
+  // decides what canonical is, and the client converts into it. Bound on the
+  // first question that needs it, because a store whose config declares no
+  // schema — a fixture tier, a smoke — asks none.
+  let bound;
+  const carrier = () => (bound ??= carriers(cfg.carriers));
+  let orders;
+  const ordersInEngine = () => (orders ??= carrier().engineOrders());
+  const compareTxid = (a, b) => carrier().compareCarrier(TXID, a, b);
+  const orderOf = (table) => columnOrder(carrier().compareCarrier, cfg.schema?.[table]?.fields);
   const client = createMechaClient({
+    carriers: cfg.carriers,
     // cfg.keys names the pk of every table whose pk is not "id" (pipeline
     // sinks like note_progress key on their subject). Without it the synced
     // collection keys every row on a missing column and the whole table
@@ -268,6 +310,7 @@ export function createStore(base = "", cfg = {}) {
       id: t,
       table: t,
       key: cfg.keys?.[t],
+      fields: cfg.schema?.[t]?.fields,
       durability: local[t],
       access: cfg.access?.[t],
     })),
@@ -452,7 +495,7 @@ export function createStore(base = "", cfg = {}) {
     ];
     for (const u of declared) {
       // A where outside the translatable subset never ships: derive vets it.
-      const preds = u.where === undefined ? [] : (parseFilter(u.where) ?? []);
+      const preds = u.where === undefined ? [] : (parseFilter(u.where, orderOf(table)) ?? []);
       const groups = new Map();
       for (const r of c.toArray) {
         if (!preds.every((p) => p(r))) continue;
@@ -554,6 +597,12 @@ export function createStore(base = "", cfg = {}) {
     const embeds = parseSelect(opts.select);
     if (!isMaintainable(spec, embeds, a, (t) => access[t])) return null;
     if (isWhole(spec, embeds, parseLimit(opts.filter))) return null;
+    // A column the engine would order differently from the carrier — or not at
+    // all — is left to the snapshot path, which sorts by carrier and refuses
+    // what has no order. An untyped column keeps the engine's own comparison.
+    const typeOf = (col) => col === TXID.name ? TXID.type : cfg.schema?.[table]?.fields?.find((f) => f.name === col)?.type;
+    const ordered = (col) => typeOf(col) === undefined || ordersInEngine().has(typeOf(col));
+    if (!(order ?? "").split(",").filter(Boolean).every((k) => ordered(k.split(".")[0]))) return null;
     if (embeds !== null && embeds.some((e) => client.collections[e.table] === undefined)) return null;
     // Views are keyed by the read they stand for, so the many nested regions
     // that share one — every row's comment probe on a screen — enter the graph
@@ -693,7 +742,8 @@ export function createStore(base = "", cfg = {}) {
       let mine;
       for (const r of source.toArray) {
         if (r[p.key] !== k || !visible(p.from, r)) continue;
-        if (mine === undefined || (mine.txid ?? Infinity) < (r.txid ?? Infinity)) mine = r;
+        // An unconfirmed row carries no txid and is the newest there is.
+        if (mine === undefined || (mine.txid != null && (r.txid == null || compareTxid(mine.txid, r.txid) < 0))) mine = r;
       }
       const pair = pairs?.toArray.find(
         (r) => visible(p.pair.table, r) && String(r[p.key]) === String(k),
@@ -701,7 +751,7 @@ export function createStore(base = "", cfg = {}) {
       const intent = mine === undefined ? 0 : stateOf(p, mine);
       // The projected column is the one the fold DECLARES; the interpreter is
       // generic and must never name an app's column.
-      return { ...sinkRow, [p.projects]: othersFor(p, sinkRow, mine, pair) + intent };
+      return { ...sinkRow, [p.projects]: othersFor(p, sinkRow, mine, pair, compareTxid) + intent };
     });
   }
 
@@ -717,7 +767,7 @@ export function createStore(base = "", cfg = {}) {
       if (!held.view.isReady?.()) await held.view.toArrayWhenReady?.();
       return held.view.toArray;
     }
-    const preds = parseFilter(opts.filter);
+    const preds = parseFilter(opts.filter, orderOf(table));
     const embeds = preds !== null ? parseSelect(opts.select) : null;
     const c =
       embeds !== null && embeds.every((e) => client.collections[e.table] !== undefined)
@@ -747,7 +797,7 @@ export function createStore(base = "", cfg = {}) {
         const rows = access[table] === undefined && preds.length === 0
           ? all
           : all.filter((r) => visible(table, r) && preds.every((p) => p(r)));
-        if (order) rows.sort(compareBy(order));
+        if (order) rows.sort(compareBy(order, orderOf(table)));
         const limit = parseLimit(opts.filter);
         const capped = limit === undefined ? rows : rows.slice(0, limit);
         if (embeds.length === 0) return capped;
@@ -914,7 +964,7 @@ export function createStore(base = "", cfg = {}) {
     // could never show is not this region's input changing, so it must not
     // cost a re-read: without this every comment written anywhere re-queries
     // every comment region on the page.
-    const preds = parseFilter(opts.filter);
+    const preds = parseFilter(opts.filter, orderOf(table));
     // Whether a change to this table names exactly the rows whose rendering it
     // can move. That holds when the read is decided here — predicates the
     // client evaluates, nothing joined — so a row the change did not name is
@@ -1108,7 +1158,7 @@ export function createStore(base = "", cfg = {}) {
     // would silently widen the deletion's scope.
     if (parseLimit(filter) !== undefined) throw new Error(`delete filter carries a limit: ${filter}`);
     await ensurePrepared(table);
-    const preds = parseFilter(filter);
+    const preds = parseFilter(filter, orderOf(table));
     const collection = client.collections[table];
     // A precondition, not a branch: resolving these keys anywhere but the
     // collection reintroduces the divergence this comment block describes, so

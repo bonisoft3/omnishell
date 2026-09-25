@@ -48,9 +48,14 @@ const decode = (v: string) =>
  * region, `data-entity` on a delete form. */
 export function scanScreen(
   html: string,
-): { tables: string[]; handlers: string[]; filters: { table: string; filter: string }[] } {
+): { tables: string[]; handlers: string[]; adapters: string[]; filters: { table: string; filter: string }[] } {
   const tables = new Set<string>();
   const handlers = new Set<string>();
+  // An adapter is a Jessie module like a reduce, and a different ROLE: it ends
+  // in a map of pure functions rather than one function, and the cage it loads
+  // in is endowed. Kept apart here so every reader downstream — the loader, the
+  // load check, the battery — asks about it in the role it actually has.
+  const adapters = new Set<string>();
   const filters: { table: string; filter: string }[] = [];
   for (const [, closing, , attrText] of strip(html).matchAll(ANY_TAG)) {
     if (closing === "/") continue;
@@ -67,6 +72,7 @@ export function scanScreen(
         tables.add(read.table);
         if (read.filter !== undefined) filters.push({ table: read.table, filter: read.filter });
       } else if (name === "data-handler" || name.startsWith("data-on-")) handlers.add(value);
+      else if (name === "data-value-adapter") adapters.add(value);
     }
     const filter = attrs.get("data-filter");
     if (filter !== undefined) {
@@ -75,7 +81,7 @@ export function scanScreen(
       filters.push({ table, filter });
     }
   }
-  return { tables: [...tables].sort(), handlers: [...handlers].sort(), filters };
+  return { tables: [...tables].sort(), handlers: [...handlers].sort(), adapters: [...adapters].sort(), filters };
 }
 
 /**
@@ -410,7 +416,7 @@ export function formatLint(b: FormatBinding, entity: Entity | undefined): string
   if (b.format !== "number" && b.format !== "money") return null;
   const column = /^\w+$/.test(b.expr) ? entity?.fields.find((f) => f.name === b.expr) : undefined;
   if (b.format === "number") {
-    if (column === undefined || column.type === "int" || column.type === "bigint") return null;
+    if (column === undefined || ["int", "bigint", "int32", "int64", "double", "decimal"].includes(column.type)) return null;
     return `data-text-format="number" reads {${b.expr}}, which is ${column.type} on "${b.table}"`;
   }
   if (b.table === undefined) {
@@ -947,7 +953,7 @@ const BROWSER_TIERS = new Set(["tab", "device"]);
 // The types whose one value has two JS spellings — a number and its decimal
 // string, a boolean and "true"/"false". Every other type has exactly one, so
 // a non-string written into it is not a second spelling but a second type.
-const TWO_SPELLINGS = new Set(["int", "bigint", "bool"]);
+const TWO_SPELLINGS = new Set(["int", "bigint", "int32", "double", "bool"]);
 
 /** The answers a region's projection supplies, by name. Unparseable is this
  * pass's finding rather than the runtime's: every other reader of the markup
@@ -1110,7 +1116,7 @@ export function focusLint(region: StopRegion, e: Entity, outer?: Entity): string
   return null;
 }
 
-/** Column-spelling consistency over the writes a screen's markup declares:/** Column-spelling consistency over the writes a screen's markup declares:
+/** Column-spelling consistency over the writes a screen's markup declares:
  * the reason a browser-tier entity's regions write one column in more than one
  * JS spelling, or write a non-string into a column whose type has only the
  * string spelling, or null. This rule judges spelling and nothing else — it

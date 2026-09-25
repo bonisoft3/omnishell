@@ -4,6 +4,8 @@
 // warning), never the slot's crash, which from boot onward means only
 // corruption that happened after it.
 
+import { FIXTURE_CARRIERS } from "./fixture-types.js";
+
 const assert = (cond, msg) => {
   if (!cond) throw new Error(`smoke failed: ${msg}`);
 };
@@ -80,7 +82,7 @@ Deno.test({
         ]),
       },
       async (createStore, warnings) => {
-        const store = await createStore("", {
+        const store = await createStore("", { carriers: FIXTURE_CARRIERS,
           local: { match: "device" },
           partialUniques: { match: [{ cols: ["status"], where: "status=eq.playing" }] },
         });
@@ -112,7 +114,7 @@ Deno.test({
         ]),
       },
       async (createStore, warnings) => {
-        const store = await createStore("", {
+        const store = await createStore("", { carriers: FIXTURE_CARRIERS,
           local: { doc: "device" },
           uniques: { doc: [["slug"]] },
         });
@@ -139,7 +141,7 @@ Deno.test({
         ]),
       },
       async (createStore) => {
-        const store = await createStore("", {
+        const store = await createStore("", { carriers: FIXTURE_CARRIERS,
           local: { match: "device" },
           optional: {
             match: [
@@ -177,7 +179,7 @@ Deno.test({
       },
       async (createStore, warnings) => {
         const opts = { filter: "current=eq.yes", order: "ordinal.desc" };
-        const store = await createStore("", {
+        const store = await createStore("", { carriers: FIXTURE_CARRIERS,
           local: { game: "device" },
           partialUniques: { game: [{ cols: ["current"], where: "current=eq.yes" }] },
         });
@@ -221,7 +223,7 @@ Deno.test({
         ]),
       },
       async (createStore, warnings) => {
-        const store = await createStore("", {
+        const store = await createStore("", { carriers: FIXTURE_CARRIERS,
           local: { match: "device" },
           partialUniques: { match: [{ cols: ["status"], where: "status=eq.playing" }] },
         });

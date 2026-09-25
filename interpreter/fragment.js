@@ -56,11 +56,9 @@ export function parseFilterSpec(filter) {
       const at = expr.indexOf(".");
       spec.push({ col, op: expr.slice(0, at), value: decodeURIComponent(expr.slice(at + 1)) });
     }
-    // Cursor comparisons. The value arrives as a string and the column's type
-    // is not knowable here, which JS's relational operators handle the way
-    // this needs: two timestamps compare lexically in the one format the
-    // cursor ever carries (a row's own value, round-tripped through the URL),
-    // and a numeric string coerces against a number.
+    // Cursor comparisons. The bound arrives as the text the program wrote;
+    // parseFilter compares it through the column's carrier, which is where a
+    // bound that is not one is refused.
     else if (/^(lt|lte|gt|gte)\./.test(expr)) {
       const at = expr.indexOf(".");
       spec.push({ col, op: expr.slice(0, at), value: decodeURIComponent(expr.slice(at + 1)) });
@@ -134,9 +132,31 @@ const likeSource = (pattern) =>
     c === "*" || c === "%" ? "\u0000*" : c === "_" ? "\u0000?" : `\\${c}`,
   ).replace(/\u0000\*/g, ".*").replace(/\u0000\?/g, ".");
 
-export function parseFilter(filter) {
+/**
+ * A filter as row predicates. `compare(col, a, b)` is the column's value order
+ * — a carrier's canonical string is not ordered like its value, `"10" < "9"` —
+ * and answers undefined for a column it has no type for, which keeps `<`.
+ *
+ * @param {(col: string, a: unknown, b: unknown) => number | undefined} [compare]
+ */
+export function parseFilter(filter, compare = () => undefined) {
   const spec = parseFilterSpec(filter);
   if (spec === null) return null;
+  const ordered = (col, value, admits) => {
+    // The bound is the program's own text: a value that is not the column's
+    // carrier is a broken filter, and it says so here, once, naming the
+    // column — not per row, from inside a region's render.
+    try {
+      compare(col, value, value);
+    } catch (err) {
+      throw new Error(`filter ${col}: ${err.message}`);
+    }
+    return (row) => {
+      if (row[col] == null) return false;
+      const typed = compare(col, row[col], value);
+      return admits(typed === undefined ? (row[col] < value ? -1 : row[col] > value ? 1 : 0) : typed);
+    };
+  };
   return spec.map(({ col, op, value }) => {
     if (op === "eq") return (row) => String(row[col]) === value;
     if (op === "neq") return (row) => String(row[col]) !== value;
@@ -152,10 +172,10 @@ export function parseFilter(filter) {
     if (op === "false") return (row) => row[col] === false || (row.$synced === false && row[col] === undefined);
     if (op === "null") return (row) => row[col] == null;
     if (op === "notnull") return (row) => row[col] != null;
-    if (op === "lt") return (row) => row[col] < value;
-    if (op === "lte") return (row) => row[col] <= value;
-    if (op === "gt") return (row) => row[col] > value;
-    return (row) => row[col] >= value;
+    if (op === "lt") return ordered(col, value, (d) => d < 0);
+    if (op === "lte") return ordered(col, value, (d) => d <= 0);
+    if (op === "gt") return ordered(col, value, (d) => d > 0);
+    return ordered(col, value, (d) => d >= 0);
   });
 }
 
@@ -350,12 +370,14 @@ export function resolveLocale(i18n, sources = {}) {
  *
  * The one caller that holds no Intl is CUE, which is why the emitter resolves
  * the entry document's direction against terminal.cue's #RtlLanguages instead;
- * test/locale-resolver.test.ts grades that list against this function.
+ *
+ * @param {string} [tag]
+ * @returns {string}
  */
 export function directionOf(tag) {
   const locale = new Intl.Locale(tag);
   const info = locale.getTextInfo?.() ?? locale.textInfo;
-  if (info === undefined) {
+  if (info === undefined || info.direction === undefined) {
     throw new Error(`cannot tell which way ${tag} reads: Intl.Locale offers neither getTextInfo() nor textInfo`);
   }
   return info.direction;

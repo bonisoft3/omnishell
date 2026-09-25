@@ -6,6 +6,8 @@
 // "insert whatever id is missing" would resurrect every deleted row on every
 // read.
 
+import { FIXTURE_CARRIERS } from "./fixture-types.js";
+
 const assert = (cond, msg) => {
   if (!cond) throw new Error(`smoke failed: ${msg}`);
 };
@@ -66,7 +68,7 @@ Deno.test({
   sanitizeResources: false,
   async fn() {
     await withBrowser(async (createStore) => {
-      const store = await createStore("", config());
+      const store = await createStore("", { ...config(), carriers: FIXTURE_CARRIERS });
       const rows = await store.query("command", "position.asc", {});
       assert(rows.length === 3, `three seeded rows, got ${rows.length}`);
       assert(
@@ -83,7 +85,7 @@ Deno.test({
   sanitizeResources: false,
   async fn() {
     await withBrowser(async (createStore) => {
-      const store = await createStore("", config());
+      const store = await createStore("", { ...config(), carriers: FIXTURE_CARRIERS });
       const rows = await store.query("command", null, { filter: "id=eq.search" });
       assert(rows.length === 1 && rows[0].label === "Search", `one row by id, got ${JSON.stringify(rows)}`);
     });
@@ -96,7 +98,7 @@ Deno.test({
   sanitizeResources: false,
   async fn() {
     await withBrowser(async (createStore) => {
-      const store = await createStore("", config());
+      const store = await createStore("", { ...config(), carriers: FIXTURE_CARRIERS });
       await store.query("command", null, {});
       await store.drop("command", ["search"]);
       const after = await store.query("command", "position.asc", {});
@@ -112,10 +114,10 @@ Deno.test({
   sanitizeResources: false,
   async fn() {
     await withBrowser(async (createStore) => {
-      const first = await createStore("", config());
+      const first = await createStore("", { ...config(), carriers: FIXTURE_CARRIERS });
       await first.query("command", null, {});
       await first.drop("command", ["search"]);
-      const next = await createStore("", config());
+      const next = await createStore("", { ...config(), carriers: FIXTURE_CARRIERS });
       const rows = await next.query("command", null, {});
       assert(rows.length === 3, `a tab collection is born empty and reseeds, got ${rows.length}`);
     });
@@ -128,7 +130,7 @@ Deno.test({
   sanitizeResources: false,
   async fn() {
     await withBrowser(async (createStore) => {
-      const store = await createStore("", {
+      const store = await createStore("", { carriers: FIXTURE_CARRIERS,
         local: { command: "tab" },
         seed: { command: [{ label: "New note" }] },
       });

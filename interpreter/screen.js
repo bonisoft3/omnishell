@@ -139,12 +139,16 @@ const rest = (ms, label) => {
 // from where the caller advanced it, so a row stamped {now} lands on the same
 // instant in every run. `?epoch` names that start; unset it starts at zero.
 const epoch = params.get("epoch");
+// A `timestamp` type is six fractional digits; toISOString spells three, so
+// the stamp is padded rather than left a spelling the column refuses and every
+// other holder of the same instant disagrees with.
+const stamp = (ms) => new Date(ms).toISOString().replace(/\.(\d{3})Z$/, ".$1000Z");
 const now = () => {
-  if (!MANUAL) return new Date(Date.now()).toISOString();
+  if (!MANUAL) return stamp(Date.now());
   // A held clock with no start would stamp 1970, which reads as a fixture
   // mistake rather than a missing knob — so the screen says which it is.
   if (epoch === null) throw new Error("a held clock stamps {now} only from an ?epoch");
-  return new Date(Date.parse(epoch) + held).toISOString();
+  return stamp(Date.parse(epoch) + held);
 };
 const draw = () => {
   drawn += 1;
@@ -167,12 +171,12 @@ const mintUuid = () => {
 // Every role resolves the same way: the attribute names the role, its value
 // names the module, and route.files.handlers is the app's list of Jessie
 // sources whatever role each one plays.
-async function loadRole(screen, appBase, route, attr, role) {
+async function loadRole(screen, appBase, route, attr, role, listed = "handlers") {
   const loaded = new Map();
   for (const el of screen.querySelectorAll(`[${attr}]`)) {
     const name = el.getAttribute(attr);
     if (loaded.has(name)) continue;
-    const path = route.files.handlers.find((p) => p.split("/").pop() === `${name}.js`);
+    const path = (route.files[listed] ?? []).find((p) => p.split("/").pop() === `${name}.js`);
     if (!path) throw new Error(`no Jessie module for ${attr}="${name}"`);
     loaded.set(name, await evaluateRole(await fetchText(new URL(path, appBase)), role));
   }
@@ -188,6 +192,37 @@ const onAttrs = (el) =>
   [...el.attributes]
     .filter((a) => a.name.startsWith("data-on-"))
     .map((a) => ({ event: a.name.slice("data-on-".length), name: a.value }));
+
+/** The adapter a control names, or undefined. Modules are loaded once per
+ * screen and reached through the ctx every binding already carries. null is
+ * the fixture tier, which evaluates no module at all: a control binds its
+ * column's text there, the way a handler wired to nothing does nothing. A map
+ * that lacks the name is the other thing entirely — a screen naming a module
+ * the route does not carry. */
+function adapterOf(el, ctx) {
+  const name = el.dataset?.valueAdapter;
+  if (name === undefined || ctx?.adapters === null) return undefined;
+  const adapter = ctx?.adapters?.get(name);
+  if (adapter === undefined) throw new Error(`no Jessie module for data-value-adapter="${name}"`);
+  return adapter;
+}
+
+async function loadAdapters(screen, appBase, route) {
+  const loaded = await loadRole(screen, appBase, route, "data-value-adapter", "adapter", "adapters");
+  // A control in an item template is bound per row, and its markup is not in
+  // the screen's own tree — the same reason loadHandlers and loadRenderers
+  // walk withTemplates.
+  for (const scope of withTemplates(screen)) {
+    for (const el of scope.querySelectorAll("[data-value-adapter]")) {
+      const name = el.getAttribute("data-value-adapter");
+      if (loaded.has(name)) continue;
+      const path = (route.files.adapters ?? []).find((p) => p.split("/").pop() === `${name}.js`);
+      if (!path) throw new Error(`no Jessie module for data-value-adapter="${name}"`);
+      loaded.set(name, await evaluateRole(await fetchText(new URL(path, appBase)), "adapter"));
+    }
+  }
+  return loaded;
+}
 
 async function loadHandlers(screen, appBase, route) {
   const loaded = await loadRole(screen, appBase, route, "data-handler", "handler");
@@ -246,6 +281,11 @@ const withTemplates = (screen) => {
 // renderer: a Jessie module the app declared in files.renderers, resolved by
 // basename exactly as a handler is.
 const TEXT_FORMATS = new Set(["plain", "datetime", "number", "money"]);
+
+// The controls whose bound value the DOM keeps only as a property: setting the
+// attribute leaves a date picker empty. Text and its kin bind through `value`
+// like any attribute.
+const VALUE_PROPERTY = new Set(["date", "datetime-local", "time", "month", "week", "color", "range"]);
 // The built-ins that format the looked-up VALUE rather than interpolate a
 // sentence around it. plain is not one: it is the default spelled out.
 const VALUE_FORMATS = new Set(["datetime", "number", "money"]);
@@ -1166,17 +1206,16 @@ function bindElementAttributes(el, ctx) {
         el.checked = String(lookup(template.slice(1, -1), ctx, arm) ?? "") === el.value;
         continue;
       }
-      if (el.type === "datetime-local") {
-        // The control accepts only YYYY-MM-DDTHH:MM; rows carry full ISO.
-        el.value = interpolate(template, ctx, arm).slice(0, 16);
+      // A control's value is the control's own spelling and a column's is its
+      // canonical type; data-value-adapter names the module that maps between them,
+      // and a control naming none binds the column's text unchanged
+      // (2026-09-22-a-control-value-is-not-a-canonical-type.md).
+      const adapter = adapterOf(el, ctx);
+      if (adapter !== undefined) {
+        el.value = adapter.format(interpolate(template, ctx, arm), { zone: ctx.timeZone });
         continue;
       }
-      if (el.type === "date") {
-        // Day precision: the control accepts only YYYY-MM-DD.
-        el.value = interpolate(template, ctx, arm).slice(0, 10);
-        continue;
-      }
-      if (el.localName === "textarea" || el.localName === "select") {
+      if (el.localName === "textarea" || el.localName === "select" || VALUE_PROPERTY.has(el.type)) {
         el.value = interpolate(template, ctx, arm);
         continue;
       }
@@ -1399,16 +1438,24 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // emitted entity schema a value format resolves a column's declaration in
   // (moneyOf).
   const cfg = { routes: opts.routes, i18n: opts.i18n, schema: opts.schema };
+  // Loaded below, before anything binds; the ctx carries the map so an adapter
+  // is reached the way a message catalogue is, and every derived ctx keeps it.
+  let adapters = null;
   const screenCtx = {
     params,
     inert: opts.fixtures === true,
     messages: opts.messages,
     i18n: opts.i18n,
-    // Undefined in a browser, which is how Intl spells the reader's own zone.
     // The checking tiers pass UTC so a rendered moment does not differ by the
     // machine that rendered it; it rides the ctx the way locale does because
-    // every formatted binding reads it from there.
-    timeZone: opts.timeZone,
+    // every formatted binding reads it from there. Resolved here rather than
+    // left undefined — Intl's spelling for "the host's own" — because an
+    // adapter takes the zone as data and may read none for itself, and because
+    // one render answers from one zone throughout.
+    timeZone: opts.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+    get adapters() {
+      return adapters;
+    },
     cfg,
     get locale() {
       return currentLocale;
@@ -1499,6 +1546,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   }
 
   const handlers = opts.handlers === false ? new Map() : await loadHandlers(screen, appBase, route);
+  adapters = opts.handlers === false ? null : await loadAdapters(screen, appBase, route);
   const renderers = opts.handlers === false
     ? {}
     : await loadRenderers(screen, appBase, route);
@@ -1711,6 +1759,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       const ctx = getCtx();
       const out = {};
       for (const input of form.querySelectorAll("[name]")) {
+        const adapter = adapterOf(input, screenCtx);
         if (input.type === "radio") {
           // A radio group shares one name; only the checked member speaks
           // (iterating all would leave the last radio's value).
@@ -1731,13 +1780,12 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           out[input.name] = key;
         } else if (input.type === "hidden" && input.dataset.value !== undefined) {
           out[input.name] = resolveHidden(input.dataset.value, ctx);
-        } else if (input.type === "datetime-local") {
-          // Control values are minute-precision local-format; store UTC (v0).
-          out[input.name] = input.value === "" ? null : `${input.value}:00Z`;
-        } else if (input.type === "date") {
-          // Day precision, pinned to the day's first instant — the one-clock
-          // day convention: no hour is ever entered or shown.
-          out[input.name] = input.value === "" ? null : `${input.value}T00:00:00Z`;
+        } else if (adapter !== undefined) {
+          // Read at the gesture, from the control the reader just typed in:
+          // the inputs are both in hand, so there is nothing to materialise
+          // and nothing to wait for. The modules and the zone are the screen's
+          // — a form's own ctx carries the row it writes, and nothing else.
+          out[input.name] = input.value === "" ? null : adapter.parse(input.value, { zone: screenCtx.timeZone });
         } else out[input.name] = input.value.trim();
       }
       return out;
@@ -2765,6 +2813,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       i18n: ctx.i18n,
       cfg: ctx.cfg,
       timeZone: ctx.timeZone,
+      adapters: ctx.adapters,
       // The entity a bound column belongs to, for the formats that resolve a
       // declaration rather than render the value as it stands.
       table,
@@ -3151,6 +3200,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
                   i18n: ctx.i18n,
                   cfg: ctx.cfg,
                   timeZone: ctx.timeZone,
+                  adapters: ctx.adapters,
                   table,
                   get locale() {
                     return ctx.locale ?? currentLocale;

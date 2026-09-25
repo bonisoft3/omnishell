@@ -101,7 +101,7 @@ export type Route = {
   /** The same path in each declared locale, on a route carrying a slug. */
   paths?: Record<string, string>;
   screen: string;
-  files: { html: string; css: string; handlers: string[]; renderers?: string[]; shared?: string[] };
+  files: { html: string; css: string; handlers: string[]; renderers?: string[]; adapters?: string[]; shared?: string[] };
   states?: string[];
 };
 
@@ -500,9 +500,19 @@ export async function appFiles(appDir: URL, route: Route): Promise<Record<string
     route.files.css,
     ...route.files.handlers,
     ...(route.files.renderers ?? []),
+    ...(route.files.adapters ?? []),
   ];
   const files: Record<string, string> = {};
-  for (const path of paths) files[path] = await Deno.readTextFile(new URL(path, appDir));
+  for (const path of paths) {
+    // The terminal serves its own adapters; the app carries no copy, so the
+    // harness reads them where they live.
+    const from = path.startsWith("/omnishell/components/")
+      ? new URL(`../components/${path.slice("/omnishell/components/".length)}`, import.meta.url)
+      : new URL(path, appDir);
+    // Keyed the way the fetch stub looks one up: by pathname, leading slash
+    // stripped, so a terminal path and an app path land in one map.
+    files[path.replace(/^\//, "")] = await Deno.readTextFile(from);
+  }
   return files;
 }
 

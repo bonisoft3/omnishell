@@ -274,6 +274,19 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 		interpreterRoot: #Path
 		interpreterRoot: *"../../plugins/omnishell/interpreter" | string
 
+		componentsRoot: #Path
+		componentsRoot: *"../../plugins/omnishell/components" | string
+
+		// The adapters the terminal ships: a control's value in its own
+		// spelling on one side and a canonical type on the other
+		// (docs/2026-09-22-a-control-value-is-not-a-canonical-type.md). Served like
+		// the interpreter and never copied into an app, so there is one of each
+		// and no app holds a stale twin; an app that needs its own writes it
+		// under shell/handlers/ and the route names that instead. Not
+		// preloaded: a screen fetches the one it names, when it names one.
+		adapters: [...#Path]
+		adapters: ["wallclock.js"]
+
 		// Where this app reaches the terminal's command line: a runtime
 		// directory of this plugin's own tree, app-relative, or the empty
 		// string for the `omnishell` a consumer has on PATH. The layout an app
@@ -543,6 +556,11 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 			[for m in T.surface.modules {
 				file:   "\(T.surface.interpreterRoot)/\(m)"
 				target: "/omnishell/interpreter/\(m)"
+				watch:  true
+			}],
+			[for m in T.surface.adapters {
+				file:   "\(T.surface.componentsRoot)/\(m)"
+				target: "/omnishell/components/\(m)"
 				watch:  true
 			}],
 		])

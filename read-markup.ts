@@ -17,6 +17,7 @@
 //   {"screens": {"<name>": {
 //     "tables":   [...],       // data-live, data-reads, data-read-* — sorted, deduped
 //     "handlers": [...],       // data-handler, data-on-* — sorted, deduped
+//     "adapters": [...],       // data-value-adapter — sorted, deduped
 //     "machines": [{           // one entry per CHART: a region listing two runs two
 //       "table":    "...",     // the region's data-live
 //       "machine":  "...",     // the chart as authored, the bytes #Machine is vetted on
@@ -58,7 +59,7 @@ export type MachineProjection = {
   filterSpec: Spec;
 };
 
-export type ScreenProjection = { tables: string[]; handlers: string[]; machines: MachineProjection[] };
+export type ScreenProjection = { tables: string[]; handlers: string[]; adapters: string[]; machines: MachineProjection[] };
 
 const said = (err: unknown) => err instanceof Error ? err.message : String(err);
 
@@ -66,7 +67,7 @@ const said = (err: unknown) => err instanceof Error ? err.message : String(err);
  * rather than null where the markup states nothing, so a reader can tell "no
  * data-filter" from "a filter that parsed to nothing". */
 export function projectScreen(html: string): ScreenProjection {
-  const { tables, handlers } = scanScreen(html);
+  const { tables, handlers, adapters } = scanScreen(html);
   const machines = machineRegions(html).map((region) => {
     // machineRegions has already parsed this and refused what is not JSON, so
     // the shape walk reads a value rather than a string.
@@ -82,7 +83,7 @@ export function projectScreen(html: string): ScreenProjection {
     if (region.filter !== undefined) projection.filter = region.filter;
     return projection;
   });
-  return { tables, handlers, machines };
+  return { tables, handlers, adapters, machines };
 }
 
 /** Every screen of one app, keyed by the name its file carries. */
@@ -142,6 +143,7 @@ export function selfTest(): { failures: string[] } {
   check("the whole projection of one screen", projectScreen(html), {
     tables: ["held", "match", "round"],
     handlers: ["table"],
+    adapters: [],
     machines: [{
       table: "held",
       machine: JSON.stringify(chart),

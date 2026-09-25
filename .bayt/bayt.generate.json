@@ -58,9 +58,7 @@
       "dir": "plugins/omnishell",
       "outs": {
         "globs": [
-          "interpreter/vendor/mecha-client.js",
-          "interpreter/vendor/morphlex.js",
-          "interpreter/vendor/js-yaml.js"
+          "interpreter/vendor/mecha-client.js"
         ],
         "exclude": []
       }

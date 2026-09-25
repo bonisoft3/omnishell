@@ -5,7 +5,12 @@
 // here, as in login-smoke.
 import { parseHTML } from "npm:linkedom@0.18.4";
 
+import { FIXTURE_CARRIERS } from "./fixture-types.js";
+
+// The table a program emits into the shell this smoke serves; YAML reads the
+// JSON spelling, so it rides in whole.
 const CONFIG_YAML = `
+carriers: ${JSON.stringify(FIXTURE_CARRIERS)}
 app: smoke
 auth:
   required: true

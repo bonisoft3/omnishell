@@ -35,6 +35,7 @@
     "globs": [
       "test/**/*",
       "interpreter/**/*",
+      "components/**/*",
       "check-*.ts",
       "base-url.ts",
       "terminal.cue",
@@ -132,6 +133,7 @@
         "globs": [
           "test/**/*",
           "interpreter/**/*",
+          "components/**/*",
           "check-*.ts",
           "base-url.ts",
           "terminal.cue",
@@ -164,6 +166,7 @@
               "interpreter/**/*",
               "check-*.ts",
               "arbitrary.ts",
+              "components/**/*",
               "base-url.ts",
               "terminal.cue",
               "instrument.ts",
@@ -238,6 +241,7 @@
         "globs": [
           "test/**/*",
           "interpreter/**/*",
+          "components/**/*",
           "check-*.ts",
           "base-url.ts",
           "terminal.cue",
@@ -247,7 +251,7 @@
         "defaultGlobs": null,
         "defaultExclude": null
       },
-      "do": "deno cache --config interpreter/deno.json --lock interpreter/deno.lock --frozen --allow-import=cdn.jsdelivr.net:443 interpreter/clock-smoke.js interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/validate-smoke.js interpreter/worker-smoke.js",
+      "do": "deno cache --config interpreter/deno.json --lock interpreter/deno.lock --frozen --allow-import=cdn.jsdelivr.net:443 interpreter/adapter-smoke.js interpreter/clock-smoke.js interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/validate-smoke.js interpreter/worker-smoke.js",
       "name": "cache-smokes",
       "shell": "exec",
       "stop": false
@@ -257,6 +261,7 @@
         "globs": [
           "test/**/*",
           "interpreter/**/*",
+          "components/**/*",
           "check-*.ts",
           "base-url.ts",
           "terminal.cue",
@@ -266,7 +271,7 @@
         "defaultGlobs": null,
         "defaultExclude": null
       },
-      "do": "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys --ignore=test/design-tokens.test.ts,test/check-parity.test.ts,test/chrome-direction.test.ts,test/entry-document.test.ts,test/locale-resolver.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read interpreter/clock-smoke.js interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/validate-smoke.js interpreter/worker-smoke.js'",
+      "do": "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys --ignore=test/design-tokens.test.ts,test/check-parity.test.ts,test/chrome-direction.test.ts,test/entry-document.test.ts,test/locale-resolver.test.ts,test/vendor-bundle.test.ts,test/arbitrary-types.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read interpreter/adapter-smoke.js interpreter/clock-smoke.js interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/validate-smoke.js interpreter/worker-smoke.js'",
       "shell": "sh",
       "name": "builtin",
       "stop": false

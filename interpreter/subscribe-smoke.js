@@ -19,6 +19,7 @@ import {
   touches,
 } from "./data-sync.js";
 import * as fragment from "./fragment.js";
+import { FIXTURE_CARRIERS } from "./fixture-types.js";
 
 const { parseReadSpec } = fragment;
 
@@ -281,7 +282,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const store = await createStore("", { local: { round: "tab" } });
+    const store = await createStore("", { carriers: FIXTURE_CARRIERS, local: { round: "tab" } });
     await store.write("round", [{ key: "r1", row: { current: "yes", created_at: 2 } }]);
     await store.write("round", [{ key: "r2", row: { current: "no", created_at: 1 } }]);
     await store.write("round", [{ key: "r3", row: { current: "yes", created_at: 5 } }]);
@@ -330,7 +331,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const store = createStore("", { local: { row: "tab" } });
+    const store = createStore("", { carriers: FIXTURE_CARRIERS, local: { row: "tab" } });
     await store.write("row", [{ key: "a", row: { ord: 2 } }, { key: "b", row: { ord: 1 } }]);
     await new Promise((r) => setTimeout(r, 5));
     const wakes = [];
@@ -358,7 +359,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const store = createStore("", { local: { row: "tab" } });
+    const store = createStore("", { carriers: FIXTURE_CARRIERS, local: { row: "tab" } });
     await store.write("row", [{ key: "a", row: { ord: 1 } }]);
     await new Promise((r) => setTimeout(r, 5));
     const wakes = [];
@@ -382,7 +383,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const store = createStore("", { local: { row: "tab" } });
+    const store = createStore("", { carriers: FIXTURE_CARRIERS, local: { row: "tab" } });
     await store.write("row", [{ key: "old", row: { ord: 1 } }]);
     await new Promise((r) => setTimeout(r, 5));
     const wakes = [];
@@ -406,7 +407,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const store = createStore("", { local: { row: "tab" } });
+    const store = createStore("", { carriers: FIXTURE_CARRIERS, local: { row: "tab" } });
     await store.write("row", [{ key: "a", row: { kind: "x" } }, { key: "b", row: { kind: "x" } }]);
     const opts = { filter: "kind=eq.x" };
     const first = store.subscribe("row", () => {}, opts);
@@ -432,7 +433,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const store = createStore("", { local: { row: "tab" } });
+    const store = createStore("", { carriers: FIXTURE_CARRIERS, local: { row: "tab" } });
     const wakes = [];
     const stop = store.subscribe("row", (changes) => wakes.push(changes), {});
     await store.write("row", [{ key: "a", row: { ord: 1 } }]);

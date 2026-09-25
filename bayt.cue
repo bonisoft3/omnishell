@@ -12,6 +12,7 @@
 //
 // release / launch / verify stay in .say.yaml as direct invocations
 // (omnishell publishes via npm, not a release image).
+@extern(embed)
 package omnishell
 
 import (
@@ -41,14 +42,17 @@ import (
 // --lock is explicit because deno anchors the lockfile at the workspace root
 // (this package.json), not beside --config; without it the pins go unread.
 // test/design-tokens.test.ts, test/check-parity.test.ts,
-// test/chrome-direction.test.ts, test/entry-document.test.ts and
-// test/locale-resolver.test.ts read the repository root — pronto's schema,
-// apps/realworld, every app's emitted design.css, every app's entry document
-// and every app's declared locales — which no image here carries, so both
+// test/chrome-direction.test.ts, test/entry-document.test.ts,
+// test/locale-resolver.test.ts, test/vendor-bundle.test.ts and
+// test/arbitrary-types.test.ts read the repository root — pronto's schema
+// and its type table, apps/realworld's emitted shell, every app's emitted
+// design.css, every app's entry document, every app's declared locales, and
+// the client source both the vendored bundle and the battery's generator are
+// graded against — which no image here carries, so both
 // targets leave them out. The host test verb runs package.json's test
 // script on a full checkout, and that is where they run.
 _smokes: strings.Join([
-	for f in ["clock", "handler", "hatch", "login", "nav", "pending", "renderer", "validate", "worker"] {"interpreter/\(f)-smoke.js"},
+	for f in ["adapter", "clock", "handler", "hatch", "login", "nav", "pending", "renderer", "validate", "worker"] {"interpreter/\(f)-smoke.js"},
 ], " ")
 
 _smokeCmd: {
@@ -58,7 +62,7 @@ _smokeCmd: {
 	}
 	"builtin": {
 		shell: "sh"
-		do:    "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys --ignore=test/design-tokens.test.ts,test/check-parity.test.ts,test/chrome-direction.test.ts,test/entry-document.test.ts,test/locale-resolver.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read \(_smokes)'"
+		do:    "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys --ignore=test/design-tokens.test.ts,test/check-parity.test.ts,test/chrome-direction.test.ts,test/entry-document.test.ts,test/locale-resolver.test.ts,test/vendor-bundle.test.ts,test/arbitrary-types.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read \(_smokes)'"
 	}
 }
 
@@ -101,6 +105,10 @@ _omnishell: bayt.#project & {
 				// that fails.
 				"check-*.ts",
 				"arbitrary.ts",
+				// The adapter modules the terminal serves to an app's routes
+				// (terminal.cue `componentsRoot`), and the suite that grades
+				// them: both are this plugin's, so both ride its image.
+				"components/**/*",
 				// What a checker imports and the shape glob cannot reach:
 				// check-visual reads the door's address from base-url, and the
 				// list of served modules test/served-modules grades the
@@ -128,7 +136,7 @@ _omnishell: bayt.#project & {
 		// Stays parallel to integrate, which re-uses the same command —
 		// omnishell has no separate integration suite.
 		"test": sayt.test & mise.exec & {
-			srcs: globs: ["test/**/*", "interpreter/**/*", "check-*.ts", "base-url.ts", "terminal.cue", "read-markup.ts"]
+			srcs: globs: ["test/**/*", "interpreter/**/*", "components/**/*", "check-*.ts", "base-url.ts", "terminal.cue", "read-markup.ts"]
 			cmd: _smokeCmd
 		}
 
@@ -137,7 +145,7 @@ _omnishell: bayt.#project & {
 		// (from the build chain) + the same unit tests. No dind.sh wrap
 		// (no docker socket needed).
 		"integrate": sayt.integrate & mise.exec & {
-			srcs: globs: ["test/**/*", "interpreter/**/*", "check-*.ts", "base-url.ts", "terminal.cue", "read-markup.ts"]
+			srcs: globs: ["test/**/*", "interpreter/**/*", "components/**/*", "check-*.ts", "base-url.ts", "terminal.cue", "read-markup.ts"]
 			dockerfile: {
 				from: ref: ":build"
 			}
@@ -170,9 +178,14 @@ _omnishell: bayt.#project & {
 				"interpreter/vendor/morphlex.js",
 				"interpreter/vendor/js-yaml.js",
 			]
+			// The mecha-client leg is the script package.json states, rather
+			// than a second spelling of it: test/vendor-bundle.test.ts runs
+			// that same script to decide whether the checked-in bundle is
+			// stale, and a bundle built two ways is one of them can be wrong
+			// about.
 			cmd: "builtin": {
 				shell: "sh"
-				do:    "sh -c 'deno bundle --config ../../libraries/mecha/packages/client/deno.json --platform browser --format esm --minify interpreter/vendor/entry.ts -o interpreter/vendor/mecha-client.js && deno run --allow-run=deno --allow-read --allow-write interpreter/vendor/bundle-morphlex.ts && deno bundle --config interpreter/deno.json --platform browser --format esm --minify interpreter/vendor/entry-js-yaml.ts -o interpreter/vendor/js-yaml.js'"
+				do:    "sh -c '" + _packageJson.scripts["bundle:mecha-client"] + " && deno run --allow-run=deno --allow-read --allow-write interpreter/vendor/bundle-morphlex.ts && deno bundle --config interpreter/deno.json --platform browser --format esm --minify interpreter/vendor/entry-js-yaml.ts -o interpreter/vendor/js-yaml.js'"
 			}
 			dockerfile: from: ref: ":setup"
 		}
@@ -180,5 +193,7 @@ _omnishell: bayt.#project & {
 		"generate": sayt.generate & {deps: [":bundle"], cmd: "builtin": do: "nu -c \"null\""}
 	}
 }
+
+_packageJson: _ @embed(file="package.json")
 
 project: _omnishell

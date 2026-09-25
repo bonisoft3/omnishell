@@ -41,7 +41,9 @@ const assert = (ok: unknown, msg: string) => {
 const HERE = new URL("./", import.meta.url);
 const ROOT = new URL("../../../", HERE);
 const VENDOR = new URL("fixtures/daisyui-5.7.32/", HERE);
-const SCHEMA = "plugins/pronto/schema.cue";
+// Two files, because the schema reads the type table that types.cue
+// states (#Type is the table's keys), and cue loads only what it is given.
+const SCHEMA = ["plugins/pronto/schema.cue", "plugins/pronto/types.cue"];
 const EMITTER = "plugins/pronto/emit.cue";
 
 // The quotation this suite grades, hashed: every vendored theme stylesheet in
@@ -117,7 +119,7 @@ const cue = async (args: string[], stdin?: string): Promise<{ ok: boolean; out: 
 
 /** Unify `#Design` with one probe body and report what cue actually does. */
 const design = (body: string) =>
-  cue(["export", SCHEMA, "-", "-e", "out", "--out", "json"], `package pronto\n\nout: #Design & {\n${body}\n}\n`);
+  cue(["export", ...SCHEMA, "-", "-e", "out", "--out", "json"], `package pronto\n\nout: #Design & {\n${body}\n}\n`);
 
 const q = (s: string) => JSON.stringify(s);
 const kv = (o: Record<string, string>) =>
@@ -146,7 +148,7 @@ const contract = async (): Promise<Contract> => {
     prefix.set(m[1], m[2]);
   }
 
-  const d = await cue(["export", SCHEMA, "-e", "#Design", "--out", "json"]);
+  const d = await cue(["export", ...SCHEMA, "-e", "#Design", "--out", "json"]);
   assert(d.ok, `cue could not export #Design, so there is no contract to grade:\n${d.out}`);
   const block = JSON.parse(d.out) as Record<string, Record<string, string> | string>;
 
@@ -179,7 +181,7 @@ const contract = async (): Promise<Contract> => {
     }
   }
 
-  const p = await cue(["export", SCHEMA, "-e", "#designPresets", "--out", "json"]);
+  const p = await cue(["export", ...SCHEMA, "-e", "#designPresets", "--out", "json"]);
   assert(p.ok, `cue could not export #designPresets:\n${p.out}`);
   return {
     prefix,
@@ -249,7 +251,7 @@ const carriage = async (
     asked.push({ theme: t.name, body: `\t${q(t.name)}: #Design & {\n${lines.join("\n")}\n\t}`, want });
   }
   const r = await cue(
-    ["export", SCHEMA, "-", "-e", "out", "--out", "json"],
+    ["export", ...SCHEMA, "-", "-e", "out", "--out", "json"],
     `package pronto\n\nout: {\n${asked.map((a) => a.body).join("\n")}\n}\n`,
   );
   if (!r.ok) return { ok: false, out: r.out, rows: [] };
@@ -516,7 +518,7 @@ Deno.test("a colour the preset does not publish costs a twin, and one it does pu
   // name itself is admitted — case "what the design layer refuses" measures
   // that — so what an app pays for a new colour is exactly one dark value.
   const bad = await cue(
-    ["export", SCHEMA, "-", "-e", "out", "--out", "json"],
+    ["export", ...SCHEMA, "-", "-e", "out", "--out", "json"],
     `package pronto\n\nout: {\n${fresh.map((n) => `${q(n)}: #Design & {colors: {${q(n)}: "#123456"}}`).join("\n")}\n}\n`,
   );
   assert(!bad.ok, `cue accepted ${fresh.length} untwinned colours:\n${bad.out}`);
@@ -528,7 +530,7 @@ Deno.test("a colour the preset does not publish costs a twin, and one it does pu
   // is simply written into press's role, which is why `maps_to` may not be
   // derived from a shared word and why this suite grades injectivity.
   const ok = await cue(
-    ["export", SCHEMA, "-", "-e", "out", "--out", "json"],
+    ["export", ...SCHEMA, "-", "-e", "out", "--out", "json"],
     `package pronto\n\nout: {\n${
       collides.map((n) => `${q(n)}: #Design & {colors: {${q(n)}: "#123456"}, dark: {${q(n)}: "#123456"}}`).join("\n")
     }\n}\n`,
@@ -572,7 +574,7 @@ Deno.test("one preset, two appearances, no siblings: daisyUI's theme system has 
   // Two identities side by side under one app, which is what [data-theme]
   // selects between. #App.surface.design is one struct.
   const siblings = await cue(
-    ["export", SCHEMA, "-", "-e", "out", "--out", "json"],
+    ["export", ...SCHEMA, "-", "-e", "out", "--out", "json"],
     `package pronto\n\nout: #App.surface & {design: {press: #Design, dracula: #Design}}\n`,
   );
   if (siblings.ok) problems.push(`#App.surface.design held two identities, so sibling themes are expressible`);

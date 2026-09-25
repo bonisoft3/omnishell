@@ -59,6 +59,13 @@ describe("formatBindings", () => {
 })
 
 describe("formatLint", () => {
+  it("accepts portable numeric carriers for number formatting", () => {
+    for (const type of ["int32", "int64", "double", "decimal"]) {
+      const entity = { ...ledger, fields: [{ name: "value", type }] }
+      expect(formatLint({ format: "number", expr: "value", table: "expense" }, entity)).toBe(null)
+    }
+  })
+
   it("is silent on a money column that declares one", () => {
     expect(formatLint({ format: "money", expr: "amount", table: "expense" }, ledger)).toBe(null)
   })

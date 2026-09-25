@@ -1,0 +1,710 @@
+{
+    "dir": "plugins/omnishell",
+    "name": "plugins_omnishell",
+    "activate": "mise x --",
+    "depot": false,
+    "compose": {
+        "includes": []
+    },
+    "targets": {
+        "setup": {
+            "name": "setup",
+            "project": "plugins_omnishell",
+            "dir": "plugins/omnishell",
+            "srcs": {
+                "globs": [],
+                "defaultGlobs": null,
+                "exclude": [],
+                "defaultExclude": null
+            },
+            "outs": {
+                "globs": [],
+                "exclude": []
+            },
+            "state": {
+                "globs": []
+            },
+            "visibility": "internal",
+            "activate": "",
+            "cmd": {
+                "builtin": {
+                    "name": "builtin",
+                    "priority": -1,
+                    "shell": "exec",
+                    "do": "mise install",
+                    "stop": false,
+                    "srcs": {
+                        "globs": [
+                            "[m]ise.toml",
+                            "[.]mise.toml",
+                            "[m]ise.lock"
+                        ],
+                        "defaultGlobs": null,
+                        "exclude": [],
+                        "defaultExclude": null
+                    },
+                    "dockerfile": {
+                        "mounts": [
+                            {
+                                "type": "cache",
+                                "target": "/root/.local/share/mise/downloads",
+                                "scope": "project",
+                                "required": false
+                            },
+                            {
+                                "type": "cache",
+                                "target": "/mise-tarball-store",
+                                "scope": "global",
+                                "required": false
+                            }
+                        ],
+                        "do": "d=/root/.local/share/mise/downloads; s=/mise-tarball-store; mkdir -p \"$d\" \"$s\"; cp -r \"$s\"/. \"$d\"/ 2>/dev/null || true; mise install || exit; cd \"$d\" && for f in */*/*; do [ -f \"$f\" ] || continue; o=\"$s/$f\"; [ -e \"$o\" ] && continue; mkdir -p \"$(dirname \"$o\")\"; t=\"$(mktemp \"$(dirname \"$o\")/.pXXXXXX\")\" && cp \"$f\" \"$t\" && mv -f \"$t\" \"$o\"; done; :",
+                        "shell": "sh"
+                    }
+                }
+            },
+            "env": {
+                "MISE_ALWAYS_KEEP_DOWNLOAD": "1"
+            },
+            "deps": [],
+            "dockerfile": {
+                "from": {
+                    "name": "opensuse/leap:16.0@sha256:859560554b625c225fa767b76d61253d529b95d082c2d68579ad69168d5e3da7"
+                },
+                "preamble": [],
+                "defaultPreamble": {
+                    "lazybox-copy": {
+                        "name": "lazybox-copy",
+                        "priority": -10,
+                        "line": "COPY --from=bonitao/lazybox:0.8.3@sha256:c896a6836673d8fd217f6021a2522351fd82d580ed985159feb2f10373018e73 /lazybox/ /root/.local/share/lazybox/"
+                    },
+                    "mise-trusted": {
+                        "name": "mise-trusted",
+                        "priority": -8,
+                        "line": "ENV MISE_TRUSTED_CONFIG_PATHS=/monorepo"
+                    },
+                    "gnu-shell-utils": {
+                        "name": "gnu-shell-utils",
+                        "priority": -7,
+                        "do": "s=/zypper-store; d=/var/cache/zypp/packages; mkdir -p \"$s\" \"$d\"; cp -r \"$s\"/. \"$d\"/ 2>/dev/null || true; zypper -n modifyservice --no-refresh --all && sed -i 's|http://|https://|g' /etc/zypp/repos.d/*.repo || exit; zypper -n modifyrepo --keep-packages --all && zypper -n install findutils=4.10.0-160000.2.2 which=2.23-160000.2.2 || exit; cd \"$d\" && for f in */*.rpm */*/*.rpm; do [ -f \"$f\" ] || continue; o=\"$s/$f\"; [ -e \"$o\" ] && continue; mkdir -p \"$(dirname \"$o\")\"; t=\"$(mktemp \"$(dirname \"$o\")/.pXXXXXX\")\" && cp \"$f\" \"$t\" && mv -f \"$t\" \"$o\"; done; zypper -n modifyrepo --no-keep-packages --all || true",
+                        "shell": "sh",
+                        "mounts": [
+                            {
+                                "type": "cache",
+                                "target": "/zypper-store",
+                                "scope": "global",
+                                "required": false
+                            },
+                            {
+                                "type": "cache",
+                                "target": "/var/cache/zypp",
+                                "scope": "target",
+                                "required": false
+                            }
+                        ]
+                    },
+                    "path-env": {
+                        "name": "path-env",
+                        "priority": -9,
+                        "line": "ENV PATH=/root/.local/bin:/root/.local/share/lazybox/bin:$PATH"
+                    }
+                },
+                "add": [],
+                "mounts": [],
+                "secrets": {},
+                "extra_hosts": [],
+                "epilogue": [],
+                "copy": [],
+                "defaultCopy": null,
+                "healthcheck": null,
+                "expose": [],
+                "entrypoint": null,
+                "incremental": false,
+                "cmd": null
+            },
+            "taskfile": {
+                "run": "when_changed",
+                "incremental": true,
+                "preconditions": []
+            },
+            "cmds": [
+                {
+                    "do": "mise install",
+                    "dockerfile": {
+                        "do": "d=/root/.local/share/mise/downloads; s=/mise-tarball-store; mkdir -p \"$d\" \"$s\"; cp -r \"$s\"/. \"$d\"/ 2>/dev/null || true; mise install || exit; cd \"$d\" && for f in */*/*; do [ -f \"$f\" ] || continue; o=\"$s/$f\"; [ -e \"$o\" ] && continue; mkdir -p \"$(dirname \"$o\")\"; t=\"$(mktemp \"$(dirname \"$o\")/.pXXXXXX\")\" && cp \"$f\" \"$t\" && mv -f \"$t\" \"$o\"; done; :",
+                        "mounts": [
+                            {
+                                "type": "cache",
+                                "target": "/root/.local/share/mise/downloads",
+                                "scope": "project",
+                                "required": false
+                            },
+                            {
+                                "type": "cache",
+                                "target": "/mise-tarball-store",
+                                "scope": "global",
+                                "required": false
+                            }
+                        ],
+                        "shell": "sh"
+                    },
+                    "srcs": {
+                        "globs": [
+                            "[m]ise.toml",
+                            "[.]mise.toml",
+                            "[m]ise.lock"
+                        ],
+                        "defaultGlobs": null,
+                        "exclude": [],
+                        "defaultExclude": null
+                    },
+                    "name": "builtin",
+                    "shell": "exec",
+                    "stop": false
+                }
+            ],
+            "cache": {
+                "full": false,
+                "similar": false
+            }
+        },
+        "doctor": {
+            "name": "doctor",
+            "project": "plugins_omnishell",
+            "dir": "plugins/omnishell",
+            "srcs": {
+                "globs": [],
+                "defaultGlobs": null,
+                "exclude": [],
+                "defaultExclude": null
+            },
+            "outs": {
+                "globs": [],
+                "exclude": []
+            },
+            "state": {
+                "globs": []
+            },
+            "visibility": "internal",
+            "activate": "",
+            "cmd": {
+                "builtin": {
+                    "name": "builtin",
+                    "priority": 0,
+                    "shell": "exec",
+                    "do": "mise doctor",
+                    "stop": false,
+                    "srcs": {
+                        "globs": [],
+                        "defaultGlobs": null,
+                        "exclude": [],
+                        "defaultExclude": null
+                    }
+                }
+            },
+            "env": {},
+            "deps": [],
+            "taskfile": {
+                "run": "always",
+                "incremental": true,
+                "preconditions": []
+            },
+            "vscode": {
+                "group": {
+                    "kind": "none"
+                }
+            },
+            "cmds": [
+                {
+                    "do": "mise doctor",
+                    "name": "builtin",
+                    "shell": "exec",
+                    "stop": false,
+                    "srcs": {
+                        "globs": [],
+                        "defaultGlobs": null,
+                        "exclude": [],
+                        "defaultExclude": null
+                    }
+                }
+            ],
+            "cache": {
+                "full": false,
+                "similar": false
+            }
+        },
+        "build": {
+            "name": "build",
+            "project": "plugins_omnishell",
+            "dir": "plugins/omnishell",
+            "outs": {
+                "globs": [],
+                "exclude": []
+            },
+            "srcs": {
+                "globs": [
+                    "src/**/*",
+                    "test/**/*",
+                    "interpreter/**/*",
+                    "check-*.ts",
+                    "arbitrary.ts",
+                    "components/**/*",
+                    "base-url.ts",
+                    "terminal.cue",
+                    "instrument.ts",
+                    "read-markup.ts",
+                    "runtime/**/*",
+                    "package.json",
+                    "tsconfig.json"
+                ],
+                "defaultGlobs": null,
+                "exclude": [],
+                "defaultExclude": null
+            },
+            "state": {
+                "globs": []
+            },
+            "visibility": "public",
+            "activate": "mise x --",
+            "cmd": {
+                "builtin": {
+                    "name": "builtin",
+                    "priority": 0,
+                    "shell": "exec",
+                    "do": "deno check --config test/deno.json src/ test/ check-visual.ts runtime/cli.ts",
+                    "stop": false,
+                    "srcs": {
+                        "globs": [],
+                        "defaultGlobs": null,
+                        "exclude": [],
+                        "defaultExclude": null
+                    }
+                }
+            },
+            "deps": [
+                ":setup"
+            ],
+            "dockerfile": {
+                "from": {
+                    "ref": ":setup",
+                    "name": "plugins_omnishell-setup"
+                },
+                "preamble": [],
+                "defaultPreamble": null,
+                "add": [],
+                "mounts": [],
+                "secrets": {},
+                "extra_hosts": [],
+                "epilogue": [],
+                "copy": [],
+                "defaultCopy": null,
+                "healthcheck": null,
+                "expose": [],
+                "entrypoint": null,
+                "incremental": false,
+                "cmd": null
+            },
+            "env": {},
+            "taskfile": {
+                "run": "when_changed",
+                "incremental": true,
+                "preconditions": []
+            },
+            "vscode": {
+                "group": {
+                    "kind": "build",
+                    "isDefault": true
+                }
+            },
+            "cmds": [
+                {
+                    "do": "deno check --config test/deno.json src/ test/ check-visual.ts runtime/cli.ts",
+                    "name": "builtin",
+                    "shell": "exec",
+                    "stop": false,
+                    "srcs": {
+                        "globs": [],
+                        "defaultGlobs": null,
+                        "exclude": [],
+                        "defaultExclude": null
+                    }
+                }
+            ],
+            "cache": {
+                "full": false,
+                "similar": false
+            }
+        },
+        "test": {
+            "name": "test",
+            "project": "plugins_omnishell",
+            "dir": "plugins/omnishell",
+            "srcs": {
+                "globs": [
+                    "test/**/*",
+                    "interpreter/**/*",
+                    "components/**/*",
+                    "check-*.ts",
+                    "base-url.ts",
+                    "terminal.cue",
+                    "read-markup.ts"
+                ],
+                "defaultGlobs": null,
+                "exclude": [],
+                "defaultExclude": null
+            },
+            "outs": {
+                "globs": [],
+                "exclude": []
+            },
+            "state": {
+                "globs": []
+            },
+            "visibility": "internal",
+            "activate": "mise x --",
+            "cmd": {
+                "cache-smokes": {
+                    "name": "cache-smokes",
+                    "priority": -1,
+                    "shell": "exec",
+                    "do": "deno cache --config interpreter/deno.json --lock interpreter/deno.lock --frozen --allow-import=cdn.jsdelivr.net:443 interpreter/adapter-smoke.js interpreter/clock-smoke.js interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/validate-smoke.js interpreter/worker-smoke.js",
+                    "stop": false,
+                    "srcs": {
+                        "globs": [],
+                        "defaultGlobs": null,
+                        "exclude": [],
+                        "defaultExclude": null
+                    }
+                },
+                "builtin": {
+                    "name": "builtin",
+                    "priority": 0,
+                    "shell": "sh",
+                    "do": "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys --ignore=test/design-tokens.test.ts,test/check-parity.test.ts,test/chrome-direction.test.ts,test/entry-document.test.ts,test/locale-resolver.test.ts,test/vendor-bundle.test.ts,test/arbitrary-types.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read interpreter/adapter-smoke.js interpreter/clock-smoke.js interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/validate-smoke.js interpreter/worker-smoke.js'",
+                    "stop": false,
+                    "srcs": {
+                        "globs": [],
+                        "defaultGlobs": null,
+                        "exclude": [],
+                        "defaultExclude": null
+                    }
+                }
+            },
+            "deps": [
+                ":build"
+            ],
+            "env": {},
+            "taskfile": {
+                "run": "when_changed",
+                "incremental": true,
+                "preconditions": []
+            },
+            "vscode": {
+                "group": {
+                    "kind": "test",
+                    "isDefault": true
+                }
+            },
+            "cmds": [
+                {
+                    "do": "deno cache --config interpreter/deno.json --lock interpreter/deno.lock --frozen --allow-import=cdn.jsdelivr.net:443 interpreter/adapter-smoke.js interpreter/clock-smoke.js interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/validate-smoke.js interpreter/worker-smoke.js",
+                    "name": "cache-smokes",
+                    "shell": "exec",
+                    "stop": false,
+                    "srcs": {
+                        "globs": [],
+                        "defaultGlobs": null,
+                        "exclude": [],
+                        "defaultExclude": null
+                    }
+                },
+                {
+                    "do": "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys --ignore=test/design-tokens.test.ts,test/check-parity.test.ts,test/chrome-direction.test.ts,test/entry-document.test.ts,test/locale-resolver.test.ts,test/vendor-bundle.test.ts,test/arbitrary-types.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read interpreter/adapter-smoke.js interpreter/clock-smoke.js interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/validate-smoke.js interpreter/worker-smoke.js'",
+                    "shell": "sh",
+                    "name": "builtin",
+                    "stop": false,
+                    "srcs": {
+                        "globs": [],
+                        "defaultGlobs": null,
+                        "exclude": [],
+                        "defaultExclude": null
+                    }
+                }
+            ],
+            "cache": {
+                "full": false,
+                "similar": false
+            }
+        },
+        "integrate": {
+            "name": "integrate",
+            "project": "plugins_omnishell",
+            "dir": "plugins/omnishell",
+            "srcs": {
+                "globs": [
+                    "test/**/*",
+                    "interpreter/**/*",
+                    "components/**/*",
+                    "check-*.ts",
+                    "base-url.ts",
+                    "terminal.cue",
+                    "read-markup.ts"
+                ],
+                "defaultGlobs": null,
+                "exclude": [],
+                "defaultExclude": null
+            },
+            "outs": {
+                "globs": [],
+                "exclude": []
+            },
+            "state": {
+                "globs": []
+            },
+            "visibility": "internal",
+            "activate": "mise x --",
+            "cmd": {
+                "cache-smokes": {
+                    "name": "cache-smokes",
+                    "priority": -1,
+                    "shell": "exec",
+                    "do": "deno cache --config interpreter/deno.json --lock interpreter/deno.lock --frozen --allow-import=cdn.jsdelivr.net:443 interpreter/adapter-smoke.js interpreter/clock-smoke.js interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/validate-smoke.js interpreter/worker-smoke.js",
+                    "stop": false,
+                    "srcs": {
+                        "globs": [],
+                        "defaultGlobs": null,
+                        "exclude": [],
+                        "defaultExclude": null
+                    }
+                },
+                "builtin": {
+                    "name": "builtin",
+                    "priority": 0,
+                    "shell": "sh",
+                    "do": "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys --ignore=test/design-tokens.test.ts,test/check-parity.test.ts,test/chrome-direction.test.ts,test/entry-document.test.ts,test/locale-resolver.test.ts,test/vendor-bundle.test.ts,test/arbitrary-types.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read interpreter/adapter-smoke.js interpreter/clock-smoke.js interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/validate-smoke.js interpreter/worker-smoke.js'",
+                    "stop": false,
+                    "srcs": {
+                        "globs": [],
+                        "defaultGlobs": null,
+                        "exclude": [],
+                        "defaultExclude": null
+                    }
+                }
+            },
+            "deps": [
+                ":build"
+            ],
+            "dockerfile": {
+                "from": {
+                    "ref": ":build",
+                    "name": "plugins_omnishell-build"
+                },
+                "preamble": [],
+                "defaultPreamble": null,
+                "add": [],
+                "mounts": [],
+                "secrets": {},
+                "extra_hosts": [],
+                "epilogue": [],
+                "copy": [],
+                "defaultCopy": null,
+                "healthcheck": null,
+                "expose": [],
+                "entrypoint": null,
+                "incremental": false,
+                "cmd": null
+            },
+            "env": {},
+            "compose": {
+                "up": true,
+                "manual": true,
+                "environment": {},
+                "ports": [],
+                "volumes": [],
+                "depends_on": {}
+            },
+            "taskfile": {
+                "run": "when_changed",
+                "incremental": true,
+                "preconditions": []
+            },
+            "cmds": [
+                {
+                    "do": "deno cache --config interpreter/deno.json --lock interpreter/deno.lock --frozen --allow-import=cdn.jsdelivr.net:443 interpreter/adapter-smoke.js interpreter/clock-smoke.js interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/validate-smoke.js interpreter/worker-smoke.js",
+                    "name": "cache-smokes",
+                    "shell": "exec",
+                    "stop": false,
+                    "srcs": {
+                        "globs": [],
+                        "defaultGlobs": null,
+                        "exclude": [],
+                        "defaultExclude": null
+                    }
+                },
+                {
+                    "do": "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys --ignore=test/design-tokens.test.ts,test/check-parity.test.ts,test/chrome-direction.test.ts,test/entry-document.test.ts,test/locale-resolver.test.ts,test/vendor-bundle.test.ts,test/arbitrary-types.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read interpreter/adapter-smoke.js interpreter/clock-smoke.js interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/validate-smoke.js interpreter/worker-smoke.js'",
+                    "shell": "sh",
+                    "name": "builtin",
+                    "stop": false,
+                    "srcs": {
+                        "globs": [],
+                        "defaultGlobs": null,
+                        "exclude": [],
+                        "defaultExclude": null
+                    }
+                }
+            ],
+            "cache": {
+                "full": false,
+                "similar": false
+            }
+        },
+        "bundle": {
+            "name": "bundle",
+            "project": "plugins_omnishell",
+            "dir": "plugins/omnishell",
+            "activate": "mise x --",
+            "cmd": {
+                "builtin": {
+                    "name": "builtin",
+                    "priority": 0,
+                    "shell": "exec",
+                    "do": "deno bundle --no-lock --config ../../libraries/mecha/packages/client/deno.json --platform browser --format esm --minify interpreter/vendor/entry.ts -o interpreter/vendor/mecha-client.js",
+                    "stop": false,
+                    "srcs": {
+                        "globs": [],
+                        "defaultGlobs": null,
+                        "exclude": [],
+                        "defaultExclude": null
+                    }
+                }
+            },
+            "deps": [
+                "libraries_mecha:setup:srcs"
+            ],
+            "dockerfile": {
+                "from": {
+                    "ref": ":setup",
+                    "name": "plugins_omnishell-setup"
+                },
+                "preamble": [],
+                "defaultPreamble": null,
+                "add": [],
+                "mounts": [],
+                "secrets": {},
+                "extra_hosts": [],
+                "epilogue": [],
+                "copy": [],
+                "defaultCopy": null,
+                "healthcheck": null,
+                "expose": [],
+                "entrypoint": null,
+                "incremental": false,
+                "cmd": null
+            },
+            "env": {},
+            "outs": {
+                "globs": [
+                    "interpreter/vendor/mecha-client.js"
+                ],
+                "exclude": []
+            },
+            "srcs": {
+                "globs": [
+                    "interpreter/vendor/entry.ts"
+                ],
+                "defaultGlobs": null,
+                "exclude": [],
+                "defaultExclude": null
+            },
+            "state": {
+                "globs": []
+            },
+            "taskfile": {
+                "run": "when_changed",
+                "incremental": true,
+                "preconditions": []
+            },
+            "visibility": "public",
+            "cmds": [
+                {
+                    "do": "deno bundle --no-lock --config ../../libraries/mecha/packages/client/deno.json --platform browser --format esm --minify interpreter/vendor/entry.ts -o interpreter/vendor/mecha-client.js",
+                    "name": "builtin",
+                    "shell": "exec",
+                    "stop": false,
+                    "srcs": {
+                        "globs": [],
+                        "defaultGlobs": null,
+                        "exclude": [],
+                        "defaultExclude": null
+                    }
+                }
+            ],
+            "cache": {
+                "full": false,
+                "similar": false
+            }
+        },
+        "generate": {
+            "name": "generate",
+            "project": "plugins_omnishell",
+            "dir": "plugins/omnishell",
+            "srcs": {
+                "globs": [],
+                "defaultGlobs": null,
+                "exclude": [],
+                "defaultExclude": null
+            },
+            "outs": {
+                "globs": [],
+                "exclude": []
+            },
+            "state": {
+                "globs": []
+            },
+            "visibility": "internal",
+            "cmd": {
+                "builtin": {
+                    "name": "builtin",
+                    "priority": 0,
+                    "shell": "exec",
+                    "do": "nu -c \"null\"",
+                    "stop": false,
+                    "srcs": {
+                        "globs": [],
+                        "defaultGlobs": null,
+                        "exclude": [],
+                        "defaultExclude": null
+                    }
+                }
+            },
+            "deps": [
+                ":bundle"
+            ],
+            "env": {},
+            "taskfile": {
+                "run": "when_changed",
+                "incremental": true,
+                "preconditions": []
+            },
+            "cmds": [
+                {
+                    "do": "nu -c \"null\"",
+                    "name": "builtin",
+                    "shell": "exec",
+                    "stop": false,
+                    "srcs": {
+                        "globs": [],
+                        "defaultGlobs": null,
+                        "exclude": [],
+                        "defaultExclude": null
+                    }
+                }
+            ],
+            "cache": {
+                "full": false,
+                "similar": false
+            }
+        }
+    }
+}

@@ -68,6 +68,112 @@ export function ensureSes() {
 // last expression is the Compartment's completion value, and the role decides
 // what shape that value must have, what the compartment endows, and how the
 // authored file is adapted to a script.
+// What an adapter is endowed with: Intl, whole, with the host's defaults
+// refused — a module states its locale, its zone and its instant, or it throws.
+// The argument for admitting it, and the rule about what an adapter may STORE
+// out of it, are docs/2026-09-22-a-control-value-is-not-a-canonical-type.md.
+//
+// The other roles get nothing: a fold runs in goja at the container tier and a
+// validation in plv8, neither carrying this data, so a module reaching for it
+// there explodes where it is seen.
+const NEEDS_AN_INSTANT = new Set(["format", "formatToParts", "formatRange", "formatRangeToParts"]);
+
+// The raw service behind each wrapper, so a wrapper handed back as an argument
+// — `new Intl.DateTimeFormat(someLocale)` — reaches the service as itself.
+const behind = new WeakMap();
+
+/**
+ * One Intl service, wrapped so the host's defaults are refused. By COMPOSITION
+ * and never by subclassing: `class W extends Service` publishes the untamed
+ * Service as `Object.getPrototypeOf(W)`, and a module that walks there
+ * constructs one with no arguments and reads the machine's zone, locale and
+ * clock. Here the service is reachable only from this closure.
+ *
+ * `locales` is required of every service, `options.timeZone` of the ones that
+ * carry a zone, and a formatter refuses to format the instant it was not
+ * given. The asked locales are canonicalised before they are compared with the
+ * resolved one, so a legacy tag ("iw" for "he") is not read as a fallback.
+ */
+function stated(Service, name, zoned) {
+  const shape = {};
+  for (const key of Object.getOwnPropertyNames(Service.prototype)) {
+    if (key === "constructor") continue;
+    const held = Object.getOwnPropertyDescriptor(Service.prototype, key);
+    const guarded = zoned && NEEDS_AN_INSTANT.has(key);
+    const unnamed = `Intl.${name}.${key}: name the instant — a formatter with no argument reads the clock`;
+    if (held.get !== undefined) {
+      Object.defineProperty(shape, key, {
+        get() {
+          const call = held.get.call(behind.get(this));
+          return guarded
+            ? (...args) => {
+              if (args[0] === undefined) throw new Error(unnamed);
+              return call(...args);
+            }
+            : call;
+        },
+        configurable: true,
+      });
+    } else if (typeof held.value === "function") {
+      Object.defineProperty(shape, key, {
+        value: function (...args) {
+          if (guarded && args[0] === undefined) throw new Error(unnamed);
+          return held.value.apply(behind.get(this), args);
+        },
+        writable: true,
+        configurable: true,
+      });
+    }
+  }
+
+  function Stated(locales, options) {
+    const asked = locales === undefined ? [] : (Array.isArray(locales) ? locales : [locales]);
+    if (asked.length === 0) throw new Error(`Intl.${name}: name the locale — the cage has no default`);
+    if (zoned && (options === undefined || options.timeZone === undefined)) {
+      throw new Error(`Intl.${name}: name the timeZone — the cage has no default`);
+    }
+    const service = new Service(asked.map((tag) => behind.get(tag) ?? tag), options);
+    // A locale the host has no data for resolves to the HOST's own, which is
+    // the last way its machine could answer instead of the module's arguments.
+    const resolved = typeof service.resolvedOptions === "function" ? service.resolvedOptions().locale : undefined;
+    if (resolved !== undefined) {
+      const language = (tag) => String(tag).split("-")[0].toLowerCase();
+      const canonical = Intl.getCanonicalLocales(asked.map((tag) => String(behind.get(tag) ?? tag)));
+      if (!canonical.some((tag) => language(tag) === language(resolved))) {
+        throw new Error(
+          `Intl.${name}: no data for ${asked.join(", ")} — the cage will not fall back to the host's ${resolved}`,
+        );
+      }
+    }
+    const made = Object.create(shape);
+    behind.set(made, service);
+    return made;
+  }
+  // A service is callable without `new`, and its statics answer about locale
+  // data rather than about the host.
+  for (const key of Object.getOwnPropertyNames(Service)) {
+    if (typeof Service[key] === "function") Stated[key] = (...args) => Service[key](...args);
+  }
+  Object.defineProperty(Stated, "name", { value: name });
+  Stated.prototype = shape;
+  return Stated;
+}
+
+// The zone-bearing services; everything else only ever resolves a locale.
+const ZONED = new Set(["DateTimeFormat"]);
+
+// Built on first use and kept: `harden` is the lockdown's, so this cannot be
+// built at import, and the services are classes worth minting once.
+// Capitalised members are the services (`getCanonicalLocales` and
+// `supportedValuesOf` are plain functions and pass through).
+let endowedIntl;
+const intlSubset = () => (endowedIntl ??= harden(Object.fromEntries(
+  Object.getOwnPropertyNames(Intl).map((name) => [
+    name,
+    /^[A-Z]/.test(name) ? stated(Intl[name], name, ZONED.has(name)) : Intl[name],
+  ]),
+)));
+
 const ROLES = {
   // reduce(state, event) -> {updates}. Needs nothing.
   handler: {
@@ -89,6 +195,17 @@ const ROLES = {
     wrap: (s) => s,
     ok: (v) => typeof v === "function",
     want: "its predicate",
+  },
+  // adapter(value, {zone}) both ways: format fills a form control from a row's
+  // column, parse reads the control's text back. One module carries both, so
+  // the halves cannot drift apart into two spellings of one value, and its
+  // completion value is the map of pure functions pronto/jessie.ts already
+  // calls an adapter.
+  adapter: {
+    endow: () => ({ Intl: intlSubset() }),
+    wrap: (s) => s,
+    ok: (v) => typeof v === "object" && v !== null && typeof v.format === "function" && typeof v.parse === "function",
+    want: "its format and parse functions",
   },
   // A pipeline transform. Authored as an ES module because the same file is
   // inlined into the rpk stream at container tier; a Compartment script takes
@@ -142,6 +259,10 @@ export async function evaluateRole(source, role = "handler") {
   if (spec === undefined) throw new Error(`unknown Jessie role "${role}"`);
   let value;
   try {
+    // The lockdown first: an endowment is hardened, and `harden` is what
+    // lockdown installs — a role whose module is the first one a screen loads
+    // would otherwise build its endowment before the realm was sealed.
+    await ensureSes();
     value = await evaluateCaged(spec.wrap(source), spec.endow());
   } catch (err) {
     // What the compartment is handed is the role's adaptation of the file, not
