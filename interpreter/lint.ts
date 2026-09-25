@@ -214,7 +214,31 @@ export function machineRegions(html: string): MachineRegion[] {
     } catch {
       throw new Error(`data-machine is not JSON`);
     }
-    const parallel = (Array.isArray(parsed) ? parsed : [parsed]).map((c) => JSON.stringify(c));
+    const raw = Array.isArray(parsed) ? parsed : [parsed];
+    const parallelCharts: unknown[] = [];
+    for (const chart of raw) {
+      if (chart && typeof chart === "object" && (chart as Record<string, unknown>).type === "parallel") {
+        const p = chart as Record<string, unknown>;
+        const states = (p.states ?? {}) as Record<string, Record<string, unknown>>;
+        for (const [regionName, regionNode] of Object.entries(states)) {
+          parallelCharts.push({
+            field: regionNode.field ?? regionName,
+            initial: regionNode.initial,
+            context: regionNode.context ?? (regionNode.field ? p.context : undefined),
+            on: { ...(p.on as object), ...(regionNode.on as object) },
+            states: regionNode.states ?? {},
+            after: regionNode.after,
+            always: regionNode.always,
+            onDone: regionNode.onDone,
+            entry: regionNode.entry,
+            exit: regionNode.exit,
+          });
+        }
+      } else {
+        parallelCharts.push(chart);
+      }
+    }
+    const parallel = parallelCharts.map((c) => JSON.stringify(c));
     for (const one of parallel) {
       out.push({ table, machine: one, parallel, emptyRow: attr("data-empty-row"), filter: attr("data-filter") });
     }

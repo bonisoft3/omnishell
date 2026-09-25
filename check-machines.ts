@@ -125,7 +125,31 @@ function declaredOn(el: El): string {
  * own, because what a walk covers is a chart's arrows and not an element's. */
 function chartsOn(el: El): string[] {
   const parsed: unknown = JSON.parse(declaredOn(el));
-  return (Array.isArray(parsed) ? parsed : [parsed]).map((c) => JSON.stringify(c));
+  const raw = Array.isArray(parsed) ? parsed : [parsed];
+  const charts: unknown[] = [];
+  for (const chart of raw) {
+    if (chart && typeof chart === "object" && (chart as Record<string, unknown>).type === "parallel") {
+      const p = chart as Record<string, unknown>;
+      const states = (p.states ?? {}) as Record<string, Record<string, unknown>>;
+      for (const [regionName, regionNode] of Object.entries(states)) {
+        charts.push({
+          field: regionNode.field ?? regionName,
+          initial: regionNode.initial,
+          context: regionNode.context ?? (regionNode.field ? p.context : undefined),
+          on: { ...(p.on as object), ...(regionNode.on as object) },
+          states: regionNode.states ?? {},
+          after: regionNode.after,
+          always: regionNode.always,
+          onDone: regionNode.onDone,
+          entry: regionNode.entry,
+          exit: regionNode.exit,
+        });
+      }
+    } else {
+      charts.push(chart);
+    }
+  }
+  return charts.map((c) => JSON.stringify(c));
 }
 
 /** What pairs a mounted chart with the region the markup states: everything it
