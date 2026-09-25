@@ -5,7 +5,9 @@ machines into a comprehensive, formally verified interaction model. Grounded in
 [`2026-08-30-machines-not-widgets.md`](2026-08-30-machines-not-widgets.md) (the
 XState-JSON data subset in CUE),
 [`../../pronto/docs/2026-08-31-one-ladder-one-grammar.md`](../../pronto/docs/2026-08-31-one-ladder-one-grammar.md)
-(the durability ladder, IVM, and derived events), and
+(the durability ladder, IVM, and derived events),
+[`../../pronto/docs/2026-09-25-the-unified-lattice.md`](../../pronto/docs/2026-09-25-the-unified-lattice.md)
+(the unified lattice and cross-cutting CUE unification), and
 [`2026-08-27-the-row-that-changed.md`](2026-08-27-the-row-that-changed.md)
 (bounded transitions and commands in the return).
 

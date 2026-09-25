@@ -127,6 +127,14 @@ package terminal
 		params: close({field: "value" | "checked" | "valueAsNumber" | "key" | "pointerX" | "pointerY"})
 	})
 	#EffectLevel: "projection" | "ephemeral" | "compensable" | "replicated" | "exterior" | 0 | 1 | 2 | 3 | 4
+	#Durability:  "server" | "live" | "offline" | "tab" | "device"
+	#DurabilityEffectLevel: {
+		tab:     "ephemeral"
+		device:  "ephemeral"
+		offline: "compensable"
+		live:    "compensable"
+		server:  "replicated"
+	}
 	// Declarative mutation effect executed by the terminal runtime into store.
 	// Closed and pure: never arbitrary code, never touches DOM directly.
 	#Effect: close({
