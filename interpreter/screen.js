@@ -2354,7 +2354,8 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         return resolved;
       };
 
-      const candidatesFor = (stateName, event) => {
+      const candidatesFor = (rawState, event) => {
+        const stateName = (rawState && rawState !== "") ? rawState : machine.initial;
         const out = [];
         const keys = event.from !== undefined ? [`${event.type}@${event.from}`, event.type] : [event.type];
         const chain = [];
@@ -2516,6 +2517,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         let targetState = chosen.c.target !== undefined
           ? resolveTarget(chosen.c.target, row[machine.field])
           : undefined;
+        const arrowTarget = targetState;
 
         const { exit: exitStates, enter: enterStates } = getExitEnterPaths(row[machine.field], targetState);
 
@@ -2606,6 +2608,14 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
                     }
                   }
                 }
+                globalThis.__prontoMachineTrace?.push({
+                  region,
+                  field: machine.field,
+                  state: parentPath || "*",
+                  key: "onDone",
+                  index: chosenOnDone.index,
+                  to: nextTarget,
+                });
                 targetState = nextTarget;
                 progressed = true;
                 continue;
@@ -2655,6 +2665,14 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
                   }
                 }
               }
+              globalThis.__prontoMachineTrace?.push({
+                region,
+                field: machine.field,
+                state: targetState,
+                key: "always",
+                index: chosenAlways.index,
+                to: nextTarget,
+              });
               targetState = nextTarget;
               progressed = true;
               continue;
@@ -2675,7 +2693,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           state: chosen.origin,
           key: chosen.key,
           index: chosen.index,
-          to: targetState ??
+          to: arrowTarget ??
             (Object.hasOwn(patch, machine.field) ? patch[machine.field] : row[machine.field]),
         });
         const out = { updates: [] };

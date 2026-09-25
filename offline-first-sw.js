@@ -1,6 +1,6 @@
 // Precached immutable shell assets required for cold offline boot.
-const STATIC_CACHE = "pronto-static-v1";
-const RUNTIME_CACHE = "pronto-runtime-v1";
+const STATIC_CACHE = "pronto-static-v2";
+const RUNTIME_CACHE = "pronto-runtime-v2";
 
 const PRECACHE_ASSETS = [
   "/shell/index.html",

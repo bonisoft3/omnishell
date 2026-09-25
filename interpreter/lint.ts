@@ -255,7 +255,11 @@ export function machineRegions(html: string): MachineRegion[] {
 export function parallelLint(charts: Machine[]): string | null {
   const owner = new Map<string, string>();
   for (const chart of charts) {
-    for (const col of [chart.field, ...machineWrites(chart, undefined).map((w) => w.col)]) {
+    if (chart.field === undefined) continue;
+    const cols = [chart.field, ...machineWrites(chart, undefined).map((w) => w.col)].filter(
+      (c): c is string => typeof c === "string",
+    );
+    for (const col of cols) {
       const held = owner.get(col);
       if (held !== undefined && held !== chart.field) {
         return `the charts over "${held}" and "${chart.field}" both write "${col}" — parallel charts share the ` +
@@ -901,6 +905,11 @@ type Machine = {
   initial?: string;
   context?: Record<string, unknown>;
   on?: Record<string, unknown>;
+  onDone?: unknown;
+  always?: unknown;
+  after?: Record<string, unknown>;
+  entry?: unknown;
+  exit?: unknown;
   states: Record<string, StateNode>;
 };
 

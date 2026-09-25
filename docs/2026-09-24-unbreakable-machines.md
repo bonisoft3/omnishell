@@ -135,6 +135,21 @@ Omnishell adopts the **In-Between: Bounded Statecharts**:
    silently dropped by the sequence clock.
 5. **Lifecycle-Bound Invocations**: exiting an intermediate state automatically
    aborts in-flight timers and speculative handlers.
+6. **Parallel Regions & Disjoint Column Ownership**:
+   `type: "parallel"` decomposes compound states into orthogonal sub-machines
+   over the same entity row (e.g. concurrent hand progression and shout/hush
+   negotiations in `apps/truco`). The interpreter unwraps parallel regions into
+   independent statecharts sharing the row. `parallelLint` statically verifies
+   that parallel regions hold mutually disjoint write columns, eliminating
+   write-write races by construction.
+7. **Final States & `onDone` Lifecycle Chaining**:
+   Compound states declare `type: "final"`. Transitioning into a final state
+   triggers the enclosing compound state's `onDone` transition, chaining
+   lifecycles (such as hand completion triggering the round's next phase)
+   without manual event dispatch.
+8. **Relative Target Addressing**:
+   Targets prefixed with `.` (e.g. `.v1` from within `phase`) resolve relative
+   to their parent compound state, preserving local sub-chart encapsulation.
 
 ---
 
@@ -162,8 +177,10 @@ Unit Suite  Visual/Timer  CDC Sync
 1. **States as Invariants**: Each vertex $v \in V$ defines verifiable DOM and
    row invariants (e.g. `data-state="favorited"` $\iff$ heart is solid, count is
    $N+1$).
-2. **Chinese Postman Walk**: The generator computes the shortest path covering
-   every transition edge, every refusal branch, and every timeout edge.
+2. **Chinese Postman Walk**: The walker (`test/walker.ts`) computes an Eulerian
+   tour covering every transition edge, every refusal branch, and every timeout edge.
+   Parallel statecharts are unwrapped into independent walkable projections, and
+   `type: "final"` nodes chain automatically into parent `onDone` targets during traversal.
 3. **Negative Edge Verification**: For every state, all unhandled events are
    fired to verify that state and rows remain strictly unmodified.
 4. **Three Execution Tiers**:
@@ -307,10 +324,19 @@ Replaces the read probe and two `<form>` tags with a single semantic button:
 ## 9. Phased Task List
 
 ### Phase 1: Machine Grammar & Interpreter Extensions
-- [ ] **Extend `#Machine` in `plugins/omnishell/terminal.cue`**:
-  - Add `effect:` to transition candidate grammar (Level 1–4 schema).
-  - Add support for nested hierarchical states (`states:` inside a state).
-  - Add generation tokens $\tau$ (`token: string`) to machine context.
+- [x] **Extend `#Machine` in `plugins/omnishell/machine.cue`**:
+  - [x] Add nested hierarchical states (`states:` inside a state).
+  - [x] Add parallel statecharts (`type: "parallel"`) with orthogonal sub-regions.
+  - [x] Add final states (`type: "final"`) and compound `onDone` transitions.
+  - [x] Add root-level transitions (`always`, `after`, `onDone`, `entry`, `exit`).
+  - [x] Add relative sub-state target resolution (`.substate`).
+  - [ ] Add `effect:` to transition candidate grammar (Level 1–4 schema).
+  - [ ] Add generation tokens $\tau$ (`token: string`) to machine context.
+- [x] **Static Verification & Linting (`check-machines.ts`, `interpreter/lint.ts`)**:
+  - [x] Unroll parallel statecharts into orthogonal region projections.
+  - [x] Implement `parallelLint` ensuring parallel regions hold mutually disjoint write columns.
+- [x] **Model-Based Traversal (`test/walker.ts`)**:
+  - [x] Eulerian Chinese Postman tour covering compound hierarchies, relative targets, and `onDone` edges.
 - [ ] **Update Omnishell Interpreter (`plugins/omnishell/interpreter/screen.js`)**:
   - Intercept transition `effect:` objects and execute them through the terminal's
     existing `store` / `executeMutation` pipeline with outbox tokens.

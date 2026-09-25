@@ -215,7 +215,7 @@ function harnessFor(m: Mounted, region: El, machine: Machine, params: Record<str
       m.advance(ms);
       await m.quiet();
     },
-    field: () => pinnedRow(m.rows(table), filter)?.[machine.field],
+    field: () => (machine.field !== undefined ? pinnedRow(m.rows(table), filter)?.[machine.field] : undefined),
   };
 }
 
@@ -487,7 +487,7 @@ export async function checkApp(appDir: URL): Promise<Walked> {
  * arrow by name.
  */
 function reducerHarness(machine: Machine, opts: { refuse?: string; stray?: boolean } = {}): WalkHarness {
-  let at = machine.initial;
+  let at = machine.initial ?? Object.keys(machine.states)[0] ?? "";
   const candidates = (value: unknown) =>
     typeof value === "string" ? [{ target: value }] : (Array.isArray(value) ? value : [value]);
   const step = (key: string) => {
@@ -525,7 +525,7 @@ function sharedTraceHarness(
   theirs: object,
   refused: string,
 ): WalkHarness {
-  let at = machine.initial;
+  let at = machine.initial ?? Object.keys(machine.states)[0] ?? "";
   const push = (region: object, state: string, key: string, to: string) =>
     (globalThis as Record<string, unknown> & { __prontoMachineTrace?: unknown[] })
       .__prontoMachineTrace?.push({ region, state, key, index: 0, to });
@@ -533,7 +533,7 @@ function sharedTraceHarness(
     fire: async (key: string) => {
       const value = machine.states[at]?.on?.[key];
       if (value === undefined) return;
-      const to = typeof value === "string" ? value : (value as { target: string }).target;
+      const to = typeof value === "string" ? value : ((value as { target?: string })?.target ?? at);
       if (key === refused) {
         push(theirs, at, key, to);
         return;
@@ -552,12 +552,12 @@ function sharedTraceHarness(
  * arrow is covered, so nothing but the differential can notice.
  */
 function misreportingHarness(machine: Machine): WalkHarness {
-  let at = machine.initial;
+  let at = machine.initial ?? Object.keys(machine.states)[0] ?? "";
   return {
     fire: async (key: string) => {
       const value = machine.states[at]?.on?.[key];
       if (value === undefined) return;
-      const to = typeof value === "string" ? value : (value as { target: string }).target;
+      const to = typeof value === "string" ? value : ((value as { target?: string })?.target ?? at);
       (globalThis as Record<string, unknown> & { __prontoMachineTrace?: unknown[] })
         .__prontoMachineTrace?.push({ state: at, key, index: 0, to: at });
       at = to;

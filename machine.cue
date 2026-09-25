@@ -57,7 +57,12 @@ package terminal
 	context?: [string]: string | number | bool | null
 	// Root-level transitions, applied in every state unless the state declares
 	// the same event key.
-	on?: M.#On
+	on?:     M.#On
+	onDone?: M.#TransitionValue
+	always?: M.#TransitionValue
+	after?: [string]: M.#TransitionValue
+	entry?: M.#Actions
+	exit?:  M.#Actions
 	states: [Name=string]: close({
 		field?:   string
 		type?:    "final" | "parallel"

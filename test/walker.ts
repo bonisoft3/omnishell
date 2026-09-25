@@ -81,7 +81,15 @@ function resolveStateNode(machine: Machine, path: string): StateNode | undefined
 function resolveTarget(machine: Machine, target: string | undefined, currentState?: string): string | undefined {
   if (target === undefined) return undefined;
   let resolved = target;
-  if (!target.includes(".") && currentState?.includes(".")) {
+  if (target.startsWith(".")) {
+    const sub = target.slice(1);
+    if (currentState?.includes(".")) {
+      const parent = currentState.slice(0, currentState.lastIndexOf("."));
+      resolved = `${parent}.${sub}`;
+    } else {
+      resolved = sub;
+    }
+  } else if (!target.includes(".") && currentState?.includes(".")) {
     const parent = currentState.slice(0, currentState.lastIndexOf("."));
     const parentNode = resolveStateNode(machine, parent);
     if (parentNode?.states?.[target]) {
@@ -217,6 +225,19 @@ const stimulusOf = (key: string, init?: Record<string, unknown>): Stimulus => {
   return init === undefined ? where : { ...where, init };
 };
 
+function resolveFinalTarget(machine: Machine, stateName: string): string | undefined {
+  const node = resolveStateNode(machine, stateName);
+  if (node?.type !== "final") return undefined;
+  const hasParent = stateName.includes(".");
+  const parent = hasParent ? resolveStateNode(machine, stateName.slice(0, stateName.lastIndexOf("."))) : machine;
+  const onDone = (parent as { onDone?: unknown })?.onDone;
+  if (onDone === undefined) return undefined;
+  const rawTarget = typeof onDone === "string"
+    ? onDone
+    : (Array.isArray(onDone) ? onDone[0] : onDone as { target?: string })?.target;
+  return resolveTarget(machine, rawTarget, stateName);
+}
+
 /** Guard-erased adjacency (state -> outgoing (key, to) edges, root on:
  * included), for point-to-point routing between plan phases. */
 function edgesOf(machine: Machine): Map<string, Edge[]> {
@@ -232,12 +253,20 @@ function edgesOf(machine: Machine): Map<string, Edge[]> {
     const out: Edge[] = [];
     const add = (key: string, value: unknown) => {
       for (const c of list(value)) {
-        const to = resolveTarget(machine, c.target, name) ?? name;
+        let to = resolveTarget(machine, c.target, name) ?? name;
+        const finalTarget = resolveFinalTarget(machine, to);
+        if (finalTarget !== undefined) to = finalTarget;
         out.push({ key, to, init: eventInit(c) });
       }
     };
     for (const [key, value] of Object.entries(s.on ?? {})) add(key, value);
     for (const [delay, value] of Object.entries(s.after ?? {})) add(`after:${delay}`, value);
+    if (s.type === "final") {
+      const finalTarget = resolveFinalTarget(machine, name);
+      if (finalTarget !== undefined) {
+        out.push({ key: "onDone", to: finalTarget });
+      }
+    }
     for (const [key, value] of Object.entries(machine.on ?? {})) {
       let handled = s.on?.[key] !== undefined;
       let p = name;
@@ -294,7 +323,8 @@ function planPostmanTour(machine: Machine): Stimulus[] {
   const arrows = shape.arrows as Arrow[];
   const edgesGraph = edgesOf(machine);
   const states = allStates(machine);
-  const startState = resolveTarget(machine, machine.initial) ?? machine.initial;
+  const initialKey = machine.initial ?? Object.keys(machine.states)[0] ?? "";
+  const startState = resolveTarget(machine, initialKey) ?? initialKey;
 
   const baseEdges: PostmanEdge[] = [];
   const adj = new Map<string, PostmanEdge[]>();
@@ -302,12 +332,15 @@ function planPostmanTour(machine: Machine): Stimulus[] {
   if (!adj.has(startState)) adj.set(startState, []);
 
   for (const a of arrows) {
+    if (a.key === "onDone") continue;
     const candidate = candidateAt(machine, a.state, a.key, a.index);
-    const fromState = a.state === "*" ? startState : a.state;
+    const fromState = (a.state === "*" ? startState : a.state) ?? startState;
     const rawTarget = typeof candidate === "string"
       ? candidate
       : (candidate as { target?: string } | undefined)?.target ?? a.to;
-    const target = resolveTarget(machine, rawTarget, fromState) ?? fromState;
+    let target = resolveTarget(machine, rawTarget, fromState) ?? fromState;
+    const finalTarget = resolveFinalTarget(machine, target);
+    if (finalTarget !== undefined) target = finalTarget;
     const inits = eventInits(candidate);
     const stimuli = inits.map((init) => stimulusOf(a.key, init));
     const edge: PostmanEdge = { from: fromState, to: target, stimuli };
@@ -416,6 +449,7 @@ export function differ(machine: Machine, trace: Arrow[]): void {
     throw new Error(`differ: XState initial ${JSON.stringify(state.value)} != ${machine.initial}`);
   }
   trace.forEach((a, i) => {
+    if (a.key === "onDone") return;
     pending = a.index;
     [state] = transition(m, state, { type: a.key });
     const landed = stateValueString(state.value);
@@ -424,6 +458,10 @@ export function differ(machine: Machine, trace: Arrow[]): void {
         `differ: step ${i} (${a.state} --${a.key}[${a.index}]-->): ` +
           `XState landed on ${JSON.stringify(state.value)}, the interpreter on ${JSON.stringify(a.to)}`,
       );
+    }
+    const finalTarget = resolveFinalTarget(machine, landed);
+    if (finalTarget !== undefined) {
+      state = m.resolveState({ value: finalTarget });
     }
   });
 }
@@ -529,6 +567,7 @@ export async function walkMachine(
     for (const a of wanted.values()) {
       if (done()) break;
       if (covered().has(arrowId(a))) continue;
+      if (a.key === "onDone") continue;
       // Let any armed timer expire first. A chart whose `after` resets a column
       // its own guards read — a typeahead buffer is the case — is reachable
       // only from the state that timer restores, and an arrow-seek that fired

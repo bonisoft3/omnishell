@@ -41,6 +41,11 @@ export type Machine = {
   initial?: string;
   context?: Record<string, unknown>;
   on?: Record<string, unknown>;
+  onDone?: unknown;
+  always?: unknown;
+  after?: Record<string, unknown>;
+  entry?: unknown;
+  exit?: unknown;
   states: Record<string, StateNode>;
 };
 
