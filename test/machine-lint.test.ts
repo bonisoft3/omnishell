@@ -199,6 +199,24 @@ describe("machineLint effects and nested states", () => {
     expect(machineLint(bad, new Set(["myHandler"]))).toContain('effect op "not_an_op"')
   })
 
+  it("passes with descriptive effect level and verifies compensable effect requires refused", () => {
+    const descMachine = JSON.parse(JSON.stringify(nestedMachine))
+    descMachine.states.unfavorited.on.click.effect.level = "compensable"
+    expect(machineLint(descMachine, new Set(["myHandler"]))).toBe(null)
+
+    // Missing refused transition fails loudly
+    delete descMachine.states.favoriting.on.refused
+    expect(machineLint(descMachine, new Set(["myHandler"]))).toContain(
+      'compensable effect on "favorite" requires "refused" transition',
+    )
+  })
+
+  it("reports an invalid effect level", () => {
+    const bad = JSON.parse(JSON.stringify(nestedMachine))
+    bad.states.unfavorited.on.click.effect.level = "magic"
+    expect(machineLint(bad, new Set(["myHandler"]))).toContain('effect level "magic" is not in')
+  })
+
   it("passes a machine with entry, exit, onDone, always, and parallel states", () => {
     const advanced = {
       type: "parallel",

@@ -243,6 +243,7 @@ export function machineShape(machine) {
   const raises = new Set();
   const handled = new Set();
   const arrows = [];
+  const effects = [];
   const walkActions = (actions) => {
     const list = Array.isArray(actions) ? actions : (actions ? [actions] : []);
     for (const act of list) {
@@ -254,6 +255,7 @@ export function machineShape(machine) {
       }
       const rawEffects = Array.isArray(act.effect) ? act.effect : (act.effect ? [act.effect] : []);
       for (const eff of rawEffects) {
+        effects.push(eff);
         for (const v of Object.values(eff.values ?? {})) {
           if (typeof v === "string") assignStrings.add(v);
           else if (v !== null && typeof v === "object" && !RESERVED_LEAVES.has(v.type)) refs.add(v.type);
@@ -274,6 +276,7 @@ export function machineShape(machine) {
       }
       const rawEffects = Array.isArray(c.effect) ? c.effect : (c.effect ? [c.effect] : []);
       for (const eff of rawEffects) {
+        effects.push(eff);
         for (const v of Object.values(eff.values ?? {})) {
           if (typeof v === "string") assignStrings.add(v);
           else if (v !== null && typeof v === "object" && !RESERVED_LEAVES.has(v.type)) refs.add(v.type);
@@ -323,6 +326,7 @@ export function machineShape(machine) {
     handled: [...handled],
     arrows,
     pointer,
+    effects,
   };
 }
 

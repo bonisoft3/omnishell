@@ -126,10 +126,11 @@ package terminal
 		type: "event"
 		params: close({field: "value" | "checked" | "valueAsNumber" | "key" | "pointerX" | "pointerY"})
 	})
+	#EffectLevel: "projection" | "ephemeral" | "compensable" | "replicated" | "exterior" | 0 | 1 | 2 | 3 | 4
 	// Declarative mutation effect executed by the terminal runtime into store.
 	// Closed and pure: never arbitrary code, never touches DOM directly.
 	#Effect: close({
-		level?:  0 | 1 | 2 | 3 | 4
+		level?:  M.#EffectLevel
 		op:      "create" | "update" | "delete" | "upsert"
 		entity?: string
 		token?:  string

@@ -831,6 +831,10 @@ const ACTION_KEYS = new Set(["assign", "effect", "raise"]);
 const REF_KEYS = new Set(["type", "params"]);
 const EFFECT_KEYS = new Set(["level", "op", "entity", "token", "filter", "values"]);
 const EFFECT_OPS = new Set(["create", "update", "delete", "upsert"]);
+const EFFECT_LEVELS = new Set([
+  0, 1, 2, 3, 4,
+  "projection", "ephemeral", "compensable", "replicated", "exterior",
+]);
 
 /** The reason an object in a value position is not a well-formed {type,
  * params} reference (XState's spelling), or null. Strings and literals are not this rule's —
@@ -872,9 +876,12 @@ const lintActions = (actions: unknown): string | null => {
         if (effUnknown.length > 0) {
           return `effect carries ${effUnknown.map((k) => `"${k}"`).join(", ")} — outside the #Effect subset`;
         }
-        const e = eff as { op?: unknown; values?: Record<string, unknown> };
+        const e = eff as { op?: unknown; level?: unknown; values?: Record<string, unknown> };
         if (typeof e.op !== "string" || !EFFECT_OPS.has(e.op)) {
           return `effect op ${JSON.stringify(e.op)} is not in ${[...EFFECT_OPS].join(" | ")}`;
+        }
+        if (e.level !== undefined && !EFFECT_LEVELS.has(e.level as any)) {
+          return `effect level ${JSON.stringify(e.level)} is not in ${[...EFFECT_LEVELS].join(" | ")}`;
         }
         for (const r of Object.values(e.values ?? {})) {
           const why = badRef(r);
@@ -975,9 +982,12 @@ export function machineLint(machine: Machine, available: Set<string>): string | 
           if (effUnknown.length > 0) {
             return `effect carries ${effUnknown.map((k) => `"${k}"`).join(", ")} — outside the #Effect subset`;
           }
-          const e = eff as { op?: unknown; values?: Record<string, unknown> };
+          const e = eff as { op?: unknown; level?: unknown; values?: Record<string, unknown> };
           if (typeof e.op !== "string" || !EFFECT_OPS.has(e.op)) {
             return `effect op ${JSON.stringify(e.op)} is not in ${[...EFFECT_OPS].join(" | ")}`;
+          }
+          if (e.level !== undefined && !EFFECT_LEVELS.has(e.level as any)) {
+            return `effect level ${JSON.stringify(e.level)} is not in ${[...EFFECT_LEVELS].join(" | ")}`;
           }
           for (const r of Object.values(e.values ?? {})) {
             const why = badRef(r);
@@ -991,7 +1001,14 @@ export function machineLint(machine: Machine, available: Set<string>): string | 
     const why = lintActions(act);
     if (why !== null) return why;
   }
-  const shape = machineShape(machine);
+  const shape = machineShape(machine) as ReturnType<typeof machineShape> & { effects?: { level?: unknown; entity?: string }[] };
+  for (const eff of shape.effects ?? []) {
+    if (eff.level === 2 || eff.level === "compensable") {
+      if (!shape.handled.includes("refused")) {
+        return `compensable effect on "${eff.entity ?? "entity"}" requires "refused" transition in machine to handle server conflict/rollback`;
+      }
+    }
+  }
   const dangling = shape.refs.filter((r) => !available.has(r));
   if (dangling.length > 0) {
     return `${dangling.map((r) => `"${r}"`).join(", ")} name no module under shell/handlers/`;

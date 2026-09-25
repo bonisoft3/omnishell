@@ -1,6 +1,31 @@
 // Deterministic fuel metering for automated tests, replacing wall-clock timeouts
 // with machine-independent abstract operation cost accounting.
 
+export type EffectLevel =
+  | "projection"
+  | "ephemeral"
+  | "compensable"
+  | "replicated"
+  | "exterior"
+  | 0
+  | 1
+  | 2
+  | 3
+  | 4;
+
+export const LEVEL_FUEL_COST: Record<string | number, number> = {
+  projection: 1,
+  0: 1,
+  ephemeral: 10,
+  1: 10,
+  compensable: 50,
+  2: 50,
+  replicated: 100,
+  3: 100,
+  exterior: 250,
+  4: 250,
+};
+
 export type FuelBudget = {
   limit: number;
   fireCost?: number;
@@ -52,6 +77,19 @@ export class FuelMeter {
     const cost = unitCost * amount;
     this.spent += cost;
     this.history.push({ action: category, cost, total: this.spent, detail });
+
+    if (this.spent > this.limit) {
+      const recent = this.history.slice(-3).map((h) => `${h.action}(+${h.cost})${h.detail ? `[${h.detail}]` : ""}`).join(" -> ");
+      throw new FuelLimitExceededError(this.spent, this.limit, recent);
+    }
+    return this.spent;
+  }
+
+  spendEffect(level: EffectLevel, amount = 1, detail?: string): number {
+    const unitCost = LEVEL_FUEL_COST[level] ?? this.costs.mutationCost;
+    const cost = unitCost * amount;
+    this.spent += cost;
+    this.history.push({ action: `effect:${level}`, cost, total: this.spent, detail });
 
     if (this.spent > this.limit) {
       const recent = this.history.slice(-3).map((h) => `${h.action}(+${h.cost})${h.detail ? `[${h.detail}]` : ""}`).join(" -> ");
