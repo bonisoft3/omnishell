@@ -553,3 +553,202 @@ Deno.test({
       `email was normalized synchronously at gesture time: "${creates[0].email}"`);
   },
 });
+
+Deno.test({
+  name: "entry and exit actions: exit runs on source, entry runs on destination with effects and assigns",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const ENTRY_EXIT_MACHINE = {
+      field: "phase",
+      initial: "a",
+      context: { log: "start" },
+      states: {
+        a: {
+          exit: {
+            assign: { log: "exited_a" },
+            effect: { op: "create", entity: "log", values: { text: "bye_a" } },
+          },
+          on: { NEXT: "b" },
+        },
+        b: {
+          entry: {
+            assign: { log: "entered_b" },
+            effect: { op: "create", entity: "log", values: { text: "hello_b" } },
+          },
+        },
+      },
+    };
+    const HTML = `<section class="screen" data-screen="ee">
+      <button id="ee-btn" data-live="session" data-filter="id=eq.s1"
+              data-phase="{phase}" data-log="{log}"
+              data-machine='${JSON.stringify(ENTRY_EXIT_MACHINE)}'>Go</button>
+    </section>`;
+    const { document, Event, store, creates } = boot(HTML);
+    const { interpretScreen } = await import("./screen.js");
+    const mount = document.getElementById("shell");
+    const route = { ...ROUTE, files: { ...ROUTE.files, handlers: [] } };
+    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {});
+    const btn = mount.querySelector("#ee-btn");
+
+    btn.dispatchEvent(new Event("NEXT"));
+    await tick(30);
+
+    assert(btn.getAttribute("data-phase") === "b", `expected phase b, got ${btn.getAttribute("data-phase")}`);
+    assert(btn.getAttribute("data-log") === "entered_b", `expected log entered_b, got ${btn.getAttribute("data-log")}`);
+    assert(creates.length === 2, `expected 2 created effect rows, got ${creates.length}`);
+    assert(creates[0].text === "bye_a", `expected first effect bye_a, got ${creates[0].text}`);
+    assert(creates[1].text === "hello_b", `expected second effect hello_b, got ${creates[1].text}`);
+  },
+});
+
+Deno.test({
+  name: "onDone and type: final: substate completion automatically triggers parent onDone transition",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const ONDONE_MACHINE = {
+      field: "phase",
+      initial: "round",
+      context: { roundNum: 1 },
+      states: {
+        round: {
+          initial: "dealing",
+          states: {
+            dealing: {
+              on: { FINISH: "settled" },
+            },
+            settled: {
+              type: "final",
+            },
+          },
+          onDone: {
+            target: "summary",
+            assign: { roundNum: 2 },
+          },
+        },
+        summary: {},
+      },
+    };
+    const HTML = `<section class="screen" data-screen="od">
+      <button id="od-btn" data-live="game" data-filter="id=eq.g1"
+              data-phase="{phase}" data-round="{roundNum}"
+              data-machine='${JSON.stringify(ONDONE_MACHINE)}'>Go</button>
+    </section>`;
+    const { document, Event, store } = boot(HTML);
+    const { interpretScreen } = await import("./screen.js");
+    const mount = document.getElementById("shell");
+    const route = { ...ROUTE, files: { ...ROUTE.files, handlers: [] } };
+    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {});
+    const btn = mount.querySelector("#od-btn");
+
+    assert(btn.getAttribute("data-phase") === "round.dealing", `expected round.dealing, got ${btn.getAttribute("data-phase")}`);
+    btn.dispatchEvent(new Event("FINISH"));
+    await tick(30);
+
+    assert(btn.getAttribute("data-phase") === "summary", `expected summary via onDone, got ${btn.getAttribute("data-phase")}`);
+    assert(btn.getAttribute("data-round") === "2", `expected roundNum 2, got ${btn.getAttribute("data-round")}`);
+  },
+});
+
+Deno.test({
+  name: "type: parallel: orthogonal regions on a single machine row update both columns atomically",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const PARALLEL_MACHINE = {
+      type: "parallel",
+      states: {
+        audio: {
+          field: "audio_state",
+          initial: "muted",
+          states: {
+            muted: { on: { UNMUTE: "audible" } },
+            audible: { on: { MUTE: "muted" } },
+          },
+        },
+        display: {
+          field: "display_state",
+          initial: "visible",
+          states: {
+            visible: { on: { HIDE: "hidden" } },
+            hidden: { on: { SHOW: "visible" } },
+          },
+        },
+      },
+    };
+    const HTML = `<section class="screen" data-screen="par">
+      <button id="par-btn" data-live="media" data-filter="id=eq.m1"
+              data-audio="{audio_state}" data-display="{display_state}"
+              data-machine='${JSON.stringify(PARALLEL_MACHINE)}'>Toggle</button>
+    </section>`;
+    const { document, Event, store } = boot(HTML);
+    const { interpretScreen } = await import("./screen.js");
+    const mount = document.getElementById("shell");
+    const route = { ...ROUTE, files: { ...ROUTE.files, handlers: [] } };
+    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {});
+    const btn = mount.querySelector("#par-btn");
+
+    assert(btn.getAttribute("data-audio") === "muted", `expected audio muted, got ${btn.getAttribute("data-audio")}`);
+    assert(btn.getAttribute("data-display") === "visible", `expected display visible, got ${btn.getAttribute("data-display")}`);
+
+    btn.dispatchEvent(new Event("UNMUTE"));
+    await tick(30);
+    assert(btn.getAttribute("data-audio") === "audible", `expected audio audible, got ${btn.getAttribute("data-audio")}`);
+    assert(btn.getAttribute("data-display") === "visible", `display should remain visible`);
+
+    btn.dispatchEvent(new Event("HIDE"));
+    await tick(30);
+    assert(btn.getAttribute("data-audio") === "audible", `audio should remain audible`);
+    assert(btn.getAttribute("data-display") === "hidden", `expected display hidden, got ${btn.getAttribute("data-display")}`);
+  },
+});
+
+Deno.test({
+  name: "always: transient eventless transitions evaluate immediately on entering a state",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const ALWAYS_MACHINE = {
+      field: "phase",
+      initial: "idle",
+      context: { current: 10, previous: 0 },
+      states: {
+        idle: {
+          on: { CHECK: "evaluating" },
+        },
+        evaluating: {
+          always: [
+            { guard: "pastLimit", target: "high" },
+            { target: "low" },
+          ],
+        },
+        high: {},
+        low: {},
+      },
+    };
+    const HTML = `<section class="screen" data-screen="alw">
+      <button id="alw-btn" data-live="score" data-filter="id=eq.s1"
+              data-phase="{phase}"
+              data-machine='${JSON.stringify(ALWAYS_MACHINE)}'>Check</button>
+    </section>`;
+    const { document, Event, store } = boot(HTML);
+    const { interpretScreen } = await import("./screen.js");
+    const mount = document.getElementById("shell");
+    const route = { ...ROUTE, files: { ...ROUTE.files, handlers: Object.keys(MODULES).map((m) => `shell/handlers/${m}`) } };
+    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {});
+    const btn = mount.querySelector("#alw-btn");
+
+    assert(btn.getAttribute("data-phase") === "idle", `expected idle, got ${btn.getAttribute("data-phase")}`);
+    btn.dispatchEvent(new Event("CHECK"));
+    await tick(30);
+
+    // pastLimit checks current + previous > 1000; with current=10 and previous=0 it is false, so it falls to low
+    assert(btn.getAttribute("data-phase") === "low", `expected low via always transition, got ${btn.getAttribute("data-phase")}`);
+  },
+});
+

@@ -44,8 +44,13 @@ package terminal
 #Machine: M={
 	// The row column the state lives in. The machine's current state IS this
 	// field's value — no second store of truth, no `initial` beside the row.
-	field:   string
-	initial: or([for k, _ in M.states {k}])
+	type?:    "parallel"
+	field?:   string
+	initial?: string
+	if M.type == _|_ {
+		field:   string
+		initial: or([for k, _ in M.states {k}])
+	}
 	// Literal initial values for the row's other columns; with `initial` this
 	// makes the machine the complete statement of the initial world. Never the
 	// machine's own field — one fact, one writer.
@@ -54,18 +59,37 @@ package terminal
 	// the same event key.
 	on?: M.#On
 	states: [Name=string]: close({
+		field?:   string
+		type?:    "final" | "parallel"
 		initial?: string
 		on?:      M.#On
+		onDone?:  M.#TransitionValue
+		always?:  M.#TransitionValue
 		// The relocated invoke: key is milliseconds (digits) or the name of a
 		// Jessie module returning them; armed on entry, canceled on exit,
 		// re-armed by a self-target.
 		after?: [string]: M.#TransitionValue
+		entry?:   M.#Actions
+		exit?:    M.#Actions
 		states?: [SubName=string]: close({
+			field?:   string
+			type?:    "final" | "parallel"
 			initial?: string
 			on?:      M.#On
+			onDone?:  M.#TransitionValue
+			always?:  M.#TransitionValue
 			after?: [string]: M.#TransitionValue
+			entry?:   M.#Actions
+			exit?:    M.#Actions
 		})
 	})
+
+	#Action: close({
+		assign?: [string]: null | string | number | bool | M.#EventRef | M.#Ref
+		effect?: M.#Effect | [...M.#Effect]
+		raise?:  string
+	})
+	#Actions: #Action | [...#Action]
 
 	#TargetState: string
 	// A bare state name is the v1 shorthand for {target}; an array is XState's
@@ -108,8 +132,9 @@ package terminal
 		values?: [string]: null | string | number | bool | M.#EventRef | M.#Ref
 	})
 	#Transition: close({
-		guard?:  string | M.#Ref // Jessie module; (state, event, params?) => boolean
-		target?: M.#TargetState
+		guard?:   string | M.#Ref // Jessie module; (state, event, params?) => boolean
+		target?:  M.#TargetState
+		actions?: M.#Actions
 		// Values for the machine's own row's columns: a literal, a Jessie
 		// module name computing one, or a parameterized #Ref. All assigns read
 		// the pre-transition snapshot and merge with the field write into ONE

@@ -90,6 +90,34 @@ describe("canonical", () => {
   it("guardNames collects string and object spellings once", () => {
     expect(guardNames(FIB)).toEqual(["pastLimit"])
   })
+
+  it("canonical maps entry, exit, always, onDone, and parallel to createMachine", () => {
+    const ADVANCED: Machine = {
+      type: "parallel",
+      states: {
+        round: {
+          initial: "dealing",
+          entry: [{ assign: { dealCount: 1 } }],
+          exit: [{ assign: { dealCount: 0 } }],
+          states: {
+            dealing: {
+              always: [{ guard: "pastLimit", target: "settled" }],
+              on: { DEAL: "settled" },
+            },
+            settled: {
+              type: "final",
+            },
+          },
+          onDone: {
+            target: ".dealing",
+          },
+        },
+      },
+    }
+    const cfg = canonical(ADVANCED)
+    expect(cfg.type).toBe("parallel")
+    createMachine(cfg as never)
+  })
 })
 
 // The differential must be able to fail: a trace claiming a field value

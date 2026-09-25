@@ -841,13 +841,32 @@ function declaredCharts(spec, table) {
   } catch {
     throw new ProgramError(`region "${table}": data-machine is not JSON: ${spec}`);
   }
-  const charts = Array.isArray(value) ? value : [value];
-  if (charts.length === 0) {
+  const rawCharts = Array.isArray(value) ? value : [value];
+  if (rawCharts.length === 0) {
     throw new ProgramError(`region "${table}": data-machine states no chart`);
   }
-  for (const chart of charts) {
+  const charts = [];
+  for (const chart of rawCharts) {
     if (chart === null || typeof chart !== "object" || Array.isArray(chart)) {
       throw new ProgramError(`region "${table}": data-machine holds ${JSON.stringify(chart)}, which is not a chart`);
+    }
+    if (chart.type === "parallel") {
+      for (const [regionName, regionNode] of Object.entries(chart.states ?? {})) {
+        charts.push({
+          field: regionNode.field ?? regionName,
+          initial: regionNode.initial,
+          context: regionNode.context ?? (regionNode.field ? chart.context : undefined),
+          on: { ...chart.on, ...regionNode.on },
+          states: regionNode.states ?? {},
+          after: regionNode.after,
+          always: regionNode.always,
+          onDone: regionNode.onDone,
+          entry: regionNode.entry,
+          exit: regionNode.exit,
+        });
+      }
+    } else {
+      charts.push(chart);
     }
   }
   const fields = charts.map((c) => c.field);
@@ -2360,6 +2379,115 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         return out;
       };
 
+      const getExitEnterPaths = (from, to) => {
+        if (!to) return { exit: [], enter: [] };
+        if (from === to) return { exit: [from], enter: [to] };
+        if (!from) return { exit: [], enter: to.split(".").map((_, i, a) => a.slice(0, i + 1).join(".")) };
+        const fromParts = from.split(".");
+        const toParts = to.split(".");
+        let commonDepth = 0;
+        while (
+          commonDepth < fromParts.length &&
+          commonDepth < toParts.length &&
+          fromParts[commonDepth] === toParts[commonDepth]
+        ) {
+          commonDepth++;
+        }
+        const exit = [];
+        for (let i = fromParts.length; i > commonDepth; i--) {
+          exit.push(fromParts.slice(0, i).join("."));
+        }
+        const enter = [];
+        for (let i = commonDepth; i < toParts.length; i++) {
+          enter.push(toParts.slice(0, i + 1).join("."));
+        }
+        return { exit, enter };
+      };
+
+      const normalizeActions = (actions) => {
+        if (!actions) return [];
+        return Array.isArray(actions) ? actions : [actions];
+      };
+
+      const parseEffect = (eff, effectiveCtx, world, event) => {
+        const values = {};
+        for (const [k, v] of Object.entries(eff.values ?? {})) {
+          let val;
+          if (typeof v === "string") {
+            if (v === "null" || v === "{null}") val = null;
+            else if (v === "{now}") val = now();
+            else if (v.startsWith("{") && v.endsWith("}")) {
+              const expr = v.slice(1, -1);
+              val = expr in effectiveCtx ? effectiveCtx[expr] : lookup(expr, effectiveCtx);
+            } else if (PLACEHOLDERS.test(v)) {
+              val = resolveHidden(v, effectiveCtx);
+            } else {
+              val = leafVal(v, world, event);
+            }
+          } else {
+            val = leafVal(v, world, event);
+          }
+          if (val === NO_FIELD) return NO_FIELD;
+          values[k] = val;
+        }
+        let token = eff.token;
+        if (typeof token === "string") {
+          if (token.startsWith("{") && token.endsWith("}")) {
+            const expr = token.slice(1, -1);
+            token = expr in effectiveCtx ? effectiveCtx[expr] : lookup(expr, effectiveCtx);
+          } else if (PLACEHOLDERS.test(token)) {
+            token = interpolate(token, effectiveCtx);
+          }
+        }
+        let filter = eff.filter;
+        if (typeof filter === "string") {
+          filter = interpolateFilter(filter, effectiveCtx);
+        }
+        return {
+          level: eff.level ?? 2,
+          op: eff.op,
+          entity: eff.entity ?? region.dataset.live,
+          token,
+          filter,
+          values,
+        };
+      };
+
+      const runAction = (act, patch, effectiveCtx, effects, world, event) => {
+        let raised;
+        if (act.assign) {
+          for (const [col, v] of Object.entries(act.assign)) {
+            const value = leafVal(v, world, event);
+            if (value === NO_FIELD) return NO_FIELD;
+            patch[col] = value;
+            effectiveCtx[col] = value;
+          }
+        }
+        const rawEffects = Array.isArray(act.effect)
+          ? act.effect
+          : (act.effect ? [act.effect] : []);
+        for (const eff of rawEffects) {
+          const parsed = parseEffect(eff, effectiveCtx, world, event);
+          if (parsed === NO_FIELD) return NO_FIELD;
+          effects.push(parsed);
+        }
+        if (act.raise !== undefined) raised = act.raise;
+        return raised;
+      };
+
+      const evalCandidates = (list, world, event) => {
+        for (const entry of list) {
+          if (entry.c.guard === undefined) return entry;
+          const named = typeof entry.c.guard === "string" ? entry.c.guard : entry.c.guard.type;
+          const g = handlers.get(named);
+          if (g === undefined) throw new Error(`machine guard "${named}" names no module`);
+          if (g(world, event, typeof entry.c.guard === "object" ? entry.c.guard.params : undefined)) {
+            return entry;
+          }
+        }
+        return undefined;
+      };
+
       // Ordered candidates, first guard-pass wins. All assigns read the
       // pre-transition snapshot and merge with the field write into ONE
       // stated row — the swap needs no temporary. A first write concluding
@@ -2369,80 +2497,162 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         if (row === undefined) return { updates: [] };
         if (expectState !== undefined && row[machine.field] !== expectState) return { updates: [] };
         const world = { items: [row] };
-        let chosen;
-        for (const entry of list) {
-          if (entry.c.guard === undefined) {
-            chosen = entry;
-            break;
-          }
-          const named = typeof entry.c.guard === "string" ? entry.c.guard : entry.c.guard.type;
-          const g = handlers.get(named);
-          if (g === undefined) throw new Error(`machine guard "${named}" names no module`);
-          if (g(world, event, typeof entry.c.guard === "object" ? entry.c.guard.params : undefined)) {
-            chosen = entry;
-            break;
-          }
-        }
+        const chosen = evalCandidates(list, world, event);
         if (chosen === undefined) return { updates: [] };
+
         const patch = {};
-        for (const [col, v] of Object.entries(chosen.c.assign ?? {})) {
-          const value = leafVal(v, world, event);
-          if (value === NO_FIELD) return { updates: [] };
-          patch[col] = value;
-        }
-
-        const effectiveCtx = { ...row, ...patch };
+        const effectiveCtx = { ...row };
         const effects = [];
-        const rawEffects = Array.isArray(chosen.c.effect)
-          ? chosen.c.effect
-          : (chosen.c.effect ? [chosen.c.effect] : []);
-        for (const eff of rawEffects) {
-          const values = {};
-          for (const [k, v] of Object.entries(eff.values ?? {})) {
-            let val;
-            if (typeof v === "string") {
-              if (v === "null" || v === "{null}") val = null;
-              else if (v === "{now}") val = now();
-              else if (v.startsWith("{") && v.endsWith("}")) {
-                const expr = v.slice(1, -1);
-                val = expr in effectiveCtx ? effectiveCtx[expr] : lookup(expr, effectiveCtx);
-              } else if (PLACEHOLDERS.test(v)) {
-                val = resolveHidden(v, effectiveCtx);
-              } else {
-                val = leafVal(v, world, event);
-              }
-            } else {
-              val = leafVal(v, world, event);
-            }
-            if (val === NO_FIELD) return { updates: [] };
-            values[k] = val;
-          }
-          let token = eff.token;
-          if (typeof token === "string") {
-            if (token.startsWith("{") && token.endsWith("}")) {
-              const expr = token.slice(1, -1);
-              token = expr in effectiveCtx ? effectiveCtx[expr] : lookup(expr, effectiveCtx);
-            } else if (PLACEHOLDERS.test(token)) {
-              token = interpolate(token, effectiveCtx);
-            }
-          }
-          let filter = eff.filter;
-          if (typeof filter === "string") {
-            filter = interpolateFilter(filter, effectiveCtx);
-          }
-          effects.push({
-            level: eff.level ?? 2,
-            op: eff.op,
-            entity: eff.entity ?? region.dataset.live,
-            token,
-            filter,
-            values,
-          });
-        }
+        let raisedThen;
 
-        const targetState = chosen.c.target !== undefined
+        let targetState = chosen.c.target !== undefined
           ? resolveTarget(chosen.c.target, row[machine.field])
           : undefined;
+
+        const { exit: exitStates, enter: enterStates } = getExitEnterPaths(row[machine.field], targetState);
+
+        // 1. Exit actions (innermost to outermost)
+        for (const s of exitStates) {
+          const node = resolveStateNode(s);
+          if (node?.exit) {
+            for (const act of normalizeActions(node.exit)) {
+              const r = runAction(act, patch, effectiveCtx, effects, world, event);
+              if (r === NO_FIELD) return { updates: [] };
+              if (r !== undefined) raisedThen = r;
+            }
+          }
+        }
+
+        // 2. Transition actions
+        if (chosen.c.actions) {
+          for (const act of normalizeActions(chosen.c.actions)) {
+            const r = runAction(act, patch, effectiveCtx, effects, world, event);
+            if (r === NO_FIELD) return { updates: [] };
+            if (r !== undefined) raisedThen = r;
+          }
+        }
+        const rTrans = runAction(chosen.c, patch, effectiveCtx, effects, world, event);
+        if (rTrans === NO_FIELD) return { updates: [] };
+        if (rTrans !== undefined) raisedThen = rTrans;
+
+        // 3. Entry actions (outermost to innermost)
+        for (const s of enterStates) {
+          const node = resolveStateNode(s);
+          if (node?.entry) {
+            for (const act of normalizeActions(node.entry)) {
+              const r = runAction(act, patch, effectiveCtx, effects, world, event);
+              if (r === NO_FIELD) return { updates: [] };
+              if (r !== undefined) raisedThen = r;
+            }
+          }
+        }
+
+        // 4. onDone and always cascade
+        let cascadeSteps = 0;
+        while (targetState !== undefined && cascadeSteps < 10) {
+          cascadeSteps++;
+          let progressed = false;
+          // Check if targetState is final and parent has onDone
+          const currNode = resolveStateNode(targetState);
+          if (currNode?.type === "final" && targetState.includes(".")) {
+            const parentPath = targetState.slice(0, targetState.lastIndexOf("."));
+            const parentNode = resolveStateNode(parentPath);
+            if (parentNode?.onDone !== undefined) {
+              const onDoneList = machineCandidates(parentNode.onDone).map((c, index) => ({
+                c, key: "onDone", index, origin: parentPath
+              }));
+              const chosenOnDone = evalCandidates(onDoneList, { items: [{ ...effectiveCtx, [machine.field]: targetState }] }, event);
+              if (chosenOnDone !== undefined) {
+                const nextTarget = chosenOnDone.c.target !== undefined
+                  ? resolveTarget(chosenOnDone.c.target, targetState)
+                  : undefined;
+                const { exit: ex, enter: en } = getExitEnterPaths(targetState, nextTarget);
+                for (const s of ex) {
+                  const node = resolveStateNode(s);
+                  if (node?.exit) {
+                    for (const act of normalizeActions(node.exit)) {
+                      const r = runAction(act, patch, effectiveCtx, effects, world, event);
+                      if (r === NO_FIELD) return { updates: [] };
+                      if (r !== undefined) raisedThen = r;
+                    }
+                  }
+                }
+                if (chosenOnDone.c.actions) {
+                  for (const act of normalizeActions(chosenOnDone.c.actions)) {
+                    const r = runAction(act, patch, effectiveCtx, effects, world, event);
+                    if (r === NO_FIELD) return { updates: [] };
+                    if (r !== undefined) raisedThen = r;
+                  }
+                }
+                const rOD = runAction(chosenOnDone.c, patch, effectiveCtx, effects, world, event);
+                if (rOD === NO_FIELD) return { updates: [] };
+                if (rOD !== undefined) raisedThen = rOD;
+                for (const s of en) {
+                  const node = resolveStateNode(s);
+                  if (node?.entry) {
+                    for (const act of normalizeActions(node.entry)) {
+                      const r = runAction(act, patch, effectiveCtx, effects, world, event);
+                      if (r === NO_FIELD) return { updates: [] };
+                      if (r !== undefined) raisedThen = r;
+                    }
+                  }
+                }
+                targetState = nextTarget;
+                progressed = true;
+                continue;
+              }
+            }
+          }
+
+          // Check always on current targetState
+          const stateNode = resolveStateNode(targetState);
+          if (stateNode?.always !== undefined) {
+            const alwaysList = machineCandidates(stateNode.always).map((c, index) => ({
+              c, key: "always", index, origin: targetState
+            }));
+            const chosenAlways = evalCandidates(alwaysList, { items: [{ ...effectiveCtx, [machine.field]: targetState }] }, event);
+            if (chosenAlways !== undefined) {
+              const nextTarget = chosenAlways.c.target !== undefined
+                ? resolveTarget(chosenAlways.c.target, targetState)
+                : undefined;
+              const { exit: ex, enter: en } = getExitEnterPaths(targetState, nextTarget);
+              for (const s of ex) {
+                const node = resolveStateNode(s);
+                if (node?.exit) {
+                  for (const act of normalizeActions(node.exit)) {
+                    const r = runAction(act, patch, effectiveCtx, effects, world, event);
+                    if (r === NO_FIELD) return { updates: [] };
+                    if (r !== undefined) raisedThen = r;
+                  }
+                }
+              }
+              if (chosenAlways.c.actions) {
+                for (const act of normalizeActions(chosenAlways.c.actions)) {
+                  const r = runAction(act, patch, effectiveCtx, effects, world, event);
+                  if (r === NO_FIELD) return { updates: [] };
+                  if (r !== undefined) raisedThen = r;
+                }
+              }
+              const rAlw = runAction(chosenAlways.c, patch, effectiveCtx, effects, world, event);
+              if (rAlw === NO_FIELD) return { updates: [] };
+              if (rAlw !== undefined) raisedThen = rAlw;
+              for (const s of en) {
+                const node = resolveStateNode(s);
+                if (node?.entry) {
+                  for (const act of normalizeActions(node.entry)) {
+                    const r = runAction(act, patch, effectiveCtx, effects, world, event);
+                    if (r === NO_FIELD) return { updates: [] };
+                    if (r !== undefined) raisedThen = r;
+                  }
+                }
+              }
+              targetState = nextTarget;
+              progressed = true;
+              continue;
+            }
+          }
+          if (!progressed) break;
+        }
 
         // Debug seam, like __prontoViews: which arrow fired, where it landed,
         // and the region that fired it. Nothing is pushed unless something
@@ -2474,7 +2684,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         if (effects.length > 0) out.effects = effects;
         // raise is the reduce's then: under XState's name — delivered after
         // the writes, depth-bounded by the terminal.
-        if (chosen.c.raise !== undefined) out.then = { type: chosen.c.raise };
+        if (raisedThen !== undefined) out.then = { type: raisedThen };
         return out;
       };
 
@@ -2620,7 +2830,14 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       // them — re-arms on the refresh it causes; the entered flag covers the
       // machine's own moves.
       const current = (region._prontoMachineRow ?? getRows()[0])?.[machine.field];
-      if (current !== undefined && region[mine("armed")] !== current) armAfter(current);
+      if (current !== undefined && region[mine("armed")] !== current) {
+        armAfter(current);
+        const node = resolveStateNode(current);
+        if (node?.always !== undefined) {
+          const alwaysList = machineCandidates(node.always).map((c, index) => ({ c, key: "always", index, origin: current }));
+          runMachine((state, event) => apply(machineRow(state), event, alwaysList), { type: "always" }).catch(console.error);
+        }
+      }
     }
 
     // A mutation landed on this region's collection, and the terminal knows it

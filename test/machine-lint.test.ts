@@ -198,4 +198,42 @@ describe("machineLint effects and nested states", () => {
     bad.states.unfavorited.on.click.effect.op = "not_an_op"
     expect(machineLint(bad, new Set(["myHandler"]))).toContain('effect op "not_an_op"')
   })
+
+  it("passes a machine with entry, exit, onDone, always, and parallel states", () => {
+    const advanced = {
+      type: "parallel",
+      states: {
+        r1: {
+          field: "f1",
+          initial: "s1",
+          entry: { assign: { a: 1 } },
+          exit: { assign: { a: 0 } },
+          states: {
+            s1: {
+              always: { target: "s2" },
+            },
+            s2: {
+              type: "final",
+            },
+          },
+          onDone: { target: "s1" },
+        },
+      },
+    }
+    expect(machineLint(advanced as never, new Set())).toBe(null)
+  })
+
+  it("reports an invalid key inside entry action", () => {
+    const bad = {
+      field: "phase",
+      initial: "idle",
+      states: {
+        idle: {
+          entry: { invalidKey: true },
+        },
+      },
+    }
+    expect(machineLint(bad as never, new Set())).toContain('"invalidKey" — outside the #Action subset')
+  })
 })
+

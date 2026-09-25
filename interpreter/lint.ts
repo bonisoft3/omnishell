@@ -798,7 +798,8 @@ export function unwitnessedSlot(filter: string | undefined, e: Entity): string |
 // the authority (cue vet runs at generate) — this mirror is what lets the
 // rule report structure findings from the same pass that checks references,
 // unit-testable with no cue spawn.
-const TRANSITION_KEYS = new Set(["guard", "target", "assign", "effect", "raise"]);
+const TRANSITION_KEYS = new Set(["guard", "target", "assign", "effect", "raise", "actions"]);
+const ACTION_KEYS = new Set(["assign", "effect", "raise"]);
 const REF_KEYS = new Set(["type", "params"]);
 const EFFECT_KEYS = new Set(["level", "op", "entity", "token", "filter", "values"]);
 const EFFECT_OPS = new Set(["create", "update", "delete", "upsert"]);
@@ -821,16 +822,59 @@ const badRef = (r: unknown): string | null => {
   return null;
 };
 
+const lintActions = (actions: unknown): string | null => {
+  if (actions === undefined) return null;
+  const list = Array.isArray(actions) ? actions : [actions];
+  for (const act of list) {
+    if (typeof act !== "object" || act === null) return `action ${JSON.stringify(act)} is not an object`;
+    const unknown = Object.keys(act).filter((k) => !ACTION_KEYS.has(k));
+    if (unknown.length > 0) {
+      return `action carries ${unknown.map((k) => `"${k}"`).join(", ")} — outside the #Action subset`;
+    }
+    const a = act as { assign?: Record<string, unknown>; effect?: unknown; raise?: unknown };
+    for (const r of Object.values(a.assign ?? {})) {
+      const why = badRef(r);
+      if (why !== null) return why;
+    }
+    if (a.effect !== undefined) {
+      const effects = Array.isArray(a.effect) ? a.effect : [a.effect];
+      for (const eff of effects) {
+        if (typeof eff !== "object" || eff === null) return `effect ${JSON.stringify(eff)} is not an object`;
+        const effUnknown = Object.keys(eff).filter((k) => !EFFECT_KEYS.has(k));
+        if (effUnknown.length > 0) {
+          return `effect carries ${effUnknown.map((k) => `"${k}"`).join(", ")} — outside the #Effect subset`;
+        }
+        const e = eff as { op?: unknown; values?: Record<string, unknown> };
+        if (typeof e.op !== "string" || !EFFECT_OPS.has(e.op)) {
+          return `effect op ${JSON.stringify(e.op)} is not in ${[...EFFECT_OPS].join(" | ")}`;
+        }
+        for (const r of Object.values(e.values ?? {})) {
+          const why = badRef(r);
+          if (why !== null) return why;
+        }
+      }
+    }
+  }
+  return null;
+};
+
 type StateNode = {
+  field?: string;
+  type?: string;
   initial?: string;
   on?: Record<string, unknown>;
+  onDone?: unknown;
+  always?: unknown;
   after?: Record<string, unknown>;
+  entry?: unknown;
+  exit?: unknown;
   states?: Record<string, StateNode>;
 };
 
 type Machine = {
-  field: string;
-  initial: string;
+  field?: string;
+  type?: string;
+  initial?: string;
   context?: Record<string, unknown>;
   on?: Record<string, unknown>;
   states: Record<string, StateNode>;
@@ -841,12 +885,26 @@ function collectValues(state: StateNode): unknown[] {
     ...Object.values(state.on ?? {}),
     ...Object.values(state.after ?? {}),
   ];
+  if (state.always !== undefined) vals.push(state.always);
+  if (state.onDone !== undefined) vals.push(state.onDone);
   if (state.states) {
     for (const sub of Object.values(state.states)) {
       vals.push(...collectValues(sub));
     }
   }
   return vals;
+}
+
+function collectStateActions(state: StateNode): unknown[] {
+  const acts: unknown[] = [];
+  if (state.entry !== undefined) acts.push(state.entry);
+  if (state.exit !== undefined) acts.push(state.exit);
+  if (state.states) {
+    for (const sub of Object.values(state.states)) {
+      acts.push(...collectStateActions(sub));
+    }
+  }
+  return acts;
 }
 
 /** Machine lint: the reason a data-machine's leaves or cascade are unsound,
@@ -857,7 +915,7 @@ function collectValues(state: StateNode): unknown[] {
 export function machineLint(machine: Machine, available: Set<string>): string | null {
   const values: unknown[] = [
     ...Object.values(machine.on ?? {}),
-    ...Object.values(machine.states).flatMap(collectValues),
+    ...Object.values(machine.states ?? {}).flatMap(collectValues),
   ];
   for (const v of values) {
     for (const c of machineCandidates(v)) {
@@ -866,9 +924,13 @@ export function machineLint(machine: Machine, available: Set<string>): string | 
       if (unknown.length > 0) {
         return `transition carries ${unknown.map((k) => `"${k}"`).join(", ")} — outside the #Machine subset`;
       }
-      const cand = c as { guard?: unknown; assign?: Record<string, unknown>; effect?: unknown };
+      const cand = c as { guard?: unknown; assign?: Record<string, unknown>; effect?: unknown; actions?: unknown };
       for (const r of [cand.guard, ...Object.values(cand.assign ?? {})]) {
         const why = badRef(r);
+        if (why !== null) return why;
+      }
+      if (cand.actions !== undefined) {
+        const why = lintActions(cand.actions);
         if (why !== null) return why;
       }
       if (cand.effect !== undefined) {
@@ -891,6 +953,10 @@ export function machineLint(machine: Machine, available: Set<string>): string | 
       }
     }
   }
+  for (const act of Object.values(machine.states ?? {}).flatMap(collectStateActions)) {
+    const why = lintActions(act);
+    if (why !== null) return why;
+  }
   const shape = machineShape(machine);
   const dangling = shape.refs.filter((r) => !available.has(r));
   if (dangling.length > 0) {
@@ -900,7 +966,7 @@ export function machineLint(machine: Machine, available: Set<string>): string | 
   if (unraisable.length > 0) {
     return `raise ${unraisable.map((r) => `"${r}"`).join(", ")} is handled by no state or root on: — the cascade has an undrawn arrow`;
   }
-  if (machine.context !== undefined && machine.field in machine.context) {
+  if (machine.context !== undefined && machine.field && machine.field in machine.context) {
     return `context carries the machine's own field "${machine.field}" — one fact, one writer (initial: is the declaration)`;
   }
   return null;
@@ -927,19 +993,26 @@ export function machineWrites(machine: Machine, emptyRow?: string): Write[] {
   for (const [k, v] of Object.entries(machine.context ?? {})) push(k, v);
   const values: unknown[] = [
     ...Object.values(machine.on ?? {}),
-    ...Object.values(machine.states).flatMap(collectValues),
+    ...Object.values(machine.states ?? {}).flatMap(collectValues),
   ];
-  // The state IS a column: initial: seeds it and every target restates it, so
-  // a machine whose arrows spell it one way and whose assigns spell it another
-  // writes the column the rule exists to watch — and expectState compares it
-  // strictly on every step.
-  push(machine.field, machine.initial);
+  if (machine.field !== undefined && machine.initial !== undefined) {
+    push(machine.field, machine.initial);
+  }
   for (const v of values) {
     for (const c of machineCandidates(v)) {
       const assign = (c as { assign?: Record<string, unknown> }).assign ?? {};
       for (const [k, av] of Object.entries(assign)) push(k, av);
       const target = (c as { target?: unknown }).target;
-      if (target !== undefined) push(machine.field, target);
+      if (target !== undefined && machine.field !== undefined) push(machine.field, target);
+    }
+  }
+  for (const act of Object.values(machine.states ?? {}).flatMap(collectStateActions)) {
+    const list = Array.isArray(act) ? act : [act];
+    for (const a of list) {
+      if (typeof a === "object" && a !== null) {
+        const assign = (a as { assign?: Record<string, unknown> }).assign ?? {};
+        for (const [k, av] of Object.entries(assign)) push(k, av);
+      }
     }
   }
   return out;

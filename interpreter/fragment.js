@@ -243,6 +243,25 @@ export function machineShape(machine) {
   const raises = new Set();
   const handled = new Set();
   const arrows = [];
+  const walkActions = (actions) => {
+    const list = Array.isArray(actions) ? actions : (actions ? [actions] : []);
+    for (const act of list) {
+      if (act.raise !== undefined) raises.add(act.raise);
+      for (const v of Object.values(act.assign ?? {})) {
+        if (typeof v === "string") assignStrings.add(v);
+        else if (v !== null && typeof v === "object" && !RESERVED_LEAVES.has(v.type)) refs.add(v.type);
+        else if (v !== null && typeof v === "object" && POINTER_FIELDS.has(v.params?.field)) pointer = true;
+      }
+      const rawEffects = Array.isArray(act.effect) ? act.effect : (act.effect ? [act.effect] : []);
+      for (const eff of rawEffects) {
+        for (const v of Object.values(eff.values ?? {})) {
+          if (typeof v === "string") assignStrings.add(v);
+          else if (v !== null && typeof v === "object" && !RESERVED_LEAVES.has(v.type)) refs.add(v.type);
+          else if (v !== null && typeof v === "object" && POINTER_FIELDS.has(v.params?.field)) pointer = true;
+        }
+      }
+    }
+  };
   const walk = (state, key, value) => {
     machineCandidates(value).forEach((c, index) => {
       arrows.push({ state, key, index });
@@ -261,6 +280,7 @@ export function machineShape(machine) {
           else if (v !== null && typeof v === "object" && POINTER_FIELDS.has(v.params?.field)) pointer = true;
         }
       }
+      if (c.actions) walkActions(c.actions);
     });
   };
   for (const [key, value] of Object.entries(machine.on ?? {})) {
@@ -276,13 +296,21 @@ export function machineShape(machine) {
       if (!/^\d+$/.test(delay)) refs.add(delay);
       walk(name, `after:${delay}`, value);
     }
+    if (s.always !== undefined) {
+      walk(name, "always", s.always);
+    }
+    if (s.onDone !== undefined) {
+      walk(name, "onDone", s.onDone);
+    }
+    walkActions(s.entry);
+    walkActions(s.exit);
     if (s.states) {
       for (const [subName, subState] of Object.entries(s.states)) {
         walkState(`${name}.${subName}`, subState);
       }
     }
   };
-  for (const [name, s] of Object.entries(machine.states)) {
+  for (const [name, s] of Object.entries(machine.states ?? {})) {
     walkState(name, s);
   }
   return {

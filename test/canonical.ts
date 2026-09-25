@@ -21,17 +21,24 @@ type Candidate = {
   target?: string;
   assign?: Record<string, unknown>;
   raise?: string;
+  actions?: unknown;
 };
 export type StateNode = {
+  type?: string;
   initial?: string;
   on?: Record<string, unknown>;
+  onDone?: unknown;
+  always?: unknown;
   after?: Record<string, unknown>;
+  entry?: unknown;
+  exit?: unknown;
   states?: Record<string, StateNode>;
 };
 
 export type Machine = {
-  field: string;
-  initial: string;
+  field?: string;
+  type?: string;
+  initial?: string;
   context?: Record<string, unknown>;
   on?: Record<string, unknown>;
   states: Record<string, StateNode>;
@@ -41,6 +48,22 @@ const candidates = (value: unknown): Candidate[] => {
   if (typeof value === "string") return [{ target: value }];
   return (Array.isArray(value) ? value : [value]) as Candidate[];
 };
+
+function mapAction(act: unknown, opts: { drive: boolean }): Record<string, unknown>[] {
+  if (typeof act !== "object" || act === null) return [];
+  const a = act as { assign?: Record<string, unknown>; effect?: unknown; raise?: string };
+  const out: Record<string, unknown>[] = [];
+  if (a.assign !== undefined) out.push({ type: "assign", params: a.assign });
+  if (a.raise !== undefined && !opts.drive) out.push({ type: "raise", params: { event: a.raise } });
+  if (a.effect !== undefined) out.push({ type: "effect", params: a.effect });
+  return out;
+}
+
+function mapActions(actions: unknown, opts: { drive: boolean }): Record<string, unknown>[] {
+  if (actions === undefined) return [];
+  const list = Array.isArray(actions) ? actions : [actions];
+  return list.flatMap((a) => mapAction(a, opts));
+}
 
 function transition(c: Candidate, opts: { drive: boolean; atRoot: boolean }): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -55,6 +78,7 @@ function transition(c: Candidate, opts: { drive: boolean; atRoot: boolean }): Re
   const actions: Record<string, unknown>[] = [];
   if (c.assign !== undefined) actions.push({ type: "assign", params: c.assign });
   if (c.raise !== undefined && !opts.drive) actions.push({ type: "raise", params: { event: c.raise } });
+  if (c.actions !== undefined) actions.push(...mapActions(c.actions, opts));
   if (actions.length > 0) out.actions = actions;
   return out;
 }
@@ -64,6 +88,7 @@ const mapValue = (value: unknown, opts: { drive: boolean; atRoot: boolean }) =>
 
 function mapStateNode(s: StateNode, opts: { drive: boolean }): Record<string, unknown> {
   const node: Record<string, unknown> = {};
+  if (s.type !== undefined) node.type = s.type;
   if (s.initial !== undefined) node.initial = s.initial;
   const on: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(s.on ?? {})) {
@@ -76,6 +101,18 @@ function mapStateNode(s: StateNode, opts: { drive: boolean }): Record<string, un
   }
   if (Object.keys(on).length > 0) node.on = on;
   if (Object.keys(after).length > 0) node.after = after;
+  if (s.always !== undefined) {
+    node.always = mapValue(s.always, { drive: opts.drive, atRoot: false });
+  }
+  if (s.onDone !== undefined) {
+    node.onDone = mapValue(s.onDone, { drive: opts.drive, atRoot: false });
+  }
+  if (s.entry !== undefined) {
+    node.entry = mapActions(s.entry, opts);
+  }
+  if (s.exit !== undefined) {
+    node.exit = mapActions(s.exit, opts);
+  }
   if (s.states !== undefined) {
     const subStates: Record<string, unknown> = {};
     for (const [subName, subNode] of Object.entries(s.states)) {
@@ -89,10 +126,12 @@ function mapStateNode(s: StateNode, opts: { drive: boolean }): Record<string, un
 export function canonical(machine: Machine, opts: { drive?: boolean } = {}): Record<string, unknown> {
   const drive = opts.drive === true;
   const states: Record<string, unknown> = {};
-  for (const [name, s] of Object.entries(machine.states)) {
+  for (const [name, s] of Object.entries(machine.states ?? {})) {
     states[name] = mapStateNode(s, { drive });
   }
-  const out: Record<string, unknown> = { id: "machine", initial: machine.initial, states };
+  const out: Record<string, unknown> = { id: "machine", states };
+  if (machine.type !== undefined) out.type = machine.type;
+  if (machine.initial !== undefined) out.initial = machine.initial;
   if (machine.context !== undefined) out.context = machine.context;
   const rootOn: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(machine.on ?? {})) {
@@ -106,7 +145,13 @@ export function canonical(machine: Machine, opts: { drive?: boolean } = {}): Rec
 export function guardNames(machine: Machine): string[] {
   const names = new Set<string>();
   const collect = (s: StateNode) => {
-    for (const v of [...Object.values(s.on ?? {}), ...Object.values(s.after ?? {})]) {
+    const vals: unknown[] = [
+      ...Object.values(s.on ?? {}),
+      ...Object.values(s.after ?? {}),
+    ];
+    if (s.always !== undefined) vals.push(s.always);
+    if (s.onDone !== undefined) vals.push(s.onDone);
+    for (const v of vals) {
       for (const c of candidates(v)) {
         if (c.guard !== undefined) names.add(typeof c.guard === "string" ? c.guard : c.guard.type);
       }
@@ -118,6 +163,6 @@ export function guardNames(machine: Machine): string[] {
       if (c.guard !== undefined) names.add(typeof c.guard === "string" ? c.guard : c.guard.type);
     }
   }
-  for (const s of Object.values(machine.states)) collect(s);
+  for (const s of Object.values(machine.states ?? {})) collect(s);
   return [...names];
 }
