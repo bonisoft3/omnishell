@@ -287,6 +287,9 @@ export function machineShape(machine) {
     handled.add(key.split("@")[0]);
     walk("*", key, value);
   }
+  if (machine.onDone !== undefined) {
+    walk("*", "onDone", machine.onDone);
+  }
   const walkState = (name, s) => {
     for (const [key, value] of Object.entries(s.on ?? {})) {
       handled.add(key.split("@")[0]);

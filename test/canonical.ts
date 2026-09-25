@@ -138,6 +138,9 @@ export function canonical(machine: Machine, opts: { drive?: boolean } = {}): Rec
     rootOn[key] = mapValue(value, { drive, atRoot: true });
   }
   if (Object.keys(rootOn).length > 0) out.on = rootOn;
+  if (machine.onDone !== undefined) {
+    out.onDone = mapValue(machine.onDone, { drive, atRoot: false });
+  }
   return out;
 }
 

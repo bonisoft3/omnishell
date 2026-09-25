@@ -2331,7 +2331,15 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       const resolveTarget = (target, currentState) => {
         if (target === undefined) return undefined;
         let resolved = target;
-        if (!target.includes(".") && currentState?.includes(".")) {
+        if (target.startsWith(".")) {
+          const sub = target.slice(1);
+          if (currentState?.includes(".")) {
+            const parent = currentState.slice(0, currentState.lastIndexOf("."));
+            resolved = `${parent}.${sub}`;
+          } else {
+            resolved = sub;
+          }
+        } else if (!target.includes(".") && currentState?.includes(".")) {
           const parent = currentState.slice(0, currentState.lastIndexOf("."));
           const parentNode = resolveStateNode(parent);
           if (parentNode?.states?.[target]) {
@@ -2554,9 +2562,10 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           let progressed = false;
           // Check if targetState is final and parent has onDone
           const currNode = resolveStateNode(targetState);
-          if (currNode?.type === "final" && targetState.includes(".")) {
-            const parentPath = targetState.slice(0, targetState.lastIndexOf("."));
-            const parentNode = resolveStateNode(parentPath);
+          if (currNode?.type === "final") {
+            const hasParent = targetState.includes(".");
+            const parentPath = hasParent ? targetState.slice(0, targetState.lastIndexOf(".")) : "";
+            const parentNode = hasParent ? resolveStateNode(parentPath) : machine;
             if (parentNode?.onDone !== undefined) {
               const onDoneList = machineCandidates(parentNode.onDone).map((c, index) => ({
                 c, key: "onDone", index, origin: parentPath

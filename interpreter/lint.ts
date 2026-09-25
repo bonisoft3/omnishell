@@ -917,6 +917,7 @@ export function machineLint(machine: Machine, available: Set<string>): string | 
     ...Object.values(machine.on ?? {}),
     ...Object.values(machine.states ?? {}).flatMap(collectValues),
   ];
+  if (machine.onDone !== undefined) values.push(machine.onDone);
   for (const v of values) {
     for (const c of machineCandidates(v)) {
       if (typeof c !== "object" || c === null) return `transition ${JSON.stringify(c)} is neither a target nor a candidate`;
