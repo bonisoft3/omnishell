@@ -445,3 +445,54 @@ introduces four well-known physical hazards that must be designed for:
 - **The Defense**: Non-blocking stream buffers and dead-letter outboxes. If an
   outbound effect slows down, the IVM engine decouples ingestion from effect
   dispatch, preventing slow consumers from blocking Postgres WAL truncation.
+
+---
+
+## 12. Automated Verification Pillars: Fuel, Outbox, and Storybook Posing
+
+Three test infrastructure modules in `plugins/omnishell/test/` govern the
+automated verification lifecycle across `lint`, `test`, `integrate`, and
+visual review:
+
+### 1. Deterministic Fuel Budgets ([`fuel-meter.ts`](../test/fuel-meter.ts))
+Wall-clock timeouts are non-deterministic: a test with `setTimeout(..., 2000)`
+fails spuriously under heavy CI load and stalls execution when encountering an
+infinite cycle.
+The `FuelMeter` tracks abstract execution units:
+- State transitions (10 fuel)
+- DOM reflows and bindings (5 fuel)
+- Store mutations (20 fuel)
+- Event dispatches (2 fuel)
+- Stepped virtual clock ticks (1 fuel)
+
+When an event cascade or cyclic transition loops indefinitely, `FuelMeter`
+throws `FuelLimitExceededError` instantly at 0ms wall-clock, failing loudly
+with deterministic diagnostics.
+
+### 2. Mutation Lifecycle & Outbox Simulation ([`outbox-simulator.ts`](../test/outbox-simulator.ts))
+Testing optimistic updates, server refusals, and offline reconciliation usually
+requires spinning up Docker containers, Postgres, and Electric replication sync.
+`OutboxSimulator` isolates the mutation and outbox state machine in LinkeDOM:
+- **`immediate`**: Happy path. Optimistic writes receive a synthetic `sync_ack`
+  event, clearing outbox queues without server latency.
+- **`refuse`**: Conflict path. A 409 unique constraint or RLS rejection fires
+  `refused`, triggering machine rollback and TanStack DB speculative eviction.
+- **`offline`**: Network partition. Outbox buffers writes during severed
+  connectivity and drains automatically upon reconnect.
+
+### 3. Read-Only Storybook Posing ([`storybook-injector.ts`](../test/storybook-injector.ts))
+Storybook baselines must remain strictly read-only: executing mutations inside
+a story modifies shared store fixtures, corrupting sibling stories and causing
+visual baselines to drift.
+Because Pronto machine state is a row column
+(`pinnedRow(m.rows(table), filter)?.[machine.field]`), any visual state can be
+directly posed without executing transitions:
+1. **Direct Seeding**: The test harness mounts the screen with `handlers: false`
+   and seeds the fixture row with `{ [machine.field]: targetState, ...context }`.
+2. **Linear Region Isolation**: Testing $N$ independent regions with $|S_i|$
+   states each requires only $O(\sum |S_i|)$ frames instead of the exponential
+   Cartesian product $\prod |S_i|$.
+3. **Pairwise Covering Arrays**: Interacting regions are sampled via 2-way
+   covering arrays ($t=2$), providing full interaction coverage in sub-quadratic
+   frame counts.
+

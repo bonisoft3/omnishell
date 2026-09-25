@@ -24,6 +24,7 @@ type Candidate = {
   actions?: unknown;
 };
 export type StateNode = {
+  field?: string;
   type?: string;
   initial?: string;
   on?: Record<string, unknown>;
