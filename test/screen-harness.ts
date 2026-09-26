@@ -863,7 +863,7 @@ function layoutBoxes(document: unknown): void {
  * dismissal the UA performed on its own — light dismiss and Escape. A stub
  * silent about it would leave the interpreter's one guard against a second
  * writer untested here and broken there. */
-function topLayer(document: unknown, Event: new (t: string, i: object) => object): void {
+export function topLayer(document: unknown, Event: new (t: string, i: object) => object): void {
   const proto = Object.getPrototypeOf(
     (document as { createElement(tag: string): object }).createElement("div"),
   ) as object;

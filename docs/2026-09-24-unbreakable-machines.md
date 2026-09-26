@@ -452,8 +452,8 @@ introduces four well-known physical hazards that must be designed for:
 
 ## 12. Automated Verification Pillars: Fuel, Outbox, and Storybook Posing
 
-Three test infrastructure modules in `plugins/omnishell/test/` govern the
-automated verification lifecycle across `lint`, `test`, `integrate`, and
+Four test infrastructure modules in `plugins/omnishell/test/` and `plugins/pronto/`
+govern the automated verification lifecycle across `lint`, `test`, `integrate`, and
 visual review:
 
 ### 1. Deterministic Fuel Budgets ([`fuel-meter.ts`](../test/fuel-meter.ts))
@@ -482,7 +482,19 @@ requires spinning up Docker containers, Postgres, and Electric replication sync.
 - **`offline`**: Network partition. Outbox buffers writes during severed
   connectivity and drains automatically upon reconnect.
 
-### 3. Read-Only Storybook Posing ([`storybook-injector.ts`](../test/storybook-injector.ts))
+### 3. Universal DuckDB Synthetic Seed Generation ([`synthetic-seed.ts`](../../pronto/synthetic-seed.ts))
+Previous fixture strategies fell into two failure modes:
+1. *Handwritten static fixtures*: Required manual authoring across all 11 apps, drifted silently whenever CUE schema definitions evolved, and violated foreign-key referential integrity or CEL constraints.
+2. *Randomized fuzzers*: Produced invalid rows (orphaned foreign keys, broken enum variants) that triggered catastrophic screen hydration crashes before any interaction logic was exercised.
+
+The **DuckDB Relational Solver** replaces both:
+- Synthesizes topologically-sorted tables directly from `.pronto/facts.json` entity graphs.
+- Enforces foreign-key validity by sampling parent primary keys via a hash query correlated on the row index and field name (`SELECT id FROM parent ORDER BY hash(id || '_' || i::TEXT || '_' || col) LIMIT 1`).
+- Resolves CEL enum (`this in ['a', 'b']`) and range (`this >= 1 && this <= 10`) constraints via DuckDB SQL array expressions.
+- Partitions mutually exclusive active-member groups (`cur_*` focus, `chk_*` radio, `exp_*` accordion) using modulo arithmetic (`CASE WHEN (i-1) % N = idx THEN 'true' ELSE 'false' END`), eliminating multi-active member invariant violations in LinkeDOM.
+- Pinned and reproducible via `SELECT setseed(0.42);` and cached in `${appDir}/.pronto/seeds.json`.
+
+### 4. Read-Only Statechart-to-Storybook Battery ([`storybook-battery.ts`](../test/storybook-battery.ts))
 Storybook baselines must remain strictly read-only: executing mutations inside
 a story modifies shared store fixtures, corrupting sibling stories and causing
 visual baselines to drift.
@@ -493,8 +505,35 @@ directly posed without executing transitions:
    and seeds the fixture row with `{ [machine.field]: targetState, ...context }`.
 2. **Linear Region Isolation**: Testing $N$ independent regions with $|S_i|$
    states each requires only $O(\sum |S_i|)$ frames instead of the exponential
-   Cartesian product $\prod |S_i|$.
+   Cartesian product $\prod |S_i|$. Across all application screens and machines,
+   this derives full visual state coverage in seconds rather than minutes.
 3. **Pairwise Covering Arrays**: Interacting regions are sampled via 2-way
    covering arrays ($t=2$), providing full interaction coverage in sub-quadratic
    frame counts.
+4. **Strict Read-Only & Fuel Invariants**: The harness wraps the store with
+   rejection traps on all write methods (`create`, `update`, `put`, `remove`, `write`)
+   and asserts `mutationsDispatched === 0` and bounded fuel consumption.
+
+### 5. Architectural Rationale: Why Extract from HTML Runtime Artifacts vs CUE Ground Truth?
+*If CUE (`program.cue`) is the ground truth, why extract machine states from compiled screen HTML (`apps/<app>/shell/screens/*.html`) rather than directly from the CUE AST?*
+
+The answer lies in Pronto's review ladder ([`plugins/pronto/README.md`](../../pronto/README.md)):
+1. **Testing the Compilation Pipeline vs Tautological Spec Testing**:
+   Testing CUE against CUE is a circular tautology—it proves only that the parser read what the generator wrote. It is blind to compiler bugs in `plugins/pronto/emit.cue`, serialization bugs in `write.ts`, or invalid CSS/HTML emitted into `shell/screens/`. By parsing the compiled HTML artifacts, the battery validates the *complete end-to-end compilation output*.
+2. **Validating the DOM Runtime Surface**:
+   HTML with `data-machine` and `data-live` is the *compiled runtime projection*—the bottom rung of the ladder ([`2026-08-31-one-ladder-one-grammar.md`](../../pronto/docs/2026-08-31-one-ladder-one-grammar.md)). By testing LinkeDOM parsing, CSS matching, template variable interpolation (`{param.id}`), and store hydration on the actual emitted HTML, the battery proves that the browser runtime can execute the output without runtime errors.
+3. **Omnishell Runtime Portability**:
+   The omnishell interpreter is runtime-agnostic: whether an application was compiled from CUE, assembled from hand-crafted HTML, or rendered via server-side M-SSR, the interpreter operates on the DOM contract. Extracting from HTML ensures the test battery tests the exact contract the user touches.
+
+### 6. Verification Invariants Enforced
+The universal DuckDB synthetic seed generator and statechart battery enforce four architectural invariants across all application screens:
+1. **Single-Active-Member Set Invariants**:
+   Radio groups, tab bars, and accordion panes enforce single-member invariants using modulo partition constraints (`CASE WHEN (i-1) % N = idx THEN 'true' ELSE 'false' END`).
+2. **Strict Host Polyfill Contract**:
+   Screens utilizing the standard Popover API (`showPopover()`, `hidePopover()`) operate against a strict LinkeDOM `HTMLElement.prototype` polyfill in the test harness, preserving production code without fallback paths.
+3. **Inert Screen Guard Isolation**:
+   When mounting screens in storybook mode (`handlers: false`), charts remain inert (`charts = []`), preventing un-vendored runtime guards from firing on uninitialized state.
+4. **Zero-Mutation Visual Posing**:
+   Visual statechart posing is strictly read-only: inert machine mounting under `handlers: false` combined with a rejecting store guarantees zero store mutations and zero runaway cascades during visual inspection.
+
 

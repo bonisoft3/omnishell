@@ -29,6 +29,7 @@ application code only declares screens and derives writes.
 | Emission — markup, `shell.yaml`, compose, docker | `plugins/pronto/write.ts` |
 | Design tokens and presets | `plugins/pronto/styles.ts`, `apps/shadcnui` |
 | Terminal doctrine, the event surface, the arguments | [`docs/`](docs/) |
+| Unbreakable machines, effect safety, and verification | [`docs/2026-09-24-unbreakable-machines.md`](docs/2026-09-24-unbreakable-machines.md) |
 | Every `data-*`, with its meaning | [`docs/2026-07-30-the-binding-vocabulary.md`](docs/2026-07-30-the-binding-vocabulary.md) |
 | Changing the interpreter itself | [CONTRIBUTING.md](CONTRIBUTING.md) |
 

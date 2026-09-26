@@ -2280,7 +2280,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // with the bare type as its fallback, a state's transitions hide
     // root-level `on:` per exact key, and no transition for the current
     // (state, event) is a no-op, not an error.
-    const charts = region.dataset.machine === undefined
+    const charts = (screenOpts.handlers === false || region.dataset.machine === undefined)
       ? []
       : declaredCharts(region.dataset.machine, region.dataset.live);
     // Each chart is mounted on its own, knowing nothing of its siblings. What
