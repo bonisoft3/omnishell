@@ -1456,7 +1456,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // and the locales every link's address is composed from (routeHref), and the
   // emitted entity schema a value format resolves a column's declaration in
   // (moneyOf).
-  const cfg = { routes: opts.routes, i18n: opts.i18n, schema: opts.schema };
+  const cfg = { routes: opts.routes, i18n: opts.i18n, schema: opts.schema, prefix: opts.prefix };
   // Loaded below, before anything binds; the ctx carries the map so an adapter
   // is reached the way a message catalogue is, and every derived ctx keeps it.
   let adapters = null;

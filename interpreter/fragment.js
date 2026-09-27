@@ -474,10 +474,24 @@ export function routeHref(cfg, screen, params, locale) {
   });
   if (unaddressed) return undefined;
   // An app declaring no locales has one language and no prefixes at all.
-  if (cfg.i18n === undefined || locale === cfg.i18n.default) return filled;
+  if (cfg.i18n === undefined || locale === cfg.i18n.default) return mounted(cfg, filled);
   const declared = localeTable(cfg.i18n)[locale];
   if (declared === undefined) throw new ProgramError(`locale "${locale}" is not one this app declares`);
-  return `/${declared.path}${filled === "/" ? "" : filled}`;
+  return mounted(cfg, `/${declared.path}${filled === "/" ? "" : filled}`);
+}
+
+/** An app address under the path the app is mounted at (cfg.prefix), where it
+ * is mounted under one; the shell takes the prefix off again before matching.
+ * The address is the app's, never one already mounted: an app route may begin
+ * with the prefix's own name. */
+export function mounted(cfg, href) {
+  const prefix = cfg.prefix ?? "";
+  if (prefix === "" || !href.startsWith("/")) return href;
+  // The path alone decides; a query or fragment rides along untouched.
+  const end = href.search(/[?#]/);
+  const path = end === -1 ? href : href.slice(0, end);
+  const rest = end === -1 ? "" : href.slice(end);
+  return `${prefix}${path === "/" ? "" : path}${rest}`;
 }
 
 /** What a screen needs from the app it belongs to, in one place.
@@ -507,6 +521,7 @@ export function screenEnv(cfg, over = /** @type {T} */ ({})) {
     routes: cfg?.routes,
     i18n: cfg?.i18n,
     schema: cfg?.schema,
+    prefix: cfg?.prefix,
     ...over,
   };
 }

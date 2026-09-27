@@ -297,6 +297,15 @@ function matchRoute(pattern, path) {
   return params;
 }
 
+/** An address without the path the app is mounted under, where it is mounted
+ * under one (cfg.prefix): a project site serves it at /<repo>/, and the routes
+ * are written from the root. routeHref puts the prefix back. */
+function unprefixed(cfg, pathname) {
+  const prefix = cfg.prefix ?? "";
+  if (prefix === "" || pathname === prefix) return prefix === "" ? pathname : "/";
+  return pathname.startsWith(`${prefix}/`) ? pathname.slice(prefix.length) : pathname;
+}
+
 /** The language an address is in, and what is left of it once a locale prefix
  * is taken off. Separate from routeAt because the chrome is drawn before any
  * route is mounted — the gate, the strip — and has to ask the same resolution
@@ -306,12 +315,12 @@ function localeAt(cfg, pathname, search, preferred) {
   // from the shape of the word: anything the app does not declare is already a
   // slug of the default language.
   const byPath = localeByPath(cfg.i18n);
-  const [, first, ...rest] = pathname.split("/");
+  const [, first, ...rest] = unprefixed(cfg, pathname).split("/");
   const prefixed = Object.hasOwn(byPath, first);
   const path = prefixed ? byPath[first] : undefined;
   const query = new URLSearchParams(search).get("lang") ?? undefined;
   return {
-    rel: prefixed ? `/${rest.join("/")}` : pathname,
+    rel: prefixed ? `/${rest.join("/")}` : unprefixed(cfg, pathname),
     path,
     query,
     // One resolver, so a row and an address cannot disagree about the language
@@ -724,9 +733,10 @@ export async function createShell({ config, mount }) {
         release(el);
       }
     };
-    // The one way anything inside the app moves. Through the platform's stack
-    // where there is one, so a push and a traverse stay distinguishable; by
-    // hand where there is not.
+    // The one way anything inside the app moves, to an address routeHref
+    // composed, mounted already. Through the platform's stack where there is
+    // one, so a push and a traverse stay distinguishable; by hand where there
+    // is not.
     const navigate = (href) =>
       "navigation" in globalThis
         ? navigation.navigate(href)
