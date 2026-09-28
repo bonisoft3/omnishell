@@ -1,6 +1,6 @@
 // The keyboard, closed: a listbox whose options are rows, walked by bindings,
 // forms and the projection. The composition is
-// plugins/omnishell/docs/2026-09-01-aria-is-columns.md.
+// plugins/omnishell/docs/accessibility.md.
 //
 // What is load-bearing here and easy to lose: the container names the form by
 // interpolating its OWN row, so the gesture always reaches the active option's

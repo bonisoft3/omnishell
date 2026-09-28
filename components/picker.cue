@@ -3,7 +3,7 @@
 // the platform's: `popover` on the listbox, `commandfor`/`command` on the
 // buttons, anchor positioning in CSS. Zero script for the open/close half,
 // because dismissal, top-layer and the invoker's aria-expanded are browser
-// primitives now (plugins/omnishell/docs/2026-08-03-component-tier.md, tier 0).
+// primitives every engine ships (plugins/omnishell/docs/terminal.md).
 //
 // Selection follows #Tabs' shape: one state per option, one component-written
 // `click@trigger-<name>` arrow per (state, option) pair. An option button

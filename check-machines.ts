@@ -199,7 +199,7 @@ function harnessFor(m: Mounted, region: El, machine: Machine, params: Record<str
       // deliberately, so a select firing an arrow written for a checkbox writes
       // nothing — and a declined arrow is indistinguishable here from one that
       // cannot fire at all. A control's own leaves come off the element; the
-      // pointer's need a box, which this tier has no layout to measure.
+      // pointer's need a box, which this walk has no layout to measure.
       boxOf(el, WALK_BOX);
       // Which is why the control's leaves are put on the CONTROL: the terminal
       // reads them off the element it fired from and never off the event, so an

@@ -1,4 +1,4 @@
-// The terminal-tier hatch: a vendored unit mounted into a screen behind one of
+// The terminal's hatch: a vendored unit mounted into a screen behind one of
 // two boundaries, fed props and answering with named events.
 //
 // The unit itself is the app's own, declared in CUE and audited — that is where

@@ -1,4 +1,10 @@
-# What daisyUI's themes say the design block cannot say
+---
+type: metric
+title: daisyUI theme coverage
+description: The finding design-tokens.test.ts prints when its reading of daisyUI's themes and its pin disagree.
+---
+
+# daisyUI theme coverage
 
 The finding produced by `design-tokens.test.ts`, which runs with the rest of
 `test/` under `sayt test` from `plugins/omnishell`. Every number below is what
@@ -231,8 +237,8 @@ The values axis is already at `980 of 980`, asserted by its own cases.
 
 No app is compiled, so nothing here measures a rendered page: no touch targets,
 no focus order, no CLS, no overflow under a dark twin. That `light-dark()`
-re-resolves when `color-scheme` flips on a frame is browser behaviour the
-existing apps' battery exercises.
+re-resolves when `color-scheme` flips on a frame is browser behaviour visual
+lint exercises.
 
 daisyUI's component roster — the other half of its contract — is not graded,
 and "one component set holds under every published palette" is therefore

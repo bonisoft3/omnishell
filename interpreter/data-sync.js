@@ -252,7 +252,7 @@ export function upsertKey(uniques, pk, owner, values) {
  *
  * Pure on purpose: the caller looks the reader's source row and private pair
  * out of the local collections and hands them in, so the rule this file exists
- * to state can be tested without a client, a network or a tier.
+ * to state can be tested without a client, a network or a store.
  */
 const stateOf = (p, r) => (r[p.retracted] == null ? 1 : 0);
 
@@ -280,7 +280,7 @@ export function othersFor(p, sinkRow, mine, pair, compareTxid) {
 }
 
 export function createStore(base = "", cfg = {}) {
-  // cfg.local names the browser-only tiers (shell.yaml `local:`), which are
+  // cfg.local names the browser-owned tables (shell.yaml `local:`), which are
   // collections like any other here — read by a region, mutated by a form —
   // but built from a local factory rather than an Electric shape, so they are
   // listed apart from the tables the terminal subscribes.
@@ -289,7 +289,7 @@ export function createStore(base = "", cfg = {}) {
   // The carrier table the shell was served with (shell.yaml `carriers`); it
   // decides what canonical is, and the client converts into it. Bound on the
   // first question that needs it, because a store whose config declares no
-  // schema — a fixture tier, a smoke — asks none.
+  // schema — the fixture adapter, a smoke — asks none.
   let bound;
   const carrier = () => (bound ??= carriers(cfg.carriers));
   let orders;
@@ -408,7 +408,7 @@ export function createStore(base = "", cfg = {}) {
   // collides with a natural key is caught by the same pass that catches any
   // other collision rather than being trusted because the program wrote it.
   //
-  // Server tiers never arrive here: Postgres owns their uniques, and their
+  // Server tables never arrive here: Postgres owns their uniques, and their
   // bootstrap rows are 900_seed.sql.
   const preparedAt = new Map();
   const ensurePrepared = (table) => {
@@ -475,7 +475,7 @@ export function createStore(base = "", cfg = {}) {
     await client.insert(table, rows);
   }
 
-  // Browser-tier rows outlive the invariants declared over them: a device
+  // Browser-owned rows outlive the invariants declared over them: a device
   // collection may hold rows written before a unique existed, and a slot
   // meeting them would die on data no one can repair from the screen. So a
   // local collection's declared uniques — cfg.uniques and the partial ones
@@ -701,16 +701,13 @@ export function createStore(base = "", cfg = {}) {
   };
 
   // Pipeline sinks lag their source by the whole CDC loop, so a count read
-  // straight from the sink is a second old. A fold sink is not opaque though:
-  // its row IS the accumulator, so the reader can resume the fold over the
-  // rows the sink has not seen yet and show the total now.
-  //
-  //   shown = result(combine(sink, fold of this session's uncounted rows))
-  //
-  // Both sides come from the local collections — never a server read. The
-  // identical rule failed as a region filter precisely because relational
-  // operators are not maintainable there, so the gate hit PostgREST while the
-  // value came from Electric and the number visibly dipped between them.
+  // straight from the sink is a second old. A fold sink names the column it
+  // projects, the watermark its read covered and the private pair it writes,
+  // so the reader's own contribution can be applied now. The projection counts
+  // (each contribution is 1 unless retracted); it does not run the fold's
+  // module. Both sides come from the local collections — never a server read,
+  // since relational operators are not maintainable in a region filter and a
+  // gate on PostgREST would dip against a value from Electric.
   const foldSinks = new Map(
     (cfg.pipelines ?? []).filter((p) => p.fold).map((p) => [p.to, p]),
   );
@@ -718,17 +715,8 @@ export function createStore(base = "", cfg = {}) {
   //
   //     shown = others + intent
   //
-  // `others` is how many OTHER people have favourited, and no write of this
-  // reader's can change it — which is the whole reason nothing here has to be
-  // held, waited for, or reconciled. `intent` is local fact, so it applies the
-  // instant it is expressed, online or off.
-  //
-  // The earlier shape of this was `total − mine_counted + intent`, with
-  // `mine_counted` inferred from the reader's own row. That cannot work: it is
-  // a property of the READ that produced the total, not of the data now, and a
-  // bounded row cannot carry unbounded history. Every rule tried here failed at
-  // some number of changes. So the pipeline states it instead, per reader, in a
-  // table RLS keeps private.
+  // What each term is, and why the pipeline states per reader whether its read
+  // counted them, is plugins/pronto/docs/access.md#a-count-the-reader-is-inside-of.
   async function project(table, rows) {
     const p = foldSinks.get(table);
     if (p === undefined || rows.length === 0 || p.pair === undefined) return rows;
@@ -1151,7 +1139,7 @@ export function createStore(base = "", cfg = {}) {
   // own DELETE in flight. A reader toggling quickly then gets a refusal on
   // every subsequent click while other sessions are unaffected. The collection
   // holds every row this reader may see (the shape is the whole table), so it
-  // is the same set, read from the tier that owns the optimistic state.
+  // is the same set, read from where the optimistic state lives.
   async function dropWhere(table, filter, onRefused) {
     // A limit is a cap the parser reads apart from the predicates, and a
     // DELETE has no ordering to cap against — honoring the rest of the filter

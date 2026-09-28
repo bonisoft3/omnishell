@@ -223,8 +223,7 @@ export function machineCandidates(value) {
  * keys, and the `{type, params}` object form except where it names a leaf the
  * terminal answers itself);
  * `assignStrings` are dual positions — a string here is a reference exactly
- * when it names a declared module, which is why a literal shadowing one is
- * refused at lint rather than resolved by guess.
+ * when it names a declared module, and a literal otherwise.
  */
 /** Leaf types the terminal answers itself in the assign position, so no module
  * is looked up and no checker demands one for them there. */
@@ -380,10 +379,10 @@ export function negotiateLocale(i18n, preferred) {
 }
 
 /** THE order, in one place. A localized route is told by its path and asks
- * nothing else; a plain one takes the most explicit thing it carries. Every
- * caller — the router, the prerenderer, the storybook — reads it here, because
- * four sources re-derived at three call sites is how a row and a path come to
- * disagree about what language a screen is in.
+ * nothing else; a plain one takes the most explicit thing it carries. The
+ * router (shell.js) is the one caller and holds no row, so a slot row's own
+ * `locale` is applied by the screen that binds it (screen.js), and only where
+ * the address decided nothing.
  *
  * Accept-Language is a standing need and loses to present intent: a link
  * someone was handed, or a choice made in this app. */

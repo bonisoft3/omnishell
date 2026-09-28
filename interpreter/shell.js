@@ -10,7 +10,7 @@
 // Auth (cfg.auth: {required, service}): the login screen is terminal chrome,
 // driving the WebAuthn ceremony or the guest mint against the auth service
 // and stashing {token, user} in sessionStorage["pronto-token"]. Storybook
-// bypasses it entirely: the fixture tier runs without the cluster, so no auth
+// bypasses it entirely: the fixture adapter runs without the cluster, so no auth
 // service exists to sign against.
 
 import { chromeText } from "./chrome.js";

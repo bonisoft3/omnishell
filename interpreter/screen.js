@@ -195,7 +195,7 @@ const onAttrs = (el) =>
 
 /** The adapter a control names, or undefined. Modules are loaded once per
  * screen and reached through the ctx every binding already carries. null is
- * the fixture tier, which evaluates no module at all: a control binds its
+ * the fixture adapter, which evaluates no module at all: a control binds its
  * column's text there, the way a handler wired to nothing does nothing. A map
  * that lacks the name is the other thing entirely — a screen naming a module
  * the route does not carry. */
@@ -536,10 +536,11 @@ function pluralRulesFor(locale) {
 // pinning it.
 //
 // The zone is the reader's, and `undefined` is how Intl spells that. It is
-// passed rather than read because the checking tiers render the same screens
-// off a reader's machine — linkedom under deno, chromium under CI — where an
-// ambient zone would make every date-bearing frame differ by where it was
-// rendered. Those tiers pin UTC; nothing else does.
+// passed rather than read because the checks render the same screens off a
+// reader's machine — linkedom under deno, chromium under CI — where an ambient
+// zone would make every date-bearing frame differ by where it was rendered.
+// The storybook pins UTC, for the checks and for prerendered documents, and the
+// test harness pins it for its cases; nothing else does.
 //
 // Constructing a DateTimeFormat is expensive and this runs per binding per
 // refresh, so the pair is built once per (locale, zone) and kept.
@@ -565,8 +566,8 @@ function formattersFor(locale, timeZone) {
 export function formatDatetime(value, ctx) {
   if (value == null || value === "") return "";
   // Date takes postgres' "2026-08-02 09:00:00+00" as it stands; it is the
-  // T-substitution that forces the offset repair beside it. Neither survives a
-  // date-only value, which falls through to the passthrough below.
+  // T-substitution that forces the offset repair beside it. The offset repair
+  // mangles a date-only value, which falls through to the passthrough below.
   const iso = String(value).replace(" ", "T").replace(/([+-]\d{2})$/, "$1:00");
   const d = new Date(iso);
   if (isNaN(d.getTime())) return String(value);
@@ -666,7 +667,7 @@ function moneyOf(ctx, expr) {
 /**
  * A region's derived columns. The clause set is closed and the refusals behind
  * it are the design; both are stated in
- * plugins/omnishell/docs/2026-09-01-aria-is-columns.md.
+ * plugins/omnishell/docs/accessibility.md.
  *
  * Those refusals are why no incremental-view engine appears here: every answer
  * is a function of rows the region already holds at refresh, so the pass it
@@ -1134,7 +1135,7 @@ function bindTexts(scope, ctx, renderers = {}) {
     if (format !== undefined && format !== "plain") {
       const render = renderers[format];
       // Every format resolves at hydration, so an unresolved one can only be
-      // the fixture tier, which evaluates no Jessie. It shows the value as
+      // the fixture adapter, which evaluates no Jessie. It shows the value as
       // text there, the way it shows a widget's markup unenhanced.
       if (render === undefined) el.textContent = interpolate(el.dataset.text, ctx, arm);
       else renderInto(render, interpolate(el.dataset.text, ctx, arm), el);
@@ -1182,8 +1183,8 @@ function bindElementAttributes(el, ctx) {
     if (template === null || !PLACEHOLDER.test(template)) continue;
     stash[name] = template;
     const attr = { name, value: template };
-    // Fixture tier: an interpolated img src would fire a real request the
-    // moment it is set; a transparent pixel keeps the layout box instead.
+    // The fixture adapter: an interpolated img src would fire a real request
+    // the moment it is set; a transparent pixel keeps the layout box instead.
     if (ctx.inert && el.localName === "img" && attr.name === "src") {
       el.setAttribute("src", BLANK_PIXEL);
       continue;
@@ -1228,7 +1229,7 @@ function bindElementAttributes(el, ctx) {
       // A control's value is the control's own spelling and a column's is its
       // canonical type; data-value-adapter names the module that maps between them,
       // and a control naming none binds the column's text unchanged
-      // (2026-09-22-a-control-value-is-not-a-canonical-type.md).
+      // (plugins/omnishell/REFERENCE.md#adapters).
       const adapter = adapterOf(el, ctx);
       if (adapter !== undefined) {
         el.value = adapter.format(interpolate(template, ctx, arm), { zone: ctx.timeZone });
@@ -1344,9 +1345,9 @@ const INTEREST_OUT = 200;
  * A surface a trigger opens on hover or focus. The terminal performs the open,
  * the grace that makes it hoverable, and nothing else.
  *
- * Three constraints hold it up, and the argument for each is
- * plugins/omnishell/docs/2026-09-03-what-a-gesture-costs.md. It stores nothing, so
- * no row can disagree with it. Its waits are the terminal's clock and never
+ * Three constraints hold it up, each argued in
+ * plugins/omnishell/docs/machines.md#gestures-and-cancels. It stores nothing,
+ * so no row can disagree with it. Its waits are the terminal's clock and never
  * setTimeout, or `?clock=manual` could not hold them still. And the surface must
  * be `popover="auto"`, so WCAG 1.4.13's DISMISSIBLE clause is the element's and
  * nothing here listens for a key.
@@ -1414,8 +1415,8 @@ function staticOrParam(template) {
   return exprs.length > 0 && exprs.every((e) => e.startsWith("param.") || e.startsWith("msg."));
 }
 
-// opts.handlers: false skips handler loading (storybook's fixture tier — drag
-// stays inert there). opts.units carries shell.yaml's vendored-unit
+// opts.handlers: false skips handler loading (the storybook's fixture adapter —
+// drag stays inert there). opts.units carries shell.yaml's vendored-unit
 // declarations, which is what a data-hatch name resolves against. opts.routes
 // and opts.i18n are the table every link's address is composed from, and
 // opts.navigate is how a navigate form reaches the terminal's stack.
@@ -1465,9 +1466,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     inert: opts.fixtures === true,
     messages: opts.messages,
     i18n: opts.i18n,
-    // The checking tiers pass UTC so a rendered moment does not differ by the
-    // machine that rendered it; it rides the ctx the way locale does because
-    // every formatted binding reads it from there. Resolved here rather than
+    // The storybook and the test harness pass UTC so a rendered moment does not
+    // differ by the machine that rendered it; it rides the ctx the way locale
+    // does because every formatted binding reads it from there. Resolved here rather than
     // left undefined — Intl's spelling for "the host's own" — because an
     // adapter takes the zone as data and may read none for itself, and because
     // one render answers from one zone throughout.
@@ -1617,7 +1618,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     targets.push(...scope.querySelectorAll("[data-hatch]"));
     for (const el of targets) {
       if (!ownedBy(el, scope)) continue;
-      // Same reason the fixture tier keeps img src inert: a storyboard frame
+      // Same reason the fixture adapter keeps img src inert: a storyboard frame
       // would otherwise fetch every provider's embed, once per screen × state.
       if (ctx.inert) continue;
       const props = {};
@@ -3136,7 +3137,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         const run = runs.get(p.by === undefined ? "" : String(row[p.by]));
         const j = at[i];
         // An end names itself: wrapping is the pattern's decision and APG
-        // makes it differently per pattern, so the read tier declines it.
+        // makes it differently per pattern, so the projection declines it.
         if (p.kind === "next") return rows[run[Math.min(j + 1, run.length - 1)]].id;
         if (p.kind === "prev") return rows[run[Math.max(j - 1, 0)]].id;
         if (p.kind === "first") return rows[run[0]].id;

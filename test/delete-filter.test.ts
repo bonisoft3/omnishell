@@ -34,7 +34,7 @@ describe("deleteSpec", () => {
   })
 })
 
-// The synced tier refuses the same cap, before it touches any collection.
+// data-sync refuses the same cap, before it touches any collection.
 describe("data-sync dropWhere", () => {
   it("refuses a limit before reconciling", async () => {
     const store = await createStore()

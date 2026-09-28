@@ -12,7 +12,7 @@ const SES_URL = new URL("./vendor/ses.umd.min.js", import.meta.url).href;
 /**
  * Whether this host EXECUTES a script handed to it, which is what the element
  * path below actually depends on — and which the presence of a `document` does
- * not promise. A parsing-only DOM (the linkedom tier) appends the element and
+ * not promise. A parsing-only DOM (linkedom's) appends the element and
  * runs nothing, so its `onload` never fires and a branch keyed on `document`
  * would hang there rather than fail. Asked rather than assumed, with an inline
  * script, which a host that runs scripts runs synchronously on insertion.
@@ -70,12 +70,13 @@ export function ensureSes() {
 // authored file is adapted to a script.
 // What an adapter is endowed with: Intl, whole, with the host's defaults
 // refused — a module states its locale, its zone and its instant, or it throws.
-// The argument for admitting it, and the rule about what an adapter may STORE
-// out of it, are docs/2026-09-22-a-control-value-is-not-a-canonical-type.md.
+// Why it is admitted whole is plugins/omnishell/docs/terminal.md#the-seats; the
+// rule about what an adapter may STORE out of it is
+// plugins/omnishell/REFERENCE.md#adapters.
 //
-// The other roles get nothing: a fold runs in goja at the container tier and a
-// validation in plv8, neither carrying this data, so a module reaching for it
-// there explodes where it is seen.
+// The other roles get nothing. A validation also runs in plv8, which carries
+// none of this data, so a module reaching for it there explodes where it is
+// seen.
 const NEEDS_AN_INSTANT = new Set(["format", "formatToParts", "formatRange", "formatRangeToParts"]);
 
 // The raw service behind each wrapper, so a wrapper handed back as an argument
@@ -207,9 +208,11 @@ const ROLES = {
     ok: (v) => typeof v === "object" && v !== null && typeof v.format === "function" && typeof v.parse === "function",
     want: "its format and parse functions",
   },
-  // A pipeline transform. Authored as an ES module because the same file is
-  // inlined into the rpk stream at container tier; a Compartment script takes
-  // no `export` and yields its last expression, so both ends adapt it.
+  // A pipeline's browser-side transform (pronto's schema.cue `fold`), authored
+  // as an ES module; a Compartment script takes no `export` and yields its last
+  // expression, so the wrap adapts it. Only check-handlers loads one: the
+  // container runs the pipeline's bloblang, and the terminal's projection of a
+  // fold sink counts contributions and calls none of the four.
   //
   // The keyword is stripped whatever follows it. The contract (pronto's
   // schema.cue) names empty, step, combine and result and not how they are

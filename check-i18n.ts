@@ -463,8 +463,8 @@ export function checkMessageArms(
   }
 
   // The checker's half of the interpreter's throw: a map with no selector over
-  // it can only render as [object Object], and every tier that renders it
-  // would take the screen down.
+  // it can only render as [object Object], and every render of it would take
+  // the screen down.
   const orphaned = new Set<string>();
   for (const tag of tags) {
     for (const [key, value] of Object.entries(messages[tag] ?? {})) {
@@ -492,10 +492,10 @@ export function checkMessageArms(
  * screen is asked: the gate where auth is required, the strip wherever a
  * session exists, and a label only for a route the strip actually lists.
  *
- * Under the label half sits a stronger tier: the emitter resolves `nav.labels`
+ * Under the label half sits a stronger check: the emitter resolves `nav.labels`
  * out of the catalogues, so a missing key is a cue error before any check runs.
  * It is restated here for the reason checkLocalizedUrls states, and because a
- * route carrying no key at all is invisible to that tier.
+ * route carrying no key at all is invisible to that check.
  */
 export function checkChrome(
   shell: ShellConfig,
@@ -821,7 +821,7 @@ export async function checkMemoryApp(
  * provably did not come from a catalogue.
  *
  * The same render is where the screen root's `dir` is observed, because it is
- * the only tier that paints one without a browser.
+ * the only check that paints one without a browser.
  */
 
 /** Two tags: one per direction, so the dir write is exercised both ways by the

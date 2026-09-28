@@ -4,7 +4,7 @@
 // column holds an instant in UTC with six fractional digits. The reader's zone
 // arrives as a parameter, and the tz database through `Intl.DateTimeFormat` —
 // what is read out of it is the OFFSET, a number, never the formatter's text
-// (docs/2026-09-22-a-control-value-is-not-a-canonical-type.md).
+// (plugins/omnishell/REFERENCE.md#adapters).
 //
 // A wall time is not always one instant. In a spring-forward gap it is none,
 // and this refuses rather than sliding the reader's choice into the next hour.

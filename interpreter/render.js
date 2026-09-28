@@ -147,8 +147,8 @@ function toNode(node, depth = 0) {
  * or changes entirely, and a tree differ was measured and declined. Three
  * things would overturn that — a live-preview editor, a streamed or generated
  * body, or comments appended while a reader reads. Hitting one of those means
- * reading plugins/omnishell/docs/2026-08-02-reconciliation-libraries.md rather than reaching for
- * a library: it names the one that fits (morphdom, because it never creates
+ * reading plugins/omnishell/docs/screen-updates.md rather than reaching for a
+ * library: it names the one that fits (morphdom, because it never creates
  * nodes and so leaves the allowlist owning that), and why the others do not.
  */
 export function buildNodes(nodes, target) {

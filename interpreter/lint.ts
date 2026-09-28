@@ -439,7 +439,7 @@ export function formatBindings(html: string): FormatBinding[] {
  * `number` needs nothing but the value, so it is held only to what IS
  * declared — a derived column (data-project's index, count, lanes) is a number
  * the schema never mentions, and refusing it would be a rule about the wrong
- * tier. datetime, plain and an app's own renderer resolve nothing here. */
+ * layer. datetime, plain and an app's own renderer resolve nothing here. */
 export function formatLint(b: FormatBinding, entity: Entity | undefined): string | null {
   if (b.format !== "number" && b.format !== "money") return null;
   const column = /^\w+$/.test(b.expr) ? entity?.fields.find((f) => f.name === b.expr) : undefined;
@@ -1071,8 +1071,8 @@ export function machineWrites(machine: Machine, emptyRow?: string): Write[] {
 
 // A tab or device row is built by a local factory and read back from it, so
 // the JS value a writer spelled is the value every later reader compares
-// against. The rule is scoped to those two tiers; what a crud, live or offline
-// row settles to is the server's answer and not a fact about the markup.
+// against. The rule is scoped to those two durabilities; what a crud, live or
+// offline row settles to is the server's answer and not a fact about the markup.
 const BROWSER_TIERS = new Set(["tab", "device"]);
 // The types whose one value has two JS spellings — a number and its decimal
 // string, a boolean and "true"/"false". Every other type has exactly one, so
@@ -1199,9 +1199,9 @@ function caretLint(region: StopRegion, e: Entity, outer: Entity | undefined, wha
   }
   // A projected caret is one the region computes over the rows it holds, so
   // nothing writes it — but the projection compares against the row it is
-  // nested in, and THAT row is what moves the caret. So the tier question is
-  // asked of the enclosing region too, and a member set is only as private as
-  // the least private row deciding which of its members is current.
+  // nested in, and THAT row is what moves the caret. So the durability question
+  // is asked of the enclosing region too, and a member set is only as private
+  // as the least private row deciding which of its members is current.
   const owns = region.columns.some((c) => region.projected.includes(c)) && outer !== undefined
     ? [e, outer]
     : [e];
@@ -1241,7 +1241,7 @@ export function focusLint(region: StopRegion, e: Entity, outer?: Entity): string
 }
 
 /** Column-spelling consistency over the writes a screen's markup declares:
- * the reason a browser-tier entity's regions write one column in more than one
+ * the reason a browser-owned entity's regions write one column in more than one
  * JS spelling, or write a non-string into a column whose type has only the
  * string spelling, or null. This rule judges spelling and nothing else — it
  * never asks whether a value is in the column's range.

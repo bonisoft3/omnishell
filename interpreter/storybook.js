@@ -118,7 +118,7 @@ export async function renderStorybook(mount, appBase, route, params = {}, units 
     figure.append(caption, frame);
     book.append(figure);
 
-    // handlers: false — fixture tier loads no ses and evaluates no handlers;
+    // handlers: false — the fixture adapter loads no ses and evaluates no handlers;
     // drag is inert in the frames. fixtures: true keeps media inert too:
     // fixture rows interpolated into img src would otherwise fire real
     // requests ("Sample object_key 1" against imgproxy, each a 404).

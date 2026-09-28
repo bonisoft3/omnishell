@@ -1,4 +1,4 @@
-// Deno smoke: declared uniques are reconciled over surviving browser-tier
+// Deno smoke: declared uniques are reconciled over surviving browser-owned
 // rows at first load — a device collection can hold rows written before an
 // invariant existed, and the answer is a migration (newest wins, one
 // warning), never the slot's crash, which from boot onward means only
@@ -10,7 +10,7 @@ const assert = (cond, msg) => {
   if (!cond) throw new Error(`smoke failed: ${msg}`);
 };
 
-// The device tier persists as localStorage["mecha:<table>"] holding
+// A device table persists as localStorage["mecha:<table>"] holding
 // {"s:<key>": {versionKey, data}} (the vendored client's own serialization);
 // seeding that before createStore is what "rows from a previous era" is.
 function seedStorage(entries) {

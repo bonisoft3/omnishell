@@ -1,5 +1,5 @@
-// omnishell jessie battery: every module an app declares survives the inputs
-// its own schema admits.
+// omnishell jessie battery: every handler and validation module an app declares
+// survives the inputs its own schema admits.
 //
 //   omnishell check battery <appDir>
 //   omnishell check battery --self-test
@@ -279,8 +279,8 @@ export async function exercise(
 
 /** shell.yaml, as this check reads it: the entity projection the generators
  * are built from, and the two places a module is declared with a state and an
- * event to be run on. A renderer takes a value and a fold takes rows, so
- * neither is drawn here — check-handlers loads all four roles. */
+ * event to be run on. A renderer and an adapter take a value and a fold takes
+ * rows, so none is drawn here — check-handlers loads all five roles. */
 type SchemaEntity = { durability: string; fields: FieldDef[] };
 type Edge = { table: string; key: string; from: string };
 type Shell = {

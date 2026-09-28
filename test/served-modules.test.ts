@@ -3,7 +3,7 @@
 // The terminal declares its served set by name, and the browser resolves the
 // import graph — so a module added to the graph and not to the list 404s on
 // the first load of every app, with a blank screen and nothing else said. No
-// other tier sees it: deno reads these files off the filesystem by path, so
+// other suite sees it: deno reads these files off the filesystem by path, so
 // the suites pass over a set the door does not carry.
 import { describe, expect, it } from "@test/harness"
 

@@ -1,4 +1,4 @@
-// The browser tier: the suites that drive the interpreter in a real engine and
+// The browser suite: the tests that drive the interpreter in a real engine and
 // serve every file themselves, so none of them needs a cluster.
 //
 // They are here because a DOM shim answers the wrong thing about them —

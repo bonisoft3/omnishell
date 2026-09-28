@@ -8,7 +8,7 @@
 // attributes — the rows the interpreter bound — plus `data-popover-open`, the
 // harness's stand-in for `:popover-open`.
 //
-// What this tier cannot judge it reports instead of guessing. A rule under
+// What this module cannot judge it reports instead of guessing. A rule under
 // `@media`, `@container` or `@supports` is `cond`: it never wins, and `vis`
 // names it wherever it would flip the verdict. A selector the browser accepts
 // and linkedom cannot compile, or a `display` it cannot resolve, is
@@ -49,7 +49,7 @@ export type VRoot = { querySelectorAll(selector: string): Iterable<VEl> };
 export type Rule = {
   /** The selector as the cascade reads it: nesting resolved, states as authored. */
   sel: string;
-  /** What linkedom is asked: `sel` with the states this tier holds rewritten. */
+  /** What linkedom is asked: `sel` with the states this module holds rewritten. */
   test: string;
   display: string;
   important: boolean;
@@ -318,7 +318,7 @@ const bucketOf = (sel: string): string => {
 
 // The names the CSS specs define. A selector naming any other is one the
 // browser rejects; a name defined here that linkedom cannot compile is a gap
-// in this tier, and the selector is unjudged instead.
+// in this module, and the selector is unjudged instead.
 const PSEUDO_CLASSES = new Set([
   "active", "active-view-transition", "active-view-transition-type", "any-link", "autofill", "blank",
   "buffering", "checked", "closed", "current", "default", "defined", "dir", "disabled", "empty", "enabled",

@@ -29,9 +29,10 @@ application code only declares screens and derives writes.
 | Emission — markup, `shell.yaml`, compose, docker | `plugins/pronto/write.ts` |
 | Design tokens and presets | `plugins/pronto/styles.ts`, `apps/shadcnui` |
 | Terminal doctrine, the event surface, the arguments | [`docs/`](docs/) |
-| Unbreakable machines, effect safety, and verification | [`docs/2026-09-24-unbreakable-machines.md`](docs/2026-09-24-unbreakable-machines.md) |
-| Every `data-*`, with its meaning | [`docs/2026-07-30-the-binding-vocabulary.md`](docs/2026-07-30-the-binding-vocabulary.md) |
+| Unbreakable machines, effect safety, and verification | [`docs/machines.md`](docs/machines.md) |
+| Every `data-*`, with its meaning | [`REFERENCE.md`](REFERENCE.md) |
 | Changing the interpreter itself | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Every document, with its type | [docs/index.md](docs/index.md) |
 
 The interpreter is loaded by `interpreter/shell.js` at runtime. It is plain ES
 modules and takes no build step.
@@ -69,9 +70,9 @@ the bare token.
 ```bash
 just setup     # install tools via mise
 just build     # typecheck via deno check
-just test      # the deno unit suite over test/
-just integrate # Docker build, then that suite plus this target's share of the smokes
+just test      # smokes, the unit suite, the battery's self-test
+just integrate # container build, then the browser and visual suites
 ```
 
-[CONTRIBUTING.md](CONTRIBUTING.md) covers which test tier can see which kind of
+[CONTRIBUTING.md](CONTRIBUTING.md) covers which suite can see which kind of
 change, and the two invariants to preserve when touching the interpreter.

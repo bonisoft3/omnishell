@@ -1,10 +1,10 @@
-# The browser tier runs at integrate, not at test.
+# The browser suites run at integrate, not at test.
 #
-# The suites there are deterministic and quick — they fulfil every request
-# themselves, reach no cluster and read no wall clock — so speed and
-# repeatability are not what keeps them out of `just test`. The toolchain is: a
-# unit test must run from the ide tier's own `.mise.toml`, and a browser binary
-# is the container tier's to provide.
+# They are deterministic and quick — they fulfil every request themselves,
+# reach no cluster and read no wall clock — so speed and repeatability are not
+# what keeps them out of `just test`. The toolchain is: a unit test must run
+# from the ide environment's own `.mise.toml`, and a browser binary is the
+# container environment's to provide.
 say:
   # The checkers are reached through the command line that dispatches to them,
   # which imports every one: a checker this list never names is typed anyway,
@@ -45,7 +45,7 @@ say:
       browser:
         cmds:
           - do: mise exec -- pnpm run test:browser
-      # The deno-driven browser suites: the battery's checks over their fixture
+      # The deno-driven browser suites: visual lint's checks over their fixture
       # pages, settle, CLS, the picker and select-change. package.json's test:pw
       # is their one roster, in the browser playwright installed at the version
       # harness.ts imports.

@@ -1,14 +1,14 @@
-// Deno smoke: which module a control's value crosses, per tier.
+// Deno smoke: which module a control's value crosses, and where none does.
 // `data-value-adapter` names a Jessie module with format and parse
-// (docs/2026-09-22-a-control-value-is-not-a-canonical-type.md); this covers the bind
+// (REFERENCE.md#adapters); this covers the bind
 // seat and what happens where no module is evaluated. The parse seat rides a
 // form submit, whose validity and requestSubmit plumbing is the harness's:
 // apps/thenote/tests/notes.test.ts drives the round trip through it.
 //
-// Three tiers answer differently on purpose: a screen with its modules loaded
-// converts, the fixture tier — which evaluates no module — binds the column's
-// text, and a screen naming a module its route does not carry fails, because
-// that is a broken declaration rather than a tier.
+// Three cases answer differently on purpose: a screen with its modules loaded
+// converts, the fixture host adapter — which evaluates no module — binds the
+// column's text, and a screen naming a module its route does not carry fails,
+// because that is a broken declaration rather than a host that evaluates none.
 import { parseHTML } from "npm:linkedom@0.18.4";
 import { batched } from "./batched-store.js";
 
@@ -125,14 +125,14 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    // handlers: false is the storybook's tier — no SES, no module, and every
+    // handlers: false is the storybook's host — no SES, no module, and every
     // frame still renders. A control that refused to bind here would take the
     // screen down with it.
     const { mount } = await render(ROWS, { handlers: false });
     const control = mount.querySelector("input[name=at]");
     // A real datetime-local rejects a value it cannot parse and renders empty,
     // so a storybook frame shows a blank control where the app shows a time.
-    // The frame renders, which is what this tier is for.
+    // The frame renders, which is what the storybook is for.
     assert(control.value === "2026-09-22T13:38:10.000000Z", `the column's text, got ${control.value}`);
   },
 });

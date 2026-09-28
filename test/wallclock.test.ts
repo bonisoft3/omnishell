@@ -125,7 +125,7 @@ Deno.test("the cage holds Intl, and what Intl does not give it", async () => {
 
 // Every ambient reading Intl offers is a default the host fills in, and each
 // one is closed by making the argument mandatory
-// (plugins/omnishell/docs/2026-09-22-a-control-value-is-not-a-canonical-type.md).
+// (plugins/omnishell/REFERENCE.md#adapters).
 Deno.test("the host's defaults are refused, so no clock and no ambient zone", async () => {
   const probe = await evaluateRole(
     `harden({

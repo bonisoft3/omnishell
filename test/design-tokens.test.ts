@@ -207,7 +207,7 @@ type Admission = { bucket: string; bare: boolean; twinned: boolean; bareErr: str
 
 const admissions = async (buckets: string[]): Promise<Admission[]> =>
   await Promise.all(buckets.map(async (bucket) => {
-    // The component tier holds references rather than values, so its probe is
+    // The component bucket holds references rather than values, so its probe is
     // one: what is measured is whether a NEW NAME is admitted.
     const key = kv({ "oracle-probe": bucket === "component" ? "var(--sp-md)" : "1px" });
     const bare = await design(`\t${bucket}: {${key}}`);

@@ -12,7 +12,7 @@
 // geometry check resolves against the board instead of the screen.
 //
 // Findings print as {severity, path, message} JSON (SPEC.md lint format).
-// Only `critical` exits non-zero. A rendered-page battery reports genuine but
+// Only `critical` exits non-zero. Visual lint reports genuine but
 // advisory design findings at major/minor — tap targets below the AAA size,
 // focus-order nits — and a gate that fails on advice is muted within a week,
 // taking the criticals with it.
@@ -54,7 +54,7 @@ const VIEWPORTS: Viewport[] = [
 
 // Routes in flight per viewport. The two viewports already run as separate
 // contexts, so the browser holds up to twice this many live pages. Past four
-// the wall clock flattens: what the battery spends is round trips to one
+// the wall clock flattens: what the lint spends is round trips to one
 // browser, not CPU it could spread wider.
 const LANES = 4
 
@@ -82,7 +82,7 @@ const IGNORE = [
 type ShellDoc = Record<string, unknown>
 const shellDoc = (yaml: string | ShellDoc): ShellDoc => typeof yaml === "string" ? (parseYaml(yaml) as ShellDoc) ?? {} : yaml
 
-/** An emitted key the battery cannot do without: pronto always writes it, so
+/** An emitted key the lint cannot do without: pronto always writes it, so
  * its absence is a file that is not a shell.yaml, never a default. */
 function emitted<T>(doc: ShellDoc, key: string, is: (v: unknown) => v is T): T {
   const v = doc[key]
@@ -121,8 +121,8 @@ export function fillRoute(pattern: string, params: Record<string, string>): stri
 
 type Row = Record<string, unknown>
 /** Where each table's rows live, off the emitted shell.yaml. `local:` names
- * the browser tiers (tab, device) the store builds from a local factory and
- * fills from `seed:`; every other table is a server one the store reads
+ * the browser-owned tables, each with its durability (tab, device), that the
+ * store builds from a local factory and fills from `seed:`; every other table is a server one the store reads
  * through /crud. pronto emits either key only when it is non-empty, so a file
  * carrying neither is the emitted statement that every table is a server one.
  * `server` is whether the cluster runs an auth and a crud service at all,
@@ -143,9 +143,9 @@ export function tiersFrom(yaml: string | ShellDoc): Tiers {
  * through /crud: a table named in `local:` reads locally exactly when the
  * store can translate the region's WHOLE filter, which is fragment.js's own
  * predicate over every clause — one fts expression, embed path or `in` list
- * sends the read to the server whatever the tier. The store parses the filter
- * with its params filled, so each binding is filled here with `true`, a value
- * every operator accepts, `is` included.
+ * sends the read to the server whatever the durability. The store parses the
+ * filter with its params filled, so each binding is filled here with `true`, a
+ * value every operator accepts, `is` included.
  */
 function onDevice(plan: ParamPlan, tiers: Tiers): boolean {
   return tiers.local[plan.table] !== undefined && parseFilterSpec(plan.filter.replace(PLACEHOLDERS, "true")) !== null
@@ -167,7 +167,7 @@ async function guestSession(base: string): Promise<Session> {
 
 /**
  * The cluster's /crud as the guest. No token means no cluster runs one: a
- * device-tier app has no crud service behind caddy, so a read that reaches
+ * browser-only app has no crud service behind caddy, so a read that reaches
  * here is a plan the seed cannot answer, and it says so instead of 502-ing.
  */
 function crudReader(base: string, token: string | undefined): Reader {
@@ -232,10 +232,10 @@ export function ftsWords(values: unknown[]): string[] {
  * remains; full-text search samples a word the index actually matches.
  *
  * A read the API refuses, or answers with a row lacking a column the read
- * selected, raises: the battery's report is only as true as its fixtures, and
+ * selected, raises: the lint's report is only as true as its fixtures, and
  * a hole that was really a broken cluster would be muted as coverage advice.
- * A table with no row carrying a value for the column is a hole, on either
- * tier: nothing was there to match. A seed row that omits the column is such a
+ * A table with no row carrying a value for the column is a hole, wherever its
+ * rows live: nothing was there to match. A seed row that omits the column is such a
  * row, since a seed is an open map and the store reads what it omits as null.
  *
  * Answers per route, because a plan is one: two routes spelling `:id` over
@@ -260,7 +260,7 @@ export async function resolveParams(
     if (onDevice(plan, tiers)) {
       // The seeded values, and for a cursor the one whose own predicate admits
       // the most other rows: the interpreter's parseFilter orders the rows, so
-      // the battery never carries a comparison of its own that could disagree
+      // the lint never carries a comparison of its own that could disagree
       // with it. Any read a value answers by itself takes the first.
       const rows = tiers.seed[table] ?? []
       const values = rows
@@ -490,7 +490,7 @@ async function main(appDir: string): Promise<number> {
       // rendered projection: it never sees a <template>'s content, script or
       // style text (an inline script templating {dx} is not a leak), or the
       // data-* attributes the binder consumes — so anything matched was
-      // really painted. The runtime twin of the typechecker's R5.
+      // really painted. No static rule catches an unbound placeholder.
       // The binding grammar is the renderer's, handed in as the source and
       // flags of the whole-text regex fragment.js exports, since an init
       // script cannot import.
@@ -595,7 +595,7 @@ async function main(appDir: string): Promise<number> {
           checkCLS(p),
         ])
       ).flat()
-      // After the battery, not in it: checkContrast says why.
+      // After the parallel batch: checkContrast says why.
       bugs.push(...await checkContrast(p))
       bugs.push(...analyzeConsole(console_, { ignore: IGNORE }))
       // The sampler above and this settled read are one scan over one projection,
@@ -657,14 +657,14 @@ async function main(appDir: string): Promise<number> {
       boards.map(async ({ viewport, failure, jobs }) => {
         // The door is TLS on a certificate mkcert issued for the developer's own
         // trust store, which this browser does not share. Ignoring it is the
-        // whole reason the battery can drive h2 without a per-CI trust install.
+        // whole reason the lint can drive h2 without a per-CI trust install.
         const context = await browser.newContext({
           ignoreHTTPSErrors: true,
           viewport: { width: viewport.width, height: viewport.height },
         })
         try {
           // The shell reads its session only behind `auth.required`, which a
-          // device-tier app never declares, so it is written only where minted.
+          // browser-only app never declares, so it is written only where minted.
           if (session !== undefined) {
             await context.addInitScript((s) => sessionStorage.setItem("pronto-token", JSON.stringify(s)), session)
           }
@@ -706,7 +706,7 @@ async function main(appDir: string): Promise<number> {
 function selfTest() {
   // Shaped like a real emitted shell.yaml: routes carry `files`, never
   // `reads`. A fixture shaped the other way lets paramPlans pass here while
-  // planning nothing for any app, which is a green self-test over a battery
+  // planning nothing for any app, which is a green self-test over a lint
   // that opens no parametrized route.
   const yaml = [
     "routes:",
@@ -748,7 +748,8 @@ function selfTest() {
   }
   const routes = routesFrom(yaml)
   // The floors ride the same file. Pinned here because the number is one
-  // declaration shared with #scale's --min-* rungs, and a battery that fell back to its own constant would let the two drift apart.
+  // declaration shared with #scale's --min-* rungs, and a lint that fell back
+  // to its own constant would let the two drift apart.
   const floors = floorsFrom("floors:\n  touch: 24\n" + yaml)
   if (floors.touch !== 24) throw new Error(`floors.touch: got ${floors.touch}, want 24`)
   let raised = ""

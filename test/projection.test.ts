@@ -1,6 +1,6 @@
 // The projection: derived columns a region states about its own rows.
 // The clause set and its refusals are
-// plugins/omnishell/docs/2026-09-01-aria-is-columns.md.
+// plugins/omnishell/docs/accessibility.md.
 //
 // What these pin is that the answers reach markup as ordinary columns, that
 // they follow a parameter the region's own read never mentions, and that the

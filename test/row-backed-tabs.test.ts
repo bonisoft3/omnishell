@@ -1,4 +1,4 @@
-// The worked example behind plugins/omnishell/docs/2026-09-01-aria-is-columns.md:
+// The worked example behind plugins/omnishell/docs/accessibility.md:
 // a tablist whose tabs are ROWS. What the doc argues, this runs.
 //
 // There is no machine on the screen. The shipped #Tabs needs one state per

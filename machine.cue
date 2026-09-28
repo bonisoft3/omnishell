@@ -23,14 +23,15 @@
 // plus its filter equalities; where data-empty-row is present it must agree
 // (vetted at generate, never arbitrated at runtime).
 //
-// Everything XState has beyond this shape — entry/exit, invoke, nested and
-// parallel states, sendTo/emit — fails unification loudly. `after` is the
-// relocated invoke: armed on state entry, canceled on exit, performed by the
-// terminal's clock. `raise` is the reduce's `then:` under XState's name —
-// literal types, so the cascade stays drawable, delivered depth-bounded (the
-// deliberate SCXML deviation: a cascade with no owner has no end). Root-level
-// `on:` applies in every state unless the state declares the same key. Event
-// keys are the terminal's own event types plus the synthesized `refused`;
+// Everything XState has beyond this shape — invoke, sendTo/emit — fails
+// unification loudly. `after` is the relocated invoke: armed on state entry,
+// canceled on exit, performed by the terminal's clock. `raise` is the reduce's
+// `then:` under XState's name — literal types, so the cascade stays drawable,
+// delivered depth-bounded (the deliberate SCXML deviation: a cascade with no
+// owner has no end). Root-level `on:` applies in every state unless the state
+// declares the same key. Event keys are the terminal's own event types plus the
+// synthesized `refused` and `sync_ack`, so `*` is an event no browser sends and
+// never a wildcard;
 // `<type>@<dom-id>` narrows a transition to one affordance, a spelling
 // components generate and no author writes.
 //

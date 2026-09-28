@@ -43,7 +43,7 @@ describe("formatDatetime", () => {
   })
 
   it("renders the zone the screen is in, and UTC only where one is asked for", () => {
-    // 09:00Z is 06:00 in São Paulo. Pinning UTC is what the checking tiers do
+    // 09:00Z is 06:00 in São Paulo. Pinning UTC is what the storybook does
     // so a frame does not differ by the machine that rendered it; a reader is
     // shown their own clock.
     const when = "2026-08-02T09:00:00Z"

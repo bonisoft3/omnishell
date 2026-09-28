@@ -97,7 +97,7 @@ describe("formatLint", () => {
       .toBe('data-text-format="number" reads {note}, which is text on "expense"')
     // A derived column — data-project's index, count and lanes — is a number
     // the schema never mentions, and a rule refusing it would be a rule about
-    // the wrong tier.
+    // the wrong layer.
     expect(formatLint({ format: "number", expr: "place", table: "expense" }, ledger)).toBe(null)
     expect(formatLint({ format: "number", expr: "param.page", table: undefined }, undefined)).toBe(null)
   })

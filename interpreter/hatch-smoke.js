@@ -1,5 +1,5 @@
 import { batched } from "./batched-store.js";
-// Deno smoke: the terminal-tier hatch — a vendored unit in a sandboxed
+// Deno smoke: the terminal's hatch — a vendored unit in a sandboxed
 // iframe, props in and named events out. The frame is driven through a stub
 // contentWindow: linkedom has no
 // browsing context, and the bridge reads contentWindow per message precisely

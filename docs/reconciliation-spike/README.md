@@ -1,6 +1,6 @@
 # Reconciliation spike harnesses
 
-Every number in `../2026-08-02-reconciliation-libraries.md` comes from these.
+Every number behind [screen updates](../screen-updates.md) comes from these.
 They are not wired into any verb — `bayt.cue` scopes its srcs to `interpreter/`
 and `test/`, so nothing here runs in `just test`. A measurement nobody can
 re-run is an assertion, which is the only reason they are checked in.

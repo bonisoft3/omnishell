@@ -16,7 +16,7 @@ import (
 #Jessie: #Path & =~"\\.js$"
 
 // The base languages written right-to-left, as data, because the emitter needs
-// a direction at compile time and CUE has no Intl to ask. Every other tier asks
+// a direction at compile time and CUE has no Intl to ask. Everything else asks
 // the engine instead (interpreter/fragment.js directionOf), and
 // test/locale-resolver.test.ts grades this list against that answer for every
 // member AND for every tag any app declares. Two ways it can be wrong, both
@@ -35,9 +35,8 @@ _shellCssAsset:  _ @embed(file="shell.css", type=text)
 _bootJsAsset:    _ @embed(file="boot.js", type=text)
 _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 
-// cluster.#Static-shaped, not imported — see the terminal-planes doc's
-// note on why terminal.cue and cluster.cue each define their own copy
-// rather than coupling the two packages together.
+// cluster.#Static-shaped, not imported: terminal.cue and cluster.cue each
+// define their own copy rather than coupling the two packages together.
 #Static: {
 	file:   #Path
 	target: string
@@ -189,17 +188,17 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 
 		// The terminal's measured floors, in device px — what a body can hit,
 		// not what a design would like. WCAG 2.5.8 (AA); 2.5.5's 44px is real
-		// advice on a content surface and not a gate, so it is the visual
-		// battery's own default and not this.
+		// advice on a content surface and not a gate, so it is visual lint's
+		// own default and not this.
 		//
 		// One declaration, because the number is two claims that have to agree:
 		// the rung #scale publishes as --min-touch, and the threshold
 		// check-visual.ts holds a tap target to. Held apart they can be moved
-		// apart, and then the rung is a lie the battery still passes.
+		// apart, and then the rung is a lie visual lint still passes.
 		floors: [Name=string]: int
 		floors: touch: 24
 
-		// The terminal-tier hatch. Props in are the mount element's
+		// The terminal's hatch. Props in are the mount element's
 		// data-prop-* attributes, resolved against the row by the same binder
 		// as every other attribute and resynchronised on every refresh, so a
 		// hatch in a live region tracks its row for free. Events out are named
@@ -279,7 +278,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 
 		// The adapters the terminal ships: a control's value in its own
 		// spelling on one side and a canonical type on the other
-		// (docs/2026-09-22-a-control-value-is-not-a-canonical-type.md). Served like
+		// (plugins/omnishell/REFERENCE.md#adapters). Served like
 		// the interpreter and never copied into an app, so there is one of each
 		// and no app holds a stale twin; an app that needs its own writes it
 		// under shell/handlers/ and the route names that instead. Not
@@ -345,9 +344,10 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 
 		// The entry page fetches the boot graph in parallel at t=0 instead of
 		// discovering each import a round-trip after its parent executes.
-		// storybook.js is tier-gated and stays lazy; ses/jessie stay undeclared
-		// here too — loaded after first paint; mecha-client, data-sync, and
-		// hatch are deferred so cold first paint loads minimal paint-critical weight.
+		// storybook.js loads only under ?storybook and stays lazy; ses/jessie
+		// stay undeclared here too — loaded after first paint; mecha-client,
+		// data-sync, and hatch are deferred so cold first paint loads minimal
+		// paint-critical weight.
 		_preloadSkip: {
 			"storybook.js":           true
 			"vendor/ses.umd.min.js":  true
@@ -387,9 +387,11 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 		shared: [...#Path]
 		shared: *[] | [...#Path]
 
-		// Fold modules named by `pipelines[].fold`. Served because the terminal
-		// runs them itself — over the local collections, to show a sink's total
-		// before the CDC loop has folded this session's own writes in.
+		// Fold modules named by `pipelines[].fold`, served as the declared
+		// contract of a pipeline's browser-side transform. Nothing executes
+		// one: the terminal's projection of a fold sink counts contributions
+		// and calls none of the four functions, and only check handlers loads
+		// the module.
 		folds: [...#Jessie]
 		folds: *[] | [...#Jessie]
 
@@ -422,7 +424,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 			verb: "integrate"
 			cmds: [
 				// --build, because compose reuses any image it already has: a
-				// battery that photographed the previous build reports green for
+				// lint that photographed the previous build reports green for
 				// markup nobody is serving. Under mise exec, because the compose
 				// project name is published in the app's .mise.toml [env], and
 				// the tool-stub sayt runs rules through applies no [env].
@@ -436,7 +438,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 				// NAME may move. Without it the closure starts a second project
 				// named after .bayt, which brings up a second caddy and collides
 				// with the first on its port — and the runtime the line above
-				// started would not be the one the battery talks to. The name is
+				// started would not be the one the lint talks to. The name is
 				// the one the line above resolves, read from the same mise env:
 				// the published COMPOSE_PROJECT_NAME, else the app's own, which
 				// compose derives from the app directory. An empty one counts as
@@ -473,9 +475,10 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 
 		checks: battery: {
 			// Source, a compartment and the emitted schema are the whole of
-			// what it needs — no cluster, no page — but every module is run
-			// hundreds of times over, so it answers at the verb that admits
-			// work rather than at the one whose promise is that it does none.
+			// what it needs — no cluster, no page — but every handler and
+			// validation module is run hundreds of times over, so it answers
+			// at the verb that admits work rather than at the one whose
+			// promise is that it does none.
 			verb: "test"
 			cmds: [T.surface._command["check battery"]]
 			note: "every Jessie module the app declares survives inputs drawn from its own schema: confined, within its fuel budget, deterministic, and mutating nothing it was handed"
