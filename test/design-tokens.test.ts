@@ -43,7 +43,7 @@ const ROOT = new URL("../../../", HERE);
 const VENDOR = new URL("fixtures/daisyui-5.7.32/", HERE);
 // Two files, because the schema reads the type table that types.cue
 // states (#Type is the table's keys), and cue loads only what it is given.
-const SCHEMA = ["plugins/pronto/schema.cue", "plugins/pronto/types.cue", "plugins/pronto/pgroll.cue"];
+const SCHEMA = ["plugins/pronto/schema.cue", "plugins/pronto/types.cue"];
 const EMITTER = "plugins/pronto/emit.cue";
 
 // The quotation this suite grades, hashed: every vendored theme stylesheet in

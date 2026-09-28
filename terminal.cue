@@ -99,7 +99,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 		// name is an app's own renderer, per `renderer` below.
 		"text-formats": [Name=string]: {renders: string, note: string}
 		"text-formats": plain:    {renders: "the column's text, placeholders interpolated", note: "the default when data-text-format is absent"}
-		"text-formats": datetime: {renders: "the moment in the reader's own language and clock (\"Aug 2, 09:00\" to an American, \"2 de ago., 09:00\" to a Brazilian)", note: "raw ISO / postgres timestamptz never reaches a reader; only the checking tiers pin a zone"}
+		"text-formats": datetime: {renders: "the moment in the reader's own language and clock (\"Aug 2, 09:00\" to an American, \"2 de ago., 09:00\" to a Brazilian)", note: "raw ISO / postgres timestamptz never reaches a reader; the zone is the reader's, except in the storybook, which pins UTC for the checks and for prerendered documents"}
 		"text-formats": number:   {renders: "the number in the reader's own digits and grouping (\"1.234,5\" to a Brazilian)", note: "the column's ASCII spelling is nobody's"}
 		"text-formats": money:    {renders: "the amount with its currency, placed and grouped for the reader (\"R$ 1.204\")", note: "the code and the minor-unit scale ride the column (#Field.money), never the attribute"}
 
@@ -481,7 +481,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 			// promise is that it does none.
 			verb: "test"
 			cmds: [T.surface._command["check battery"]]
-			note: "every Jessie module the app declares survives inputs drawn from its own schema: confined, within its fuel budget, deterministic, and mutating nothing it was handed"
+			note: "every handler and validation module the app declares survives inputs drawn from its own schema: confined, within its fuel budget, deterministic, and mutating nothing it was handed"
 		}
 
 		checks: markup: {
