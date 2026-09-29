@@ -1,4 +1,6 @@
 import { parseHTML } from "npm:linkedom@0.18.4";
+import { basename, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { FuelMeter } from "./fuel-meter.ts";
 import {
   extractRegions,
@@ -11,7 +13,7 @@ import type { Machine } from "./canonical.ts";
 export type TableRows = Record<string, Record<string, unknown>[]>;
 
 async function loadAppSeeds(appDir: string): Promise<TableRows> {
-  const seedsPath = `${appDir}/.pronto/seeds.json`;
+  const seedsPath = join(appDir, ".pronto", "seeds.json");
   try {
     const raw = await Deno.readTextFile(seedsPath);
     const parsed = JSON.parse(raw);
@@ -97,14 +99,12 @@ function createProxyMessages(
 }
 
 export async function runStorybookBatteryForApp(
-  appDir: string,
+  appUrl: URL,
   options: BatteryOptions = {},
 ): Promise<BatteryAppReport> {
   const fuelLimit = options.fuelLimitPerFrame ?? 3000;
-  const appName = appDir.replace(/^.*apps\//, "");
-  const appUrl = new URL(
-    appDir.startsWith("/") ? `file://${appDir}/` : `file://${Deno.cwd()}/${appDir}/`,
-  );
+  const appDir = fileURLToPath(appUrl);
+  const appName = basename(appDir);
 
   const report: BatteryAppReport = {
     app: appName,
@@ -125,7 +125,7 @@ export async function runStorybookBatteryForApp(
   const routes = await appRoutes(appUrl);
   const i18n = await appI18n(appUrl);
 
-  const screensDir = `${appDir}/shell/screens`;
+  const screensDir = join(appDir, "shell", "screens");
   const screenFiles: string[] = [];
   try {
     for await (const entry of Deno.readDir(screensDir)) {
@@ -145,8 +145,8 @@ export async function runStorybookBatteryForApp(
   for (const screenFile of screenFiles) {
     report.screensChecked++;
     const screenName = screenFile.replace(/\.html$/, "");
-    const htmlPath = `${screensDir}/${screenFile}`;
-    const cssPath = `${screensDir}/${screenName}.css`;
+    const htmlPath = join(screensDir, screenFile);
+    const cssPath = join(screensDir, `${screenName}.css`);
 
     const html = await Deno.readTextFile(htmlPath);
 

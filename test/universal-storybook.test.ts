@@ -21,12 +21,12 @@ discoveredApps.sort();
 describe("Universal Statechart-to-Storybook Battery & DuckDB Synthetic Seeds", () => {
   for (const app of discoveredApps) {
     it(`poses all screen machines in apps/${app} with 0 mutations within fuel budget`, async () => {
-      const appUrl = new URL(`../../../apps/${app}`, import.meta.url);
+      const appUrl = new URL(`../../../apps/${app}/`, import.meta.url);
       const stat = await Deno.stat(appUrl);
       if (!stat.isDirectory) {
-        throw new Error(`Expected ${appUrl.pathname} to be a directory`);
+        throw new Error(`Expected ${appUrl} to be a directory`);
       }
-      const report = await runStorybookBatteryForApp(appUrl.pathname);
+      const report = await runStorybookBatteryForApp(appUrl);
 
       expect(report.success).toBe(true);
       expect(report.errors).toEqual([]);

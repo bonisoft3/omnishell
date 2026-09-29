@@ -10,6 +10,8 @@
 // out of the image's test run for that reason).
 import { assertEquals } from "jsr:@std/assert@1";
 import { encodeHex } from "jsr:@std/encoding@1/hex";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // Digests, not the files: a mismatch on two minified megabytes prints one line
 // rather than both of them.
@@ -17,7 +19,7 @@ async function digest(path: string): Promise<string> {
   return encodeHex(await crypto.subtle.digest("SHA-256", await Deno.readFile(path)));
 }
 
-const PLUGIN = new URL("../", import.meta.url).pathname;
+const PLUGIN = fileURLToPath(new URL("../", import.meta.url));
 
 Deno.test({
   name: "the vendored client bundle is what its source builds",
@@ -29,8 +31,8 @@ Deno.test({
       // The script package.json states, which bayt's `bundle` target also
       // runs (bayt.cue reads it from there): a command spelled again here
       // could rebuild something the build never would.
-      const script: string = JSON.parse(await Deno.readTextFile(`${PLUGIN}package.json`)).scripts["bundle:mecha-client"];
-      const built = `${scratch}/mecha-client.js`;
+      const script: string = JSON.parse(await Deno.readTextFile(join(PLUGIN, "package.json"))).scripts["bundle:mecha-client"];
+      const built = join(scratch, "mecha-client.js");
       const argv = script.split(" ");
       const target = argv.lastIndexOf("-o");
       if (argv[0] !== "deno" || target < 0) throw new Error(`bundle:mecha-client is not a deno bundle with an -o target: ${script}`);
@@ -43,9 +45,9 @@ Deno.test({
       }).output();
       if (!bundle.success) throw new Error(`deno bundle failed: ${new TextDecoder().decode(bundle.stderr)}`);
       assertEquals(
-        await digest(`${PLUGIN}interpreter/vendor/mecha-client.js`),
+        await digest(join(PLUGIN, "interpreter", "vendor", "mecha-client.js")),
         await digest(built),
-        "the checked-in bundle is stale: run `bun run bundle:mecha-client` (package.json) and commit it",
+        "the checked-in bundle is stale: run `pnpm run bundle:mecha-client` (package.json) and commit it",
       );
     } finally {
       await Deno.remove(scratch, { recursive: true });

@@ -569,7 +569,7 @@
                     "name": "builtin",
                     "priority": 0,
                     "shell": "exec",
-                    "do": "deno bundle --no-lock --config ../../libraries/mecha/packages/client/deno.json --platform browser --format esm --minify interpreter/vendor/entry.ts -o interpreter/vendor/mecha-client.js",
+                    "do": "deno bundle --node-modules-dir=none --no-lock --config ../../libraries/mecha/packages/client/deno.json --platform browser --format esm --minify interpreter/vendor/entry.ts -o interpreter/vendor/mecha-client.js",
                     "stop": false,
                     "srcs": {
                         "globs": [],
@@ -628,7 +628,7 @@
             "visibility": "public",
             "cmds": [
                 {
-                    "do": "deno bundle --no-lock --config ../../libraries/mecha/packages/client/deno.json --platform browser --format esm --minify interpreter/vendor/entry.ts -o interpreter/vendor/mecha-client.js",
+                    "do": "deno bundle --node-modules-dir=none --no-lock --config ../../libraries/mecha/packages/client/deno.json --platform browser --format esm --minify interpreter/vendor/entry.ts -o interpreter/vendor/mecha-client.js",
                     "name": "builtin",
                     "shell": "exec",
                     "stop": false,

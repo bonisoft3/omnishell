@@ -1,10 +1,8 @@
 // plugins/omnishell/bayt.cue — bayt configuration for the omnishell
 // linting/auth plugin.
 //
-// TypeScript project with no package manager of its own: every module it
-// imports is an `npm:` or `jsr:` specifier deno resolves into its own cache,
-// so nothing here installs a node_modules. The one runner that needs a real
-// one is playwright, which the repository installs once at its root.
+// Deno resolves source imports; host browser tests use the workspace's pnpm
+// lockfile. The container build does not need node_modules.
 //
 // It composes mise + sayt verbs directly rather than a language stack — same
 // shape as services/boxer (Rust) and services/tracker-tx (yaml-only), where

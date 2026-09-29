@@ -68,6 +68,50 @@ const ROUTE = {
 
 const tick = (ms = 25) => new Promise((r) => setTimeout(r, ms));
 
+function fakeTime() {
+  const originalSet = globalThis.setTimeout;
+  const originalClear = globalThis.clearTimeout;
+  const timers = new Map();
+  let now = 0;
+  let id = 0;
+  globalThis.setTimeout = (fn, ms = 0, ...args) => {
+    const key = ++id;
+    timers.set(key, { at: now + Number(ms), fn, args });
+    return key;
+  };
+  globalThis.clearTimeout = (key) => timers.delete(key);
+
+  const flush = async () => {
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+  };
+  const due = () => [...timers].sort((a, b) => a[1].at - b[1].at || a[0] - b[0])[0];
+  const fire = async ([key, timer]) => {
+    timers.delete(key);
+    now = timer.at;
+    timer.fn(...timer.args);
+    await flush();
+  };
+  return {
+    async advance(ms) {
+      const target = now + ms;
+      await flush();
+      while (due()?.[1].at <= target) await fire(due());
+      now = target;
+      await flush();
+    },
+    async next() {
+      await flush();
+      const timer = due();
+      if (!timer) throw new Error("no timer remains for machine transition");
+      await fire(timer);
+    },
+    restore() {
+      globalThis.setTimeout = originalSet;
+      globalThis.clearTimeout = originalClear;
+    },
+  };
+}
+
 function boot(html = SCREEN_HTML, rows = []) {
   const { document, Event } = parseHTML(
     "<!doctype html><html><head></head><body><div id=shell></div></body></html>",
@@ -444,21 +488,27 @@ Deno.test({
     const route = { ...ROUTE, files: { ...ROUTE.files, handlers: Object.keys(MODULES).map((m) => `shell/handlers/${m}`) } };
     await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {});
     const btn = mount.querySelector("#fav");
+    const time = fakeTime();
+    try {
+      btn.dispatchEvent(new Event("click"));
+      await time.advance(15);
+      assert(btn.getAttribute("data-phase") === "favoriting.inflight",
+        `entered initial compound substate, got "${btn.getAttribute("data-phase")}"`);
 
-    btn.dispatchEvent(new Event("click"));
-    await tick(15);
-    assert(btn.getAttribute("data-phase") === "favoriting.inflight",
-      `entered initial compound substate, got "${btn.getAttribute("data-phase")}"`);
+      for (let i = 0; i < 10 && btn.getAttribute("data-phase") === "favoriting.inflight"; i++) {
+        await time.next();
+      }
+      assert(btn.getAttribute("data-phase") === "favoriting.delayed",
+        `timed out to delayed substate for degraded UI, got "${btn.getAttribute("data-phase")}"`);
 
-    // Wait past the 50ms delay for inflight -> delayed transition
-    await tick(50);
-    assert(btn.getAttribute("data-phase") === "favoriting.delayed",
-      `timed out to delayed substate for degraded UI, got "${btn.getAttribute("data-phase")}"`);
-
-    // Wait for the slow upsert to resolve (80ms) and dispatch late sync_ack
-    await tick(40);
-    assert(btn.getAttribute("data-phase") === "favorited",
-      `parent favoriting state cleanly caught late sync_ack while in delayed, got "${btn.getAttribute("data-phase")}"`);
+      for (let i = 0; i < 10 && btn.getAttribute("data-phase") === "favoriting.delayed"; i++) {
+        await time.next();
+      }
+      assert(btn.getAttribute("data-phase") === "favorited",
+        `parent favoriting state cleanly caught late sync_ack while in delayed, got "${btn.getAttribute("data-phase")}"`);
+    } finally {
+      time.restore();
+    }
   },
 });
 
@@ -751,4 +801,3 @@ Deno.test({
     assert(btn.getAttribute("data-phase") === "low", `expected low via always transition, got ${btn.getAttribute("data-phase")}`);
   },
 });
-

@@ -12,6 +12,6 @@ aqua.slsa = false
 aqua.minisign = false
 
 [tools]
-# Everything here runs under deno: the suites, the smokes that lock down SES
-# and need deno's own permission flags and lockfile, and the typecheck.
 "github:denoland/deno" = "v2.9.7"
+node = "22.14.0"
+"github:pnpm/pnpm" = "10.32.1"

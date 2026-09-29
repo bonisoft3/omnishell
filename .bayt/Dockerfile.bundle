@@ -3,7 +3,7 @@ FROM plugins_omnishell-setup AS bundle
 WORKDIR /monorepo/plugins/omnishell
 COPY --from=libraries_mecha-setup_srcs --parents /monorepo/libraries/mecha/packages/** /
 COPY --parents interpreter/vendor/entry.ts ./
-RUN ["mise", "x", "--", "deno", "bundle", "--no-lock", "--config", "../../libraries/mecha/packages/client/deno.json", "--platform", "browser", "--format", "esm", "--minify", "interpreter/vendor/entry.ts", "-o", "interpreter/vendor/mecha-client.js"]
+RUN ["mise", "x", "--", "deno", "bundle", "--node-modules-dir=none", "--no-lock", "--config", "../../libraries/mecha/packages/client/deno.json", "--platform", "browser", "--format", "esm", "--minify", "interpreter/vendor/entry.ts", "-o", "interpreter/vendor/mecha-client.js"]
 COPY .bayt/Taskfile.yml .bayt/Taskfile.bayt.yml .bayt/Taskfile.bundle.yaml .bayt/bayt.bundle.json ./.bayt/
 
 FROM busybox:musl@sha256:03db190ed4c1ceb1c55d179a0940e2d71d42130636a780272629735893292223 AS bundle_ctxs

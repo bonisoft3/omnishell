@@ -6,6 +6,13 @@
 # from the ide environment's own `.mise.toml`, and a browser binary is the
 # container environment's to provide.
 say:
+  setup:
+    rulemap:
+      builtin:
+        cmds:
+          - do: setup
+            use: ./setup.nu
+          - do: mise exec -- pnpm install --filter @omnishell/core --frozen-lockfile
   # The checkers are reached through the command line that dispatches to them,
   # which imports every one: a checker this list never names is typed anyway,
   # and one added later is typed the day it is dispatched rather than the day
