@@ -14,11 +14,17 @@ import { checkFocusOrder } from "./checks/focus-order"
 import { checkClippedControls } from "./checks/clipped-controls"
 import { checkContrast } from "./checks/contrast"
 import { checkThemeStability } from "./checks/theme-stability"
+import { checkAlignmentDrift } from "./checks/alignment-drift"
+import { checkGridBaseline } from "./checks/grid-baseline"
+import { checkWhiteSpace } from "./checks/whitespace-balance"
 import type { ConsoleCapture } from "./checks/console-messages"
 import { analyzeConsole } from "./checks/console-messages"
 
 export type { VisualBug, VisualLintResult } from "./types"
 export { armCLS, checkCLS } from "./checks/cls"
+export { checkAlignmentDrift } from "./checks/alignment-drift"
+export { checkGridBaseline } from "./checks/grid-baseline"
+export { checkWhiteSpace } from "./checks/whitespace-balance"
 export {
   captureConsole,
   analyzeConsole,
@@ -41,6 +47,9 @@ export async function visualLint(
     checkFocusOrder(page),
     checkClippedControls(page),
     checkThemeStability(page),
+    checkAlignmentDrift(page),
+    checkGridBaseline(page),
+    checkWhiteSpace(page),
     // CLS is not in this battery: it is the one check that has to be armed
     // before its own navigation, which this entry point does not own. A caller
     // that wants it runs armCLS(page) before goto and checkCLS(page) after.

@@ -498,6 +498,22 @@ export async function createShell({ config, mount }) {
     const { createStore } = await import("./data-sync.js");
     const store = createStore("", { ...cfg, appBase });
 
+    // Debug & visual-lint seam: pose fixture rows in-memory without page reloads.
+    globalThis.__prontoStore = store;
+    globalThis.__prontoPose = async (table, row) => {
+      const client = globalThis.__mechaClient;
+      const collection = client?.collections?.[table];
+      if (collection) {
+        if (!collection.isReady?.()) await collection.toArrayWhenReady?.();
+        const existing = collection.toArray ?? [];
+        const key = cfg.keys?.[table] || "id";
+        const targetKey = existing[0]?.[key] ?? ((row[key] !== undefined && row[key] !== "") ? row[key] : `${table}_0001`);
+        const cleanRow = { ...row };
+        if (cleanRow[key] === "") delete cleanRow[key];
+        await store.write(table, [{ key: targetKey, row: { ...existing[0], ...cleanRow, [key]: targetKey } }]);
+      }
+    };
+
     // The navigation stack belongs to the terminal — there is one back button,
     // so no screen can own it. A screen the user leaves keeps its DOM, hidden
     // in place, and lets go of its subscriptions: the shapes close on

@@ -11,6 +11,9 @@ import { checkFocusOrder } from "../src/lint/playwright/checks/focus-order.ts"
 import { checkInteractiveOverlap } from "../src/lint/playwright/checks/interactive-overlap.ts"
 import { checkThemeStability } from "../src/lint/playwright/checks/theme-stability.ts"
 import { checkTouchTargets } from "../src/lint/playwright/checks/touch-targets.ts"
+import { checkAlignmentDrift } from "../src/lint/playwright/checks/alignment-drift.ts"
+import { checkGridBaseline } from "../src/lint/playwright/checks/grid-baseline.ts"
+import { checkWhiteSpace } from "../src/lint/playwright/checks/whitespace-balance.ts"
 
 const fixtures = new URL("../test/lint/fixtures/", import.meta.url).href
 const BAD = `${fixtures}bad-page.html`
@@ -241,3 +244,104 @@ describe("checkContrast", () => {
       expect(before[0]).toBe(40)
     }))
 })
+
+describe("checkAlignmentDrift", () => {
+  it("passes on good page", () =>
+    withPage(async (page) => {
+      await page.goto(GOOD)
+      expect(await checkAlignmentDrift(asCheckPage(page))).toEqual([])
+    }))
+
+  it("catches 1px-3px near-miss misalignment between neighboring elements", () =>
+    withPage(async (page) => {
+      await page.setContent(`
+        <!DOCTYPE html>
+        <html><body>
+          <button style="position: absolute; left: 16px; top: 10px; width: 100px; height: 32px">Btn A</button>
+          <button style="position: absolute; left: 18px; top: 60px; width: 100px; height: 32px">Btn B</button>
+        </body></html>
+      `)
+      const bugs = await checkAlignmentDrift(asCheckPage(page))
+      expect(bugs).toHaveLength(1)
+      expect(bugs[0].rule).toBe("alignment-drift")
+      expect(bugs[0].severity).toBe("major")
+      expect(bugs[0].description).toContain("drift by 2px")
+    }))
+
+  it("ignores intentional token offsets of 8px or more", () =>
+    withPage(async (page) => {
+      await page.setContent(`
+        <!DOCTYPE html>
+        <html><body>
+          <button style="position: absolute; left: 16px; top: 10px; width: 100px; height: 32px">Btn A</button>
+          <button style="position: absolute; left: 24px; top: 60px; width: 100px; height: 32px">Btn B</button>
+        </body></html>
+      `)
+      const bugs = await checkAlignmentDrift(asCheckPage(page))
+      expect(bugs).toEqual([])
+    }))
+})
+
+describe("checkGridBaseline", () => {
+  it("passes on good page", () =>
+    withPage(async (page) => {
+      await page.goto(GOOD)
+      expect(await checkGridBaseline(asCheckPage(page))).toEqual([])
+    }))
+
+  it("catches interactive controls with non-4px multiple height", () =>
+    withPage(async (page) => {
+      await page.setContent(`
+        <!DOCTYPE html>
+        <html><body>
+          <button style="height: 41px; width: 120px" data-testid="ragged-btn">Ragged</button>
+        </body></html>
+      `)
+      const bugs = await checkGridBaseline(asCheckPage(page))
+      expect(bugs).toHaveLength(1)
+      expect(bugs[0].rule).toBe("grid-baseline")
+      expect(bugs[0].severity).toBe("minor")
+      expect(bugs[0].description).toContain("height (41px) is not a multiple of the 4px baseline grid")
+    }))
+
+  it("passes for controls snapping cleanly to 4px multiples", () =>
+    withPage(async (page) => {
+      await page.setContent(`
+        <!DOCTYPE html>
+        <html><body>
+          <button style="height: 32px; width: 120px">32px</button>
+          <input style="height: 40px; width: 120px; box-sizing: border-box" value="40px">
+        </body></html>
+      `)
+      const bugs = await checkGridBaseline(asCheckPage(page))
+      expect(bugs).toEqual([])
+    }))
+})
+
+describe("checkWhiteSpace", () => {
+  it("passes on good page", () =>
+    withPage(async (page) => {
+      await page.goto(GOOD)
+      expect(await checkWhiteSpace(asCheckPage(page))).toEqual([])
+    }))
+
+  it("catches overcrowded screen under 15% white space", () =>
+    withPage(async (page) => {
+      await page.setContent(`
+        <!DOCTYPE html>
+        <html style="margin: 0; padding: 0"><body style="margin: 0; padding: 0; width: 400px; height: 400px">
+          <div class="screen" style="width: 400px; height: 400px; margin: 0; padding: 0">
+            <div class="card" style="width: 390px; height: 380px; margin: 5px; background: #eee">
+              <button style="width: 100%; height: 100%">Filled</button>
+            </div>
+          </div>
+        </body></html>
+      `)
+      const bugs = await checkWhiteSpace(asCheckPage(page))
+      expect(bugs.length).toBeGreaterThan(0)
+      expect(bugs[0].rule).toBe("whitespace-balance")
+      expect(bugs[0].severity).toBe("minor")
+      expect(bugs[0].description).toContain("Screen is overcrowded")
+    }))
+})
+

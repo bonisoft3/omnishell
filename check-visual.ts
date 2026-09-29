@@ -26,12 +26,17 @@ import { checkViewportBounds } from "./src/lint/playwright/checks/viewport-bound
 import { checkTouchTargets } from "./src/lint/playwright/checks/touch-targets.ts"
 import { checkFocusOrder } from "./src/lint/playwright/checks/focus-order.ts"
 import { checkClippedControls } from "./src/lint/playwright/checks/clipped-controls.ts"
+import { checkAlignmentDrift } from "./src/lint/playwright/checks/alignment-drift.ts"
+import { checkGridBaseline } from "./src/lint/playwright/checks/grid-baseline.ts"
+import { checkWhiteSpace } from "./src/lint/playwright/checks/whitespace-balance.ts"
 import { baseUrl } from "./base-url.ts"
 import { checkContrast, contrastFloor, contrastRatio } from "./src/lint/playwright/checks/contrast.ts"
 import { armCLS, checkCLS } from "./src/lint/playwright/checks/cls.ts"
 import { captureConsole, analyzeConsole } from "./src/lint/playwright/checks/console-messages.ts"
 import type { VisualBug } from "./src/lint/playwright/types.ts"
-import { type ParamPlan, paramPlans } from "./interpreter/lint.ts"
+import { type ParamPlan, paramPlans, machineRegions } from "./interpreter/lint.ts"
+import { type MachineRegionInfo, extractRegions, generateCoveringArrayFrames } from "./test/storybook-injector.ts"
+import type { Machine } from "./test/canonical.ts"
 import { parseFilter, parseFilterSpec, PLACEHOLDERS } from "./interpreter/fragment.js"
 
 type Finding = { severity: string; path: string; message: string }
@@ -46,11 +51,55 @@ type PageLike = {
 type ContextLike = { newPage(): Promise<PageLike> }
 type Route = { path: string; files?: { html?: string } }
 
-type Viewport = { name: string; width: number; height: number }
-const VIEWPORTS: Viewport[] = [
-  { name: "desktop", width: 1280, height: 900 },
-  { name: "narrow", width: 400, height: 900 },
+export type Viewport = { name: string; width: number; height: number }
+
+export const KNOWN_VIEWPORTS: Record<string, Viewport> = {
+  "phone": { name: "phone", width: 393, height: 852 },
+  "tablet": { name: "tablet", width: 820, height: 1180 },
+  "laptop": { name: "laptop", width: 1512, height: 982 },
+  "desktop": { name: "desktop", width: 1920, height: 1080 },
+  "mobile": { name: "phone", width: 393, height: 852 },
+  "iphone": { name: "phone", width: 393, height: 852 },
+  "redmi": { name: "redmi", width: 360, height: 800 },
+  "compact-mobile": { name: "redmi", width: 360, height: 800 },
+}
+
+export const BASELINE_VIEWPORTS: Viewport[] = [
+  KNOWN_VIEWPORTS["phone"],
+  KNOWN_VIEWPORTS["tablet"],
+  KNOWN_VIEWPORTS["laptop"],
 ]
+
+export const DEFAULT_VIEWPORTS: Viewport[] = [
+  KNOWN_VIEWPORTS["phone"],
+  KNOWN_VIEWPORTS["tablet"],
+  KNOWN_VIEWPORTS["laptop"],
+  KNOWN_VIEWPORTS["desktop"],
+]
+
+export function parseViewports(spec?: string): Viewport[] {
+  if (!spec || spec === "all" || spec === "default") return DEFAULT_VIEWPORTS
+  if (spec === "baseline" || spec === "standard") return BASELINE_VIEWPORTS
+  const names = spec.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
+  const resolved: Viewport[] = []
+  for (const name of names) {
+    if (name in KNOWN_VIEWPORTS) {
+      resolved.push(KNOWN_VIEWPORTS[name])
+    } else {
+      const match = name.match(/^(?:([a-z0-9_-]+):)?(\d+)x(\d+)$/)
+      if (match) {
+        resolved.push({
+          name: match[1] ?? `${match[2]}x${match[3]}`,
+          width: parseInt(match[2], 10),
+          height: parseInt(match[3], 10),
+        })
+      } else {
+        throw new Error(`unknown viewport "${name}". Known: ${Object.keys(KNOWN_VIEWPORTS).join(", ")}, baseline, all`)
+      }
+    }
+  }
+  return resolved.length > 0 ? resolved : DEFAULT_VIEWPORTS
+}
 
 // Routes in flight per viewport. The two viewports already run as separate
 // contexts, so the browser holds up to twice this many live pages. Past four
@@ -400,6 +449,7 @@ export async function settle(
             a.timeline instanceof DocumentTimeline && a.playState === "running" && a.playbackRate !== 0 &&
             a.effect?.getTiming().iterations !== Infinity
           )
+        const entering = () => document.querySelector(".shell-screen[data-entering]") !== null
 
         let previous = fingerprint()
         let stableSince = performance.now()
@@ -407,7 +457,7 @@ export async function settle(
           if (done) return
           const now = performance.now()
           const current = fingerprint()
-          if (mutated || current !== previous || loading() || fading()) {
+          if (mutated || current !== previous || loading() || fading() || entering()) {
             mutated = false
             previous = current
             stableSince = now
@@ -423,7 +473,7 @@ export async function settle(
   ) as boolean
 }
 
-async function main(appDir: string): Promise<number> {
+async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): Promise<number> {
   // Lazily, because playwright touches the environment at module scope and
   // --self-test must stay runnable with no permissions.
   const { chromium } = await import("npm:playwright@1.59.1")
@@ -441,7 +491,7 @@ async function main(appDir: string): Promise<number> {
   // which is the finding either way.
   const markup: Record<string, string> = {}
   for (const route of routes) {
-    if (!route.path.includes("/:") || !route.files?.html) continue
+    if (!route.files?.html) continue
     markup[route.path] = await Deno.readTextFile(`${appDir}/${route.files.html}`).catch(() => "")
   }
   const { plans, unplanned } = paramPlans(routes, markup)
@@ -592,6 +642,9 @@ async function main(appDir: string): Promise<number> {
           checkTouchTargets(p, { minSize: floors.touch }),
           checkFocusOrder(p),
           checkClippedControls(p),
+          checkAlignmentDrift(p),
+          checkGridBaseline(p),
+          checkWhiteSpace(p),
           checkCLS(p),
         ])
       ).flat()
@@ -624,6 +677,75 @@ async function main(appDir: string): Promise<number> {
           message: `${where} [${b.rule}] ${b.description}`,
         })
       }
+
+      // Machine-posed frames: if the route's screen declares [data-machine] charts,
+      // pose each discrete machine state in-memory via __prontoPose and assert
+      // visual invariants without full page reloads.
+      const routeHtml = markup[route.path]
+      if (routeHtml) {
+        const regions = machineRegions(routeHtml)
+        if (regions.length > 0) {
+          const allRegionInfos: MachineRegionInfo[] = []
+          const baseRows: Record<string, Record<string, unknown>> = {}
+          for (const reg of regions) {
+            const parsedMachine: Machine = JSON.parse(reg.machine)
+            const emptyObj = reg.emptyRow ? JSON.parse(reg.emptyRow) : {}
+            if (emptyObj.id === "") delete emptyObj.id
+            if (!baseRows[reg.table]) {
+              baseRows[reg.table] = {
+                ...(tiers.seed[reg.table]?.[0] ?? {}),
+                ...emptyObj,
+              }
+            } else {
+              Object.assign(baseRows[reg.table], emptyObj)
+            }
+            const infos = extractRegions(parsedMachine, reg.table)
+            allRegionInfos.push(...infos)
+          }
+          const frames = generateCoveringArrayFrames(allRegionInfos, baseRows)
+          for (const f of frames) {
+            const posed = await page.evaluate(
+              async (tables: Record<string, Record<string, unknown>>) => {
+                const pose = (window as unknown as { __prontoPose?: (t: string, r: Record<string, unknown>) => Promise<void> }).__prontoPose
+                if (typeof pose !== "function") return false
+                for (const [table, row] of Object.entries(tables)) {
+                  await pose(table, row)
+                }
+                return true
+              },
+              f.tables ?? { [regions[0].table]: f.row },
+            )
+            if (!posed) continue
+            await settle(page, { capMs: 800, stableMs: 60 })
+
+            const frameBugs: VisualBug[] = (
+              await Promise.all([
+                checkInteractiveOverlap(p),
+                checkHorizontalOverflow(p),
+                checkClippedContent(p),
+                checkFocusableInvisible(p),
+                checkConstrainedImages(p),
+                checkViewportBounds(p),
+                checkTouchTargets(p, { minSize: floors.touch }),
+                checkFocusOrder(p),
+                checkClippedControls(p),
+                checkAlignmentDrift(p),
+                checkGridBaseline(p),
+                checkWhiteSpace(p),
+              ])
+            ).flat()
+            frameBugs.push(...await checkContrast(p))
+
+            for (const b of frameBugs) {
+              out.push({
+                severity: b.severity,
+                path: url,
+                message: `${where} [${f.name}:${f.state}] [${b.rule}] ${b.description}`,
+              })
+            }
+          }
+        }
+      }
     } catch (err) {
       out.push({
         severity: "critical",
@@ -642,7 +764,7 @@ async function main(appDir: string): Promise<number> {
   // they finish, and the output stays in viewport-then-route order — so the
   // order is stable run to run even though the set need not be: a console
   // message or a screen that misses the settle cap is wall-clock dependent.
-  const boards = VIEWPORTS.map((viewport) => ({
+  const boards = viewports.map((viewport) => ({
     viewport,
     failure: [] as Finding[],
     jobs: live.map((route) => ({ route, out: [] as Finding[] })),
@@ -824,18 +946,50 @@ function selfTest() {
   eq(contrastRatio([0, 0, 0], [255, 255, 255]), 21, "black on white is the criterion's 21")
   eq(Math.round(contrastRatio([119, 119, 119], [255, 255, 255]) * 100) / 100, 4.48, "#777 on white misses AA")
   eq(contrastRatio([255, 255, 255], [0, 0, 0]), contrastRatio([0, 0, 0], [255, 255, 255]), "the ratio has no direction")
+  eq(parseViewports().length, 4, "default has 4 viewports")
+  eq(parseViewports("baseline").length, 3, "baseline has 3 viewports")
+  eq(parseViewports("phone,desktop").map((v) => v.name), ["phone", "desktop"], "comma-separated")
   console.log("check-visual: self-test ok")
 }
 
 if (import.meta.main) {
-  const [arg] = Deno.args
-  if (arg === "--self-test") {
+  const args = [...Deno.args]
+  if (args.includes("--self-test")) {
     selfTest()
     Deno.exit(0)
   }
-  if (arg === undefined) {
-    console.error("usage: check-visual.ts <app dir> | --self-test")
+
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log("usage: check-visual.ts [--viewports=...] <app dir> | --self-test");
+    console.log("\nViewports options: default (all 4), baseline (phone, tablet, laptop), or comma-separated names:");
+    console.log("  phone:   393x852  (Mobile phone standard)");
+    console.log("  tablet:  820x1180 (Tablet / iPad Air 10.9\")");
+    console.log("  laptop:  1512x982 (Laptop / MacBook Pro 14\")");
+    console.log("  desktop: 1920x1080 (Full HD Desktop 1080p)");
+    Deno.exit(0);
+  }
+
+  let viewportSpec: string | undefined = undefined
+  if (Deno.permissions?.querySync?.({ name: "env", variable: "VIEWPORTS" })?.state === "granted") {
+    viewportSpec = Deno.env.get("VIEWPORTS")
+  }
+  const filteredArgs: string[] = []
+  for (const a of args) {
+    if (a.startsWith("--viewports=")) {
+      viewportSpec = a.slice("--viewports=".length)
+    } else if (a.startsWith("--viewport=")) {
+      viewportSpec = a.slice("--viewport=".length)
+    } else {
+      filteredArgs.push(a)
+    }
+  }
+
+  const [appDir] = filteredArgs
+  if (!appDir) {
+    console.error("usage: check-visual.ts [--viewports=...] <app dir> | --self-test")
     Deno.exit(1)
   }
-  Deno.exit(await main(arg))
+
+  const viewports = parseViewports(viewportSpec)
+  Deno.exit(await main(appDir, viewports))
 }

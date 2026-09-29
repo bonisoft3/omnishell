@@ -8,6 +8,8 @@
     "jsr:@std/path@^1.1.6": "1.1.6",
     "jsr:@std/testing@1": "1.0.20",
     "jsr:@std/yaml@1.0.5": "1.0.5",
+    "npm:@anthropic-ai/sdk@0.89.0": "0.89.0",
+    "npm:playwright@1.49.0": "1.49.0",
     "npm:playwright@1.59.1": "1.59.1"
   },
   "jsr": {
@@ -46,24 +48,58 @@
     }
   },
   "npm": {
+    "@anthropic-ai/sdk@0.89.0": {
+      "integrity": "sha512-nyGau0zex62EpU91hsHa0zod973YEoiMgzWZ9hC55WdiOLrE4AGpcg4wXI7lFqtvMLqMcLfewQU9sHgQB6psow==",
+      "dependencies": [
+        "json-schema-to-ts"
+      ],
+      "bin": true
+    },
+    "@babel/runtime@7.29.7": {
+      "integrity": "sha512-Nq8OhGWiZIZGV6hLHoyAKLLcJihP/xFeBMGJoUrxTX2psI8dCifzLhZISFb+VWS3wFMRDmCGw5R+dOySCqPLhw=="
+    },
     "fsevents@2.3.2": {
       "integrity": "sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==",
       "os": ["darwin"],
       "scripts": true
     },
+    "json-schema-to-ts@3.1.1": {
+      "integrity": "sha512-+DWg8jCJG2TEnpy7kOm/7/AxaYoaRbjVB4LFZLySZlWn8exGs3A4OLJR966cVvU26N7X9TWxl+Jsw7dzAqKT6g==",
+      "dependencies": [
+        "@babel/runtime",
+        "ts-algebra"
+      ]
+    },
+    "playwright-core@1.49.0": {
+      "integrity": "sha512-R+3KKTQF3npy5GTiKH/T+kdhoJfJojjHESR1YEWhYuEKRVfVaxH3+4+GvXE5xyCngCxhxnykk0Vlah9v8fs3jA==",
+      "bin": true
+    },
     "playwright-core@1.59.1": {
       "integrity": "sha512-HBV/RJg81z5BiiZ9yPzIiClYV/QMsDCKUyogwH9p3MCP6IYjUFu/MActgYAvK0oWyV9NlwM3GLBjADyWgydVyg==",
       "bin": true
     },
-    "playwright@1.59.1": {
-      "integrity": "sha512-C8oWjPR3F81yljW9o5OxcWzfh6avkVwDD2VYdwIGqTkl+OGFISgypqzfu7dOe4QNLL2aqcWBmI3PMtLIK233lw==",
+    "playwright@1.49.0": {
+      "integrity": "sha512-eKpmys0UFDnfNb3vfsf8Vx2LEOtflgRebl0Im2eQQnYMA4Aqd+Zw8bEOB+7ZKvN76901mRnqdsiOGKxzVTbi7A==",
       "dependencies": [
-        "playwright-core"
+        "playwright-core@1.49.0"
       ],
       "optionalDependencies": [
         "fsevents"
       ],
       "bin": true
+    },
+    "playwright@1.59.1": {
+      "integrity": "sha512-C8oWjPR3F81yljW9o5OxcWzfh6avkVwDD2VYdwIGqTkl+OGFISgypqzfu7dOe4QNLL2aqcWBmI3PMtLIK233lw==",
+      "dependencies": [
+        "playwright-core@1.59.1"
+      ],
+      "optionalDependencies": [
+        "fsevents"
+      ],
+      "bin": true
+    },
+    "ts-algebra@2.0.0": {
+      "integrity": "sha512-FPAhNPFMrkwz76P7cdjdmiShwMynZYN6SgOujD1urY4oNm80Ou9oMdmbR45LotcKOXoy7wSmHkRFE6Mxbrhefw=="
     }
   },
   "workspace": {
