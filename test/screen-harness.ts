@@ -597,6 +597,8 @@ export type Mounted = {
   /** Dispatches the event and hands it back, so a test can assert whether the
    * terminal cancelled it. */
   fire(target: string | El, type?: string, init?: Record<string, unknown>): { defaultPrevented: boolean };
+  /** Deliver a store refusal through a region and account for its expected diagnostic. */
+  refuse(region: El, entity: string, error: Error): void;
   /** Every match's text, trimmed — a region's rendered rows in order. */
   texts(selector: string): string[];
   /** The elements of a role, optionally the one whose accessible name matches
@@ -1030,7 +1032,13 @@ export async function mountScreen(spec: MountSpec): Promise<Mounted> {
     return Promise.resolve(new Response(source));
   };
 
-  if (spec.expectRefusal !== true) collect = (err) => escaped.push(err);
+  let expectedRefusalLog: Error | undefined;
+  if (spec.expectRefusal !== true) {
+    collect = (err) => {
+      if (err === expectedRefusalLog) expectedRefusalLog = undefined;
+      else escaped.push(err);
+    };
+  }
   const disarm = () => {
     collect = null;
     (globalThis as unknown as EventTarget).removeEventListener("unhandledrejection", onEscape as EventListener);
@@ -1157,6 +1165,23 @@ export async function mountScreen(spec: MountSpec): Promise<Mounted> {
       };
       el.dispatchEvent(ev);
       return ev;
+    },
+    refuse(region, entity, error) {
+      const deliver = (region as El & {
+        _prontoRefusal?: (entity: string, id: string | undefined, error: Error) => void;
+      })._prontoRefusal;
+      if (deliver === undefined) throw new Error("region has no refusal delivery hook");
+      expectedRefusalLog = error;
+      try {
+        deliver(entity, undefined, error);
+      } catch (err) {
+        expectedRefusalLog = undefined;
+        throw err;
+      }
+      if (expectedRefusalLog === error) {
+        expectedRefusalLog = undefined;
+        throw new Error("refusal delivery did not report its error");
+      }
     },
     texts: (selector) => [...mount.querySelectorAll(selector)].map(textOf),
     byRole: (role, name) => byRole(mount, role, name),

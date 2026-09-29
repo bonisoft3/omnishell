@@ -93,6 +93,9 @@ routes:
   - path: /selects
     screen: selects
     files: {html: shell/screens/selects.html, css: shell/screens/selects.css, handlers: []}
+  - path: /effects
+    screen: effects
+    files: {html: shell/screens/effects.html, css: shell/screens/effects.css, handlers: []}
   - path: /refuses
     screen: refuses
     files: {html: shell/screens/refuses.html, css: shell/screens/refuses.css, handlers: []}

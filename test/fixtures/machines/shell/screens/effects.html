@@ -1,0 +1,5 @@
+<section class="screen" data-screen="effects">
+  <div data-live="toggle" data-filter="id=eq.the" data-machine='{"field":"state","initial":"idle","context":{"title":"Draft"},"on":{"refused":{"target":"error"}},"states":{"idle":{"on":{"click@send":{"target":"submitting","effect":{"level":2,"op":"create","entity":"item","values":{"title":"{title}"}}}}},"submitting":{"on":{"sync_ack":"done"}},"done":{"on":{"click@send":"idle"}},"error":{"on":{"click@send":"idle"}}}}'>
+    <button id="send" type="button">Send</button>
+  </div>
+</section>

@@ -20,6 +20,11 @@ as an event. Machine or reduce is the author's choice: a chart is strongest
 component-generated or with many states (an inventory a reviewer reads by
 set-difference), weakest at two states around real arithmetic.
 
+A native form owns its `.store-error` visibility in the DOM. A machine refresh
+of an enclosing region can rebind the form and hide that error. Keep such a
+form beside the machine region, or give its submission and error states to the
+machine too.
+
 ## The chart
 
 - **Data, not code.** Sync-and-pure goes to Jessie, async-and-effectful to the
@@ -52,6 +57,11 @@ descriptor whose level says what can be claimed of it
   still queued (`settle`, `interpreter/data-sync.js`), so `refused` can follow
   `sync_ack`, carrying no `token`. A chart that must hear the no in every state
   draws `refused` at the root `on:`.
+- **Store failures return through the chart.** An immediate error sends
+  `refused`; a `NonRetriableError` carries `kind: "refused"`, and other failures
+  carry `kind: "failed"`. Keep the draft in a browser-owned row and draw a
+  retry arrow from the error state. Unknown effect operations and missing
+  store methods remain program errors.
 - **A compensable effect draws `refused`**
   ([the lint](../REFERENCE.md#effects)), since a chart deaf to the no has a
   zombie state by construction. The rule is partial: the interpreter defaults
@@ -149,7 +159,12 @@ the HTML is the contract the reader touches, run the same however it was made.
   trace through XState's own `transition()`, which must land on the same field
   value. A never-fired arrow is an error. A guard param named after an event
   field says which event satisfies the arrow, so the walk synthesizes it; a
-  chart reached only through an unseeded route param is advisory.
+  chart reached only through an unseeded route param is advisory. If every
+  chart is advisory, the app check fails its coverage floor because nothing
+  was walked. A browser test can exercise the route-scoped chart against a
+  real event.
+  Its `refused` stimulus enters through the same region delivery hook as a
+  store rejection; dispatching a DOM event would miss that arrow.
 - **Posing** (`test/storybook-battery.ts`, over every app from
   `test/universal-storybook.test.ts`) reaches a state without a transition,
   since state is a column: seed `{[field]: state, ...context}`, mount under

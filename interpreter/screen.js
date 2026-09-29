@@ -322,7 +322,7 @@ async function loadRenderers(screen, appBase, route) {
 // first key forever, which is a sort that never sorts again.
 const REGION_ATTRS = new Set([
   "data-text", "data-filter", "data-select", "data-empty", "data-empty-row", "data-when",
-  "data-project", "data-order", "data-exit-motion",
+  "data-project", "data-order", "data-exit-motion", "data-machine",
 ]);
 
 // What a machine may read off the event that fired it (machine.cue #EventRef).
@@ -2141,18 +2141,30 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       for (const eff of effects) {
         const entity = eff.entity ?? region.dataset.live;
         const id = eff.values?.id;
+        if (!["upsert", "create", "update", "delete"].includes(eff.op)) {
+          throw new Error(`unknown effect op: ${eff.op}`);
+        }
+        const upsertFn = eff.op === "upsert" ? store.upsertBy ?? store.upsert : undefined;
+        if (eff.op === "upsert" && typeof upsertFn !== "function") {
+          throw new Error("store has no upsertBy or upsert");
+        }
+        const method = eff.op === "create" ? "add" : eff.op === "update" ? "patch" :
+          eff.op === "delete" ? (eff.filter === undefined ? "drop" : "dropWhere") : undefined;
+        if (method !== undefined && typeof store[method] !== "function") {
+          throw new Error(`store has no ${method}`);
+        }
+        let refused = false;
+        const wrappedRefused = (err) => {
+          refused = true;
+          deliver(entity, id, err);
+        };
+        const row = eff.op === "create" && eff.values?.id === undefined
+          ? { id: mintUuid(), ...eff.values }
+          : eff.values;
         try {
-          let refused = false;
-          const wrappedRefused = (err) => {
-            refused = true;
-            deliver(entity, id, err);
-          };
           if (eff.op === "upsert") {
-            const upsertFn = store.upsertBy ?? store.upsert;
-            if (typeof upsertFn !== "function") throw new Error(`store has no upsertBy or upsert`);
             await upsertFn.call(store, entity, eff.values, wrappedRefused);
           } else if (eff.op === "create") {
-            const row = eff.values?.id === undefined ? { id: mintUuid(), ...eff.values } : eff.values;
             await store.add(entity, [row], wrappedRefused);
           } else if (eff.op === "update") {
             await store.patch(entity, [{ key: id, changes: eff.values }], wrappedRefused);
@@ -2162,18 +2174,15 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             } else {
               await store.drop(entity, [id], wrappedRefused);
             }
-          } else {
-            throw new Error(`unknown effect op: ${eff.op}`);
-          }
-          if (refused) return false;
-          if (machineAck.length > 0) {
-            const ackEvent = { type: "sync_ack", entity, token: eff.token };
-            for (const hear of machineAck) hear(ackEvent);
           }
         } catch (err) {
-          if (err?.name !== "NonRetriableError") throw err;
-          deliver(entity, id, err);
+          if (!refused) deliver(entity, id, err);
           return false;
+        }
+        if (refused) return false;
+        if (machineAck.length > 0) {
+          const ackEvent = { type: "sync_ack", entity, token: eff.token };
+          for (const hear of machineAck) hear(ackEvent);
         }
       }
       return true;

@@ -121,7 +121,7 @@ function boot(html = SCREEN_HTML, rows = []) {
   const upserts = [];
   const creates = [];
   const subs = new Set();
-  const knobs = { refuseNext: false, refuseUpsert: false, slowUpsertMs: 0 };
+  const knobs = { refuseNext: false, refuseUpsert: false, failUpsert: false, slowUpsertMs: 0 };
   const baseStore = {
     query: async () => rows,
     subscribe: (_table, cb) => {
@@ -148,6 +148,10 @@ function boot(html = SCREEN_HTML, rows = []) {
     remove: async () => {},
     upsertBy: async (table, values, onRefused) => {
       upserts.push({ table, ...values });
+      if (knobs.failUpsert) {
+        knobs.failUpsert = false;
+        throw new Error("transport unavailable");
+      }
       if (knobs.refuseUpsert) {
         knobs.refuseUpsert = false;
         const err = new Error("409 duplicate");
@@ -532,6 +536,31 @@ Deno.test({
     assert(btn.getAttribute("data-phase") === "unfavorited",
       `refusal caught by parent and rolled back to unfavorited, got "${btn.getAttribute("data-phase")}"`);
     assert(btn.textContent === "0", `count rolled back to 0, got "${btn.textContent}"`);
+  },
+});
+
+Deno.test({
+  name: "an immediate store failure reaches the machine's refused arrow and allows retry",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const { document, Event, store, knobs, upserts } = boot(FAVORITE_HTML);
+    knobs.failUpsert = true;
+    const { interpretScreen } = await import("./screen.js");
+    const mount = document.getElementById("shell");
+    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {});
+    const btn = mount.querySelector("#fav");
+
+    btn.dispatchEvent(new Event("click"));
+    await tick(30);
+    assert(btn.getAttribute("data-phase") === "unfavorited", "store failure returned to retryable state");
+    assert(mount.firstElementChild.dataset.state !== "network-error", "the machine owns the failure");
+
+    btn.dispatchEvent(new Event("click"));
+    await tick(30);
+    assert(btn.getAttribute("data-phase") === "favorited" && upserts.length === 2,
+      "the second attempt settles and reaches the success state");
   },
 });
 

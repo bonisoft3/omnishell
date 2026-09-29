@@ -33,6 +33,10 @@ A placeholder names one of four things, told apart by prefix in `lookup()`
 | `{msg.key}` | the message `key` in the active locale's catalogue, then the app's default catalogue; `a.b` descends into a nested catalogue. A key neither answers throws — the markup named a message nobody wrote |
 | `{msg[column]}` | the message whose key the ROW carries in `column`: a writer stored a key rather than a sentence, so the reader's locale chooses the text. A column holding nothing renders nothing, and a key no catalogue answers renders as the key itself, because row data never takes a screen down (`check i18n` reports it) |
 
+`data-machine` is a declaration: its placeholders remain intact during DOM
+binding. An effect resolves them against the machine row after its transition's
+assignments, so `{title}` inside `effect.values` reads the draft at submit time.
+
 Messages are text content and attribute values, never CSS generated content:
 the human, the screen reader and the test runner all read the DOM, and CSS
 `content` is invisible to the accessibility tree, to find-in-page, to the
@@ -257,7 +261,10 @@ entity?, token?, filter?, values?}`, its `values` literals, `{now}`, the event
 leaf or a module, interpolated against the post-assign row. The terminal
 performs it through the store and answers the region's charts with `sync_ack`
 (carrying `token`) when the store settles it, and with `refused` if the write is
-withdrawn, possibly after; a refusal aborts the rest of that batch.
+withdrawn, possibly after. An immediate store error also delivers `refused`:
+`NonRetriableError` carries `kind: "refused"`, and other failures carry
+`kind: "failed"`. Either aborts the rest of that batch. A chart that offers
+retry should handle `refused` in every state where a pending write can fail.
 
 | Level | Name | Guarantee | Durability |
 |---|---|---|---|

@@ -419,6 +419,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 		verbs: [Name=string]: {verb: "setup" | "generate" | "build" | "launch" | "release", cmds: [...string], note: string}
 		checks: [Name=string]: {verb: "lint" | "test" | "integrate", cmds: [...string], note: string}
 		checks: visual: {
+			let composeProject = "(^mise exec -- printenv COMPOSE_PROJECT_NAME | complete | get stdout | str trim | str replace -r '^$' '\(T.app)')"
 			// A laid-out page over real content, so the cluster has to be up
 			// however cheap `lint` would look.
 			verb: "integrate"
@@ -428,7 +429,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 				// markup nobody is serving. Under mise exec, because the compose
 				// project name is published in the app's .mise.toml [env], and
 				// the tool-stub sayt runs rules through applies no [env].
-				"mise exec -- docker compose up -d --wait --build launch",
+				"mise exec -- docker compose -p \(composeProject) up -d --wait --build launch",
 				// No --force-recreate: it recreates the DEPENDENCIES too, so a
 				// data-backed app starts every run with an empty database and its
 				// rows-first screens never settle. --build is the part that
@@ -443,7 +444,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 				// the published COMPOSE_PROJECT_NAME, else the app's own, which
 				// compose derives from the app directory. An empty one counts as
 				// unpublished.
-				"mise exec -- docker compose -p (^mise exec -- printenv COMPOSE_PROJECT_NAME | complete | get stdout | str trim | str replace -r '^$' '\(T.app)') --profile '*' -f .bayt/compose.integrate.closure.yaml up bayt --abort-on-container-failure --exit-code-from bayt --build --remove-orphans --attach-dependencies",
+				"mise exec -- docker compose -p \(composeProject) --profile '*' -f .bayt/compose.integrate.closure.yaml up bayt --abort-on-container-failure --exit-code-from bayt --build --remove-orphans --attach-dependencies",
 			]
 			note: "DOM checks over every route at two viewports, run in a container beside the app; only critical findings fail"
 		}

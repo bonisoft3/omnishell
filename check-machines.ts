@@ -193,6 +193,12 @@ function harnessFor(m: Mounted, region: El, machine: Machine, params: Record<str
   const filter = filled(readsOf(region).filter, params);
   return {
     fire: async (type, from, init) => {
+      if (type === "refused") {
+        const error = new Error("machine walk refusal");
+        error.name = "NonRetriableError";
+        m.refuse(region, table, error);
+        return;
+      }
       const el = from === undefined ? region : m.one(`[id="${from}"]`);
       // The synthetic event carries every leaf a real one could. An assign
       // reading a field the event does not have declines the whole transition —
