@@ -50,7 +50,7 @@ import (
 // targets leave them out. The host test verb runs package.json's test
 // script on a full checkout, and that is where they run.
 _smokes: strings.Join([
-	for f in ["adapter", "clock", "handler", "hatch", "login", "nav", "pending", "renderer", "validate", "worker"] {"interpreter/\(f)-smoke.js"},
+	for f in ["adapter", "clock", "handler", "hatch", "kinetic", "login", "nav", "pending", "renderer", "validate", "worker"] {"interpreter/\(f)-smoke.js"},
 ], " ")
 
 _smokeCmd: {

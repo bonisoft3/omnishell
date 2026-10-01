@@ -439,7 +439,7 @@ export async function createShell({ config, mount }) {
         i18n: cfg.i18n,
         schema: cfg.schema,
       });
-      return;
+      return { storybook: true };
     }
 
     let session = null;
@@ -796,8 +796,9 @@ export async function createShell({ config, mount }) {
     }
     await show();
     booted = true;
+    return { store, navigate };
   } catch (err) {
-    console.error(err);
     banner(err);
+    throw err;
   }
 }

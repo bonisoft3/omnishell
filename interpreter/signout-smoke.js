@@ -126,14 +126,31 @@ const settle = (ms = 120) => new Promise((r) => setTimeout(r, ms));
 const assert = (cond, msg) => {
   if (!cond) throw new Error(`smoke failed: ${msg}`);
 };
+const assertRejects = async (fn, expectedMsg) => {
+  let threw = null;
+  try {
+    await fn();
+  } catch (err) {
+    threw = err;
+  }
+  if (!threw) throw new Error("smoke failed: expected promise to reject");
+  if (expectedMsg && !threw.message?.includes(expectedMsg)) {
+    throw new Error(`smoke failed: expected message ${expectedMsg}, got ${threw.message}`);
+  }
+};
 
 async function signedIn(at) {
   const app = boot(at);
   const { createShell } = await import("./shell.js");
-  createShell({ config: "./shell.yaml", mount: app.mount });
+  app.booting = createShell({ config: "./shell.yaml", mount: app.mount });
+  // Mark the promise handled so the guest sign-in ceremony can settle before the test asserts on boot settlement
+  app.booting.catch(() => {});
   await settle();
   app.signIn();
   await settle(240);
+  if (at !== "/nowhere") {
+    await app.booting;
+  }
   return app;
 }
 
@@ -177,6 +194,7 @@ Deno.test({
     // word on every navigation, is past that throw. Written once at creation
     // too, or the only way out of a session is an anchor with nothing in it.
     const app = await signedIn("/nowhere");
+    await assertRejects(() => app.booting, "no route for /nowhere");
     const out = app.document.querySelector("nav .shell-signout");
     assert(out !== null, "the strip is up even where the route is not");
     assert(out.textContent !== "", `the way out reads ${JSON.stringify(out.textContent)}`);

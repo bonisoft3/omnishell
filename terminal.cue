@@ -252,7 +252,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 					"{direction}", T.direction, 1),
 				"{modulepreload}", _preloadHtml, 1)
 			css:  _shellCssAsset
-			boot: _bootJsAsset
+			boot: *_bootJsAsset | string
 			sw:   _swJsAsset
 		}
 
@@ -345,6 +345,8 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 			"hatch-worker.js":        true
 			"jessie.js":              true
 			"vendor/morphlex.js":     true
+			"kinetic.js":             true
+			"prng.js":                true
 		}
 		_preloadHtml: strings.Join([for m in modules if _preloadSkip[m] == _|_ {
 			"<link rel=\"modulepreload\" href=\"/omnishell/interpreter/\(m)\">"
@@ -353,7 +355,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 		modules: [...#Path]
 		modules: [
 			"shell.js", "chrome.js", "screen.js", "fragment.js", "data-sync.js", "validate.js", "render.js",
-			"hatch.js", "hatch-worker.js", "storybook.js", "jessie.js",
+			"hatch.js", "hatch-worker.js", "storybook.js", "jessie.js", "kinetic.js", "prng.js",
 			"vendor/mecha-client.js", "vendor/js-yaml.js", "vendor/ses.umd.min.js", "vendor/morphlex.js",
 		]
 

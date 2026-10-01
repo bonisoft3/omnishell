@@ -15,6 +15,7 @@
 * [Machines](machines.md) - concept: A chart over one browser-owned row whose transitions assign columns and emit typed effects the terminal performs, times and answers.
 * [Focus and ARIA](accessibility.md) - concept: ARIA state is derived columns a region projects over its own rows, and the terminal owns the tab order, moving focus only when a column moves.
 * [Screen updates](screen-updates.md) - concept: How the terminal changes the page when data or state changes: rows moved by key, bodies replaced when their source changes, state stamped as attributes that stylesheets draw.
+* [Kinetic host](kinetic.md) - concept: Fixed-step tick engine, snapshot ring buffer, and time-travel controller for high-frequency interactive simulations.
 * [Visual lint](visual-lint.md) - concept: The Playwright DOM checks and vision review over a rendered app — what each check needs to be sound, where it runs, and how shared checks change.
 * [Automated tests](automated-tests-battery.md) - concept: Every handler and validation module an app ships is tested automatically, with no test written by hand, for confinement, termination through fuel, and purity.
 * [Native hosts](native-hosts.md) - concept: How a pronto app runs on Android and iOS — a headless JS engine behind native bridges, a DivKit SDUI renderer, and realworld's parity check against the web screens.
