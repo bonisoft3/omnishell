@@ -91,14 +91,11 @@ calling a wall a missing event, check which of the two it is.
   re-derives the clipping, and the app sees the quotient, never the divisor.
   Integer, because a replayed column should not be a float; measured only when
   a chart reads it, since it costs a synchronous layout.
-- **A surface has one owner.** `data-open` re-derives openness on every bind,
-  so a replay lands it; `data-interest` stores nothing, which is its licence —
-  openness nobody stores cannot disagree with anything. Both on one surface
-  are two writers of one fact: the row restating itself would shut a surface
-  the reader is under. `data-interest` waits on the terminal's clock, so
-  `?clock=manual` holds its delays still, and an `auto` popover makes WCAG
-  1.4.13's dismissible clause the element's, so the terminal listens for no
-  key ([the rules](../REFERENCE.md#behaviour)).
+- **A surface has one owner.** Standard HTML5 `popover` and `<dialog>` elements
+  manage their top-layer presence and light dismiss natively, while invokers use
+  `popovertarget` and `commandfor` to trigger them ([Native capabilities](native-capabilities.md)).
+  An `auto` popover makes WCAG 1.4.13's dismissible clause the element's, so the
+  terminal listens for no key ([the rules](../REFERENCE.md#behaviour)).
 
 Keys and focus are [Focus and ARIA](accessibility.md).
 

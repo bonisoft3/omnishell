@@ -171,14 +171,15 @@ const mintUuid = () => {
 // Every role resolves the same way: the attribute names the role, its value
 // names the module, and route.files.handlers is the app's list of Jessie
 // sources whatever role each one plays.
-async function loadRole(screen, appBase, route, attr, role, listed = "handlers") {
+async function loadRole(screen, appBase, route, attr, role, listed = "handlers", endowmentsMap = {}) {
   const loaded = new Map();
   for (const el of screen.querySelectorAll(`[${attr}]`)) {
     const name = el.getAttribute(attr);
     if (loaded.has(name)) continue;
     const path = (route.files[listed] ?? []).find((p) => p.split("/").pop() === `${name}.js`);
     if (!path) throw new Error(`no Jessie module for ${attr}="${name}"`);
-    loaded.set(name, await evaluateRole(await fetchText(new URL(path, appBase)), role));
+    const granted = endowmentsMap[path] ?? endowmentsMap[name] ?? endowmentsMap[`${name}.js`] ?? [];
+    loaded.set(name, await evaluateRole(await fetchText(new URL(path, appBase)), role, granted));
   }
   return loaded;
 }
@@ -207,8 +208,8 @@ function adapterOf(el, ctx) {
   return adapter;
 }
 
-async function loadAdapters(screen, appBase, route) {
-  const loaded = await loadRole(screen, appBase, route, "data-value-adapter", "adapter", "adapters");
+async function loadAdapters(screen, appBase, route, endowmentsMap = {}) {
+  const loaded = await loadRole(screen, appBase, route, "data-value-adapter", "adapter", "adapters", endowmentsMap);
   // A control in an item template is bound per row, and its markup is not in
   // the screen's own tree — the same reason loadHandlers and loadRenderers
   // walk withTemplates.
@@ -218,14 +219,15 @@ async function loadAdapters(screen, appBase, route) {
       if (loaded.has(name)) continue;
       const path = (route.files.adapters ?? []).find((p) => p.split("/").pop() === `${name}.js`);
       if (!path) throw new Error(`no Jessie module for data-value-adapter="${name}"`);
-      loaded.set(name, await evaluateRole(await fetchText(new URL(path, appBase)), "adapter"));
+      const granted = endowmentsMap[path] ?? endowmentsMap[name] ?? endowmentsMap[`${name}.js`] ?? [];
+      loaded.set(name, await evaluateRole(await fetchText(new URL(path, appBase)), "adapter", granted));
     }
   }
   return loaded;
 }
 
-async function loadHandlers(screen, appBase, route) {
-  const loaded = await loadRole(screen, appBase, route, "data-handler", "handler");
+async function loadHandlers(screen, appBase, route, endowmentsMap = {}) {
+  const loaded = await loadRole(screen, appBase, route, "data-handler", "handler", "handlers", endowmentsMap);
   // The same modules, reached by the other spelling. An item's handler lives in
   // a template, whose markup is never in the screen's own tree.
   for (const scope of withTemplates(screen)) {
@@ -234,7 +236,8 @@ async function loadHandlers(screen, appBase, route) {
         if (loaded.has(name)) continue;
         const path = route.files.handlers.find((f) => f.split("/").pop() === `${name}.js`);
         if (!path) throw new Error(`no Jessie module for data-on-* handler "${name}"`);
-        loaded.set(name, await evaluateRole(await fetchText(new URL(path, appBase)), "handler"));
+        const granted = endowmentsMap[path] ?? endowmentsMap[name] ?? endowmentsMap[`${name}.js`] ?? [];
+        loaded.set(name, await evaluateRole(await fetchText(new URL(path, appBase)), "handler", granted));
       }
     }
   }
@@ -252,12 +255,16 @@ async function loadHandlers(screen, appBase, route) {
           if (loaded.has(name)) continue;
           const path = route.files.handlers.find((f) => f.split("/").pop() === `${name}.js`);
           if (!path) throw new Error(`no Jessie module for machine reference "${name}"`);
-          loaded.set(name, await evaluateRole(await fetchText(new URL(path, appBase)), "handler"));
+          const granted = endowmentsMap[path] ?? endowmentsMap[name] ?? endowmentsMap[`${name}.js`] ?? [];
+          loaded.set(name, await evaluateRole(await fetchText(new URL(path, appBase)), "handler", granted));
         }
         for (const name of shape.assignStrings) {
           if (loaded.has(name)) continue;
           const path = route.files.handlers.find((f) => f.split("/").pop() === `${name}.js`);
-          if (path) loaded.set(name, await evaluateRole(await fetchText(new URL(path, appBase)), "handler"));
+          if (path) {
+            const granted = endowmentsMap[path] ?? endowmentsMap[name] ?? endowmentsMap[`${name}.js`] ?? [];
+            loaded.set(name, await evaluateRole(await fetchText(new URL(path, appBase)), "handler", granted));
+          }
         }
       }
     }
@@ -280,7 +287,7 @@ const withTemplates = (screen) => {
 // are value formatting — text in, text out, no DOM. Any other name is a
 // renderer: a Jessie module the app declared in files.renderers, resolved by
 // basename exactly as a handler is.
-const TEXT_FORMATS = new Set(["plain", "datetime", "number", "money"]);
+const TEXT_FORMATS = new Set(["plain", "datetime", "number"]);
 
 // The controls whose bound value the DOM keeps only as a property: setting the
 // attribute leaves a date picker empty. Text and its kin bind through `value`
@@ -288,9 +295,9 @@ const TEXT_FORMATS = new Set(["plain", "datetime", "number", "money"]);
 const VALUE_PROPERTY = new Set(["date", "datetime-local", "time", "month", "week", "color", "range"]);
 // The built-ins that format the looked-up VALUE rather than interpolate a
 // sentence around it. plain is not one: it is the default spelled out.
-const VALUE_FORMATS = new Set(["datetime", "number", "money"]);
+const VALUE_FORMATS = new Set(["datetime", "number"]);
 
-async function loadRenderers(screen, appBase, route) {
+async function loadRenderers(screen, appBase, route, endowmentsMap = {}) {
   const declared = route.files.renderers ?? [];
   for (const path of declared) {
     const name = path.split("/").pop().replace(/\.js$/, "");
@@ -307,7 +314,8 @@ async function loadRenderers(screen, appBase, route) {
       if (TEXT_FORMATS.has(name) || Object.hasOwn(loaded, name)) continue;
       const path = declared.find((p) => p.split("/").pop() === `${name}.js`);
       if (!path) throw new Error(`no renderer module for data-text-format="${name}"`);
-      loaded[name] = await evaluateRole(await fetchText(new URL(path, appBase)), "renderer");
+      const granted = endowmentsMap[path] ?? endowmentsMap[name] ?? endowmentsMap[`${name}.js`] ?? [];
+      loaded[name] = await evaluateRole(await fetchText(new URL(path, appBase)), "renderer", granted);
     }
   }
   return loaded;
@@ -390,9 +398,7 @@ function localeOf(ctx) {
 // dotted key directly (their `has` is total), so the whole-key probe comes
 // before the walk.
 //
-// `arm` is the catalogue arm the element selected (armOf), and only a message
-// has arms to select from.
-function lookup(expr, ctx, arm) {
+function lookup(expr, ctx) {
   const { row, params, messages, locale, i18n } = ctx ?? {};
   if (expr.startsWith("param.")) {
     const name = expr.slice("param.".length);
@@ -439,7 +445,7 @@ function lookup(expr, ctx, arm) {
       if (rowMsg !== null) return key;
       throw new Error(`unknown message {${expr}}`);
     }
-    if (val !== null && typeof val === "object") return selectArm(expr, val, arm, ctx);
+    if (Array.isArray(val)) return evaluateAst(val, ctx, activeLocale);
     return val;
   }
   const r = row ?? {};
@@ -462,54 +468,57 @@ function lookup(expr, ctx, arm) {
   return v;
 }
 
-/* --- a message with more than one wording --------------------------------
- *
- * A catalogue value is a string or a flat map of arm name to string, and the
- * element names which arm it reads: data-msg-plural runs a count through
- * Intl.PluralRules and indexes by the CLDR category, data-msg-select indexes
- * by the value itself — one selection, two selectors.
- *
- * It resolves here because Intl is endowed in the interpreter and in nothing a
- * screen can reach otherwise; it is an attribute rather than new {placeholder}
- * syntax because the bracket arm of PLACEHOLDER is taken and says the opposite
- * thing — {msg[said]} means the ROW carries the key.
+/**
+ * Evaluates a compile-time FormatJS ICU MessageFormat AST in pure SES.
+ * Handles literals (0), arguments (1), selects (5), plurals (6), and pounds (7).
  */
-
-/** An arm's own {column} bindings resolve in the element's context. A plain
- * string value stays single-pass: making every value two-pass would change
- * what every catalogue already ships. */
-function selectArm(expr, val, arm, ctx) {
-  const arms = Object.keys(val).join(", ");
-  if (arm === undefined) {
-    throw new ProgramError(`message {${expr}} is a map of [${arms}]; name data-msg-plural or data-msg-select to pick one`);
-  }
-  if (!Object.hasOwn(val, arm)) throw new ProgramError(`message {${expr}} has no arm "${arm}"; it carries [${arms}]`);
-  return String(val[arm]).replace(PLACEHOLDERS, (_, inner) => {
-    if (inner.startsWith("msg.") || inner.startsWith("msg[")) {
-      throw new ProgramError(`message {${expr}} arm "${arm}" names {${inner}}: an arm is text, not another key`);
+export function evaluateAst(ast, ctx, locale, pound) {
+  if (typeof ast === "string") return ast;
+  if (!Array.isArray(ast)) return String(ast ?? "");
+  const loc = locale ?? localeOf(ctx) ?? "en-US";
+  let out = "";
+  for (const node of ast) {
+    switch (node.type) {
+      case 0:
+        out += node.value;
+        break;
+      case 1:
+        out += String(lookup(node.value, ctx) ?? "");
+        break;
+      case 5: {
+        const val = String(lookup(node.value, ctx) ?? "");
+        const opt = node.options?.[val] ?? node.options?.other;
+        if (opt?.value !== undefined) {
+          out += evaluateAst(opt.value, ctx, loc, pound);
+        }
+        break;
+      }
+      case 6: {
+        const countVal = lookup(node.value, ctx);
+        if (countVal === null || countVal === undefined || countVal === "" || !Number.isFinite(Number(countVal))) {
+          throw new ProgramError(`plural "${node.value}" reads ${JSON.stringify(countVal)}, which is not a count`);
+        }
+        const count = Number(countVal);
+        const offset = node.offset ?? 0;
+        const n = count - offset;
+        const exact = `=${count}`;
+        const pr = pluralRulesFor(loc);
+        const category = pr.select(n);
+        const opt = node.options?.[exact] ?? node.options?.[category] ?? node.options?.other;
+        if (opt?.value !== undefined) {
+          const formattedPound = numberFormatFor(loc).format(n);
+          out += evaluateAst(opt.value, ctx, loc, formattedPound);
+        }
+        break;
+      }
+      case 7:
+        out += pound ?? "";
+        break;
+      default:
+        throw new ProgramError(`unsupported ICU node type: ${node.type}`);
     }
-    return String(lookup(inner, ctx) ?? "");
-  });
-}
-
-/** The arm an element selects, or undefined where it selects none.
- *
- * Intl.PluralRules.select answers "other" for NaN, undefined, "" and "abc"
- * alike, so a column that is not a count would quietly render a plural; the
- * count is refused here rather than left to Intl. */
-function armOf(el, ctx) {
-  const plural = el.dataset?.msgPlural;
-  const select = el.dataset?.msgSelect;
-  if (plural !== undefined && select !== undefined) {
-    throw new ProgramError(`data-msg-plural="${plural}" and data-msg-select="${select}" on one element: an arm is selected once`);
   }
-  if (select !== undefined) return String(lookup(select, ctx) ?? "");
-  if (plural === undefined) return undefined;
-  const count = lookup(plural, ctx);
-  if (count === null || count === undefined || count === "" || !Number.isFinite(Number(count))) {
-    throw new ProgramError(`data-msg-plural="${plural}" reads ${JSON.stringify(count)}, which is not a count`);
-  }
-  return pluralRulesFor(localeOf(ctx) ?? "en-US").select(Number(count));
+  return out;
 }
 
 // Constructing a PluralRules is expensive and this runs per binding per
@@ -591,77 +600,26 @@ export function formatDatetime(value, ctx) {
 // for the same fact. check-markup grades every such binding against the
 // emitted schema for exactly that reason.
 //
-// Built once per (locale, currency, scale) for the same reason FORMATTERS
-// above is: this runs per binding per refresh.
+// Built once per locale: this runs per binding per refresh.
 const NUMBERS = new Map();
-function numberFormatFor(locale, money) {
-  const key = `${locale} ${money?.currency ?? ""} ${money?.minorUnits ?? ""}`;
-  let fmt = NUMBERS.get(key);
+function numberFormatFor(locale) {
+  let fmt = NUMBERS.get(locale);
   if (fmt === undefined) {
-    fmt = new Intl.NumberFormat(
-      locale,
-      money === undefined ? {} : {
-        style: "currency",
-        currency: money.currency,
-        // The column states the scale, so the amount shows exactly that many
-        // places rather than CLDR's idea of the currency's — a ledger in whole
-        // reais would otherwise grow a ",00" it does not hold.
-        minimumFractionDigits: money.minorUnits,
-        maximumFractionDigits: money.minorUnits,
-      },
-    );
-    NUMBERS.set(key, fmt);
+    fmt = new Intl.NumberFormat(locale);
+    NUMBERS.set(locale, fmt);
   }
   return fmt;
 }
 
-/** A count of minor units placed as a decimal string.
- *
- * On the DIGITS and never by dividing: 123456789012345678 cents is exact as
- * text and rounds to ...568,00 as a double, and Intl.NumberFormat takes the
- * string as it stands. */
-function scaled(digits, minorUnits) {
-  if (minorUnits === 0) return digits;
-  const sign = digits.startsWith("-") ? "-" : "";
-  const body = (sign === "" ? digits : digits.slice(1)).padStart(minorUnits + 1, "0");
-  return `${sign}${body.slice(0, -minorUnits)}.${body.slice(-minorUnits)}`;
-}
-
-/** Exported so tests can pin the shape without hydrating a screen. `money` is
- * the bound column's own declaration, and its absence is a plain number rather
- * than a currency with no code. */
-export function formatNumber(value, ctx, money) {
+/** Exported so tests can pin the shape without hydrating a screen. Plain
+ * number and decimal formatting using the reader's locale. */
+export function formatNumber(value, ctx) {
   if (value == null || value === "") return "";
   const text = String(value).trim();
-  // Storybook fixtures synthesize a sentence for every column they cannot name
-  // (storybook.js fixture()), so without the passthrough every money frame
-  // would read "NaN" — Intl.NumberFormat answers that string for anything it
-  // cannot read. formatDatetime passes an unparsable value through for the
-  // same reason.
-  if (money !== undefined) {
-    if (!/^-?\d+$/.test(text)) return text;
-    return numberFormatFor(localeOf(ctx) ?? "en-US", money).format(scaled(text, money.minorUnits));
-  }
   if (!Number.isFinite(Number(text))) return text;
   // The string, not Number(text): a value wider than a double survives to the
   // formatter, which reads a decimal literal exactly.
   return numberFormatFor(localeOf(ctx) ?? "en-US").format(text);
-}
-
-/** The money declaration of a column a format is bound to.
- *
- * Refused rather than defaulted: a currency this cannot resolve has no code to
- * render with, and rendering the bare integer would be a ledger silently
- * showing cents as reais. check-markup answers the same question statically, so
- * reaching here means the markup was never graded. */
-function moneyOf(ctx, expr) {
-  const money = ctx?.cfg?.schema?.[ctx?.table]?.fields?.find((f) => f.name === expr)?.money;
-  if (money === undefined) {
-    throw new ProgramError(
-      `data-text-format="money" reads {${expr}}, which declares no money: on "${ctx?.table ?? "no data-live region"}"`,
-    );
-  }
-  return money;
 }
 
 /**
@@ -895,7 +853,6 @@ function declared(spec, table, what) {
 }
 
 function nestedBindings(el, ctx) {
-  const arm = armOf(el, ctx);
   const stash = el._prontoAttrs ?? {};
   const names = new Set([...(el.attributes ?? [])].map((a) => a.name));
   for (const name of Object.keys(stash)) names.add(name);
@@ -904,16 +861,14 @@ function nestedBindings(el, ctx) {
     if (name !== "data-project" && regionAttr(name)) continue;
     const template = stash[name] ?? el.getAttribute(name);
     if (template === null || !PLACEHOLDER.test(template)) continue;
-    out.push(`${name}=${fromEnclosing(() => interpolate(template, ctx, arm), el.dataset.live, name)}`);
+    out.push(`${name}=${fromEnclosing(() => interpolate(template, ctx), el.dataset.live, name)}`);
   }
   return out.join("\u0000");
 }
 
-// `arm` reaches only the callers that have an element to read it off: a filter
-// fragment, an order clause and a data-when probe bind row columns, and a map
-// arriving there gets lookup's own refusal.
-function interpolate(template, ctx, arm) {
-  return template.replace(PLACEHOLDERS, (_, expr) => String(lookup(expr, ctx, arm) ?? ""));
+function interpolate(template, ctx) {
+  if (Array.isArray(template)) return evaluateAst(template, ctx, localeOf(ctx));
+  return template.replace(PLACEHOLDERS, (_, expr) => String(lookup(expr, ctx) ?? ""));
 }
 
 // Filter fragments land in a query string, so resolved values are URI-encoded.
@@ -1117,18 +1072,12 @@ function bindTexts(scope, ctx, renderers = {}) {
   targets.push(...scope.querySelectorAll("[data-text]"));
   for (const el of targets) {
     if (!ownedBy(el, scope)) continue;
-    const arm = armOf(el, ctx);
     const format = el.dataset.textFormat;
     if (VALUE_FORMATS.has(format)) {
-      // These branches format the looked-up VALUE, and an arm is a sentence
-      // rather than a value.
-      if (arm !== undefined) {
-        throw new ProgramError(`data-text="${el.dataset.text}" formats as a ${format} and selects the arm "${arm}": an arm is not a value`);
-      }
       el.textContent = el.dataset.text.replace(PLACEHOLDERS, (_, expr) =>
         format === "datetime"
           ? formatDatetime(lookup(expr, ctx), ctx)
-          : formatNumber(lookup(expr, ctx), ctx, format === "money" ? moneyOf(ctx, expr) : undefined),
+          : formatNumber(lookup(expr, ctx), ctx),
       );
       continue;
     }
@@ -1137,11 +1086,11 @@ function bindTexts(scope, ctx, renderers = {}) {
       // Every format resolves at hydration, so an unresolved one can only be
       // the fixture adapter, which evaluates no Jessie. It shows the value as
       // text there, the way it shows a widget's markup unenhanced.
-      if (render === undefined) el.textContent = interpolate(el.dataset.text, ctx, arm);
-      else renderInto(render, interpolate(el.dataset.text, ctx, arm), el);
+      if (render === undefined) el.textContent = interpolate(el.dataset.text, ctx);
+      else renderInto(render, interpolate(el.dataset.text, ctx), el);
       continue;
     }
-    el.textContent = interpolate(el.dataset.text, ctx, arm);
+    el.textContent = interpolate(el.dataset.text, ctx);
   }
 }
 
@@ -1165,8 +1114,6 @@ function bindElementAttributes(el, ctx) {
   // markup: nothing in them is a binding, and the braces an author wrote
   // name no column.
   if (el.parentElement?.closest("[data-text-format]")) return;
-  // A message bound into an attribute selects the same arm its text does.
-  const arm = armOf(el, ctx);
   // setAttribute would consume the placeholder template; persistent regions
   // (singletons) re-bind on every refresh, so originals are stashed.
   const stash = (el._prontoAttrs ??= {});
@@ -1215,7 +1162,7 @@ function bindElementAttributes(el, ctx) {
         }
       }
       if (el.type === "checkbox") {
-        el.checked = Boolean(lookup(template.slice(1, -1), ctx, arm));
+        el.checked = Boolean(lookup(template.slice(1, -1), ctx));
         continue;
       }
       // The inverse of what values() reads back: a group's members share one
@@ -1223,7 +1170,7 @@ function bindElementAttributes(el, ctx) {
       // member whose value the column already holds and a round trip is a
       // fixed point.
       if (el.type === "radio") {
-        el.checked = String(lookup(template.slice(1, -1), ctx, arm) ?? "") === el.value;
+        el.checked = String(lookup(template.slice(1, -1), ctx) ?? "") === el.value;
         continue;
       }
       // A control's value is the control's own spelling and a column's is its
@@ -1232,15 +1179,15 @@ function bindElementAttributes(el, ctx) {
       // (plugins/omnishell/REFERENCE.md#adapters).
       const adapter = adapterOf(el, ctx);
       if (adapter !== undefined) {
-        el.value = adapter.format(interpolate(template, ctx, arm), { zone: ctx.timeZone });
+        el.value = adapter.format(interpolate(template, ctx), { zone: ctx.timeZone, locale: localeOf(ctx) });
         continue;
       }
       if (el.localName === "textarea" || el.localName === "select" || VALUE_PROPERTY.has(el.type)) {
-        el.value = interpolate(template, ctx, arm);
+        el.value = interpolate(template, ctx);
         continue;
       }
     }
-    const value = interpolate(template, ctx, arm);
+    const value = interpolate(template, ctx);
     // A URL attribute that resolves to nothing must not stay empty: the
     // empty string is a valid relative URL meaning "this document", so
     // `src=""` fetches the page and paints it as a broken image.
@@ -1260,7 +1207,6 @@ function bindElementAttributes(el, ctx) {
       continue;
     }
     el.setAttribute(attr.name, value);
-    if (attr.name === "data-open") openPopover(el, value);
   }
   // Last, because the params it reads are the ones the loop above just
   // resolved. A row-bound link therefore re-addresses itself whenever its
@@ -1281,138 +1227,40 @@ function bindElementAttributes(el, ctx) {
   }
 }
 
-/**
- * A surface's place in the top layer, decided by a row.
- *
- * The one thing on this list CSS cannot do: `popover` openness is not a style,
- * the element is MOVED, and the browser offers only an imperative call and an
- * invoker that answers a click. A right-click has no invoker, so a menu the
- * platform dismisses — light dismiss and Escape, both the UA's — is reachable
- * no other way.
- *
- * It stays a consequence rather than an effect anyone schedules: the value is a
- * column, it is re-derived on every bind, and it is idempotent, so a replay
- * puts the surface exactly where the session had it. One column drives one
- * surface; two columns claiming one is the one-writer rule, and a binding
- * cannot express it.
- */
-function openPopover(el, value) {
-  if (el.getAttribute("popover") === null) {
-    throw new ProgramError(`data-open on a <${el.localName}> that declares no popover`);
+
+function astNeedsRow(ast, params) {
+  if (!Array.isArray(ast)) return false;
+  for (const node of ast) {
+    if (node.type === 1 || node.type === 5 || node.type === 6) {
+      const varName = node.value;
+      if (!params || !(varName in params)) return true;
+      if (node.options) {
+        for (const opt of Object.values(node.options)) {
+          if (opt?.value && astNeedsRow(opt.value, params)) return true;
+        }
+      }
+    }
   }
-  setPopover(el, value === "true");
+  return false;
 }
 
-/**
- * Moves a surface into or out of the top layer, once.
- *
- * showPopover throws on an already-open popover and hidePopover on a closed
- * one, so the guard is the contract rather than caution — and the flag is the
- * terminal's own record because `:popover-open` is a selector, which every DOM
- * this runs against does not answer. A surface nobody has opened IS closed:
- * that is the element's state, not a value assumed for it, which is why the
- * first bind of a closed row must reach neither call.
- */
-function setPopover(el, want) {
-  // An `auto` popover has a second writer — light dismiss and Escape are the
-  // UA's, and it closes the surface without telling the row. A flag that only
-  // this function wrote would then say open over a closed surface and skip the
-  // call that reopens it: a menu dead after its first dismissal. `toggle` is
-  // where the element states what it did.
-  if (el._prontoToggle === undefined) {
-    el._prontoToggle = (e) => {
-      el._prontoOpen = e.newState === "open";
-    };
-    el.addEventListener("toggle", el._prontoToggle);
-  }
-  if ((el._prontoOpen ?? false) === want) return;
-  el._prontoOpen = want;
-  if (want) el.showPopover();
-  else el.hidePopover();
-}
-
-// A data-interest naming no element, or one that is not a popover.
-export class InterestError extends ProgramError {}
-
-// How long a pointer rests on a trigger before its surface opens, and how long
-// the surface survives the pointer leaving. The grace is what makes the surface
-// HOVERABLE — WCAG 1.4.13's second clause — since a reader moving onto it
-// crosses the gap between the two.
-const INTEREST_IN = 300;
-const INTEREST_OUT = 200;
-
-/**
- * A surface a trigger opens on hover or focus. The terminal performs the open,
- * the grace that makes it hoverable, and nothing else.
- *
- * Three constraints hold it up, each argued in
- * plugins/omnishell/docs/machines.md#gestures-and-cancels. It stores nothing,
- * so no row can disagree with it. Its waits are the terminal's clock and never
- * setTimeout, or `?clock=manual` could not hold them still. And the surface must
- * be `popover="auto"`, so WCAG 1.4.13's DISMISSIBLE clause is the element's and
- * nothing here listens for a key.
- *
- * Not spelled `interestfor`: that name belongs to a spec no engine ships, and
- * this deletes when one does.
- */
-function wireInterest(el) {
-  if (el._prontoInterest) return;
-  const id = el.dataset.interest;
-  const surface = document.getElementById(id);
-  if (surface === null) throw new InterestError(`data-interest names "${id}", which is no element on the screen`);
-  if (surface.getAttribute("popover") !== "auto") {
-    throw new InterestError(
-      `data-interest names "${id}", which is not popover="auto" — light dismiss and Escape are the element's half of WCAG 1.4.13`,
-    );
-  }
-  // One owner per surface. A row deciding openness and a pointer deciding it
-  // are two writers of one fact, and they disagree the moment either moves:
-  // the row would restate its answer on the next bind and shut a surface the
-  // reader is still under.
-  if (surface.dataset.open !== undefined) {
-    throw new InterestError(
-      `data-interest names "${id}", whose openness is already a column — a surface has one owner`,
-    );
-  }
-  el._prontoInterest = true;
-
-  let generation = 0;
-  // The generation mark IS the cancellation, as it is for a machine's `after`:
-  // a wait that comes due after interest moved on finds a stale mark and dies.
-  const settle = (want, delay) => {
-    const mine = ++generation;
-    rest(delay / TEMPO, { kind: "interest" }).then(() => {
-      if (mine !== generation) return;
-      setPopover(surface, want);
-    });
-  };
-
-  // Focus opens with no delay: 1.4.13 is "hover OR focus", and a keyboard
-  // reader who has arrived has already waited.
-  for (const [node, type, want, delay] of [
-    [el, "pointerenter", true, INTEREST_IN],
-    [el, "pointerleave", false, INTEREST_OUT],
-    [el, "focusin", true, 0],
-    [el, "focusout", false, INTEREST_OUT],
-    // The surface's own: a reader moving onto it is still interested, which is
-    // the clause a CSS-only tooltip cannot meet without the two boxes touching.
-    [surface, "pointerenter", true, 0],
-    [surface, "pointerleave", false, INTEREST_OUT],
-    // And the same pair for the keyboard, which is what a surface holding
-    // anything reachable needs: Tab moves focus out of the trigger, and a
-    // surface that only heard the pointer would close under the reader on
-    // their way into it — taking the focus with it, since the element it held
-    // is gone.
-    [surface, "focusin", true, 0],
-    [surface, "focusout", false, INTEREST_OUT],
-  ]) {
-    node.addEventListener(type, () => settle(want, delay));
-  }
-}
-
-function staticOrParam(template) {
+function staticOrParam(template, ctx) {
   const exprs = [...template.matchAll(PLACEHOLDERS)].map((m) => m[1]);
-  return exprs.length > 0 && exprs.every((e) => e.startsWith("param.") || e.startsWith("msg."));
+  if (exprs.length === 0) return false;
+  for (const e of exprs) {
+    if (e.startsWith("param.")) continue;
+    if (e.startsWith("msg.")) {
+      if (ctx?.messages) {
+        const key = e.slice("msg.".length);
+        const catalog = ctx.messages[ctx.locale] ?? ctx.messages[ctx.i18n?.default] ?? ctx.messages.default ?? Object.values(ctx.messages)[0];
+        const val = catalog?.[key];
+        if (astNeedsRow(val, ctx.params)) return false;
+      }
+      continue;
+    }
+    return false;
+  }
+  return true;
 }
 
 // opts.handlers: false skips handler loading (the storybook's fixture adapter —
@@ -1454,10 +1302,8 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // so one app never keeps the same sentence in two places.
   globalThis.__prontoMessages = opts.messages;
   // What a binding reads off the app rather than off its row: the route table
-  // and the locales every link's address is composed from (routeHref), and the
-  // emitted entity schema a value format resolves a column's declaration in
-  // (moneyOf).
-  const cfg = { routes: opts.routes, i18n: opts.i18n, schema: opts.schema, prefix: opts.prefix };
+  // and the locales every link's address is composed from (routeHref).
+  const cfg = { routes: opts.routes, i18n: opts.i18n, schema: opts.schema, prefix: opts.prefix, endowments: opts.endowments };
   // Loaded below, before anything binds; the ctx carries the map so an adapter
   // is reached the way a message catalogue is, and every derived ctx keeps it.
   let adapters = null;
@@ -1493,23 +1339,17 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // an Arabic match inside a Portuguese app lays out left-to-right.
     if (currentLocale !== undefined) screen.dir = directionOf(currentLocale);
     for (const el of [screen, ...screen.querySelectorAll("*")]) {
-      // An arm selected out of a row is the region's to render: this pass runs
-      // with no row, and the region re-binds on every refresh anyway. One
-      // selected from a route param is resolvable here and is resolved.
-      const selector = el.dataset?.msgSelect ?? el.dataset?.msgPlural;
-      if (selector !== undefined && !selector.startsWith("param.")) continue;
-      const arm = armOf(el, screenCtx);
-      if (el.dataset?.text && staticOrParam(el.dataset.text)) {
-        el.textContent = interpolate(el.dataset.text, screenCtx, arm);
+      if (el.dataset?.text && staticOrParam(el.dataset.text, screenCtx)) {
+        el.textContent = interpolate(el.dataset.text, screenCtx);
       }
       for (const attr of [...(el.attributes ?? [])]) {
         if (regionAttr(attr.name) || attr.name === "data-value") continue;
         const template = (el._prontoAttrs ?? {})[attr.name] ?? attr.value;
-        if (staticOrParam(template)) {
+        if (staticOrParam(template, screenCtx)) {
           if (PLACEHOLDER.test(template)) {
             (el._prontoAttrs ??= {})[attr.name] = template;
           }
-          el.setAttribute(attr.name, interpolate(template, screenCtx, arm));
+          el.setAttribute(attr.name, interpolate(template, screenCtx));
         }
       }
     }
@@ -1565,11 +1405,17 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     s.replaceWith(fresh);
   }
 
-  const handlers = opts.handlers === false ? new Map() : await loadHandlers(screen, appBase, route);
-  adapters = opts.handlers === false ? null : await loadAdapters(screen, appBase, route);
+  const endowmentsMap = {
+    ...(cfg?.endowments ?? {}),
+    ...(opts.endowments ?? {}),
+    ...(route.files?.endowments ?? {}),
+    ...(route.endowments ?? {}),
+  };
+  const handlers = opts.handlers === false ? new Map() : await loadHandlers(screen, appBase, route, endowmentsMap);
+  adapters = opts.handlers === false ? null : await loadAdapters(screen, appBase, route, endowmentsMap);
   const renderers = opts.handlers === false
     ? {}
-    : await loadRenderers(screen, appBase, route);
+    : await loadRenderers(screen, appBase, route, endowmentsMap);
 
   const units = opts.units ?? {};
   const resolveUnit = (name) => {
@@ -1701,18 +1547,15 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // data-key='{"<key>": "<form id>"}' submits a form on a key, the way a form
   // with no submit button submits on change. The id interpolates, so the map is
   // read at event time; the keys are literals, so they are checked once.
-  /** Every key binding at or under `scope` that no deeper region owns, and
-   * every interest binding likewise: both name a target by id and both are
-   * wired once per element, so one pass carries them. */
+  /** Every key binding at or under `scope` that no deeper region owns,
+   * named by id and wired once per element. */
   function wireKeysIn(scope) {
     wireKeysOn(scope);
     for (const el of scope.querySelectorAll("[data-key]")) if (ownedBy(el, scope)) wireKeys(el);
-    for (const el of scope.querySelectorAll("[data-interest]")) if (ownedBy(el, scope)) wireInterest(el);
   }
   /** The element's own bindings, and none of its descendants'. */
   function wireKeysOn(el) {
     if (el.dataset?.key !== undefined) wireKeys(el);
-    if (el.dataset?.interest !== undefined) wireInterest(el);
   }
 
   function wireKeys(el) {
@@ -1805,7 +1648,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           // the inputs are both in hand, so there is nothing to materialise
           // and nothing to wait for. The modules and the zone are the screen's
           // — a form's own ctx carries the row it writes, and nothing else.
-          out[input.name] = input.value === "" ? null : adapter.parse(input.value, { zone: screenCtx.timeZone });
+          out[input.name] = input.value === "" ? null : adapter.parse(input.value, { zone: screenCtx.timeZone, locale: localeOf(screenCtx) });
         } else out[input.name] = input.value.trim();
       }
       return out;
@@ -3176,107 +3019,8 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       });
     };
 
-    /**
-     * APG's other focus model: the affordances are focusable, one of them holds
-     * the tabstop, and moving the caret moves DOM focus. Virtual focus needs
-     * neither — `aria-activedescendant` names the active row and focus never
-     * leaves the container — so this is the arm that has to reach the DOM.
-     *
-     * `data-rove` names the column that says which member is current, and the
-     * terminal performs both effects it decides: the tab order, because the DOM
-     * has one and a screen spelling it per member could disagree with itself,
-     * and the focus.
-     *
-     * Focus follows the tabstop MOVING, which is the delta between two
-     * consecutive views and not a fact about who caused it. The reader is the
-     * other writer: Tab moves focus with no column changing, so a terminal
-     * re-asserting focus on every refresh fights them for it — and a column
-     * that did not change is every such refresh. Nothing is recorded to decide
-     * this: a cause the rows do not carry would be state outside the algebra,
-     * invisible to a trace and absent from a snapshot, so a replay would take
-     * one path and a jump to the same state another.
-     *
-     * The column has ONE writer by construction, which is what makes the delta
-     * the reader's own move: `roveLint` refuses a tabstop over an entity the
-     * reader does not own, where a second reader's write would land as a jump
-     * of this one's caret.
-     */
-    // Whether the region's markup can ever carry a member of either set. Asked
-    // of the markup once rather than of the rendered tree on every refresh: a
-    // region with none scans its whole list per write to learn nothing.
-    const declares = (selector) =>
-      region.querySelector(selector) !== null ||
-      templates.some(({ el }) => el.content.querySelector(selector) !== null);
-    const roving = declares("[data-rove]");
-    const focusing = declares("[data-focus]");
     const dragging = templates.some(({ el }) => el.content.querySelector("[data-drag-handle]") !== null);
-    const rove = () => {
-      if (!roving) return;
-      // Every stop the region owns, whatever row each came from. A list whose
-      // rows are the members and a compile-time set of N members under one row
-      // are the same set — the region's shape says nothing about the tabstop,
-      // and a one-row list carrying a fixed set of affordances is both at once.
-      const stops = [...region.querySelectorAll("[data-rove]")].filter((el) => ownedBy(el, region));
-      if (stops.length === 0) return;
-      const held = stops.find((el) => el.getAttribute("tabindex") === "0");
-      // The set is what the region still renders; the tab order above is every
-      // stop the document holds. They differ by the rows mid-exit.
-      const reading = stops.filter((el) => !midExit(el, region) && el.getAttribute("data-rove") === "true");
-      // The invariant a set has, in either shape: one member is current. Two
-      // would leave which one holds the tabstop to document order, and the
-      // reader would find the caret somewhere the columns did not put it.
-      if (reading.length > 1) {
-        throw new ProgramError(
-          `region "${table}": ${reading.length} members read data-rove="true"; a set has one current member`,
-        );
-      }
-      const current = reading[0];
-      // The attribute, not the property: the tab order is what the markup
-      // states, so it has to be readable off the element the same way every
-      // other stamped fact is.
-      for (const el of stops) el.setAttribute("tabindex", el === current ? "0" : "-1");
-      // A set that carried no tabstop is arriving, not moving: focusing on
-      // first paint would take the page from whatever the reader opened it on.
-      if (held === undefined || current === undefined || held === current) return;
-      current.focus();
-    };
 
-    /**
-     * Move focus to the member a column names, leaving the tab order alone.
-     *
-     * APG gives some patterns one tab stop and others — an accordion's headers
-     * — every affordance in the Tab sequence with the arrows as an addition.
-     * `data-rove` performs the first; this is the second, and the split matters
-     * because stamping a tabstop where the standard keeps them all would take
-     * headers OUT of the Tab sequence, which is a worse contract than the one
-     * it replaces.
-     *
-     * Nothing is remembered and nothing is stamped to stand in for it: the DOM
-     * already holds where focus is, so the rule reads it. Move only when the
-     * reader is INSIDE this widget and on the wrong member — outside it, their
-     * focus is not this region's business, and on the right member there is
-     * nothing to do.
-     *
-     * What keeps the two writers from fighting is `focusin`: the reader's own
-     * moves write the column, so a disagreement is the chart's move and never
-     * theirs. `focusLint` refuses a region that does not hear it.
-     */
-    const moveFocus = () => {
-      if (!focusing) return;
-      const members = [...region.querySelectorAll("[data-focus]")]
-        .filter((el) => ownedBy(el, region) && !midExit(el, region));
-      const reading = members.filter((el) => el.getAttribute("data-focus") === "true");
-      if (reading.length > 1) {
-        throw new ProgramError(
-          `region "${table}": ${reading.length} members read data-focus="true"; a set has one current member`,
-        );
-      }
-      const current = reading[0];
-      if (current === undefined) return;
-      const active = document.activeElement ?? null;
-      if (active === current || !region.contains(active)) return;
-      current.focus();
-    };
 
     // Item nodes persist across refreshes, keyed by row id. A surviving node
     // keeps its listeners, its focus, its scroll position and any transition
@@ -3575,8 +3319,6 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             if (HAS_MOVE_BEFORE && node.isConnected) region.moveBefore(node, cursor);
             else region.insertBefore(node, cursor);
           }
-          rove();
-          moveFocus();
           emptyNote(region, order.length === 0 ? region.dataset.empty : undefined, ctx);
           // The region's own element, from the ENCLOSING row rather than any
           // of its rows: a container naming one of them — a listbox's
@@ -3667,8 +3409,6 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         wireKeysIn(region);
         bindTexts(region, slotCtx, renderers);
         bindHatches(region, slotCtx);
-        rove();
-        moveFocus();
       }
     };
     let retryTimer;

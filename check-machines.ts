@@ -49,6 +49,7 @@ import {
   type Route,
   type Row,
   type Unit,
+  type Catalogs,
 } from "./test/screen-harness.ts";
 
 type Finding = { severity: string; path: string; message: string };
@@ -276,7 +277,7 @@ async function walkScreen(
   cluster: Cluster,
   files: Record<string, string>,
   units: Record<string, Unit>,
-  messages: Record<string, Record<string, string>> = {},
+  messages: Catalogs = {},
   routes: Route[] = [],
   i18n?: I18n,
 ): Promise<Walked> {

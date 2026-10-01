@@ -67,8 +67,8 @@ const files = (charts: unknown = [EXPANSION, CARET]) => ({
   "acc.html": `<section class="screen" data-screen="acc">
     <div class="acc" data-live="acc_demo" data-filter="id=eq.the"
          data-machine='${JSON.stringify(charts)}'>
-      <button type="button" id="h-one" aria-expanded="{exp_one}" data-focus="{cur_one}">One</button>
-      <button type="button" id="h-two" aria-expanded="{exp_two}" data-focus="{cur_two}">Two</button>
+      <button type="button" id="h-one" aria-expanded="{exp_one}" data-cur="{cur_one}">One</button>
+      <button type="button" id="h-two" aria-expanded="{exp_two}" data-cur="{cur_two}">Two</button>
     </div>
   </section>`,
   "acc.css": "",
@@ -102,7 +102,7 @@ describe("two charts, one row", () => {
     await m.settle()
     expect((m.one("#h-one") as unknown as { getAttribute(n: string): string }).getAttribute("aria-expanded"))
       .toBe("false")
-    expect((m.one("#h-one") as unknown as { getAttribute(n: string): string }).getAttribute("data-focus"))
+    expect((m.one("#h-one") as unknown as { getAttribute(n: string): string }).getAttribute("data-cur"))
       .toBe("true")
     await m.stop()
   })

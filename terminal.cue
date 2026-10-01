@@ -101,21 +101,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 		"text-formats": plain:    {renders: "the column's text, placeholders interpolated", note: "the default when data-text-format is absent"}
 		"text-formats": datetime: {renders: "the moment in the reader's own language and clock (\"Aug 2, 09:00\" to an American, \"2 de ago., 09:00\" to a Brazilian)", note: "raw ISO / postgres timestamptz never reaches a reader; the zone is the reader's, except in the storybook, which pins UTC for the checks and for prerendered documents"}
 		"text-formats": number:   {renders: "the number in the reader's own digits and grouping (\"1.234,5\" to a Brazilian)", note: "the column's ASCII spelling is nobody's"}
-		"text-formats": money:    {renders: "the amount with its currency, placed and grouped for the reader (\"R$ 1.204\")", note: "the code and the minor-unit scale ride the column (#Field.money), never the attribute"}
 
-		// A message with more than one wording. A catalogue value may be a flat
-		// map of arm name to sentence, and the element names which arm it
-		// reads; the arm's own {column} bindings resolve against the same row
-		// the element's other bindings do. Selection is the terminal's because
-		// Intl is endowed here and in nothing a screen can reach otherwise —
-		// a Jessie compartment has no Intl and plv8 has none either. The list
-		// IS closed, unlike text-formats above: what indexes the map is the
-		// terminal's own arithmetic, so an unknown selector is not an app's to
-		// define. A map reaching a binding with no selector over it is refused
-		// rather than rendered, because it can only render as [object Object].
-		"message-arms": [Name=string]: {selects: string, note: string}
-		"message-arms": "data-msg-plural": {selects: "the CLDR category Intl.PluralRules gives the named column in the reader's language", note: "a column that is not a count is refused rather than left to answer \"other\""}
-		"message-arms": "data-msg-select": {selects: "the arm the named column's own value spells", note: "gender and any other closed set; every locale offers the same arms"}
 
 		// The renderer role, and the terminal's DOM mutation story. A renderer
 		// is a pure (value) => nodes function; interpreter/render.js states why

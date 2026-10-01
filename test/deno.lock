@@ -12,6 +12,8 @@
     "jsr:@std/testing@1": "1.0.20",
     "jsr:@std/yaml@1": "1.0.5",
     "jsr:@std/yaml@1.0.5": "1.0.5",
+    "npm:@formatjs/icu-messageformat-parser@*": "3.5.20",
+    "npm:@formatjs/icu-messageformat-parser@3.5.20": "3.5.20",
     "npm:@playwright/test@1.59.1": "1.59.1",
     "npm:@simplewebauthn/server@13.1.1": "13.1.1",
     "npm:@tanstack/react-router@1.121.0": "1.121.0_react@19.2.8",
@@ -186,8 +188,16 @@
       "integrity": "sha512-974pWIZVLDMc5GW5YAsj8y0XxULxIy/sPUy7tsxmWbF93KRIyh9xpuHlh0zDL+shUcf5nHDjFOg9YLiQ763eiA==",
       "dependencies": [
         "tslib"
-      ],
-      "scripts": true
+      ]
+    },
+    "@formatjs/icu-messageformat-parser@3.5.20": {
+      "integrity": "sha512-DUzCb2iskGDKvLU7P+nz/rjpmN59luoTRbWHFFNYNnZTxWCKvwPI94rNll99TGZaI6XoTbDF0QGegk21GFrQZQ==",
+      "dependencies": [
+        "@formatjs/icu-skeleton-parser"
+      ]
+    },
+    "@formatjs/icu-skeleton-parser@2.1.12": {
+      "integrity": "sha512-ca7tZMLpfHX3sUD7hP6gE/qr6Iq89EDd3ZLeRhbsB7r0UD55DGJq+tmFLzrGrnx5StahUevQmQQVtbDRHsfDHA=="
     },
     "@google-cloud/firestore@7.11.6": {
       "integrity": "sha512-EW/O8ktzwLfyWBOsNuhRoMi8lrC3clHM5LVFhGvO1HCsLozCOOXRAlHrYBoE6HL42Sc8yYMuCb2XqcnJ4OOEpw==",
@@ -943,8 +953,7 @@
     },
     "fsevents@2.3.2": {
       "integrity": "sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==",
-      "os": ["darwin"],
-      "scripts": true
+      "os": ["darwin"]
     },
     "function-bind@1.1.2": {
       "integrity": "sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA=="
@@ -1417,8 +1426,7 @@
         "@protobufjs/utf8",
         "@types/node",
         "long"
-      ],
-      "scripts": true
+      ]
     },
     "punycode@2.3.1": {
       "integrity": "sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg=="

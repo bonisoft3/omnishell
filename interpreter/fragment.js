@@ -521,6 +521,7 @@ export function screenEnv(cfg, over = /** @type {T} */ ({})) {
     i18n: cfg?.i18n,
     schema: cfg?.schema,
     prefix: cfg?.prefix,
+    endowments: cfg?.endowments,
     ...over,
   };
 }

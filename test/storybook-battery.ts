@@ -31,6 +31,7 @@ import {
   appRoutes,
   appI18n,
   topLayer,
+  type Catalogs,
 } from "./screen-harness.ts";
 import { screenEnv } from "../interpreter/fragment.js";
 
@@ -75,8 +76,8 @@ function makeProxyRow(
 }
 
 function createProxyMessages(
-  discovered: Record<string, Record<string, string>>,
-): Record<string, Record<string, string>> {
+  discovered: Catalogs,
+): Catalogs {
   const defaultCatalog = discovered.en ?? Object.values(discovered)[0] ?? {};
   const proxyCatalog = new Proxy(defaultCatalog, {
     get: (target, key) => {

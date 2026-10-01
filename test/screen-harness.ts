@@ -19,6 +19,7 @@ import { upsertKey as resolveKey } from "../interpreter/data-sync.js";
 import { batched } from "../interpreter/batched-store.js";
 import "../interpreter/vendor/ses.umd.min.js";
 import { ensureSes } from "../interpreter/jessie.js";
+import { compileCatalog } from "../src/messages.ts";
 
 /** data-sync.js is the shipped store, not a typed module: the natural key an
  * upsert resolves against comes from there so there is one resolution and not
@@ -114,9 +115,8 @@ export type Schema = Record<string, {
   fields: { name: string; type: string; money?: { currency: string; minorUnits: number } }[];
 }>;
 
-/** A catalogue per locale. A value is a sentence, or the map of arms an
- * element's data-msg-plural / data-msg-select picks one of. */
-export type Catalogs = Record<string, Record<string, string | Record<string, string>>>;
+/** A catalogue per locale. A value is a sentence or a compile-time AST. */
+export type Catalogs = Record<string, Record<string, unknown>>;
 
 /** One store contact, in the order it was made. `op` is what the store RESOLVED
  * to and not what the markup declared: an upsert lands here as the create or the
@@ -666,6 +666,7 @@ export type MountSpec = {
    * minor-unit scale off the column. mountApp reads it from the app's own
    * shell.yaml. */
   schema?: Schema;
+  endowments?: Record<string, string[]>;
 };
 
 /** linkedom's HTMLFormElement carries no constraint API, and the interpreter
@@ -911,7 +912,7 @@ export function topLayer(document: unknown, Event: new (t: string, i: object) =>
  * children into `content`, a fragment of another document, where
  * `getElementById` cannot reach them at all.
  *
- * Without this the tier answers `data-key` and `data-interest` from markup that
+ * Without this the tier answers `data-key` from markup that
  * was never rendered: a key whose form only exists inside the template it is
  * stamped from resolves here and throws in a browser, so the one case that
  * matters — a filtered list with nothing in it — passes under test and fails in
@@ -1227,15 +1228,15 @@ export async function mountScreen(spec: MountSpec): Promise<Mounted> {
   };
 }
 
-export async function appMessages(appDir: URL): Promise<Record<string, Record<string, string>>> {
-  const messages: Record<string, Record<string, string>> = {};
+export async function appMessages(appDir: URL): Promise<Record<string, Record<string, unknown>>> {
+  const messages: Record<string, Record<string, unknown>> = {};
   try {
     const dir = new URL("messages/", appDir);
     for await (const entry of Deno.readDir(dir)) {
       if (entry.isFile && entry.name.endsWith(".json")) {
         const locale = entry.name.slice(0, -".json".length);
         const text = await Deno.readTextFile(new URL(entry.name, dir));
-        messages[locale] = JSON.parse(text);
+        messages[locale] = compileCatalog(JSON.parse(text));
       }
     }
   } catch {}
@@ -1267,7 +1268,16 @@ export async function mountApp(
     cluster: { ...declared, ...spec.cluster },
     units: { ...(await appUnits(spec.appDir)), ...spec.units },
     schema: spec.schema ?? await appSchema(spec.appDir),
+    endowments: spec.endowments ?? await appEndowments(spec.appDir),
   });
+}
+
+/** The manifest-granted platform endowments an app declares (shell.yaml `endowments:`). */
+export async function appEndowments(appDir: URL): Promise<Record<string, string[]> | undefined> {
+  const shell = parseYaml(await Deno.readTextFile(new URL("shell/shell.yaml", appDir))) as {
+    endowments?: Record<string, string[]>;
+  };
+  return shell.endowments;
 }
 
 /** The entity projection an app emits (shell.yaml `schema:`), which is what a

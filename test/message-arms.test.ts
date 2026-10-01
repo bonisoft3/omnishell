@@ -1,13 +1,9 @@
-// A message with more than one wording, and the element that picks between
-// them: data-msg-plural reads the arm Intl.PluralRules names for a count,
-// data-msg-select the arm the column's own value names.
-//
-// The count refusals are the reason armOf exists at all: Intl.PluralRules
-// answers "other" for NaN, undefined, "" and "abc" alike, so a selector over a
-// column that is not a count would render a plural nobody asked for and no
-// tier would say so.
+// Compile-time ICU MessageFormat AST evaluation in pure SES:
+// Plurals evaluate with Intl.PluralRules and format counts with Intl.NumberFormat;
+// selects match against the value and fall back to 'other'.
 import { describe, expect, it } from "@test/harness"
 import { mountScreen } from "./screen-harness.ts"
+import { compileCatalog } from "../src/messages.ts"
 
 const ROUTE = {
   screen: "pr",
@@ -16,7 +12,7 @@ const ROUTE = {
 }
 
 type Row = Record<string, unknown>
-type Catalog = Record<string, string | Record<string, string>>
+type Catalog = Record<string, unknown>
 
 const files = (item: string) => ({
   "pr.html": `<section class="screen" data-screen="pr">
@@ -30,9 +26,9 @@ const files = (item: string) => ({
 })
 
 const PRICE = {
-  "pt-BR": { worth: { one: "vale {n} ponto", many: "vale {n} pontos", other: "vale {n} pontos" } },
-  es: { worth: { one: "vale {n} punto", many: "vale {n} puntos", other: "vale {n} puntos" } },
-  en: { worth: { one: "worth {n} point", other: "worth {n} points" } },
+  "pt-BR": compileCatalog({ worth: "{n, plural, one {vale # ponto} many {vale # pontos} other {vale # pontos}}" }),
+  es: compileCatalog({ worth: "{n, plural, one {vale # punto} many {vale # puntos} other {vale # puntos}}" }),
+  en: compileCatalog({ worth: "{n, plural, one {worth # point} other {worth # points}}" }),
 } satisfies Record<string, Catalog>
 
 const mount = (
@@ -49,9 +45,9 @@ const mount = (
     locale: opts.locale ?? "pt-BR",
   })
 
-const PLURAL = `<small data-text="{msg.worth}" data-msg-plural="n"></small>`
+const PLURAL = `<small data-text="{msg.worth}"></small>`
 
-describe("data-msg-plural", () => {
+describe("ICU plural message evaluation", () => {
   it("reads the arm the reader's language names for the count", async () => {
     // Spanish pluralizes as one/many/other, so 1 and 2 are different arms of
     // one key — the sentence a string-valued catalogue cannot say.
@@ -63,7 +59,7 @@ describe("data-msg-plural", () => {
 
   it("asks each language for the categories it has and no others", async () => {
     // The same markup over a catalogue carrying one/other, because that is the
-    // whole of English. Nothing here names a category.
+    // whole of English.
     const m = await mount(PLURAL, [{ id: "a", n: 1 }, { id: "b", n: 2 }], { locale: "en" })
     await m.settle()
     expect(m.texts("li")).toEqual(["worth 1 point", "worth 2 points"])
@@ -86,16 +82,16 @@ describe("data-msg-plural", () => {
   })
 })
 
-describe("data-msg-select", () => {
+describe("ICU select message evaluation", () => {
   const GREET = {
-    "pt-BR": { greet: { f: "bem-vinda", m: "bem-vindo" } },
-    es: { greet: { f: "bienvenida", m: "bienvenido" } },
-    en: { greet: { f: "welcome", m: "welcome" } },
+    "pt-BR": compileCatalog({ greet: "{g, select, f {bem-vinda} m {bem-vindo} other {bem-vinde}}" }),
+    es: compileCatalog({ greet: "{g, select, f {bienvenida} m {bienvenido} other {bienvenide}}" }),
+    en: compileCatalog({ greet: "{gender, select, f {welcome} m {welcome} other {welcome}}" }),
   } satisfies Record<string, Catalog>
 
   it("reads the arm the column's own value names", async () => {
     const m = await mount(
-      `<small data-text="{msg.greet}" data-msg-select="g"></small>`,
+      `<small data-text="{msg.greet}"></small>`,
       [{ id: "a", n: 1, g: "f" }, { id: "b", n: 2, g: "m" }],
       { messages: GREET },
     )
@@ -104,53 +100,23 @@ describe("data-msg-select", () => {
     await m.stop()
   })
 
-  it("refuses a value the map has no arm for", async () => {
-    await expect(
-      mount(`<small data-text="{msg.greet}" data-msg-select="g"></small>`, [{ id: "a", n: 1, g: "x" }], {
-        messages: GREET,
-      }),
-    ).rejects.toThrow(/has no arm "x"; it carries \[f, m\]/)
-  })
-})
-
-describe("a message with arms and nothing selecting one", () => {
-  it("refuses rather than rendering [object Object]", async () => {
-    // What this tier shipped before: String({one,many,other}) reaching the DOM
-    // as "[object Object]", in every locale, with no tier saying anything.
-    await expect(mount(`<small data-text="{msg.worth}"></small>`, [{ id: "a", n: 1 }])).rejects.toThrow(
-      /is a map of \[one, many, other\]/,
+  it("falls back to other when the value has no specific arm", async () => {
+    const m = await mount(
+      `<small data-text="{msg.greet}"></small>`,
+      [{ id: "a", n: 1, g: "x" }],
+      { messages: GREET },
     )
-  })
-
-  it("refuses an arm that names another message", async () => {
-    // A catalogue recursing through the renderer: the arm is text, and the one
-    // inner pass it gets resolves the row's columns and nothing else.
-    await expect(
-      mount(PLURAL, [{ id: "a", n: 1 }], {
-        messages: { "pt-BR": { worth: { one: "{msg.other}", many: "x", other: "x" }, other: "o" } },
-      }),
-    ).rejects.toThrow(/an arm is text, not another key/)
-  })
-
-  it("refuses two selectors on one element", async () => {
-    await expect(
-      mount(`<small data-text="{msg.worth}" data-msg-plural="n" data-msg-select="n"></small>`, [{ id: "a", n: 1 }]),
-    ).rejects.toThrow(/an arm is selected once/)
+    await m.settle()
+    expect(m.texts("li")).toEqual(["bem-vinde"])
+    await m.stop()
   })
 })
 
 describe("the fixture tier", () => {
   it("answers a plural selector's column with a count", async () => {
-    // fixture() synthesizes "Sample <leaf> 1" for every field it does not
-    // recognise, and a selector over one of those is exactly what armOf
-    // refuses — so without the markup scan every storybook frame of every
-    // pluralized screen goes down, and the check tiers render through here.
     const route = { screen: "pr", files: { html: "pr.html", css: "pr.css" }, states: ["populated"] }
     const source = files(PLURAL)["pr.html"]
     const html = `<!doctype html><html><head></head><body><div id="mount"></div></body></html>`
-    // Imported here rather than at the top of the file: screen-harness owns
-    // the interpreter import, and a second static one freezes the clock knobs
-    // before mountScreen can set them.
     const { renderStorybook } = await import("../interpreter/storybook.js")
     const { parseHTML } = await import("npm:linkedom@0.18.4")
     // deno-lint-ignore no-explicit-any
@@ -171,10 +137,8 @@ describe("the fixture tier", () => {
 
 describe("an arm bound into an attribute", () => {
   it("selects the same arm the element's text does", async () => {
-    // The attribute path renders "[object Object]" exactly as data-text did,
-    // so the arm reaches bindElementAttributes and not only bindTexts.
     const m = await mount(
-      `<small title="{msg.worth}" data-msg-plural="n">x</small>`,
+      `<small title="{msg.worth}">x</small>`,
       [{ id: "a", n: 1 }, { id: "b", n: 4 }],
       { locale: "es" },
     )

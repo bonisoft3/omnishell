@@ -68,15 +68,14 @@ export function ensureSes() {
 // last expression is the Compartment's completion value, and the role decides
 // what shape that value must have, what the compartment endows, and how the
 // authored file is adapted to a script.
-// What an adapter is endowed with: Intl, whole, with the host's defaults
-// refused — a module states its locale, its zone and its instant, or it throws.
-// Why it is admitted whole is plugins/omnishell/docs/terminal.md#the-seats; the
-// rule about what an adapter may STORE out of it is
-// plugins/omnishell/REFERENCE.md#adapters.
-//
-// The other roles get nothing. A validation also runs in plv8, which carries
-// none of this data, so a module reaching for it there explodes where it is
-// seen.
+// What roles are endowed with: pure, deterministic platform primitives
+// granted via manifest endowments or requestedEndowments (SAFE_ENDOWMENTS: tamed Intl,
+// TextEncoder, TextDecoder, URL, URLSearchParams). An adapter is endowed with
+// Intl by default; other roles receive no endowments unless granted.
+// Intl has the host's defaults refused — a module states its locale, its zone
+// and its instant, or it throws. Why it is admitted is
+// plugins/omnishell/docs/terminal.md#the-seats; the rule about what an adapter
+// may STORE out of it is plugins/omnishell/REFERENCE.md#adapters.
 const NEEDS_AN_INSTANT = new Set(["format", "formatToParts", "formatRange", "formatRangeToParts"]);
 
 // The raw service behind each wrapper, so a wrapper handed back as an argument
@@ -175,24 +174,47 @@ const intlSubset = () => (endowedIntl ??= harden(Object.fromEntries(
   ]),
 )));
 
+export const SAFE_ENDOWMENTS = {
+  Intl: intlSubset,
+  TextEncoder: () => TextEncoder,
+  TextDecoder: () => TextDecoder,
+  URL: () => URL,
+  URLSearchParams: () => URLSearchParams,
+};
+
+export function buildEndowments(names = []) {
+  const result = {};
+  for (const name of names) {
+    const factory = SAFE_ENDOWMENTS[name];
+    if (typeof factory !== "function") {
+      throw new Error(`unpermitted endowment "${name}"`);
+    }
+    result[name] = factory();
+  }
+  return result;
+}
+
 const ROLES = {
-  // reduce(state, event) -> {updates}. Needs nothing.
+  // reduce(state, event) -> {updates}.
   handler: {
-    endow: () => ({}),
+    defaultEndowments: [],
+    endow: (req = []) => buildEndowments(req),
     wrap: (s) => s,
     ok: (v) => typeof v === "function",
     want: "its reduce function",
   },
   // render(value) -> node description; render.js owns what one may become.
   renderer: {
-    endow: () => ({}),
-    wrap: (s) => s,
+    defaultEndowments: [],
+    endow: (req = []) => buildEndowments(req),
+    wrap: (s) => s.replace(/^[ \t]*export[ \t]+default[ \t]+/m, ""),
     ok: (v) => typeof v === "function",
     want: "its render function",
   },
-  // validation(state, event) -> boolean. Needs nothing.
+  // validation(state, event) -> boolean.
   validation: {
-    endow: () => ({}),
+    defaultEndowments: [],
+    endow: (req = []) => buildEndowments(req),
     wrap: (s) => s,
     ok: (v) => typeof v === "function",
     want: "its predicate",
@@ -203,7 +225,8 @@ const ROLES = {
   // completion value is the map of pure functions pronto/jessie.ts already
   // calls an adapter.
   adapter: {
-    endow: () => ({ Intl: intlSubset() }),
+    defaultEndowments: ["Intl"],
+    endow: (req = []) => buildEndowments(["Intl", ...req]),
     wrap: (s) => s,
     ok: (v) => typeof v === "object" && v !== null && typeof v.format === "function" && typeof v.parse === "function",
     want: "its format and parse functions",
@@ -221,7 +244,8 @@ const ROLES = {
   // the compartment an `export` it cannot parse — reporting a syntax error
   // against a file that is perfectly well formed.
   fold: {
-    endow: () => ({}),
+    defaultEndowments: [],
+    endow: (req = []) => buildEndowments(req),
     wrap: (s) =>
       `${s.replace(/^[ \t]*export[ \t]+/gm, "")}\nharden({ empty, step, combine, result });`,
     ok: (v) =>
@@ -257,7 +281,7 @@ export async function evaluateCaged(source, endowments = {}) {
   return cage.evaluate(source);
 }
 
-export async function evaluateRole(source, role = "handler") {
+export async function evaluateRole(source, role = "handler", requestedEndowments = []) {
   const spec = ROLES[role];
   if (spec === undefined) throw new Error(`unknown Jessie role "${role}"`);
   let value;
@@ -266,7 +290,8 @@ export async function evaluateRole(source, role = "handler") {
     // lockdown installs — a role whose module is the first one a screen loads
     // would otherwise build its endowment before the realm was sealed.
     await ensureSes();
-    value = await evaluateCaged(spec.wrap(source), spec.endow());
+    const combined = [...new Set([...(spec.defaultEndowments ?? []), ...requestedEndowments])];
+    value = await evaluateCaged(spec.wrap(source), spec.endow(combined));
   } catch (err) {
     // What the compartment is handed is the role's adaptation of the file, not
     // the file: a parse failure is a statement about the shape the role asked
@@ -282,5 +307,6 @@ export async function evaluateRole(source, role = "handler") {
   return value;
 }
 
-export const evaluateHandler = (source) => evaluateRole(source, "handler");
-export const evaluateFold = (source) => evaluateRole(source, "fold");
+export const evaluateHandler = (source, requestedEndowments = []) => evaluateRole(source, "handler", requestedEndowments);
+export const evaluateFold = (source, requestedEndowments = []) => evaluateRole(source, "fold", requestedEndowments);
+

@@ -2,7 +2,7 @@
 // so the endowment is the one the terminal gives it and nothing else is in
 // scope. São Paulo has no DST today and Berlin does, which is what makes the
 // gap and the overlap reachable.
-import { assert, assertEquals, assertThrows } from "jsr:@std/assert@1";
+import { assert, assertEquals, assertRejects, assertThrows } from "jsr:@std/assert@1";
 import { ensureSes, evaluateRole } from "../interpreter/jessie.js";
 
 const SOURCE = await Deno.readTextFile(new URL("../components/wallclock.js", import.meta.url));
@@ -115,11 +115,25 @@ Deno.test("the cage holds Intl, and what Intl does not give it", async () => {
   );
   assertEquals(probe.parse(), JSON.stringify({ absent: [], clock: "refused" }));
 
-  // Every other role runs where this tz database is not: goja at the container
-  // tier, plv8 in the database.
+  // Without opt-in, roles get no platform endowments (principle of least privilege).
   for (const role of ["handler", "renderer", "validation"]) {
-    const module = await evaluateRole(`(() => typeof Intl)`, role) as () => string;
-    assertEquals(module(), "undefined", `${role} is endowed with no Intl`);
+    const module = await evaluateRole(
+      `() => JSON.stringify({
+        intl: typeof Intl,
+        url: typeof URL,
+        encoder: typeof TextEncoder,
+      })`,
+      role,
+    ) as () => string;
+    assertEquals(
+      JSON.parse(module()),
+      {
+        intl: "undefined",
+        url: "undefined",
+        encoder: "undefined",
+      },
+      `${role} without opt-in has no platform endowments`,
+    );
   }
 });
 
@@ -240,13 +254,91 @@ Deno.test("a locale the host lacks is refused, not answered with the host's", as
   });
 });
 
-Deno.test("a fold cannot reach it either", async () => {
+Deno.test("a fold cannot reach platform primitives without opt-in", async () => {
   const fold = await evaluateRole(
     `export const empty = () => ({});
-     export const step = () => typeof Intl;
+     export const step = () => JSON.stringify({ intl: typeof Intl, url: typeof URL });
      export const combine = (a) => a;
      export const result = (a) => a;`,
     "fold",
   ) as { step: () => string };
-  assertEquals(fold.step(), "undefined");
+  assertEquals(JSON.parse(fold.step()), { intl: "undefined", url: "undefined" });
 });
+
+Deno.test("opting in to specific endowments grants only the requested ones", async () => {
+  for (const role of ["handler", "renderer", "validation"]) {
+    // When opting into ["Intl"] only: Intl is present and properly tamed, while URL is undefined.
+    const moduleWithIntl = await evaluateRole(
+      `() => {
+        let noLocale = "reached";
+        try { new Intl.NumberFormat(); } catch (e) { noLocale = "refused"; }
+        let noZone = "reached";
+        try { new Intl.DateTimeFormat("en-US"); } catch (e) { noZone = "refused"; }
+        let clock = "reached";
+        try { Date.now(); } catch (e) { clock = "refused"; }
+        return JSON.stringify({
+          intl: typeof Intl,
+          url: typeof URL,
+          noLocale,
+          noZone,
+          clock,
+        });
+      }`,
+      role,
+      ["Intl"],
+    ) as () => string;
+    assertEquals(
+      JSON.parse(moduleWithIntl()),
+      {
+        intl: "object",
+        url: "undefined",
+        noLocale: "refused",
+        noZone: "refused",
+        clock: "refused",
+      },
+      `${role} opting into Intl gets only tamed Intl`,
+    );
+
+    // Explicitly requesting URL, URLSearchParams: URL is present; Intl is undefined.
+    const moduleWithUrl = await evaluateRole(
+      `() => JSON.stringify({
+         intl: typeof Intl,
+         url: typeof URL,
+         params: typeof URLSearchParams,
+         encoder: typeof TextEncoder,
+       })`,
+      role,
+      ["URL", "URLSearchParams"],
+    ) as () => string;
+    assertEquals(
+      JSON.parse(moduleWithUrl()),
+      {
+        intl: "undefined",
+        url: "function",
+        params: "function",
+        encoder: "undefined",
+      },
+      `${role} requesting URL gets URL while Intl remains undefined`,
+    );
+  }
+});
+
+Deno.test("requesting unpermitted endowments is refused", async () => {
+  await assertRejects(
+    () => evaluateRole("() => 1", "handler", ["fetch"]),
+    Error,
+    'unpermitted endowment "fetch"',
+  );
+  await assertRejects(
+    () => evaluateRole("() => 1", "handler", ["window"]),
+    Error,
+    'unpermitted endowment "window"',
+  );
+  await assertRejects(
+    () => evaluateRole("() => 1", "validation", ["document", "fetch"]),
+    Error,
+    "unpermitted endowment",
+  );
+});
+
+

@@ -15,16 +15,14 @@ import { directionOf, PLACEHOLDER, PLACEHOLDERS } from "./interpreter/fragment.j
 // The terminal's own copy table, so the keys required here are the keys the
 // terminal actually asks for and cannot drift from them.
 import { CHROME_KEYS } from "./interpreter/chrome.js";
+import { type MessageNode, compileCatalog, parseMessage } from "./src/messages.ts";
 
 export type Finding = { severity: string; path: string; message: string };
 
-/** A catalogue value is a sentence, or a flat map of arm name to sentence that
- * an element's data-msg-plural / data-msg-select picks one of. Nothing without
- * an element to carry a selector — a route slug, a nav label, the terminal's
- * own chrome — can read a map, and each of those refuses one as it would refuse
- * a missing key. */
+/** A catalogue value is a plain string, a compile-time AST array, or an obsolete arms map. */
 export type Arms = Record<string, string>;
-export type Catalog = Record<string, string | Arms>;
+export type CatalogValue = string | MessageNode[] | Arms;
+export type Catalog = Record<string, CatalogValue>;
 
 const USER_FACING_ATTRS = new Set([
   "aria-label",
@@ -127,7 +125,7 @@ export async function checkApp(appDir: URL): Promise<{ findings: Finding[] }> {
   for (const loc of locales) {
     try {
       const txt = await Deno.readTextFile(new URL(`messages/${loc}.json`, appDir));
-      messages[loc] = JSON.parse(txt);
+      messages[loc] = compileCatalog(JSON.parse(txt)) as Catalog;
     } catch (err) {
       findings.push({
         severity: "error",
@@ -334,23 +332,13 @@ export function checkLocalizedUrls(
 }
 
 /**
- * A message with more than one wording, and the element that picks between
- * them: data-msg-plural runs a column through Intl.PluralRules and reads the
- * arm named by the CLDR category, data-msg-select reads the arm named by the
- * value itself.
+/**
+ * Verifies compile-time MessageFormat ASTs across all configured locales.
  *
- * The rule worth having is "every locale supplies exactly the categories its
- * language has", and it is decidable because Intl computes that set rather
- * than a table here going stale: Spanish is one/many/other, English one/other,
- * Polish one/few/many/other. Which keys are plural keys is decidable from the
- * markup — which is why one binding per selector and no row-carried key under
- * one are rules rather than conveniences: they are what make the category set
- * answerable at all.
- *
- * The interpreter's half of this is a throw, and it is graded by rendering
- * rather than by reading: checkMemoryApp mounts every route in every locale,
- * so a missing arm or a selector over a column that is not a count takes the
- * frame down there.
+ * For plurals (type: 6), asserts that all CLDR categories required for each
+ * locale are present in options, and that no unsupported categories are declared.
+ * For selects (type: 5), asserts that options agree across all locales.
+ * Refuses obsolete data-msg-plural and data-msg-select attributes.
  */
 export function checkMessageArms(
   i18n: I18n,
@@ -360,8 +348,29 @@ export function checkMessageArms(
 ): Finding[] {
   const findings: Finding[] = [];
   const report = (path: string, message: string) => findings.push({ severity: "error", path, message });
-  // A tag Intl cannot parse is already checkLocalizedUrls' finding, and asking
-  // it for that language's categories raises rather than grading anything.
+
+  // 1. Refuse obsolete data-msg-plural and data-msg-select in templates
+  const obsoleteSelectors = /<([a-z][\w-]*)\b([^>]*\bdata-msg-(?:plural|select)=[^>]*)>/g;
+  for (const route of routes) {
+    const html = files[route.files.html];
+    if (html === undefined) continue;
+    const path = route.files.html;
+    for (const [, el, blob] of html.matchAll(obsoleteSelectors)) {
+      const attrs = new Map([...blob.matchAll(/([\w:-]+)="([^"]*)"/g)].map(([, n, v]) => [n, v]));
+      const where = `<${el}>`;
+      const plural = attrs.get("data-msg-plural");
+      const select = attrs.get("data-msg-select");
+      if (plural !== undefined && select !== undefined) {
+        report(path, `${where} carries data-msg-plural and data-msg-select: an arm is selected once`);
+      } else if (plural !== undefined) {
+        report(path, `${where} carries obsolete data-msg-plural: use ICU MessageFormat in catalogues and clean {msg.<key>} bindings`);
+      } else {
+        report(path, `${where} carries obsolete data-msg-select: use ICU MessageFormat in catalogues and clean {msg.<key>} bindings`);
+      }
+    }
+  }
+
+  // 2. Grade ASTs across all locales
   const tags = Object.keys(i18n.locales).filter((tag) => {
     try {
       new Intl.PluralRules(tag);
@@ -370,110 +379,80 @@ export function checkMessageArms(
       return false;
     }
   });
-  // The key each selector names, so a map nobody selects is found too.
-  const selected = new Map<string, "plural" | "select">();
 
-  // The markup is read as text rather than parsed: a binding authored inside a
-  // <template> is markup an element will wear, and querySelectorAll does not
-  // descend into template content.
-  const selectors = /<([a-z][\w-]*)\b([^>]*\bdata-msg-(?:plural|select)=[^>]*)>/g;
-  for (const route of routes) {
-    const html = files[route.files.html];
-    if (html === undefined) continue;
-    const path = route.files.html;
-    for (const [, el, blob] of html.matchAll(selectors)) {
-      const attrs = new Map([...blob.matchAll(/([\w:-]+)="([^"]*)"/g)].map(([, n, v]) => [n, v]));
-      const where = `<${el}>`;
-      const plural = attrs.get("data-msg-plural");
-      const select = attrs.get("data-msg-select");
-      if (plural !== undefined && select !== undefined) {
-        report(path, `${where} carries data-msg-plural and data-msg-select: an arm is selected once`);
-        continue;
-      }
-      const kind = plural !== undefined ? "plural" : "select";
-      const bound = ["data-text", ...USER_FACING_ATTRS]
-        .flatMap((name) => [...(attrs.get(name) ?? "").matchAll(/\{(msg[.[][^}]*)\}/g)].map(([, expr]) => expr));
-      if (bound.length !== 1) {
-        report(
-          path,
-          `${where} selects an arm with data-msg-${kind} and binds ${bound.length} messages: name exactly one {msg.<key>}`,
-        );
-        continue;
-      }
-      const expr = bound[0];
-      if (!expr.startsWith("msg.")) {
-        report(path, `${where} selects an arm of {${expr}}, whose key the row carries: no locale can be graded against it`);
-        continue;
-      }
-      const key = expr.slice("msg.".length);
-      selected.set(key, kind);
+  type SelectArm = { tag: string; arms: string };
+  const selectsByKey = new Map<string, SelectArm[]>();
 
-      for (const tag of tags) {
-        const catalogue = messages[tag];
-        // An unreadable catalogue is already this run's finding.
-        if (catalogue === undefined) continue;
-        const cat = `messages/${tag}.json`;
-        const value = catalogue[key];
-        if (value === undefined || typeof value === "string") {
-          const is = value === undefined ? "is missing" : "is one sentence";
-          report(cat, `"${key}" ${is} and data-msg-${kind} selects an arm of it: write it as a map of arms`);
-          continue;
-        }
-        const arms = Object.keys(value).sort();
-        if (kind === "plural") {
-          const want: string[] = [...new Intl.PluralRules(tag).resolvedOptions().pluralCategories].sort();
-          const missing = want.filter((c) => !arms.includes(c));
-          const extra = arms.filter((c) => !want.includes(c));
-          if (missing.length > 0 || extra.length > 0) {
-            report(
-              cat,
-              `plural "${key}" [${tag}] carries [${arms.join(", ")}]; ${tag} pluralizes as [${want.join(", ")}]` +
-                `${missing.length > 0 ? ` — missing ${missing.join(", ")}` : ""}` +
-                `${extra.length > 0 ? ` — ${extra.join(", ")} is not a category of this language` : ""}`,
-            );
-          }
-        }
-        for (const [arm, text] of Object.entries(value)) {
-          if (/\{msg[.[]/.test(text)) {
-            report(cat, `"${key}" [${tag}] arm "${arm}" names another message: an arm is text, not a key`);
-          }
-        }
-      }
-    }
-  }
-
-  // A select's arms are the author's own names, so nothing computes them —
-  // what is decidable is that every locale offers the same ones, because the
-  // column choosing between them is one column.
-  for (const [key, kind] of selected) {
-    if (kind !== "select") continue;
-    let first: { tag: string; arms: string } | undefined;
-    for (const tag of tags) {
-      const value = messages[tag]?.[key];
-      if (value === undefined || typeof value === "string") continue;
-      const arms = Object.keys(value).sort().join(", ");
-      if (first === undefined) first = { tag, arms };
-      else if (arms !== first.arms) {
-        report(
-          `messages/${tag}.json`,
-          `select "${key}" [${tag}] carries [${arms}] where [${first.tag}] carries [${first.arms}]: one column picks both`,
-        );
-      }
-    }
-  }
-
-  // The checker's half of the interpreter's throw: a map with no selector over
-  // it can only render as [object Object], and every render of it would take
-  // the screen down.
-  const orphaned = new Set<string>();
   for (const tag of tags) {
-    for (const [key, value] of Object.entries(messages[tag] ?? {})) {
-      if (typeof value === "string" || selected.has(key) || orphaned.has(key)) continue;
-      orphaned.add(key);
-      report(
-        `messages/${tag}.json`,
-        `"${key}" is a map of [${Object.keys(value).join(", ")}] and no data-msg-plural or data-msg-select names it`,
-      );
+    const catalogue = messages[tag];
+    if (catalogue === undefined) continue;
+    const cat = `messages/${tag}.json`;
+
+    for (const [key, rawValue] of Object.entries(catalogue)) {
+      if (typeof rawValue === "object" && rawValue !== null && !Array.isArray(rawValue)) {
+        report(cat, `"${key}" is an obsolete map: compile to ICU MessageFormat`);
+        continue;
+      }
+      let ast: MessageNode[] | null = null;
+      if (Array.isArray(rawValue)) {
+        ast = rawValue as MessageNode[];
+      } else if (typeof rawValue === "string" && rawValue.includes("{")) {
+        try {
+          const parsed = parseMessage(rawValue);
+          if (Array.isArray(parsed)) ast = parsed;
+        } catch {
+          // Syntax errors are reported during catalog parsing/compilation
+        }
+      }
+      if (!Array.isArray(ast)) continue;
+
+      const visit = (nodes: MessageNode[]) => {
+        for (const node of nodes) {
+          if (node.type === 1) { // argument
+            if (/^msg[.[]/.test(node.value)) {
+              report(cat, `"${key}" [${tag}] names another message: an arm is text, not a key`);
+            }
+          } else if (node.type === 6) { // plural
+            const arms = Object.keys(node.options).sort();
+            const want: string[] = [...new Intl.PluralRules(tag).resolvedOptions().pluralCategories].sort();
+            const missing = want.filter((c) => !arms.includes(c));
+            const extra = arms.filter((c) => !c.startsWith("=") && !want.includes(c));
+            if (missing.length > 0 || extra.length > 0) {
+              report(
+                cat,
+                `plural "${key}" [${tag}] carries [${arms.join(", ")}]; ${tag} pluralizes as [${want.join(", ")}]` +
+                  `${missing.length > 0 ? ` — missing ${missing.join(", ")}` : ""}` +
+                  `${extra.length > 0 ? ` — ${extra.join(", ")} is not a category of this language` : ""}`,
+              );
+            }
+            for (const opt of Object.values(node.options) as { value?: MessageNode[] }[]) {
+              if (opt?.value) visit(opt.value);
+            }
+          } else if (node.type === 5) { // select
+            const arms = Object.keys(node.options).sort().join(", ");
+            const list = selectsByKey.get(key) ?? [];
+            list.push({ tag, arms });
+            selectsByKey.set(key, list);
+            for (const opt of Object.values(node.options) as { value?: MessageNode[] }[]) {
+              if (opt?.value) visit(opt.value);
+            }
+          }
+        }
+      };
+      visit(ast);
+    }
+  }
+
+  // 3. Select options must agree across locales
+  for (const [key, list] of selectsByKey) {
+    const first = list[0];
+    for (const item of list.slice(1)) {
+      if (item.arms !== first.arms) {
+        report(
+          `messages/${item.tag}.json`,
+          `select "${key}" [${item.tag}] carries [${item.arms}] where [${first.tag}] carries [${first.arms}]: one column picks both`,
+        );
+      }
     }
   }
 
@@ -879,9 +858,43 @@ function pseudoSentence(text: string): string {
   return `${OPEN}${body}${pad}${CLOSE}`;
 }
 
+function pseudoAst(nodes: MessageNode[], tag: string): MessageNode[] {
+  const categories = new Intl.PluralRules(tag).resolvedOptions().pluralCategories;
+  return nodes.map((node) => {
+    switch (node.type) {
+      case 0:
+        return { type: 0, value: pseudoSentence(node.value) };
+      case 1:
+        return { ...node };
+      case 5: {
+        const options: Record<string, { value: MessageNode[] }> = {};
+        for (const [k, v] of Object.entries(node.options) as [string, { value: MessageNode[] }][]) {
+          options[k] = { value: pseudoAst(v.value, tag) };
+        }
+        return { ...node, options };
+      }
+      case 6: {
+        const options: Record<string, { value: MessageNode[] }> = {};
+        for (const [k, v] of Object.entries(node.options) as [string, { value: MessageNode[] }][]) {
+          options[k] = { value: pseudoAst(v.value, tag) };
+        }
+        const spare = options.other ?? Object.values(options)[0];
+        for (const category of categories) {
+          options[category] ??= spare;
+        }
+        return { ...node, options };
+      }
+      case 7:
+        return { ...node };
+      default:
+        return node;
+    }
+  });
+}
+
 /** Total over keys AND over arms. The arm set a message needs is the pseudo
  * tag's own — Arabic asks for zero/two/few where Portuguese asks for none of
- * them — so a map carried over unchanged makes the render throw rather than
+ * them — so an AST carried over unchanged makes the render throw rather than
  * report. The missing arms are the decorated `other`, which says the right
  * thing for a pass that grades reach rather than grammar. */
 function pseudoCatalog(source: Catalog, tag: string): Catalog {
@@ -890,6 +903,10 @@ function pseudoCatalog(source: Catalog, tag: string): Catalog {
   for (const [key, value] of Object.entries(source)) {
     if (typeof value === "string") {
       out[key] = pseudoSentence(value);
+      continue;
+    }
+    if (Array.isArray(value)) {
+      out[key] = pseudoAst(value as MessageNode[], tag);
       continue;
     }
     const arms: Arms = Object.fromEntries(Object.entries(value).map(([arm, s]) => [arm, pseudoSentence(s)]));
@@ -1195,11 +1212,11 @@ function armFailures(): string[] {
   };
   const routes: Route[] = [{ screen: "home", path: "/", files: { html: "home.html", css: "home.css" } }];
   const html = (item: string) => ({ "home.html": `<section data-screen="home">${item}</section>` });
-  const priced = html(`<small data-text="{msg.worth}" data-msg-plural="rung"></small>`);
+  const priced = html(`<small data-text="{msg.worth}"></small>`);
   const messages: Record<string, Catalog> = {
-    "pt-BR": { worth: { one: "vale {rung} ponto", many: "vale {rung} pontos", other: "vale {rung} pontos" } },
-    es: { worth: { one: "vale {rung} punto", many: "vale {rung} puntos", other: "vale {rung} puntos" } },
-    en: { worth: { one: "worth {rung} point", other: "worth {rung} points" } },
+    "pt-BR": compileCatalog({ worth: "{rung, plural, one {vale # ponto} many {vale # pontos} other {vale # pontos}}" }) as Catalog,
+    es: compileCatalog({ worth: "{rung, plural, one {vale # punto} many {vale # puntos} other {vale # pontos}}" }) as Catalog,
+    en: compileCatalog({ worth: "{rung, plural, one {worth # point} other {worth # points}}" }) as Catalog,
   };
 
   const sound = checkMessageArms(i18n, routes, messages, priced);
@@ -1215,56 +1232,56 @@ function armFailures(): string[] {
     failures.push(`${name}: expected a finding saying ${JSON.stringify(want)}, got ${JSON.stringify(got)}`);
   };
 
-  const armsOf = (tag: string, arms: Arms) => ({ ...messages, [tag]: { worth: arms } });
-
   grades("a Spanish plural short an arm its language has", "missing many", {
-    messages: armsOf("es", { one: "vale {rung} punto", other: "vale {rung} puntos" }),
+    messages: {
+      ...messages,
+      es: compileCatalog({ worth: "{rung, plural, one {vale # punto} other {vale # pontos}}" }) as Catalog,
+    },
   });
 
   grades("an English plural carrying an arm its language does not have", "many is not a category of this language", {
-    messages: armsOf("en", { one: "worth {rung} point", many: "worth {rung} points", other: "worth {rung} points" }),
+    messages: {
+      ...messages,
+      en: compileCatalog({ worth: "{rung, plural, one {worth # point} many {worth # points} other {worth # points}}" }) as Catalog,
+    },
   });
 
-  grades("a key written as a sentence in one locale and a map in another", "is one sentence", {
-    messages: { ...messages, es: { worth: "vale {rung}" } },
+  grades("an element carrying obsolete data-msg-plural", "obsolete data-msg-plural", {
+    files: html(`<small data-text="{msg.worth}" data-msg-plural="rung"></small>`),
   });
 
-  grades("a plural over a key no catalogue writes as a map", "is missing", {
-    files: html(`<small data-text="{msg.absent}" data-msg-plural="rung"></small>`),
+  grades("an element carrying obsolete data-msg-select", "obsolete data-msg-select", {
+    files: html(`<small data-text="{msg.worth}" data-msg-select="rung"></small>`),
   });
 
-  grades("a map no element selects", "no data-msg-plural or data-msg-select names it", {
-    files: html(`<small data-text="{msg.other}"></small>`),
-    messages: { ...messages, "pt-BR": { ...messages["pt-BR"], other: "o" } },
-  });
-
-  grades("two messages under one selector", "binds 2 messages", {
-    files: html(`<small data-text="{msg.worth} {msg.worth}" data-msg-plural="rung"></small>`),
-  });
-
-  grades("a selector over a key the row carries", "whose key the row carries", {
-    files: html(`<small data-text="{msg[said]}" data-msg-plural="rung"></small>`),
-  });
-
-  grades("a selector naming no message at all", "binds 0 messages", {
-    files: html(`<small data-text="{rung}" data-msg-plural="rung"></small>`),
-  });
-
-  grades("an arm naming another message", "an arm is text, not a key", {
-    messages: armsOf("pt-BR", { one: "{msg.worth}", many: "x", other: "x" }),
-  });
-
-  grades("an element selecting an arm twice", "an arm is selected once", {
+  grades("an element carrying both obsolete attributes", "an arm is selected once", {
     files: html(`<small data-text="{msg.worth}" data-msg-plural="rung" data-msg-select="rung"></small>`),
   });
 
-  // A select's arms are the author's own names, so the only thing computable
-  // about them is that every locale offers the same ones.
-  const greet = html(`<small data-text="{msg.greet}" data-msg-select="gender"></small>`);
+  grades("an arm naming another message", "an arm is text, not a key", {
+    messages: {
+      ...messages,
+      "pt-BR": {
+        worth: [{
+          type: 6,
+          value: "rung",
+          offset: 0,
+          pluralType: "cardinal",
+          options: {
+            one: { value: [{ type: 1, value: "msg.worth" }] },
+            many: { value: [{ type: 0, value: "x" }] },
+            other: { value: [{ type: 0, value: "x" }] },
+          },
+        }],
+      },
+    },
+  });
+
+  const greet = html(`<small data-text="{msg.greet}"></small>`);
   const greetings: Record<string, Catalog> = {
-    "pt-BR": { greet: { f: "bem-vinda", m: "bem-vindo" } },
-    es: { greet: { f: "bienvenida", m: "bienvenido" } },
-    en: { greet: { f: "welcome", m: "welcome" } },
+    "pt-BR": compileCatalog({ greet: "{gender, select, f {bem-vinda} m {bem-vindo} other {bem-vinde}}" }) as Catalog,
+    es: compileCatalog({ greet: "{gender, select, f {bienvenida} m {bienvenido} other {bienvenide}}" }) as Catalog,
+    en: compileCatalog({ greet: "{gender, select, f {welcome} m {welcome} other {welcome}}" }) as Catalog,
   };
   const soundSelect = checkMessageArms(i18n, routes, greetings, greet);
   if (soundSelect.length !== 0) {
@@ -1272,7 +1289,10 @@ function armFailures(): string[] {
   }
   grades("a select whose locales disagree about the arms", "one column picks both", {
     files: greet,
-    messages: { ...greetings, es: { greet: { f: "bienvenida", n: "bienvenide" } } },
+    messages: {
+      ...greetings,
+      es: compileCatalog({ greet: "{gender, select, f {bienvenida} n {bienvenide} other {bienvenide}}" }) as Catalog,
+    },
   });
 
   return failures;

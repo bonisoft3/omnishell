@@ -461,7 +461,7 @@ export function formatLint(b: FormatBinding, entity: Entity | undefined): string
   return null;
 }
 
-export type KindedRegion = { table: string; whens: (string | undefined)[] };
+export type KindedRegion = { table: string; whens: (string | undefined)[]; projects?: string[] };
 
 /** Every region's item-template data-when list, in document order — only
  * regions owning at least one item template appear; undefined is a default
@@ -503,10 +503,22 @@ export function kindedRegions(html: string): KindedRegion[] {
     }
     const table = attr("data-live");
     const ref = attr("data-template");
+    const project = attr("data-project");
     const open: Open = { tag };
     if (table !== undefined) {
       if (ref !== undefined) refs.push({ table, ref });
-      else open.region = { table, whens: [] };
+      else {
+        let projects: string[] | undefined;
+        if (project !== undefined) {
+          try {
+            const parsed = JSON.parse(project);
+            if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+              projects = Object.keys(parsed);
+            }
+          } catch {}
+        }
+        open.region = projects ? { table, whens: [], projects } : { table, whens: [] };
+      }
     }
     if (VOID.has(tag) || /\/\s*$/.test(attrText)) {
       emit(open.region);
@@ -707,12 +719,10 @@ export function unwitnessedControls(html: string): string[] {
       stampers.set(ref, merge(stampers.get(ref) ?? NONE, cover));
     }
     const type = attr("type")?.toLowerCase();
-    // A control that opens a surface is wired by naming it, whichever gesture
-    // does the opening: `commandfor` on activation, `data-interest` on hover or
-    // focus. Neither writes anything, which is exactly why neither is a handler
-    // this rule could otherwise find.
-    const invoker = has("popovertarget") || attr("commandfor") !== undefined ||
-      attr("data-interest") !== undefined;
+    // A control that opens a surface is wired by naming it: `commandfor` or
+    // `popovertarget`. Neither writes anything, which is exactly why neither
+    // is a handler this rule could otherwise find.
+    const invoker = has("popovertarget") || attr("commandfor") !== undefined;
     if (!invoker && (tag === "button" || (tag === "input" && type !== undefined && CONTROL_INPUT.has(type)))) {
       // A button's default type is submit; type="button" and type="reset"
       // reach no submit listener however deep in a form they sit.
@@ -749,7 +759,7 @@ export type EnumOf = (col: string) => string[] | null;
  * declarable value; and for each such discriminant field, every enum value
  * must be admitted by some template unless a default (no data-when) template
  * exists — the interpreter errors on a row no template admits. */
-export function kindLint(whens: (string | undefined)[], e: Entity, enumOf: EnumOf): string | null {
+export function kindLint(whens: (string | undefined)[], e: Entity, enumOf: EnumOf, projects?: string[]): string | null {
   const eqs: { col: string; value: string }[] = [];
   for (const w of whens) {
     if (w === undefined) continue;
@@ -762,11 +772,13 @@ export function kindLint(whens: (string | undefined)[], e: Entity, enumOf: EnumO
     if (spec === null) return `data-when="${w}" is outside the translatable fragment subset`;
     for (const p of spec) {
       const f = e.fields.find((f) => f.name === p.col);
-      if (f === undefined) return `data-when="${w}" names "${p.col}" — not a field of "${e.table}"`;
+      if (f === undefined && !projects?.includes(p.col)) return `data-when="${w}" names "${p.col}" — not a field of "${e.table}"`;
       if (p.op !== "eq") continue;
-      const kinds = enumOf(p.col);
-      if (kinds !== null && !kinds.includes(p.value as string)) {
-        return `data-when="${w}": "${p.value}" is not a declarable ${p.col} (${kinds.join(", ")})`;
+      if (f !== undefined) {
+        const kinds = enumOf(p.col);
+        if (kinds !== null && !kinds.includes(p.value as string)) {
+          return `data-when="${w}": "${p.value}" is not a declarable ${p.col} (${kinds.join(", ")})`;
+        }
       }
       eqs.push({ col: p.col, value: p.value as string });
     }
@@ -1078,167 +1090,6 @@ const BROWSER_TIERS = new Set(["tab", "device"]);
 // string, a boolean and "true"/"false". Every other type has exactly one, so
 // a non-string written into it is not a second spelling but a second type.
 const TWO_SPELLINGS = new Set(["int", "bigint", "int32", "double", "bool"]);
-
-/** The answers a region's projection supplies, by name. Unparseable is this
- * pass's finding rather than the runtime's: every other reader of the markup
- * would go on to judge the region against a projection it could not read. */
-const clausesOf = (project: string | undefined): string[] => {
-  if (project === undefined) return [];
-  try {
-    return Object.keys(JSON.parse(project));
-  } catch {
-    throw new Error(`data-project is not JSON: ${project}`);
-  }
-};
-
-export type StopRegion =
-  { table: string; columns: string[]; machine?: string; projected: string[]; outer?: string };
-
-/** Every region declaring tabstops or focus targets under `attr`, with the
- * names its members bind, the answers its projection supplies and the chart it
- * runs. A region owns the members under it, so the scan needs the nesting the
- * interpreter's `ownedBy` answers at runtime — the innermost open `data-live`
- * is whose set a member joins, and the elements between are markup.
- *
- * A member sits under whatever the skin wraps it in — a cell, a list item, a
- * group — so the search is for the nearest REGION and never the nearest tag. */
-type OpenStop = {
-  table?: string;
-  machine?: string;
-  columns: string[];
-  projected: string[];
-  outer?: string;
-  template?: string;
-};
-
-// A template the screen keeps by name, for the regions that render through one.
-// Named because their region re-hydrates and a render sweeps every child that
-// is not one of its rows — so the members are declared OUTSIDE the region they
-// belong to, and a scan reading the markup's nesting alone would find none.
-const NAMED_TEMPLATE = /<template\b[^>]*\sdata-name="([^"]*)"[^>]*>([\s\S]*?)<\/template>/g;
-
-export function stopRegions(html: string, attr: "data-rove" | "data-focus"): StopRegion[] {
-  const bare = strip(html);
-  const named = new Map<string, string>();
-  for (const [, name, body] of bare.matchAll(NAMED_TEMPLATE)) named.set(name, body);
-  // Removed before the walk, and reached only through the region that names
-  // one: a named template at the top of a screen belongs to no region where it
-  // is written, and to the region that renders it where it is rendered.
-  return walkStops(bare.replace(NAMED_TEMPLATE, ""), attr, named);
-}
-
-/** `root` is a region already open — the walk of a template body a region
- * renders, whose top-level members are that region's. The caller owns it and
- * emits it; this pass only fills it in. */
-function walkStops(
-  html: string,
-  attr: "data-rove" | "data-focus",
-  named: Map<string, string>,
-  root?: OpenStop,
-): StopRegion[] {
-  const out: StopRegion[] = [];
-  const open: OpenStop[] = root === undefined ? [] : [root];
-  const close = (done: OpenStop) => {
-    if (done.template !== undefined) {
-      const body = named.get(done.template);
-      if (body === undefined) {
-        throw new Error(`data-template names "${done.template}", which no <template data-name> declares`);
-      }
-      out.push(...walkStops(body, attr, named, done));
-    }
-    if (done.table !== undefined && done.columns.length > 0) {
-      out.push({
-        table: done.table,
-        columns: done.columns,
-        machine: done.machine,
-        projected: done.projected,
-        outer: done.outer,
-      });
-    }
-  };
-  for (const [, closing, tag, attrText] of html.matchAll(ANY_TAG)) {
-    if (closing === "/") {
-      const done = open.pop();
-      if (done !== undefined && done !== root) close(done);
-      continue;
-    }
-    const { attr: read } = attrsOf(attrText);
-    const table = read("data-live");
-    const member = read(attr);
-    if (member !== undefined) {
-      const col = /^\{([\w.]+)\}$/.exec(member)?.[1];
-      const held = open.findLast((o) => o.table !== undefined);
-      if (col !== undefined && held !== undefined) held.columns.push(col);
-    }
-    if (VOID.has(tag) || /\/\s*$/.test(attrText)) continue;
-    open.push({
-      table,
-      machine: read("data-machine"),
-      columns: [],
-      projected: clausesOf(read("data-project")),
-      outer: open.findLast((o) => o.table !== undefined)?.table,
-      template: read("data-template"),
-    });
-  }
-  return out;
-}
-
-/** The reason a region's caret is one a second reader could move, or null.
- *
- * The terminal moves focus when the caret MOVES, and a move carries no account
- * of who caused it — deliberately, since a cause the rows do not hold is state
- * no trace records and no snapshot restores. That is exact while the column has
- * one writer, and the reader IS that writer only where the row is theirs: a
- * `tab` or `device` row is the browser's own, while a `crud` or `live` row is
- * one anybody sharing it can write, and their write would land here as this
- * reader's focus jumping. */
-function caretLint(region: StopRegion, e: Entity, outer: Entity | undefined, what: string): string | null {
-  for (const col of region.columns) {
-    if (region.projected.includes(col) || e.fields.some((f) => f.name === col)) continue;
-    return `${what} binds "${col}" — not a field of "${e.table}", and not an answer its projection supplies`;
-  }
-  // A projected caret is one the region computes over the rows it holds, so
-  // nothing writes it — but the projection compares against the row it is
-  // nested in, and THAT row is what moves the caret. So the durability question
-  // is asked of the enclosing region too, and a member set is only as private
-  // as the least private row deciding which of its members is current.
-  const owns = region.columns.some((c) => region.projected.includes(c)) && outer !== undefined
-    ? [e, outer]
-    : [e];
-  for (const held of owns) {
-    if (BROWSER_TIERS.has(held.durability)) continue;
-    return `${what} follows a "${held.durability}" table ("${held.table}"), whose rows another reader can write — ` +
-      `their move would take this reader's focus; a caret follows a ` +
-      `"${[...BROWSER_TIERS].join('" or "')}" row, which is the reader's own`;
-  }
-  return null;
-}
-
-export const roveLint = (region: StopRegion, e: Entity, outer?: Entity): string | null =>
-  caretLint(region, e, outer, "data-rove");
-
-/** As above, and one more: a focus target must hear `focusin`.
- *
- * `data-rove` owns the tab order, so the terminal can tell a move it made from
- * a refresh it did not. `data-focus` owns nothing, so its only reading of "the
- * reader is on the wrong member" is the DOM's own focus — and a reader who
- * Tabbed there would be dragged back on the next refresh, forever, unless their
- * move writes the column too. `focusin` is what writes it, and a chart that
- * does not draw it turns this into a focus-stealing loop. */
-export function focusLint(region: StopRegion, e: Entity, outer?: Entity): string | null {
-  const why = caretLint(region, e, outer, "data-focus");
-  if (why !== null) return why;
-  // Every chart the region runs, since a region may run several and which one
-  // hears the reader is the region's business rather than this rule's.
-  const parsed = region.machine === undefined ? [] : JSON.parse(region.machine);
-  const charts = Array.isArray(parsed) ? parsed : [parsed];
-  if (!charts.some((c) => machineShape(c).handled.includes("focusin"))) {
-    return `data-focus without a chart hearing "focusin": every affordance stays in the Tab sequence, so a ` +
-      `reader can put focus on a member the column does not name, and every refresh would drag them back — ` +
-      `draw the arrow that records where they went`;
-  }
-  return null;
-}
 
 /** Column-spelling consistency over the writes a screen's markup declares:
  * the reason a browser-owned entity's regions write one column in more than one

@@ -91,9 +91,16 @@
                data-project='{"rove":{"eq":["id","{caret}"]}}'
                data-key='{"ArrowUp":"caret-up","ArrowDown":"caret-down","ArrowLeft":"caret-left","ArrowRight":"caret-right","Home":"caret-row-start","End":"caret-row-end","Ctrl+Home":"caret-first","Ctrl+End":"caret-last"}'
                data-reads="game,move,square,legal,piece,tick,opening">
+            <template data-item data-when="rove=eq.true">
+              <button type="button" class="sq" data-drag-handle data-on-click="referee"
+                      tabindex="0" aria-label="{label}"
+                      data-shade="{shade}" data-color="{color}" data-drag="{drag}"
+                      data-selected="{selected}" data-target="{target}" data-capture="{capture}"
+                      data-last="{last}" data-check="{check}"><span class="cf" data-text="{coord_file}"></span><span class="cr" data-text="{coord_rank}"></span><span class="carried" data-text="{glyph}"></span></button>
+            </template>
             <template data-item>
               <button type="button" class="sq" data-drag-handle data-on-click="referee"
-                      data-rove="{rove}" aria-label="{label}"
+                      tabindex="-1" aria-label="{label}"
                       data-shade="{shade}" data-color="{color}" data-drag="{drag}"
                       data-selected="{selected}" data-target="{target}" data-capture="{capture}"
                       data-last="{last}" data-check="{check}"><span class="cf" data-text="{coord_file}"></span><span class="cr" data-text="{coord_rank}"></span><span class="carried" data-text="{glyph}"></span></button>

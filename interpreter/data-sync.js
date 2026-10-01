@@ -343,7 +343,8 @@ export function createStore(base = "", cfg = {}) {
       p = Promise.all(Object.entries(validations[table] ?? {}).map(async ([name, v]) => {
         const res = await fetch(new URL(v.src, cfg.appBase));
         if (!res.ok) throw new Error(`validation ${table}.${name}: ${v.src} ${res.status}`);
-        return { name, edges: v.edges ?? [], test: await evaluateRole(await res.text(), "validation") };
+        const granted = cfg.endowments?.[v.src] ?? cfg.endowments?.[v.src.split("/").pop()] ?? [];
+        return { name, edges: v.edges ?? [], test: await evaluateRole(await res.text(), "validation", granted) };
       })).catch((e) => {
         predicates.delete(table);
         throw e;

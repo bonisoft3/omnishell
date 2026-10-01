@@ -57,15 +57,33 @@ export function fixtureStore(state, counted = new Set()) {
 }
 
 export async function renderStorybook(mount, appBase, route, params = {}, units = {}, opts = {}) {
-  // Which columns a plural selector reads, so the fixture row answers them with
-  // a count rather than the sentence it answers every other column with. Only
-  // the markup says so, and a fixture store has to be built before
-  // interpretScreen is called — so this reads the screen once ahead of the
-  // frames, which each read it again.
-  const res = await fetch(new URL(route.files.html, appBase));
-  if (!res.ok) throw new Error(`${res.status} fetching ${route.files.html}`);
-  const html = await res.text();
-  const counted = new Set([...html.matchAll(/data-msg-plural="([^"]+)"/g)].map((m) => m[1].split(".").pop()));
+  // Which columns a plural reads, so the fixture row answers them with
+  // a count rather than the sentence it answers every other column with.
+  const counted = new Set();
+  const addCountedFromAst = (nodes) => {
+    if (!Array.isArray(nodes)) return;
+    for (const node of nodes) {
+      if (node.type === 6) counted.add(node.value.split(".").pop());
+      if (node.options) {
+        for (const opt of Object.values(node.options)) {
+          if (opt?.value) addCountedFromAst(opt.value);
+        }
+      }
+    }
+  };
+  if (opts.messages) {
+    for (const cat of Object.values(opts.messages)) {
+      if (!cat || typeof cat !== "object") continue;
+      for (const val of Object.values(cat)) {
+        if (Array.isArray(val)) addCountedFromAst(val);
+        else if (typeof val === "string") {
+          for (const m of val.matchAll(/\{([a-zA-Z0-9_]+),\s*plural,/g)) {
+            counted.add(m[1].split(".").pop());
+          }
+        }
+      }
+    }
+  }
 
   // A route's :params, answered the way its rows are. The frames render off a
   // fixture store precisely because the real ones do not exist here, and a

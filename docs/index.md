@@ -18,6 +18,7 @@
 * [Visual lint](visual-lint.md) - concept: The Playwright DOM checks and vision review over a rendered app — what each check needs to be sound, where it runs, and how shared checks change.
 * [Automated tests](automated-tests-battery.md) - concept: Every handler and validation module an app ships is tested automatically, with no test written by hand, for confinement, termination through fuel, and purity.
 * [Native hosts](native-hosts.md) - concept: How a pronto app runs on Android and iOS — a headless JS engine behind native bridges, a DivKit SDUI renderer, and realworld's parity check against the web screens.
+* [Native capabilities](native-capabilities.md) - concept: Why standard HTML5 primitives and W3C APG patterns replace ad-hoc framework attributes, and how the platform owns what script used to simulate.
 
 # Harnesses and fixtures
 

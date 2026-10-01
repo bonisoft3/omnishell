@@ -33,7 +33,6 @@
 import { load as parseYaml } from "./interpreter/vendor/js-yaml.js";
 import {
   type Entity,
-  focusLint,
   formatBindings,
   formatLint,
   kindedRegions,
@@ -44,10 +43,8 @@ import {
   machineRegions,
   machineWrites,
   parallelLint,
-  roveLint,
   scanScreen,
   slotRegions,
-  stopRegions,
   templateArity,
   undeclaredSlot,
   unknownColumns,
@@ -182,7 +179,7 @@ export function screenFindings(
   for (const kinded of read(() => kindedRegions(html)) ?? []) {
     const e = declared(kinded.table);
     if (e === undefined) continue;
-    const why = kindLint(kinded.whens, entityOf(kinded.table, e), enumsOf(e));
+    const why = kindLint(kinded.whens, entityOf(kinded.table, e), enumsOf(e), kinded.projects);
     if (why !== null) report(`region "${kinded.table}": ${why}`);
   }
 
@@ -209,24 +206,6 @@ export function screenFindings(
     if (e === undefined) continue;
     const why = writeLint(cols, entityOf(table, e));
     if (why !== null) report(`region "${table}": ${why}`);
-  }
-
-  for (const [attr, rule] of [["data-rove", roveLint], ["data-focus", focusLint]] as const) {
-    for (const region of read(() => stopRegions(html, attr)) ?? []) {
-      const e = declared(region.table);
-      if (e === undefined) continue;
-      const outer = region.outer === undefined ? undefined : schema[region.outer];
-      if (region.outer !== undefined && outer === undefined) {
-        declared(region.outer);
-        continue;
-      }
-      const why = rule(
-        region,
-        entityOf(region.table, e),
-        outer === undefined ? undefined : entityOf(region.outer as string, outer),
-      );
-      if (why !== null) report(`region "${region.table}": ${why}`);
-    }
   }
 
   // After the machine rules: a control's cover depends on what its region's
@@ -346,7 +325,6 @@ export async function selfTest(): Promise<{ failures: string[] }> {
     "arity.html: template[data-item] in [data-live=\"note\"] holds 2 elements",
     'columns.html: data-filter="colour=eq.blue" names colour — not fields of "note"',
     "control.html: <button class=\"act\"> is wired to nothing",
-    'focus.html: region "note": data-focus without a chart hearing "focusin"',
     'format.html: data-text-format="money" reads {msg.total} outside every data-live region',
     'format.html: data-text-format="number" reads {title}, which is text on "note"',
     'format.html: data-text-format="money" reads {step}, which declares no money: on "note"',
@@ -362,7 +340,6 @@ export async function selfTest(): Promise<{ failures: string[] }> {
     'nested.html: slot region "detail" (filter "id=eq.{id}") is nested and declares no empty treatment',
     'parallel.html: region "note": the charts over "state" and "mark" both write "mark"',
     'refuses.html: data-machine on a tag with no data-live',
-    'rove.html: region "post": data-rove follows a "live" table ("post")',
     'slot.html: slot region "note" (filter "kind=eq.note") may bind more than one row',
     'unknown.html: reads "ghost", which the emitted schema does not declare',
     'writes.html: region "note": "step" is written in 2 spellings',
@@ -374,8 +351,8 @@ export async function selfTest(): Promise<{ failures: string[] }> {
   // The sound screen is the half that would go dark if a reader's refusal
   // stopped the walk: a count, so a fixture that grows is not silently
   // half-read.
-  if (run.checked !== 16) {
-    failures.push(`the fixture app carries 16 screens, read ${run.checked}`);
+  if (run.checked !== 14) {
+    failures.push(`the fixture app carries 14 screens, read ${run.checked}`);
   }
 
   // An app whose shell.yaml carries no schema is not an app with no rules to

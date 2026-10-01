@@ -1,8 +1,6 @@
-// An amount reaches the reader through the terminal, not through SQL. The
-// column is an integer and the currency and the minor-unit scale are declared
-// on it, so one screen over one store renders the same row "R$ 1.204" to a
-// Brazilian and "R$1,204" to an American — where a generated *_display column
-// would have picked one of those in the database and shown it to everybody.
+// Plain numbers and decimals are formatted by the terminal without built-in
+// money special-casing. The column is a number or decimal string, and the
+// reader's own locale decides grouping and fraction digits.
 import { describe, expect, it } from "@test/harness"
 import { mountScreen, textOf } from "./screen-harness.ts"
 
@@ -12,7 +10,7 @@ const FILES = {
   "ledger.html": `<section class="screen" data-screen="ledger">
     <ul data-live="expense">
       <template data-item><li>
-        <span class="money" data-text="{amount}" data-text-format="money"></span>
+        <span class="amount" data-text="{amount}" data-text-format="number"></span>
         <span class="seats" data-text="{seats}" data-text-format="number"></span>
       </li></template>
     </ul>
@@ -20,42 +18,45 @@ const FILES = {
   "ledger.css": "",
 }
 
-const money = { currency: "BRL", minorUnits: 0 }
-const schema = (declared: boolean) => ({
+const schema = {
   expense: {
     fields: [
       { name: "id", type: "text" },
-      declared ? { name: "amount", type: "int", money } : { name: "amount", type: "int" },
+      { name: "amount", type: "int" },
       { name: "seats", type: "int" },
     ],
   },
-})
+}
 
 const world = { expense: [{ id: "e1", amount: 1204, seats: 1234 }] }
 
-describe("a money column is formatted by the terminal", () => {
-  it("renders the currency the column declares in the reader's own language", async () => {
-    for (const [locale, amount, seats] of [["pt-BR", "R$\u00a01.204", "1.234"], ["en-US", "R$1,204", "1,234"]]) {
-      const m = await mountScreen({ route: ROUTE, files: FILES, tables: world, seed: 1, schema: schema(true), locale })
+describe("plain numbers and decimals are formatted without built-in money special-casing", () => {
+  it("renders integer columns with locale grouping and no currency prefix", async () => {
+    for (const [locale, amount, seats] of [["pt-BR", "1.204", "1.234"], ["en-US", "1,204", "1,234"]]) {
+      const m = await mountScreen({ route: ROUTE, files: FILES, tables: world, seed: 1, schema, locale })
       await m.settle()
-      expect(textOf(m.one(".money"))).toBe(amount)
+      expect(textOf(m.one(".amount"))).toBe(amount)
       expect(textOf(m.one(".seats"))).toBe(seats)
       await m.stop()
     }
   })
 
-  it("refuses a money binding on a column that declares none", async () => {
-    // A currency is not guessable and the bare integer reads as reais to one
-    // app and as cents to the next, so hydration fails rather than showing an
-    // amount nobody stated — a ProgramError, which the region's guard lets
-    // through unretried. check-markup answers the same question off the
-    // emitted schema, before a mount.
-    let refused: string | undefined
-    try {
-      await mountScreen({ route: ROUTE, files: FILES, tables: world, seed: 1, schema: schema(false) })
-    } catch (err) {
-      refused = (err as Error).message
+  it("renders decimal columns with locale decimal separator without scaling by minor units", async () => {
+    const decimalSchema = {
+      expense: {
+        fields: [
+          { name: "id", type: "text" },
+          { name: "amount", type: "decimal" },
+          { name: "seats", type: "int" },
+        ],
+      },
     }
-    expect(refused).toBe('data-text-format="money" reads {amount}, which declares no money: on "expense"')
+    const decimalWorld = { expense: [{ id: "e1", amount: "1204.50", seats: 1234 }] }
+    for (const [locale, amount] of [["pt-BR", "1.204,5"], ["en-US", "1,204.5"]]) {
+      const m = await mountScreen({ route: ROUTE, files: FILES, tables: decimalWorld, seed: 1, schema: decimalSchema, locale })
+      await m.settle()
+      expect(textOf(m.one(".amount"))).toBe(amount)
+      await m.stop()
+    }
   })
 })

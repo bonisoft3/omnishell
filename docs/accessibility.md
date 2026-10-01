@@ -61,9 +61,9 @@ Walked against APG, every pattern fits. Where focus stays on a container
 (listbox, combobox, grid, tree), `aria-activedescendant` is a binding and
 `data-key` submits the form `next`/`prev` name, with no chart; where focus moves
 between items (tablist, toolbar, menubar), a chart arrow carries the key and
-`data-rove` follows its column. `aria-checked="mixed"` lands on the parent's
+roving `tabindex` follows its column. `aria-checked="mixed"` lands on the parent's
 row, where no clause answers; shadcnui's checkbox screen reaches it through a
-`roll-up` module. When a pattern needs what is refused, reopen the design
+roll-up module. When a pattern needs what is refused, reopen the design
 rather than widen the rule; renaming `test/projection.test.ts`'s `{"sum": …}`
 exemplar is the quiet widening.
 
@@ -90,28 +90,26 @@ options are compile-time states cannot express.
 **The per-row form carries `role="none"`**, because a `<form>` between the
 tablist and its tabs would break the pattern's required child structure.
 
-## The tab order is the terminal's
+## The tab order is standard W3C APG
 
 Tab moves focus with no row changing, so a terminal re-asserting focus on every
 refresh fights the reader for it. Focus is a singleton, settled like every
-two-writer problem here: by making the disagreement unrepresentable.
+two-writer problem here: by adhering directly to W3C APG patterns ([native capabilities](native-capabilities.md#3-w3c-apg-roving-tabstop-roletablist--roletab--tabindex)).
 
-- **The terminal holds the pen.** One column decides the tab order
-  ([`data-rove`](../REFERENCE.md#behaviour)): a screen spelling `tabindex` per
-  member could disagree with itself, and a set has one current member.
-- **Focus follows the tabstop moving; nothing records who moved it.** A
+- **The active member holds the tabstop.** APG roving tabstops declare
+  `tabindex="0"` on the currently selected item and `tabindex="-1"` on siblings.
+- **Focus follows standard browser keyboard navigation.** A
   recorded cause — a one-shot armed by a gesture — is state the rows do not
   hold, so a replay and a jump to the same state could part. A delta between
   two views answers the same either way, and a lane's end or a first paint
   moves nothing without a rule saying so.
-- **The column has one writer.** A caret follows only the reader's own row
-  ([the lint](../REFERENCE.md#behaviour)), since another reader can write the
-  rest and their move would take this reader's focus; a projected caret moves
-  with the row it compares against, so that row is held to the same.
+- **The column has one writer.** A caret follows only the reader's own row,
+  since another reader can write the rest and their move would take this reader's
+  focus; a projected caret moves with the row it compares against, so that row
+  is held to the same.
 - **The reader closes the loop.** A chart drawing `focusin` hears the DOM's own
-  moves. `data-focus` — for patterns like the accordion that keep every
-  affordance in the Tab sequence — is refused without it, or a reader's Tab
-  would be dragged back forever.
+  moves for patterns like the accordion that keep every affordance in the Tab
+  sequence.
 - **The arrows and the tabstop are one contract.** `#OneOf`'s `walk` flag
   (`apps/shadcnui/components/one-of.cue`) turns on the arrows and `focusin`
   together: a tabstop with no arrows strands every unchosen option, and arrows
