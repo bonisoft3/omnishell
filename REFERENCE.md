@@ -73,8 +73,9 @@ Three exceptions, each because the empty string is not "absent":
   the moment the tree connects, 404ing before any row exists.
 - A **boolean attribute** (`disabled`, `checked`, `readonly`, `required`,
   `selected`, `hidden`, `open`, `multiple`) is absent when its bound value is
-  empty. `disabled=""` is disabled, so interpolating an empty string would pin
-  a control shut.
+  empty or `"false"`, and otherwise carries the value as bound. `disabled=""`
+  is disabled, and so is `checked="false"`, so interpolating either would pin
+  a control in the state its column denies.
 - A **declaration** is never interpolated in place: `REGION_ATTRS` in
   `interpreter/screen.js` and the `data-read-` family are read with their
   placeholders intact, against a row the binder is not the one holding. The

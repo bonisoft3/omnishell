@@ -192,4 +192,25 @@ describe("a bound boolean attribute", () => {
     expect([b.checked, b.hasAttribute("checked")]).toEqual([true, true])
     await m.stop()
   })
+
+  // Normalising every present value to "" erased the column's own spelling:
+  // shadcnui's pagination binds disabled="{dis_prev}" to "disabled" and reads
+  // that token back, so the exhausted arrow stopped saying which it was.
+  it("keeps the value it was bound to when present", async () => {
+    const files = {
+      "find.html": `<section class="screen" data-screen="find">
+        <ul data-live="step" data-order="id.asc">
+          <template data-item><li><button class="go" disabled="{dis}">go</button></li></template>
+        </ul>
+      </section>`,
+      "find.css": "",
+    }
+    const tables = { step: [{ id: "a", dis: "disabled" }, { id: "b", dis: "" }, { id: "c", dis: "false" }] }
+    const m = await mountScreen({ route: ROUTE, files, tables, seed: 1 })
+    await m.settle()
+    const spelled = (m.all(".go") as unknown as { getAttribute(n: string): string | null }[])
+      .map((el) => el.getAttribute("disabled"))
+    expect(spelled).toEqual(["disabled", null, null])
+    await m.stop()
+  })
 })

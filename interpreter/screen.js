@@ -1183,8 +1183,8 @@ function bindElementAttributes(el, ctx) {
     }
     const value = interpolate(template, ctx);
     if (BOOL_ATTRS.has(attr.name)) {
-      if (value !== "" && value !== "false") el.setAttribute(attr.name, "");
-      else el.removeAttribute(attr.name);
+      if (value === "" || value === "false") el.removeAttribute(attr.name);
+      else el.setAttribute(attr.name, value);
       continue;
     }
     // A URL attribute that resolves to nothing must not stay empty: the
