@@ -347,7 +347,8 @@
                     "check-*.ts",
                     "base-url.ts",
                     "terminal.cue",
-                    "read-markup.ts"
+                    "read-markup.ts",
+                    "offline-first-sw.js"
                 ],
                 "defaultGlobs": null,
                 "exclude": [],
@@ -448,7 +449,8 @@
                     "check-*.ts",
                     "base-url.ts",
                     "terminal.cue",
-                    "read-markup.ts"
+                    "read-markup.ts",
+                    "offline-first-sw.js"
                 ],
                 "defaultGlobs": null,
                 "exclude": [],

@@ -53,19 +53,14 @@ self.addEventListener("fetch", (event) => {
         const revalidatePromise = fetch(req)
           .then(async (res) => {
             if (!res.ok) return res;
-            const newText = await res.clone().text();
-
-            let changed = false;
             if (!cached) {
-              changed = true;
-            } else {
-              const oldText = await cached.clone().text();
-              if (oldText !== newText) {
-                changed = true;
-              }
+              // A first fetch is not an update: the requester is handed this very
+              // response, and a morph to it would strip the state a screen mounted.
+              await cache.put(req, res.clone());
+              return res;
             }
-
-            if (changed) {
+            const newText = await res.clone().text();
+            if (newText !== await cached.clone().text()) {
               await cache.put(req, res.clone());
               const clients = await self.clients.matchAll({ type: "window" });
               for (const client of clients) {

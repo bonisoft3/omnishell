@@ -39,7 +39,8 @@
       "check-*.ts",
       "base-url.ts",
       "terminal.cue",
-      "read-markup.ts"
+      "read-markup.ts",
+      "offline-first-sw.js"
     ],
     "exclude": []
   },
@@ -138,6 +139,7 @@
           "base-url.ts",
           "terminal.cue",
           "read-markup.ts",
+          "offline-first-sw.js",
           "src/**/*",
           "arbitrary.ts",
           "instrument.ts",
@@ -245,7 +247,8 @@
           "check-*.ts",
           "base-url.ts",
           "terminal.cue",
-          "read-markup.ts"
+          "read-markup.ts",
+          "offline-first-sw.js"
         ],
         "exclude": [],
         "defaultGlobs": null,
@@ -265,7 +268,8 @@
           "check-*.ts",
           "base-url.ts",
           "terminal.cue",
-          "read-markup.ts"
+          "read-markup.ts",
+          "offline-first-sw.js"
         ],
         "exclude": [],
         "defaultGlobs": null,

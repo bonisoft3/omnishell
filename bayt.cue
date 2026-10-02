@@ -134,7 +134,7 @@ _omnishell: bayt.#project & {
 		// Stays parallel to integrate, which re-uses the same command —
 		// omnishell has no separate integration suite.
 		"test": sayt.test & mise.exec & {
-			srcs: globs: ["test/**/*", "interpreter/**/*", "components/**/*", "check-*.ts", "base-url.ts", "terminal.cue", "read-markup.ts"]
+			srcs: globs: ["test/**/*", "interpreter/**/*", "components/**/*", "check-*.ts", "base-url.ts", "terminal.cue", "read-markup.ts", "offline-first-sw.js"]
 			cmd: _smokeCmd
 		}
 
@@ -143,7 +143,7 @@ _omnishell: bayt.#project & {
 		// (from the build chain) + the same unit tests. No dind.sh wrap
 		// (no docker socket needed).
 		"integrate": sayt.integrate & mise.exec & {
-			srcs: globs: ["test/**/*", "interpreter/**/*", "components/**/*", "check-*.ts", "base-url.ts", "terminal.cue", "read-markup.ts"]
+			srcs: globs: ["test/**/*", "interpreter/**/*", "components/**/*", "check-*.ts", "base-url.ts", "terminal.cue", "read-markup.ts", "offline-first-sw.js"]
 			dockerfile: {
 				from: ref: ":build"
 			}
