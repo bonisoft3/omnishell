@@ -19,6 +19,7 @@
     "bundle:ses": "curl -fsSL https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js -o interpreter/vendor/ses.umd.min.js",
     "bundle:js-yaml": "deno bundle --config interpreter/deno.json --platform browser --format esm --minify interpreter/vendor/entry-js-yaml.ts -o interpreter/vendor/js-yaml.js",
     "bundle:morphlex": "deno run --allow-run=deno --allow-read --allow-write interpreter/vendor/bundle-morphlex.ts",
+    "bundle:messages": "deno bundle --node-modules-dir=none --no-lock --platform browser --format esm --minify src/messages.ts -o interpreter/vendor/messages.js",
     "test:browser": "pnpm exec playwright test --config playwright.config.ts"
   },
   "dependencies": {

@@ -53,6 +53,19 @@ function validateNodes(nodes: MessageNode[]): void {
   }
 }
 
+function hasIcuComplex(nodes: MessageNode[]): boolean {
+  for (const node of nodes) {
+    if (
+      node.type === TYPE.select ||
+      node.type === TYPE.plural ||
+      node.type === TYPE.pound
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function parseMessage(raw: string): string | MessageAst {
   if (typeof raw !== "string") {
     throw new Error(`message must be a string, got ${typeof raw}`);
@@ -60,6 +73,7 @@ export function parseMessage(raw: string): string | MessageAst {
   if (!raw.includes("{")) return raw;
   const ast = parse(raw) as unknown as MessageNode[];
   validateNodes(ast);
+  if (!hasIcuComplex(ast)) return raw;
   return ast;
 }
 
@@ -89,9 +103,9 @@ export function messagesSelfTest(): string[] {
     failures.push(`plain string failed: got ${JSON.stringify(plain)}`);
   }
 
-  const argAst = parseMessage("Hello {name}!") as MessageNode[];
-  if (!Array.isArray(argAst) || argAst.length !== 3 || argAst[1].type !== 1 || (argAst[1] as ArgumentNode).value !== "name") {
-    failures.push(`argument AST failed: got ${JSON.stringify(argAst)}`);
+  const argStr = parseMessage("Hello {name}!");
+  if (argStr !== "Hello {name}!") {
+    failures.push(`plain template failed: got ${JSON.stringify(argStr)}`);
   }
 
   const pluralAst = parseMessage("{count, plural, one {# item} other {# items}}") as MessageNode[];

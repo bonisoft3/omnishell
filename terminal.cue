@@ -357,6 +357,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 			"shell.js", "chrome.js", "screen.js", "fragment.js", "data-sync.js", "validate.js", "render.js",
 			"hatch.js", "hatch-worker.js", "storybook.js", "jessie.js", "kinetic.js", "prng.js",
 			"vendor/mecha-client.js", "vendor/js-yaml.js", "vendor/ses.umd.min.js", "vendor/morphlex.js",
+			"vendor/messages.js",
 		]
 
 		screens: [...{name: string, html: #Path, css: #Path}]

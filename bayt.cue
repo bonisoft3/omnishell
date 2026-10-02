@@ -183,7 +183,7 @@ _omnishell: bayt.#project & {
 			// about.
 			cmd: "builtin": {
 				shell: "sh"
-				do:    "sh -c '" + _packageJson.scripts["bundle:mecha-client"] + " && deno run --allow-run=deno --allow-read --allow-write interpreter/vendor/bundle-morphlex.ts && deno bundle --config interpreter/deno.json --platform browser --format esm --minify interpreter/vendor/entry-js-yaml.ts -o interpreter/vendor/js-yaml.js'"
+				do:    "sh -c '" + _packageJson.scripts["bundle:mecha-client"] + " && deno run --allow-run=deno --allow-read --allow-write interpreter/vendor/bundle-morphlex.ts && deno bundle --config interpreter/deno.json --platform browser --format esm --minify interpreter/vendor/entry-js-yaml.ts -o interpreter/vendor/js-yaml.js && " + _packageJson.scripts["bundle:messages"] + "'"
 			}
 			dockerfile: from: ref: ":setup"
 		}

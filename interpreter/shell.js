@@ -16,6 +16,7 @@
 import { chromeText } from "./chrome.js";
 import { directionOf, localeByPath, localeTable, resolveLocale, routeHref, routePattern, screenEnv } from "./fragment.js";
 import { interpretScreen, routeParams } from "./screen.js";
+import { compileCatalog } from "./vendor/messages.js";
 
 /** Whether the account a stored token names still exists.
  *
@@ -368,7 +369,7 @@ async function loadMessages(appBase, i18n) {
       try {
         const res = await fetch(new URL(`messages/${loc}.json`, appBase));
         if (res.ok) {
-          messages[loc] = await res.json();
+          messages[loc] = compileCatalog(await res.json());
         }
       } catch (_) {}
     }),

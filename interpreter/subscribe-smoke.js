@@ -27,6 +27,12 @@ const assert = (cond, msg) => {
   if (!cond) throw new Error(`smoke failed: ${msg}`);
 };
 
+const waitWake = async (wakes) => {
+  for (let i = 0; i < 20 && wakes.length === 0; i++) {
+    await new Promise((r) => setTimeout(r, 10));
+  }
+};
+
 // The grammar has one reader: the store adapter re-exports fragment.js's
 // parsers unchanged, so both import paths hold the same function objects.
 Deno.test("the fragment parsers have one definition", () => {
@@ -345,7 +351,7 @@ Deno.test({
     const rows = await store.query("row", "ord.asc", { order: "ord.asc" });
     assert(JSON.stringify(rows.map((r) => r.id)) === JSON.stringify(["b", "a"]), "ordered at read");
     await store.patch("row", [{ key: "a", changes: { ord: 0 } }]);
-    await new Promise((r) => setTimeout(r, 5));
+    await waitWake(wakes);
     assert(wakes.length === 1, `one wake, got ${wakes.length}`);
     assert(Array.isArray(wakes[0]) && wakes[0].some((c) => String(c.value?.id) === "a"), "the wake names the row");
     stop();
@@ -367,7 +373,7 @@ Deno.test({
     await store.drop("row", ["a"]);
     await store.write("row", [{ key: "b", row: { ord: 2 } }, { key: "c", row: { ord: 3 } }]);
     assert(wakes.length === 0, "the wake is a task of its own, after every write of the fold");
-    await new Promise((r) => setTimeout(r, 5));
+    await waitWake(wakes);
     assert(wakes.length === 1, `one wake for the fold, got ${wakes.length}`);
     const ids = [...new Set(wakes[0].map((c) => String(c.value?.id ?? c.previousValue?.id)))].sort();
     assert(JSON.stringify(ids) === JSON.stringify(["a", "b", "c"]), `every write in it, got ${ids}`);
@@ -391,7 +397,7 @@ Deno.test({
     await new Promise((r) => setTimeout(r, 5));
     assert(wakes.length === 0, "subscribing alone wakes nothing: the standing rows are no burst");
     await store.drop("row", ["old"]);
-    await new Promise((r) => setTimeout(r, 5));
+    await waitWake(wakes);
     assert(wakes.length === 1, `the delete woke the region, got ${wakes.length}`);
     assert(wakes[0].every((c) => c.type !== "insert"), "nothing of the standing state rides in the wake");
     assert(wakes[0].some((c) => c.type === "delete" && String(c.key) === "old"), "and named the row");
@@ -417,7 +423,7 @@ Deno.test({
     const second = store.subscribe("row", (changes) => wakes.push(changes), opts);
     assert(globalThis.__prontoViews.size === 1, "one view between them");
     await store.drop("row", ["a"]);
-    await new Promise((r) => setTimeout(r, 5));
+    await waitWake(wakes);
     assert(wakes.length === 1, `the late joiner woke, got ${wakes.length}`);
     assert(wakes[0].some((c) => c.type === "delete" && String(c.key) === "a"), "and heard the delete");
     second();
