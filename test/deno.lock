@@ -14,7 +14,7 @@
     "jsr:@std/yaml@1.0.5": "1.0.5",
     "npm:@formatjs/icu-messageformat-parser@*": "3.5.20",
     "npm:@formatjs/icu-messageformat-parser@3.5.20": "3.5.20",
-    "npm:@playwright/test@1.59.1": "1.59.1",
+    "npm:@playwright/test@1.61.1": "1.61.1",
     "npm:@simplewebauthn/server@13.1.1": "13.1.1",
     "npm:@tanstack/react-router@1.121.0": "1.121.0_react@19.2.8",
     "npm:@types/node@*": "22.20.1",
@@ -28,7 +28,7 @@
     "npm:firebase-admin@13.0.0": "13.0.0",
     "npm:jose@6.0.11": "6.0.11",
     "npm:linkedom@0.18.4": "0.18.4",
-    "npm:playwright@1.59.1": "1.59.1",
+    "npm:playwright@1.61.1": "1.61.1",
     "npm:react@19": "19.2.8",
     "npm:react@19.0.0": "19.0.0",
     "npm:xstate@5.32.6": "5.32.6"
@@ -355,8 +355,8 @@
         "tslib"
       ]
     },
-    "@playwright/test@1.59.1": {
-      "integrity": "sha512-PG6q63nQg5c9rIi4/Z5lR5IVF7yU5MqmKaPOe0HSc0O2cX1fPi96sUQu5j7eo4gKCkB2AnNGoWt7y4/Xx3Kcqg==",
+    "@playwright/test@1.61.1": {
+      "integrity": "sha512-8nKv6+0RJSL9FE4jYOEGXnPeM/Hg12qZpmqzZjRh3qM0Y7c3z1mrOTfFLids72RDQYVh9WpLEfR5WdpNX4fkig==",
       "dependencies": [
         "playwright"
       ],
@@ -1389,12 +1389,12 @@
     "path-key@3.1.1": {
       "integrity": "sha512-ojmeN0qd+y0jszEtoY48r0Peq5dwMEkIlCOu6Q5f41lfkswXuKtYrhgoTpLnyIcHm24Uhqx+5Tqm2InSwLhE6Q=="
     },
-    "playwright-core@1.59.1": {
-      "integrity": "sha512-HBV/RJg81z5BiiZ9yPzIiClYV/QMsDCKUyogwH9p3MCP6IYjUFu/MActgYAvK0oWyV9NlwM3GLBjADyWgydVyg==",
+    "playwright-core@1.61.1": {
+      "integrity": "sha512-h7Qlt6m4REp25qvIdvbDtVmD4LqVXfpRxhORv9L0jzETM05p4fuPJ3dKyuSXQxDSbXnmS79HAgi9589lGSpLkg==",
       "bin": true
     },
-    "playwright@1.59.1": {
-      "integrity": "sha512-C8oWjPR3F81yljW9o5OxcWzfh6avkVwDD2VYdwIGqTkl+OGFISgypqzfu7dOe4QNLL2aqcWBmI3PMtLIK233lw==",
+    "playwright@1.61.1": {
+      "integrity": "sha512-DWnY5o3YbLWK4GovuAVwpqL+1VwGNdUGrRr++8j8PtQQzvAVZUIMjKQ90fY689sEJZJBbZVw1rXaOKSTitkzPQ==",
       "dependencies": [
         "playwright-core"
       ],
@@ -1683,7 +1683,7 @@
   },
   "workspace": {
     "dependencies": [
-      "npm:@playwright/test@1.59.1",
+      "npm:@playwright/test@1.61.1",
       "npm:@simplewebauthn/server@13.1.1",
       "npm:@tanstack/react-router@1.121.0",
       "npm:@types/react@19.0.0",

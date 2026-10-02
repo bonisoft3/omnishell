@@ -27,7 +27,7 @@
 // What the sharing is worth, measured on this suite: six trivial tests take
 // 0.96s against 1.52s, and the whole browser suite 16.2s against 17.1s. It
 // removes a fixed cost per test; it does not transform the tier.
-import { type Browser, chromium, type Page } from "npm:playwright@1.59.1"
+import { type Browser, chromium, type Page } from "npm:playwright@1.61.1"
 import { afterAll as bddAfterAll, describe as bddDescribe, it as bddIt } from "jsr:@std/testing@1/bdd"
 
 export { afterAll, afterEach, beforeAll, beforeEach } from "jsr:@std/testing@1/bdd"

@@ -11,7 +11,7 @@
     "jsr:@std/testing@1": "1.0.20",
     "jsr:@std/yaml@1.0.5": "1.0.5",
     "npm:@anthropic-ai/sdk@0.89": "0.89.0",
-    "npm:@playwright/test@1.59.1": "1.59.1",
+    "npm:@playwright/test@1.61.1": "1.61.1",
     "npm:@simplewebauthn/browser@^13.1.0": "13.3.0",
     "npm:@simplewebauthn/server@^13.1.1": "13.3.3",
     "npm:@tanstack/react-router@^1.121.0": "1.170.39_react@19.3.0_react-dom@19.3.0__react@19.3.0",
@@ -25,7 +25,7 @@
     "npm:jose@^6.0.11": "6.2.12",
     "npm:js-yaml@4.1.0": "4.1.0",
     "npm:linkedom@0.18.4": "0.18.4",
-    "npm:playwright@1.59.1": "1.59.1",
+    "npm:playwright@1.61.1": "1.61.1",
     "npm:react@19": "19.3.0",
     "npm:tailwindcss@^4.1.4": "4.3.3",
     "npm:typescript@^5.8.3": "5.9.3",
@@ -435,8 +435,8 @@
         "tsyringe"
       ]
     },
-    "@playwright/test@1.59.1": {
-      "integrity": "sha512-PG6q63nQg5c9rIi4/Z5lR5IVF7yU5MqmKaPOe0HSc0O2cX1fPi96sUQu5j7eo4gKCkB2AnNGoWt7y4/Xx3Kcqg==",
+    "@playwright/test@1.61.1": {
+      "integrity": "sha512-8nKv6+0RJSL9FE4jYOEGXnPeM/Hg12qZpmqzZjRh3qM0Y7c3z1mrOTfFLids72RDQYVh9WpLEfR5WdpNX4fkig==",
       "dependencies": [
         "playwright"
       ],
@@ -1625,12 +1625,12 @@
     "picomatch@4.0.7": {
       "integrity": "sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA=="
     },
-    "playwright-core@1.59.1": {
-      "integrity": "sha512-HBV/RJg81z5BiiZ9yPzIiClYV/QMsDCKUyogwH9p3MCP6IYjUFu/MActgYAvK0oWyV9NlwM3GLBjADyWgydVyg==",
+    "playwright-core@1.61.1": {
+      "integrity": "sha512-h7Qlt6m4REp25qvIdvbDtVmD4LqVXfpRxhORv9L0jzETM05p4fuPJ3dKyuSXQxDSbXnmS79HAgi9589lGSpLkg==",
       "bin": true
     },
-    "playwright@1.59.1": {
-      "integrity": "sha512-C8oWjPR3F81yljW9o5OxcWzfh6avkVwDD2VYdwIGqTkl+OGFISgypqzfu7dOe4QNLL2aqcWBmI3PMtLIK233lw==",
+    "playwright@1.61.1": {
+      "integrity": "sha512-DWnY5o3YbLWK4GovuAVwpqL+1VwGNdUGrRr++8j8PtQQzvAVZUIMjKQ90fY689sEJZJBbZVw1rXaOKSTitkzPQ==",
       "dependencies": [
         "playwright-core"
       ],
@@ -1963,7 +1963,7 @@
     "packageJson": {
       "dependencies": [
         "npm:@anthropic-ai/sdk@0.89",
-        "npm:@playwright/test@1.59.1",
+        "npm:@playwright/test@1.61.1",
         "npm:@simplewebauthn/browser@^13.1.0",
         "npm:@simplewebauthn/server@^13.1.1",
         "npm:@tanstack/react-router@^1.121.0",

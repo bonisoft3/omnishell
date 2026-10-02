@@ -476,7 +476,7 @@ export async function settle(
 async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): Promise<number> {
   // Lazily, because playwright touches the environment at module scope and
   // --self-test must stay runnable with no permissions.
-  const { chromium } = await import("npm:playwright@1.59.1")
+  const { chromium } = await import("npm:playwright@1.61.1")
   const base = await baseUrl(appDir)
   const shell = shellDoc(await Deno.readTextFile(`${appDir}/shell/shell.yaml`))
   const routes = routesFrom(shell)

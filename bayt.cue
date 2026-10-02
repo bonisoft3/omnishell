@@ -160,7 +160,7 @@ _omnishell: bayt.#project & {
 		//
 		// The output is checked in, like .bayt/ and the apps' emitted trees: the
 		// shell images COPY it from the repo (pronto's terminal emit), and CI's
-		// tests job runs `bayt:generate` and fails on a diff.
+		// `fresh` rung runs `bayt:generate` and fails on a diff.
 		"bundle": mise.exec & {
 			visibility: "public"
 			taskfile: run: "when_changed"
