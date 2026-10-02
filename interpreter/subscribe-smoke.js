@@ -10,6 +10,7 @@
 // wrong costs a stale screen.
 import {
   createStore,
+  embedDeps,
   embedTables,
   isMaintainable,
   parseFilter,
@@ -191,6 +192,16 @@ Deno.test("an embed is parsed with its alias and its table", () => {
   // The dependency set is tables, never aliases: a region deaf to app_user
   // would never see a byline change.
   eq2(embedTables("*,author:app_user(handle)"), ["app_user"], "dep set names the table");
+  // An embed naming its foreign-key column wakes on the table the column refers
+  // to, nested ones included.
+  const schema = {
+    game: { fields: [{ name: "home_id", ref: "team" }, { name: "phase_id", ref: "phase" }] },
+    phase: { fields: [{ name: "championship_id", ref: "championship" }] },
+  };
+  eq2(embedDeps("*,home:home_id(name),phase(name,championship(full_name))", "game", schema),
+    ["team", "phase", "championship"], "column-named and nested embeds");
+  eq2(embedDeps("*,author:app_user!inner(handle,follow!followed_id!inner(follower_id))", "article", {}),
+    ["app_user", "follow"], "hinted embeds wake on their tables");
 });
 
 // A cap is not a predicate. It used to make the whole filter untranslatable,

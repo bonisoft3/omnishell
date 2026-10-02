@@ -59,6 +59,32 @@ describe("morphScreen with morphlex", () => {
     expect(liveScreen.querySelector("footer .copy")?.textContent).toBe("New Copyright 2026")
   })
 
+  it("morphs skeleton and updates root attributes", async () => {
+    const { document } = parseHTML(
+      `<!doctype html><html><body>
+        <div id="screen" class="shell-screen" data-theme="boteco">
+          <header><h1 class="title">Round 1</h1></header>
+          <div class="content"><p>Old content</p></div>
+        </div>
+      </body></html>`,
+    ) as unknown as { document: Document }
+    ;(globalThis as unknown as DomGlobal).document = document
+    const liveScreen = document.getElementById("screen")!
+
+    const newHtml = `
+      <div id="screen" class="shell-screen updated" data-theme="boteco-v2" data-round="2">
+        <header><h1 class="title">Round 2</h1></header>
+        <div class="content"><p>New live content</p></div>
+      </div>
+    `
+    await morphScreen(liveScreen, newHtml)
+    expect(liveScreen.querySelector("h1.title")?.textContent).toBe("Round 2")
+    expect(liveScreen.querySelector(".content p")?.textContent).toBe("New live content")
+    expect(liveScreen.classList.contains("updated")).toBe(true)
+    expect(liveScreen.getAttribute("data-theme")).toBe("boteco-v2")
+    expect(liveScreen.getAttribute("data-round")).toBe("2")
+  })
+
   it("fails loudly when incoming markup contains no root element", async () => {
     const { document } = parseHTML(`<!doctype html><html><body><div id="screen"></div></body></html>`) as unknown as { document: Document }
     ;(globalThis as unknown as DomGlobal).document = document

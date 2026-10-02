@@ -146,7 +146,7 @@ describe("machineRegions anchors a machine to its table", () => {
   it("carries the region's data-live", () => {
     const machine = '{"field":"variant","initial":"mineiro","states":{"mineiro":{}}}'
     expect(machineRegions(`<div data-live="match" data-filter="status=eq.playing" data-machine='${machine}'></div>`))
-      .toEqual([{ table: "match", machine, parallel: [machine], emptyRow: undefined, filter: "status=eq.playing" }])
+      .toEqual([{ table: "match", machine, parallel: [machine], emptyRow: undefined, filter: "status=eq.playing", enclosing: [[]] }])
   })
 
   it("makes a list of charts one entry each, carrying the group they share a row with", () => {
@@ -156,9 +156,90 @@ describe("machineRegions anchors a machine to its table", () => {
     const b = '{"field":"caret","initial":"one","states":{"one":{}}}'
     const parallel = [a, b]
     expect(machineRegions(`<div data-live="match" data-machine='[${a},${b}]'></div>`)).toEqual([
-      { table: "match", machine: a, parallel, emptyRow: undefined, filter: undefined },
-      { table: "match", machine: b, parallel, emptyRow: undefined, filter: undefined },
+      { table: "match", machine: a, parallel, emptyRow: undefined, filter: undefined, enclosing: [[]] },
+      { table: "match", machine: b, parallel, emptyRow: undefined, filter: undefined, enclosing: [[]] },
     ])
+  })
+
+  it("carries the regions it sits in, innermost first, and not those it follows", () => {
+    // A stamped chart is stamped from these; check-machines reads the seed
+    // through them before calling an unmounted one the seed's to answer.
+    const machine = '{"field":"pick","initial":"none","states":{"none":{}}}'
+    const [region] = machineRegions(
+      `<ul data-live="round"><li><br><p data-live="seen"></p></li></ul>` +
+        `<div data-live="game" data-filter="round=eq.1"><template data-item><li>` +
+        `<p data-live="bet" data-filter="game_id=eq.{id}"><b data-live="pick" data-filter="bet_id=eq.{id}" data-machine='${machine}'></b></p>` +
+        `</template></div>`,
+    )
+    expect(region.enclosing).toEqual([[
+      { table: "bet", filter: "game_id=eq.{id}" },
+      { table: "game", filter: "round=eq.1" },
+    ]])
+  })
+
+  it("reaches a named template through every region that references it", () => {
+    // A named template's own place in the markup is under no region: what
+    // stamps it is each data-template naming it. Read lexically, a chart in
+    // one under an empty sink looked stamped from nowhere, and check-machines
+    // called its not mounting the markup's error.
+    const machine = '{"field":"pick","initial":"none","states":{"none":{}}}'
+    const [region] = machineRegions(
+      `<template data-item data-name="card"><li>` +
+        `<p data-live="bet" data-filter="game_id=eq.{id}"><b data-live="pick" data-filter="bet_id=eq.{id}" data-machine='${machine}'></b></p>` +
+        `</li></template>` +
+        `<div data-live="game" data-filter="round=eq.1" data-template="card"></div>` +
+        `<section data-live="round"><template data-item><div><ul data-live="archive" data-template="card"></ul></div></template></section>`,
+    )
+    expect(region.enclosing).toEqual([
+      [{ table: "bet", filter: "game_id=eq.{id}" }, { table: "game", filter: "round=eq.1" }],
+      [{ table: "bet", filter: "game_id=eq.{id}" }, { table: "archive", filter: undefined }, { table: "round", filter: undefined }],
+    ])
+  })
+
+  it("stamps a self-referencing template only through its outermost referrer, and nothing unreferenced", () => {
+    const machine = '{"field":"pick","initial":"none","states":{"none":{}}}'
+    const [nested] = machineRegions(
+      `<template data-item data-name="node"><li>` +
+        `<b data-live="pick" data-filter="node_id=eq.{id}" data-machine='${machine}'></b>` +
+        `<ul data-live="node" data-filter="parent_id=eq.{id}" data-template="node"></ul></li></template>` +
+        `<ul data-live="node" data-filter="parent_id=is.null" data-template="node"></ul>`,
+    )
+    expect(nested.enclosing).toEqual([[{ table: "node", filter: "parent_id=is.null" }]])
+    const [orphan] = machineRegions(
+      `<template data-item data-name="lost"><b data-live="pick" data-filter="x=eq.{id}" data-machine='${machine}'></b></template>`,
+    )
+    expect(orphan.enclosing).toEqual([])
+  })
+
+  it("reaches a named template through the region it sits in, which stamps it as its own", () => {
+    // hydrateRegion takes every template[data-item] whose nearest region is
+    // it, named or not. Counting only data-template referrers left this tree
+    // stamped by nothing but itself, and an empty seed read as the markup's
+    // error.
+    const machine = '{"field":"pick","initial":"none","states":{"none":{}}}'
+    const [region] = machineRegions(
+      `<ul data-live="nodes" data-filter="parent_id=is.null"><template data-item data-name="node"><li>` +
+        `<b data-live="nodes" data-filter="id=eq.{id}" data-machine='${machine}'></b>` +
+        `<ul data-live="nodes" data-filter="parent_id=eq.{id}" data-template="node"></ul></li></template></ul>`,
+    )
+    expect(region.enclosing).toEqual([[{ table: "nodes", filter: "parent_id=is.null" }]])
+  })
+
+  it("a region does not stamp a named template another template's content holds", () => {
+    // hydrateRegion's querySelector stops at a template's content. Climbing
+    // past one, a named template inside a row template, or inside a plain
+    // template, read as stamped by the region outside it too.
+    const machine = '{"field":"pick","initial":"none","states":{"none":{}}}'
+    const card = `<template data-item data-name="card"><li><b data-live="pick" data-machine='${machine}'></b></li></template>`
+    const game = `<div data-live="game" data-template="card"></div>`
+    for (
+      const html of [
+        `<ul data-live="outer"><template data-item><li>${card}</li></template></ul>${game}`,
+        `<ul data-live="outer"><template>${card}</template></ul>${game}`,
+      ]
+    ) {
+      expect(machineRegions(html)[0].enclosing).toEqual([[{ table: "game", filter: undefined }]])
+    }
   })
 
   // The interpreter reads a machine from region.dataset and from nowhere

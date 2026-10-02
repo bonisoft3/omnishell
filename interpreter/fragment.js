@@ -12,6 +12,41 @@ export const PLACEHOLDER = /\{([\w.]+(?:\[\w+\])?)\}/;
 /** The same grammar over a whole text. */
 export const PLACEHOLDERS = new RegExp(PLACEHOLDER.source, "g");
 
+/** What `binding` answers for a key the row does not carry: the caller's to
+ * judge, since a pending optimistic row and a seed are allowed to lack one. */
+export const ABSENT = Symbol("absent");
+
+/**
+ * The value a `{param.x}` or row-path placeholder names. A route param the
+ * route does not bind is the markup's mistake. A row path is the whole dotted
+ * key where the row answers it (fixture rows answer every key), else a walk
+ * into embedded objects, where a null embed binds blank: it is how PostgREST
+ * answers when RLS hides the joined row.
+ */
+export function binding(expr, row, params) {
+  if (expr.startsWith("param.")) {
+    const name = expr.slice("param.".length);
+    if (!params || !(name in params)) throw new Error(`unknown route param {${expr}}`);
+    return params[name];
+  }
+  const r = row ?? {};
+  if (expr in r) return r[expr];
+  let v = r;
+  for (const seg of expr.split(".")) {
+    if (v == null) return undefined;
+    if (!(seg in Object(v))) return ABSENT;
+    v = v[seg];
+  }
+  return v;
+}
+
+/** A filter with its placeholders filled by `resolve`. Each value is
+ * URI-encoded because the filter lands in a query string and parseFilter
+ * splits on `&` and decodes. */
+export function fillFilter(template, resolve) {
+  return template.replace(PLACEHOLDERS, (_, expr) => encodeURIComponent(String(resolve(expr) ?? "")));
+}
+
 /**
  * The row cap a filter carries, as a number; undefined when it carries none.
  *
@@ -124,6 +159,110 @@ export function parseReadSpec(value) {
  */
 export function embedTables(select) {
   return [...(select ?? "").matchAll(/([a-z_][a-z0-9_]*)(?:![a-z_][a-z0-9_]*)*\(/g)].map((m) => m[1]);
+}
+
+/**
+ * A select as PostgREST reads it: columns and embeds, to any depth. An embed
+ * is `alias:rel!hint(...)`, or `...rel!hint(...)` spread into its parent; a
+ * column is `*`, or `alias:name` with JSON path steps (`->k`, `->>0`), an
+ * aggregate (`.sum()`, a bare `count()`) and a cast (`::type`), each kept as
+ * written. Whitespace may surround an item. Null for anything else.
+ *
+ * @returns {{cols: string[], embeds: Embed[]} | null}
+ * @typedef {{alias: string, rel: string, hints: string[], spread: boolean, cols: string[], embeds: Embed[]}} Embed
+ */
+export function parseEmbeds(select) {
+  if (select === undefined) return { cols: [], embeds: [] };
+  let at = 0;
+  const match = (re) => {
+    const m = re.exec(select.slice(at));
+    if (m === null) return null;
+    at += m[0].length;
+    return m[0];
+  };
+  const name = () => match(/^[A-Za-z_][A-Za-z0-9_]*/);
+  const space = () => match(/^\s*/);
+  const take = (token) => {
+    if (!select.startsWith(token, at)) return false;
+    at += token.length;
+    return true;
+  };
+  const embed = (alias, rel, spread) => {
+    const hints = [];
+    while (take("!")) {
+      const hint = name();
+      if (hint === null) return null;
+      hints.push(hint);
+    }
+    if (!take("(")) return null;
+    space();
+    const inner = select[at] === ")" ? { cols: [], embeds: [] } : list();
+    if (inner === null || !take(")")) return null;
+    return { alias, rel, hints, spread, ...inner };
+  };
+  // What may follow a column's name: path steps, an aggregate, a cast.
+  const column = () => {
+    while (select.startsWith("->", at)) {
+      if (!take("->>")) take("->");
+      if (name() === null && match(/^-?\d+/) === null) return false;
+    }
+    if (take(".") && match(/^(count|sum|avg|max|min)\(\)/) === null) return false;
+    return !take("::") || name() !== null;
+  };
+  const list = () => {
+    const cols = [], embeds = [];
+    do {
+      space();
+      const from = at;
+      if (take("*")) cols.push("*");
+      else if (take("...")) {
+        const rel = name();
+        const spread = rel === null ? null : embed(rel, rel, true);
+        if (spread === null) return null;
+        embeds.push(spread);
+      } else {
+        const first = name();
+        if (first === null) return null;
+        const rel = select.startsWith("::", at) || !take(":") ? first : name();
+        if (rel === null) return null;
+        const count = rel === "count" && take("()");
+        if (!count && (select[at] === "!" || select[at] === "(")) {
+          const e = embed(first, rel, false);
+          if (e === null) return null;
+          embeds.push(e);
+        } else {
+          if (!column()) return null;
+          cols.push(select.slice(from, at));
+        }
+      }
+      space();
+    } while (take(","));
+    return { cols, embeds };
+  };
+  const top = list();
+  return top === null || at !== select.length ? null : top;
+}
+
+/**
+ * The tables a select's embeds read, for waking. An embed names a table, or a
+ * foreign-key column of its parent (`home:home_id(name)`), which the schema's
+ * `ref` resolves; each nested embed resolves against the table it hangs under.
+ *
+ * @param {Record<string, {fields: {name: string, ref?: string}[]}>} [schema]
+ */
+export function embedDeps(select, table, schema) {
+  const tree = parseEmbeds(select);
+  if (tree === null) throw new ProgramError(`select outside the grammar: ${select}`);
+  const out = new Set();
+  const walk = (parent, embeds) => {
+    for (const e of embeds) {
+      const target = schema?.[parent]?.fields.find((f) => f.name === e.rel)?.ref ?? e.rel;
+      out.add(target);
+      walk(target, e.embeds);
+    }
+  };
+  walk(table, tree.embeds);
+  return [...out];
 }
 
 /** A LIKE pattern as regex source: metacharacters escaped, wildcards restored. */

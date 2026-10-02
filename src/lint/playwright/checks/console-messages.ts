@@ -25,6 +25,15 @@ const DEFAULT_IGNORES: RegExp[] = [
 ]
 
 /**
+ * Patterns matched against a message's location as well as its text, which is
+ * where a failed resource's URL is. A shape request the auth gate refused: the
+ * mecha client mints another token and resumes.
+ */
+const LOCATED_IGNORES: RegExp[] = [
+  /^Failed to load resource: the server responded with a status of 401 .*\/electric\/v1\/shape\?/,
+]
+
+/**
  * Attach listeners to the page BEFORE navigation.
  * Returns a capture object with the accumulated messages and a dispose function.
  * Typical usage:
@@ -76,6 +85,7 @@ export function analyzeConsole(
 
   for (const msg of capture.messages) {
     if (ignore.some((re) => re.test(msg.text))) continue
+    if (LOCATED_IGNORES.some((re) => re.test(`${msg.text} ${msg.location}`))) continue
     const shortText = msg.text.length > 300 ? msg.text.slice(0, 300) + "…" : msg.text
     bugs.push({
       rule: msg.type === "error" ? "console-error" : "console-warning",

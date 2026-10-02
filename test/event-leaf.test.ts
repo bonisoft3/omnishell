@@ -89,3 +89,107 @@ describe("a machine reads the value off its own event", () => {
     await m.stop()
   })
 })
+
+describe("a machine's control", () => {
+  it("shows the column the machine clears, whatever the reader typed", async () => {
+    // golaberto's comment composer: typing assigns the draft, an acknowledged
+    // post assigns it empty — and the textarea kept the posted text, because
+    // the binder guarded a typed control as if a form owned it.
+    const chart = JSON.stringify({
+      field: "state",
+      initial: "idle",
+      context: { term: "" },
+      states: { idle: { on: {
+        "input@box": { assign: { term: { type: "event", params: { field: "value" } } } },
+        "click@clear": { assign: { term: "" } },
+      } } },
+    })
+    const files = {
+      "find.html": `<section class="screen" data-screen="find">
+        <div data-live="search" data-filter="id=eq.the" data-machine='${chart}'>
+          <textarea id="box" data-value="{term}"></textarea>
+          <button id="clear" type="button">clear</button>
+        </div>
+      </section>`,
+      "find.css": "",
+    }
+    const m = await mountScreen({ route: ROUTE, files, tables: world(), seed: 1 })
+    await m.settle()
+    m.set("#box", "value", "golaço")
+    m.fire("#box", "input")
+    await m.settle()
+    expect(m.store.rows("search")[0].term).toBe("golaço")
+    m.fire("#clear", "click")
+    await m.settle()
+    expect(m.store.rows("search")[0].term).toBe("")
+    expect((m.one("#box") as unknown as { value: string }).value).toBe("")
+    await m.stop()
+  })
+})
+
+describe("a draft nested in the row it edits", () => {
+  // data-empty-row was read raw, so a draft could not start from the row
+  // around it: the editor opened blank, and saving it wrote blanks back.
+  it("starts from the enclosing row, keeping a column's type and its null", async () => {
+    const draft = JSON.stringify({
+      field: "state",
+      initial: "idle",
+      states: { idle: { on: { input: [{ target: "idle", assign: { score: { type: "event", params: { field: "value" } } } }] } } },
+    })
+    const files = {
+      "find.html": `<section class="screen" data-screen="find">
+        <div data-live="game" data-filter="id=eq.g1">
+          <template data-item><article>
+            <div data-live="game_edit" data-filter="id=eq.{id}" data-machine='${draft}'
+                 data-empty-row='{"id":"{id}","state":"idle","score":"{score}","crowd":"{crowd}","label":"jogo {id}"}'>
+              <output class="score" data-text="{score}"></output>
+              <output class="label" data-text="{label}"></output>
+              <input class="box" type="text" data-value="{score}">
+              <ul data-live="choice" data-empty=""><template data-item><li class="choice" data-text="{name}"></li></template></ul>
+            </div>
+          </article></template>
+        </div>
+      </section>`,
+      "find.css": "",
+    }
+    // A list inside the draft: the draft stays a slot, its templates the list's.
+    const tables = { game: [{ id: "g1", score: 2, crowd: null }], game_edit: [] as Record<string, unknown>[], choice: [{ id: "c1", name: "Arena" }] }
+    const m = await mountScreen({ route: ROUTE, files, tables, seed: 1 })
+    await m.settle()
+    expect(m.texts(".score")).toEqual(["2"])
+    expect(m.texts(".label")).toEqual(["jogo g1"])
+    expect(m.texts(".choice")).toEqual(["Arena"])
+    // The control shows the row through its value, not an attribute.
+    expect((m.one(".box") as unknown as { value: string }).value).toBe("2")
+
+    m.set(".box", "value", "3")
+    m.fire(".box", "input")
+    await m.settle()
+    // The fallback is written whole by the first transition: what it seeded
+    // is what the row holds, typed.
+    expect(m.store.rows("game_edit")[0]).toMatchObject({ id: "g1", score: "3", crowd: null, label: "jogo g1" })
+    await m.stop()
+  })
+})
+
+describe("a bound boolean attribute", () => {
+  // A boolean column renders "false", and `checked="false"` is a checked box:
+  // an unplayed game's editor opened with "played" ticked.
+  it("is absent when the column is false, present when true", async () => {
+    const files = {
+      "find.html": `<section class="screen" data-screen="find">
+        <ul data-live="game" data-order="id.asc">
+          <template data-item><li><input class="played" type="checkbox" checked="{played}"></li></template>
+        </ul>
+      </section>`,
+      "find.css": "",
+    }
+    const tables = { game: [{ id: "a", played: false }, { id: "b", played: true }] }
+    const m = await mountScreen({ route: ROUTE, files, tables, seed: 1 })
+    await m.settle()
+    const [a, b] = m.all(".played") as unknown as { checked: boolean; hasAttribute(n: string): boolean }[]
+    expect([a.checked, a.hasAttribute("checked")]).toEqual([false, false])
+    expect([b.checked, b.hasAttribute("checked")]).toEqual([true, true])
+    await m.stop()
+  })
+})

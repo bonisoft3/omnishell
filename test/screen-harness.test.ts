@@ -50,6 +50,42 @@ describe("the harness store", () => {
     expect(rows[1].label).toBe(null)
   })
 
+  it("resolves nested and column-named embeds through the schema's refs", async () => {
+    // PostgREST answers both, and the shipped store hands them to it; a
+    // harness that refused them failed `check machines` on a screen the
+    // browser renders (golaberto's games list, under its tabs machine).
+    const store = memoryStore({
+      game: [{ id: "g1", home_id: "t1", phase_id: "p1" }],
+      team: [{ id: "t1", name: "Bahia-BA" }],
+      phase: [{ id: "p1", name: "Turno", championship_id: "c1" }],
+      championship: [{ id: "c1", full_name: "Brasileiro 2026" }],
+    }, {
+      schema: {
+        game: { fields: [{ name: "home_id", type: "uuid", ref: "team" }, { name: "phase_id", type: "uuid", ref: "phase" }] },
+        phase: { fields: [{ name: "championship_id", type: "uuid", ref: "championship" }] },
+      },
+    })
+    const [row] = await store.query("game", null, { select: "*,home:home_id(name),phase(name,championship(full_name))" })
+    expect(row.home).toEqual({ name: "Bahia-BA" })
+    expect(row.phase).toEqual({ name: "Turno", championship: { full_name: "Brasileiro 2026" } })
+    await expect(store.query("game", null, { select: "*,phase!inner(name)" })).rejects.toThrow(/outside the grammar/)
+  })
+
+  it("wakes a region whose embed names a foreign-key column when its table moves", async () => {
+    // `home:home_id(name)` names a column, not a table: the dependency set
+    // dropped it, and a renamed club never reached the game lists showing it.
+    const store = memoryStore({
+      game: [{ id: "g1", home_id: "t1" }],
+      team: [{ id: "t1", name: "Bahia-BA" }],
+    }, { schema: { game: { fields: [{ name: "home_id", type: "uuid", ref: "team" }] } } })
+    let wakes = 0
+    const stop = store.subscribe("game", () => wakes++, { select: "*,home:home_id(name)" })
+    await store.put("team", { id: "t1", name: "Bahia" })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(wakes).toBe(1)
+    stop()
+  })
+
   it("wakes with the change set, and never on subscribe itself", async () => {
     const store = memoryStore({ note: [{ id: "a", title: "alpha" }] })
     const seen: unknown[] = []

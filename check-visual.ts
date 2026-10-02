@@ -37,7 +37,7 @@ import type { VisualBug } from "./src/lint/playwright/types.ts"
 import { type ParamPlan, paramPlans, machineRegions } from "./interpreter/lint.ts"
 import { type MachineRegionInfo, extractRegions, generateCoveringArrayFrames } from "./test/storybook-injector.ts"
 import type { Machine } from "./test/canonical.ts"
-import { parseFilter, parseFilterSpec, PLACEHOLDERS } from "./interpreter/fragment.js"
+import { parseFilter, parseFilterSpec, PLACEHOLDER, PLACEHOLDERS } from "./interpreter/fragment.js"
 
 type Finding = { severity: string; path: string; message: string }
 /** Only what this driver drives; the checks take @playwright/test's Page, which is the same object. */
@@ -683,7 +683,10 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
       // visual invariants without full page reloads.
       const routeHtml = markup[route.path]
       if (routeHtml) {
-        const regions = machineRegions(routeHtml)
+        // A row seeded from the row it is nested in names that row's columns,
+        // and posing it here would write the placeholders themselves: nothing
+        // this pass holds binds them, as check-machines says of a stamped chart.
+        const regions = machineRegions(routeHtml).filter((reg) => !PLACEHOLDER.test(reg.emptyRow ?? ""))
         if (regions.length > 0) {
           const allRegionInfos: MachineRegionInfo[] = []
           const baseRows: Record<string, Record<string, unknown>> = {}
@@ -770,18 +773,18 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
     jobs: live.map((route) => ({ route, out: [] as Finding[] })),
   }))
 
-  const browser = await chromium.launch()
+  // The door is TLS on a certificate mkcert issued for the developer's own
+  // trust store, which this browser does not share; ignoring it lets the lint
+  // drive h2 without a per-CI trust install. Browser-wide, because a context's
+  // ignoreHTTPSErrors does not reach the service worker's script fetch.
+  const browser = await chromium.launch({ args: ["--ignore-certificate-errors"] })
   try {
     // Never rejects: a board that fails records why and lets its sibling
     // finish, rather than reaching the browser.close() below while the other
     // board still has pages open on it.
     await Promise.all(
       boards.map(async ({ viewport, failure, jobs }) => {
-        // The door is TLS on a certificate mkcert issued for the developer's own
-        // trust store, which this browser does not share. Ignoring it is the
-        // whole reason the lint can drive h2 without a per-CI trust install.
         const context = await browser.newContext({
-          ignoreHTTPSErrors: true,
           viewport: { width: viewport.width, height: viewport.height },
         })
         try {

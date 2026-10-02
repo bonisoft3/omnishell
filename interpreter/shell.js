@@ -73,10 +73,10 @@ const b64uFromBuf = (buf) =>
     .replace(/\//g, "_")
     .replace(/=+$/, "");
 
-async function postJson(url, body) {
+async function postJson(url, body, token) {
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -90,9 +90,10 @@ async function postJson(url, body) {
 // is generated server-side): POST {service}/<kind>/start {} → the WebAuthn
 // options object flat, plus `state` (the server's stateless challenge JWT,
 // echoed back verbatim); then POST {service}/<kind>/verify
-// {state, response} → {token, user}.
-async function registerCeremony(service) {
-  const { state, ...options } = await postJson(`${service}/register/start`, {});
+// {state, response} → {token, user}. A register started with a session's token
+// gives that session's identity the passkey rather than minting a new one.
+async function registerCeremony(service, token) {
+  const { state, ...options } = await postJson(`${service}/register/start`, {}, token);
   const cred = await navigator.credentials.create({
     publicKey: {
       ...options,
@@ -150,6 +151,19 @@ async function loginCeremony(service) {
   });
 }
 
+// Register and login are one gesture: attempt the discoverable get; when no
+// resident credential materializes (NotAllowedError covers both "none" and
+// "canceled" — the platform does not distinguish, by design), create one. Any
+// other failure is the login's own and is not a reason to mint a passkey.
+async function passkeyCeremony(service, token) {
+  try {
+    return await loginCeremony(service);
+  } catch (err) {
+    if (err?.name !== "NotAllowedError") throw err;
+    return registerCeremony(service, token);
+  }
+}
+
 // Resolves {token, user} once a ceremony succeeds; failures surface inline
 // and leave the form live for another attempt. `chrome` answers the terminal's
 // own copy in the reader's language.
@@ -174,28 +188,19 @@ function renderLogin(mount, cfg, chrome) {
   return new Promise((resolve) => {
     const form = wrap.querySelector("form");
     const error = wrap.querySelector(".login-error");
-    // Register and login are one gesture: attempt the discoverable get; when
-    // no resident credential materializes (NotAllowedError covers both "none"
-    // and "canceled" — the platform does not distinguish, by design), fall
-    // through to creating one.
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       error.setAttribute("hidden", "");
       try {
-        resolve(await loginCeremony(cfg.auth.service));
-      } catch (loginErr) {
-        console.error(loginErr);
-        try {
-          resolve(await registerCeremony(cfg.auth.service));
-        } catch (err) {
-          // What failed is the platform's own sentence, in whatever language
-          // the browser threw it in and about a ceremony the reader did not
-          // ask to know the shape of. It goes to the console, where it is
-          // diagnosable; the reader is told, in theirs, that it did not work.
-          console.error(err);
-          error.textContent = chrome("chrome_signin_failed");
-          error.removeAttribute("hidden");
-        }
+        resolve(await passkeyCeremony(cfg.auth.service));
+      } catch (err) {
+        // What failed is the platform's own sentence, in whatever language
+        // the browser threw it in and about a ceremony the reader did not
+        // ask to know the shape of. It goes to the console, where it is
+        // diagnosable; the reader is told, in theirs, that it did not work.
+        console.error(err);
+        error.textContent = chrome("chrome_signin_failed");
+        error.removeAttribute("hidden");
       }
     });
     // Guest is terminal doctrine, rendered unconditionally: passkey ceremonies
@@ -222,6 +227,33 @@ function renderLogin(mount, cfg, chrome) {
 function renderSession(session, cfg, store, signOut, chrome) {
   const box = document.createElement("span");
   box.className = "shell-me";
+
+  // A guest has nothing to sign out of and a passkey to gain: one gesture
+  // signs in to the passkey's account where the device has one, and otherwise
+  // makes one of this guest, keeping what it wrote.
+  if (session.user.guest && cfg.auth?.promote) {
+    const signIn = document.createElement("button");
+    signIn.type = "button";
+    signIn.className = "shell-signin";
+    // The word is the strip's to write in the page's language (localizeStrip);
+    // the key says which word.
+    signIn.dataset.key = "chrome_passkey";
+    signIn.addEventListener("click", async () => {
+      let next;
+      try {
+        next = await passkeyCeremony(cfg.auth.service, session.token);
+      } catch (err) {
+        console.error(err);
+        signIn.dataset.key = "chrome_passkey_failed";
+        signIn.textContent = chrome(signIn.dataset.key, document.documentElement.lang);
+        return;
+      }
+      sessionStorage.setItem("pronto-token", JSON.stringify(next));
+      location.reload();
+    });
+    box.append(signIn);
+    return box;
+  }
 
   const self = cfg.auth?.self;
   const who = document.createElement(self === undefined ? "span" : "a");
@@ -538,8 +570,11 @@ export async function createShell({ config, mount }) {
     const keepOf = (route) => route.keep ?? 1;
     const keyOf = (route, params) => `${route.screen} ${JSON.stringify(params)}`;
 
+    // A screen still loading has no handle: `gone` marks a discard its load
+    // honours when it lands.
     const discard = (entry) => {
-      entry.handle.stop();
+      entry.gone = true;
+      entry.handle?.stop();
       entry.el.remove();
       held.delete(entry.key);
     };
@@ -612,6 +647,8 @@ export async function createShell({ config, mount }) {
       }
       const out = nav?.querySelector(".shell-signout");
       if (out) out.textContent = chrome("chrome_signout", locale);
+      const signIn = nav?.querySelector(".shell-signin");
+      if (signIn) signIn.textContent = chrome(signIn.dataset.key, locale);
     };
 
     // What the document says it IS, rewritten on every navigation. One entry
@@ -686,7 +723,7 @@ export async function createShell({ config, mount }) {
       const key = keyOf(route, params);
       if (current) {
         current.scrollY = window.scrollY;
-        current.handle.pause();
+        current.handle?.pause();
         current.el.hidden = true;
         if (keepOf(current.route) === 0) discard(current);
         current = null;
@@ -703,7 +740,7 @@ export async function createShell({ config, mount }) {
         // however warm its DOM is, and an arrival starts at the top; going
         // back resumes. Only "push" is treated as an arrival.
         window.scrollTo(0, navigationType === "push" ? 0 : entry.scrollY);
-        await entry.handle.resume();
+        await entry.handle?.resume();
         return;
       }
       const el = document.createElement("div");
@@ -728,6 +765,10 @@ export async function createShell({ config, mount }) {
           locale,
           navigate,
         }));
+        // Left, or dropped, before the load landed: a back press during the
+        // fetch is the common case.
+        if (fresh.gone) return fresh.handle.stop();
+        if (current !== fresh) return fresh.handle.pause();
         // After the render: the screen's own h1 is where its name comes from.
         describe(route, params, locale, written, el);
         // A screen arrived at starts at its own top. This lands there anyway
@@ -742,7 +783,7 @@ export async function createShell({ config, mount }) {
         // TypeError instead of the error that actually happened. The element
         // stays where it is — whatever rendered before the throw is what the
         // reader has — but the terminal stops counting it as a live screen.
-        held.delete(key);
+        if (held.get(key) === fresh) held.delete(key);
         if (current === fresh) current = null;
         throw err;
       } finally {
@@ -795,6 +836,24 @@ export async function createShell({ config, mount }) {
       }, true);
       addEventListener("popstate", () => show("traverse"));
     }
+
+    if (typeof navigator !== "undefined" && navigator.serviceWorker) {
+      navigator.serviceWorker.addEventListener("message", async (e) => {
+        if (e.data?.type === "PRONTO_SKELETON_UPDATED" && e.data?.html) {
+          const path = e.data.pathname || "";
+          if (current?.route?.files?.html && path.endsWith(current.route.files.html)) {
+            await current.handle?.morph?.(e.data.html);
+          }
+        } else if (e.data?.type === "PRONTO_STYLE_UPDATED" && e.data?.css) {
+          const path = e.data.pathname || "";
+          if (current?.route?.files?.css && path.endsWith(current.route.files.css)) {
+            const style = document.getElementById(`screen-css-${current.route.screen}`);
+            if (style) style.textContent = e.data.css;
+          }
+        }
+      });
+    }
+
     await show();
     booted = true;
     return { store, navigate };

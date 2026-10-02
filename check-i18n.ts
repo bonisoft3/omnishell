@@ -15,6 +15,7 @@ import { directionOf, PLACEHOLDER, PLACEHOLDERS } from "./interpreter/fragment.j
 // The terminal's own copy table, so the keys required here are the keys the
 // terminal actually asks for and cannot drift from them.
 import { CHROME_KEYS } from "./interpreter/chrome.js";
+import { controlProperties } from "./test/linkedom-controls.ts";
 import { type MessageNode, compileCatalog, parseMessage } from "./src/messages.ts";
 
 export type Finding = { severity: string; path: string; message: string };
@@ -61,10 +62,11 @@ type I18n = { default: string; locales: Record<string, { path: string }> };
 type ShellConfig = {
   app?: string;
   i18n?: I18n;
-  // The two facts that decide which of the terminal's own chrome a reader
-  // reaches: a required gate draws the login screen, and either a gate or a
-  // table of the app's own mints the session the strip names.
-  auth?: { required?: boolean };
+  // The facts that decide which of the terminal's own chrome a reader reaches:
+  // a required gate draws the login screen, either a gate or a table of the
+  // app's own mints the session the strip names, and promote offers a guest
+  // that session's passkey.
+  auth?: { required?: boolean; promote?: boolean };
   tables?: string[];
   routes?: Route[];
   units?: Record<string, unknown>;
@@ -503,7 +505,8 @@ export function checkChrome(
   // The guest every app with a table of its own is handed is a session too, and
   // a session is what puts the person and the way out in the strip.
   const session = gated || (shell.tables?.length ?? 0) > 0;
-  for (const key of [...(gated ? CHROME_KEYS.login : []), ...(session ? CHROME_KEYS.session : [])]) {
+  const promote = session && shell.auth?.promote === true;
+  for (const key of [...(gated ? CHROME_KEYS.login : []), ...(session ? CHROME_KEYS.session : []), ...(promote ? CHROME_KEYS.promote : [])]) {
     for (const tag of tags) {
       if (said(tag, key)) continue;
       report(`messages/${tag}.json`, `chrome key "${key}" is missing: the terminal speaks its own English here`);
@@ -588,6 +591,13 @@ export function checkHandlerText(
   return findings;
 }
 
+/** A document with one mount, whose form controls answer as a browser's do. */
+function mountDocument() {
+  const { document } = parseHTML('<!doctype html><html><head></head><body><div id="mount"></div></body></html>');
+  controlProperties(document);
+  return document;
+}
+
 export async function checkMemoryApp(
   shell: ShellConfig,
   messages: Record<string, Catalog>,
@@ -602,7 +612,7 @@ export async function checkMemoryApp(
   const defaultLocale = shell.i18n?.default ?? locales[0];
   const secondaryLocales = locales.filter((l) => l !== defaultLocale);
 
-  const { document } = parseHTML("<!doctype html><html><head></head><body><div id=\"mount\"></div></body></html>");
+  const document = mountDocument();
   const global = globalThis as unknown as Record<string, unknown>;
   global.document = document;
   global.location ??= new URL("http://app.test/?clock=manual&seed=1");
@@ -656,6 +666,7 @@ export async function checkMemoryApp(
 
         for (const el of frame.querySelectorAll("*")) {
           if (el.tagName === "SCRIPT" || el.tagName === "STYLE" || el.closest("script, style")) continue;
+          if (el.closest('[translate="no"]')) continue;
 
           // 1. Exact catalog binding match on data-text="{msg.<key>}"
           const dt = el.getAttribute("data-text");
@@ -949,7 +960,7 @@ export async function checkPseudoLocale(
   );
   const catalogues = { ...messages, ...Object.fromEntries(PSEUDO_TAGS.map((t) => [t, pseudoCatalog(source, t)])) };
 
-  const { document } = parseHTML('<!doctype html><html><head></head><body><div id="mount"></div></body></html>');
+  const document = mountDocument();
   const global = globalThis as unknown as Record<string, unknown>;
   global.document = document;
   global.location ??= new URL("http://app.test/?clock=manual&seed=1");
@@ -1005,6 +1016,7 @@ export async function checkPseudoLocale(
 
         for (const el of frame.querySelectorAll("*")) {
           if (el.tagName === "SCRIPT" || el.tagName === "STYLE" || el.closest("script, style")) continue;
+          if (el.closest('[translate="no"]')) continue;
           // Intl formats a date or an amount under the pseudo tag's base
           // language, so its output is correctly undecorated: "Aug 2, 09:00" is
           // not a string anybody translates.
@@ -1185,6 +1197,14 @@ async function pseudoFailures(): Promise<string[]> {
       `<li data-text="{title}"></li></template></section>`),
   );
   if (fixtures.length !== 0) failures.push(`a fixture-derived run is not copy, got ${JSON.stringify(fixtures)}`);
+
+  // Elements marked translate="no" are explicitly non-translatable and pass cleanly.
+  const untranslated = await checkPseudoLocale(
+    shell,
+    messages,
+    home(`<section translate="no"><span>Explicitly untranslated section</span></section>`),
+  );
+  if (untranslated.length !== 0) failures.push(`translate="no" element expected 0 findings, got ${JSON.stringify(untranslated)}`);
 
   // Intl formats under the pseudo tag's base language, so a timestamp comes out
   // correctly undecorated — and it is not a string a catalogue holds.
@@ -1369,6 +1389,13 @@ function chromeFailures(): string[] {
     shell: { auth: { required: false } },
     messages: without("chrome_signout"),
   });
+
+  // A guest offered a passkey reads the offer in the page's language; an app
+  // that offers none is not asked for it.
+  grades("a guest offered a passkey in no Spanish", `chrome key "chrome_passkey" is missing`, {
+    shell: { auth: { required: false, promote: true } },
+  });
+  quiet("an app that offers no passkey", { shell: { auth: { required: false } } });
 
   // The whole of the built-in copy's point: an app that shows neither surface
   // is asked for none of it.

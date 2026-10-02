@@ -1,0 +1,6 @@
+<section class="screen" data-screen="named">
+  <template data-item data-name="card"><article>
+    <button data-live="stamped" data-filter="id=eq.{id}" data-machine='{"field":"state","initial":"off","states":{"off":{"on":{"click":"on"}},"on":{"on":{"click":"off"}}}}'></button>
+  </article></template>
+  <div data-live="sink" data-order="id.asc" data-template="card" data-empty=""></div>
+</section>

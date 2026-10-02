@@ -28,7 +28,7 @@
 // exit 1 when any finding is reported.
 
 import { machineRegions, paramPlans } from "./interpreter/lint.ts";
-import { parseFilter, PLACEHOLDER } from "./interpreter/fragment.js";
+import { ABSENT, binding, fillFilter, parseFilter, PLACEHOLDER } from "./interpreter/fragment.js";
 import { walkMachine, type WalkHarness } from "./test/walker.ts";
 import type { Machine } from "./test/canonical.ts";
 import {
@@ -263,6 +263,45 @@ function resolveParams(
 const rowStamped = (filter: string | undefined) =>
   PLACEHOLDER.test((filter ?? "").replace(PARAM, ""));
 
+/** Whether a row-stamped chart is stamped under no row at all: every chain
+ * of regions that stamps it is read off the seed level by level, outermost
+ * first, each level's filter filled the way the interpreter fills it from a
+ * row of the level outside it and the route's params. A chart no region
+ * stamps is not this — nothing mounts it, which is the markup's to answer.
+ *
+ * Anything that leaves a level's rows unknown leaves the question open, and
+ * open is not empty: a placeholder whose row lies outside every enclosing
+ * region, a column the seed row does not carry, a param the route does not
+ * bind, and a filter only the server answers (an embed path, `in.`, `or=`). */
+function stampedUnderNothing(
+  enclosing: { table: string; filter?: string }[][],
+  tables: Record<string, Row[]>,
+  params: Record<string, string>,
+): boolean {
+  if (enclosing.length === 0) return false;
+  return enclosing.every((chain) => {
+    let parents: (Row | undefined)[] = [undefined];
+    for (const { table, filter } of [...chain].reverse()) {
+      const rows: Row[] = [];
+      for (const parent of parents) {
+        let open = false;
+        const stamped = fillFilter(filter ?? "", (expr: string) => {
+          if (parent === undefined && !expr.startsWith("param.")) open = true;
+          if (expr.startsWith("param.") && !(expr.slice("param.".length) in params)) open = true;
+          const value = open ? undefined : binding(expr, parent, params);
+          if (value === ABSENT) open = true;
+          return value;
+        });
+        const preds = open ? null : parseFilter(stamped) as ((row: Row) => boolean)[] | null;
+        if (preds === null) return false;
+        rows.push(...(tables[table] ?? []).filter((r) => preds.every((p) => p(r))));
+      }
+      parents = rows;
+    }
+    return parents.length === 0;
+  });
+}
+
 /** `walked` is the charts the walk actually DROVE — not the ones the markup
  * authors, and not the ones it reported as unreachable. An app floors on this:
  * a chart turned advisory is authored and undriven, and an authored-count floor
@@ -421,6 +460,16 @@ async function walkScreen(
   const ran = new Set(mounted);
   for (const region of authored) {
     if (ran.has(`${region.table}\u0000${region.filter ?? ""}\u0000${region.machine}`)) continue;
+    // Stamped per row of a region the seed leaves empty: nothing mounts it.
+    if (rowStamped(region.filter) && stampedUnderNothing(region.enclosing, tables, params)) {
+      findings.push({
+        severity: "advisory",
+        path: html,
+        message: `a chart on "${region.table}" is stamped per row of an enclosing region the seed ` +
+          `leaves empty, so nothing here walks it`,
+      });
+      continue;
+    }
     findings.push({
       severity: "error",
       path: html,
@@ -708,6 +757,30 @@ export async function selfTest(): Promise<{ failures: string[] }> {
     'stuck.html: toggle[id=eq.the].state: "[id="nobody"]" names 0 elements, not one',
     'stamped.html: a chart on "stamped" is stamped per row of an enclosing region',
     'stamped.html: a chart on "stamped" is stamped per row of an enclosing region',
+    'sunk.html: a chart on "stamped" is stamped per row of an enclosing region the seed leaves empty',
+    // Stamped too, but under a region the seed fills: its not mounting is the
+    // markup's, so it is no advisory.
+    'stranded.html: the markup states a chart on "stamped" filtered id=eq.{id} that the mounted screen',
+    // Under a region only the server can filter: whether a row reaches the
+    // chart is unknown here, so it stays the markup's error. Reading the
+    // filter as a grammar violation threw instead, and the route's findings
+    // went with it.
+    'served.html: the markup states a chart on "stamped" filtered id=eq.{id} that the mounted screen',
+    // Stamped through data-template: the template's own place in the markup
+    // is under no region, and reading that as its enclosure turned the empty
+    // sink stamping it into an error.
+    'named.html: a chart on "stamped" is stamped per row of an enclosing region the seed leaves empty',
+    // Its region's filter descends into the enclosing row, as the
+    // interpreter's lookup does; a private reading that took only bare
+    // column names left this open and called it the markup's error.
+    'dotted.html: a chart on "stamped" is stamped per row of an enclosing region the seed leaves empty',
+    // A named template is also its nearest region's own template, so the
+    // root list stamps it; counting only its data-template referrers left
+    // the recursive one stamped by nothing and called it the markup's error.
+    'tree.html: a chart on "nodes" is stamped per row of an enclosing region the seed leaves empty',
+    // A param the route does not bind leaves its level open. Bound as one, it
+    // threw past the walk and the route's findings were that throw.
+    'unbound.html: the markup states a chart on "stamped" filtered id=eq.{id} that the mounted screen',
     'refuses.html: region 1: machine region "toggle" has no data-empty-row',
     'refuses.html: the waits this screen left armed are the run\'s, so no later screen is walked',
   ];

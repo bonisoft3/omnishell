@@ -15,7 +15,7 @@
 // parser:
 //
 //   {"screens": {"<name>": {
-//     "tables":   [...],       // data-live, data-reads, data-read-* — sorted, deduped
+//     "tables":   [...],       // data-live, data-reads, data-read-*, a chart's effect entity — sorted, deduped
 //     "handlers": [...],       // data-handler, data-on-* — sorted, deduped
 //     "adapters": [...],       // data-value-adapter — sorted, deduped
 //     "machines": [{           // one entry per CHART: a region listing two runs two
@@ -67,11 +67,15 @@ const said = (err: unknown) => err instanceof Error ? err.message : String(err);
  * rather than null where the markup states nothing, so a reader can tell "no
  * data-filter" from "a filter that parsed to nothing". */
 export function projectScreen(html: string): ScreenProjection {
-  const { tables, handlers, adapters } = scanScreen(html);
+  const scanned = scanScreen(html);
+  const { handlers, adapters } = scanned;
+  // A table a chart's effects write needs a collection as surely as one read.
+  const written = new Set<string>();
   const machines = machineRegions(html).map((region) => {
     // machineRegions has already parsed this and refused what is not JSON, so
     // the shape walk reads a value rather than a string.
     const shape = machineShape(JSON.parse(region.machine));
+    for (const e of shape.effects) if (typeof e.entity === "string") written.add(e.entity);
     const projection: MachineProjection = {
       table: region.table,
       machine: region.machine,
@@ -83,7 +87,7 @@ export function projectScreen(html: string): ScreenProjection {
     if (region.filter !== undefined) projection.filter = region.filter;
     return projection;
   });
-  return { tables, handlers, adapters, machines };
+  return { tables: [...new Set([...scanned.tables, ...written])].sort(), handlers, adapters, machines };
 }
 
 /** Every screen of one app, keyed by the name its file carries. */
@@ -134,14 +138,14 @@ export function selfTest(): { failures: string[] } {
     initial: "off",
     states: {
       off: { on: { click: { target: "on", guard: "allowed", assign: { note: "spun" } } } },
-      on: { on: { click: "off" } },
+      on: { on: { click: { target: "off", effect: { op: "create", entity: "score", values: {} } } } },
     },
   };
   const html = `<main data-live="match" data-reads="round" data-on-mutation="table">` +
     `<div data-live="held" data-filter="id=eq.the" data-empty-row='{"id":"the","state":"off"}' ` +
     `data-machine='${JSON.stringify(chart)}'></div></main>`;
   check("the whole projection of one screen", projectScreen(html), {
-    tables: ["held", "match", "round"],
+    tables: ["held", "match", "round", "score"],
     handlers: ["table"],
     adapters: [],
     machines: [{

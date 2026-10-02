@@ -4,7 +4,10 @@
 import { renderInto } from "./render.js";
 import { mountHatch } from "./hatch.js";
 import {
+  ABSENT,
+  binding,
   directionOf,
+  fillFilter,
   machineCandidates,
   machineShape,
   parseFilter,
@@ -289,10 +292,6 @@ const withTemplates = (screen) => {
 // basename exactly as a handler is.
 const TEXT_FORMATS = new Set(["plain", "datetime", "number"]);
 
-// The controls whose bound value the DOM keeps only as a property: setting the
-// attribute leaves a date picker empty. Text and its kin bind through `value`
-// like any attribute.
-const VALUE_PROPERTY = new Set(["date", "datetime-local", "time", "month", "week", "color", "range"]);
 // The built-ins that format the looked-up VALUE rather than interpolate a
 // sentence around it. plain is not one: it is the default spelled out.
 const VALUE_FORMATS = new Set(["datetime", "number"]);
@@ -332,6 +331,10 @@ const REGION_ATTRS = new Set([
   "data-text", "data-filter", "data-select", "data-empty", "data-empty-row", "data-when",
   "data-project", "data-order", "data-exit-motion", "data-machine",
 ]);
+
+const WHOLE_PLACEHOLDER = new RegExp(`^${PLACEHOLDER.source}$`);
+// The key a slot's own entry is kept under, beside a list's rows.
+const SLOT = Symbol("slot");
 
 // What a machine may read off the event that fired it (machine.cue #EventRef).
 const EVENT_FIELDS = new Set([
@@ -375,9 +378,9 @@ const regionAttr = (name) => REGION_ATTRS.has(name) || name.startsWith("data-rea
 // Attributes the browser resolves as URLs, where the empty string is not
 // "unset" but a reference to the current document.
 const URL_ATTRS = new Set(["src", "href", "srcset", "poster", "action", "formaction", "data"]);
-// A bound boolean attribute is absent when its value is empty. `disabled=""`
-// is disabled, so interpolating an empty string would pin the control shut —
-// the same trap URL_ATTRS exists for, and the same answer.
+// A bound boolean attribute is absent when its value is empty or "false".
+// `disabled=""` is disabled, so interpolating an empty string would pin the
+// control shut — the same trap URL_ATTRS exists for, and the same answer.
 const BOOL_ATTRS = new Set([
   "disabled", "checked", "readonly", "required", "selected", "hidden", "open", "multiple",
 ]);
@@ -393,18 +396,9 @@ function localeOf(ctx) {
   return ctx?.params?.locale || ctx?.locale || ctx?.row?.locale || ctx?.i18n?.default;
 }
 
-// {param.x} reads route params; any other expression is a dot path into the
-// row ({a.b} descends into embedded objects). Fixture rows answer the whole
-// dotted key directly (their `has` is total), so the whole-key probe comes
-// before the walk.
-//
+// {msg.x} and {msg[col]} read the catalogue; everything else is `binding`'s.
 function lookup(expr, ctx) {
   const { row, params, messages, locale, i18n } = ctx ?? {};
-  if (expr.startsWith("param.")) {
-    const name = expr.slice("param.".length);
-    if (!params || !(name in params)) throw new Error(`unknown route param {${expr}}`);
-    return params[name];
-  }
   // {msg[column]} names the message a ROW carries: the writer stored a key
   // rather than a sentence, so the text it stands for is the reader's to
   // choose. A column that has said nothing yet stands for nothing, which is
@@ -448,24 +442,14 @@ function lookup(expr, ctx) {
     if (Array.isArray(val)) return evaluateAst(val, ctx, activeLocale);
     return val;
   }
+  const v = binding(expr, row, params);
+  if (v !== ABSENT) return v;
   const r = row ?? {};
-  if (expr in r) return r[expr];
-  let v = r;
-  for (const seg of expr.split(".")) {
-    // A null embed is how PostgREST answers when the joined row is hidden
-    // from this reader's RLS (a sharee reading the owner's label): bind
-    // blank — only a key the row itself lacks is a real binding error.
-    if (v == null) return undefined;
-    if (!(seg in Object(v))) {
-      // An optimistic insert carries only the submitted fields; DB-defaulted
-      // columns materialize when the synced row arrives. Bind blank instead
-      // of crashing the screen out from under the pending row.
-      if (r.$synced === false) return undefined;
-      throw new Error(`binding {${expr}} not in row [${Object.keys(r)}]`);
-    }
-    v = v[seg];
-  }
-  return v;
+  // An optimistic insert carries only the submitted fields; DB-defaulted
+  // columns materialize when the synced row arrives. Bind blank instead of
+  // crashing the screen out from under the pending row.
+  if (r.$synced === false) return undefined;
+  throw new Error(`binding {${expr}} not in row [${Object.keys(r)}]`);
 }
 
 /**
@@ -871,9 +855,8 @@ function interpolate(template, ctx) {
   return template.replace(PLACEHOLDERS, (_, expr) => String(lookup(expr, ctx) ?? ""));
 }
 
-// Filter fragments land in a query string, so resolved values are URI-encoded.
 function interpolateFilter(template, ctx) {
-  return template.replace(PLACEHOLDERS, (_, expr) => encodeURIComponent(String(lookup(expr, ctx) ?? "")));
+  return fillFilter(template, (expr) => lookup(expr, ctx));
 }
 
 // Hidden data-value grammar: literal "null" → JSON null; {now} → the terminal
@@ -1149,7 +1132,13 @@ function bindElementAttributes(el, ctx) {
       // whose form submits on change, for the same reason: the reader's pick
       // was the write, there is no unsent edit to protect, and a focused
       // select left un-bound goes on showing a value the row no longer holds.
-      if (el.type !== "checkbox" && !submitsOnChange(el.closest("form"))) {
+      // A machine's control is the other exception: its arrows write every
+      // keystroke into the row, so the row is what the reader typed, and a
+      // machine that clears the column must clear the control. Only focus
+      // holds it, so a rebind never moves the caret under the reader.
+      const machined = el.closest("[data-machine]") !== null;
+      if (machined && el === document.activeElement) continue;
+      if (!machined && el.type !== "checkbox" && !submitsOnChange(el.closest("form"))) {
         if (el._prontoDirty || el === document.activeElement) continue;
         if (!el._prontoDirtyWired) {
           el._prontoDirtyWired = true;
@@ -1182,19 +1171,25 @@ function bindElementAttributes(el, ctx) {
         el.value = adapter.format(interpolate(template, ctx), { zone: ctx.timeZone, locale: localeOf(ctx) });
         continue;
       }
-      if (el.localName === "textarea" || el.localName === "select" || VALUE_PROPERTY.has(el.type)) {
-        el.value = interpolate(template, ctx);
+      // The property, not the attribute: once a reader has typed, the
+      // attribute no longer moves what the control shows.
+      if (el.localName === "textarea" || el.localName === "select" || el.localName === "input") {
+        const value = interpolate(template, ctx);
+        el.value = value;
+        // A select's options may be a list still to arrive; it re-applies this.
+        if (el.localName === "select") el._prontoBound = el.value === value ? undefined : value;
         continue;
       }
     }
     const value = interpolate(template, ctx);
+    if (BOOL_ATTRS.has(attr.name)) {
+      if (value !== "" && value !== "false") el.setAttribute(attr.name, "");
+      else el.removeAttribute(attr.name);
+      continue;
+    }
     // A URL attribute that resolves to nothing must not stay empty: the
     // empty string is a valid relative URL meaning "this document", so
     // `src=""` fetches the page and paints it as a broken image.
-    if (value === "" && BOOL_ATTRS.has(attr.name)) {
-      el.removeAttribute(attr.name);
-      continue;
-    }
     if (value === "" && URL_ATTRS.has(attr.name)) {
       // An <img> is sized by CSS whether or not it has a source, and a
       // sized <img> with no src at all still gets the engine's missing-image
@@ -2785,16 +2780,20 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // data-template references a named template instead of containing one; a
     // region carrying both would leave its own templates silently unused.
     const ref = region.dataset.template;
-    if (ref !== undefined && region.querySelector("template[data-item]") !== null) {
-      throw new ProgramError(`region "${table}" has both data-template and its own item templates`);
-    }
+
     // A region holds any number of item templates, each optionally narrowed by
     // a data-when fragment (the one filter grammar, matched against the row
     // itself); one with no data-when admits every row.
     // The templates are the markup's, not the render's, and a render replaces
     // this element's children — so they are read once and kept. An empty set
     // read back off the DOM is how a SLOT is spelled.
-    const own = (region._prontoItemTemplates ??= [...region.querySelectorAll("template[data-item]")]);
+    // A template is the region's whose nearest region it is: a slot holding
+    // lists of its own (an editor's choices, its goals) is still a slot.
+    const own = (region._prontoItemTemplates ??= [...region.querySelectorAll("template[data-item]")]
+      .filter((t) => t.parentElement.closest("[data-live]") === region));
+    if (ref !== undefined && own.length > 0) {
+      throw new ProgramError(`region "${table}" has both data-template and its own item templates`);
+    }
     const templates = (ref !== undefined ? [resolveTemplate(ref)] : own).map((el) => {
       // An item is the template's first element child, and only that: a second
       // one is not rendered, not bound and not reported, so the region quietly
@@ -2868,7 +2867,15 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       : declaredCharts(region.dataset.machine, table);
     let fallbackRow;
     if (region.dataset.emptyRow) {
-      fallbackRow = declared(region.dataset.emptyRow, table, "data-empty-row");
+      // Resolved against the enclosing row, as the filter is: a draft nested in
+      // the row it edits starts from that row. A value that is one whole
+      // placeholder keeps the column's type and its null.
+      fallbackRow = fromEnclosing(() => Object.fromEntries(
+        Object.entries(declared(region.dataset.emptyRow, table, "data-empty-row")).map(([k, v]) => [k,
+          typeof v !== "string" ? v
+          : WHOLE_PLACEHOLDER.test(v) ? lookup(v.slice(1, -1), ctx) ?? null
+          : PLACEHOLDER.test(v) ? interpolate(v, ctx) : v]),
+      ), table, "data-empty-row");
     }
     else if (mounted.length > 0 && templates.length === 0) {
       const spec = parseFilterSpec(opts.filter ?? "") ?? [];
@@ -3015,7 +3022,10 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           // otherwise take whichever arm sits last, silently.
           else throw new ProjectionError(`region "${table}": no answer for clause kind "${p.kind}"`);
         }
-        return { ...row, ...derived };
+        // A fixture row owns no keys, so a spread of one keeps nothing of it.
+        return ctx.inert === true
+          ? new Proxy(row, { get: (t, f) => (Object.hasOwn(derived, f) ? derived[f] : t[f]) })
+          : { ...row, ...derived };
       });
     };
 
@@ -3320,6 +3330,13 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             else region.insertBefore(node, cursor);
           }
           emptyNote(region, order.length === 0 ? region.dataset.empty : undefined, ctx);
+          // A list of options landing under a select whose bound value had no
+          // option to take yet.
+          const select = region.closest("select");
+          if (select?._prontoBound !== undefined) {
+            select.value = select._prontoBound;
+            if (select.value === select._prontoBound) select._prontoBound = undefined;
+          }
           // The region's own element, from the ENCLOSING row rather than any
           // of its rows: a container naming one of them — a listbox's
           // aria-activedescendant — states a fact about the choice, not about
@@ -3386,6 +3403,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             );
           }
           clearBindings(region);
+          // The lists it held go with the row: left running, they would go on
+          // painting the last row's children under the note.
+          dropAll();
           emptyNote(region, region.dataset.empty, slotCtx);
           return;
         }
@@ -3409,6 +3429,14 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         wireKeysIn(region);
         bindTexts(region, slotCtx, renderers);
         bindHatches(region, slotCtx);
+        // The lists a slot holds — an editor's choices, its goals — are
+        // hydrated from its row as an item's are from its own.
+        let slot = live.get(SLOT);
+        if (slot === undefined) live.set(SLOT, slot = { node: region, ctx: slotCtx, nested: new Map() });
+        const ready = [];
+        syncNested(slot, ready);
+        await Promise.all(ready);
+        if (stopped) return;
       }
     };
     let retryTimer;
@@ -3607,6 +3635,17 @@ export async function morphScreen(liveScreen, newHtml) {
   const newScreen = holder.content.firstElementChild;
   if (!newScreen) {
     throw new Error("morphScreen: incoming markup has no root element");
+  }
+
+  for (const attr of [...newScreen.attributes]) {
+    if (liveScreen.getAttribute(attr.name) !== attr.value) {
+      liveScreen.setAttribute(attr.name, attr.value);
+    }
+  }
+  for (const attr of [...liveScreen.attributes]) {
+    if (!newScreen.hasAttribute(attr.name)) {
+      liveScreen.removeAttribute(attr.name);
+    }
   }
 
   const { morphInner } = await import("./vendor/morphlex.js");

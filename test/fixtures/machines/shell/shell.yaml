@@ -36,7 +36,19 @@ local:
     - {}
   stamped:
     - {}
+  # A stream's sink: no seed, so nothing is ever stamped under it.
+  sink:
+    - {}
+  nest:
+    - {}
+  # A recursive tree with no seed: no root, so no node is ever stamped.
+  nodes:
+    - {}
 seed:
+  # Stamps through an embedded object's path, which names no seeded row.
+  nest:
+    - id: n1
+      meta: {ref: nobody}
   stamped:
     - id: one
       state: "off"
@@ -96,6 +108,27 @@ routes:
   - path: /effects
     screen: effects
     files: {html: shell/screens/effects.html, css: shell/screens/effects.css, handlers: []}
+  - path: /sunk
+    screen: sunk
+    files: {html: shell/screens/sunk.html, css: shell/screens/sunk.css, handlers: []}
+  - path: /stranded
+    screen: stranded
+    files: {html: shell/screens/stranded.html, css: shell/screens/stranded.css, handlers: []}
+  - path: /by/:handle
+    screen: served
+    files: {html: shell/screens/served.html, css: shell/screens/served.css, handlers: []}
+  - path: /named
+    screen: named
+    files: {html: shell/screens/named.html, css: shell/screens/named.css, handlers: []}
+  - path: /dotted
+    screen: dotted
+    files: {html: shell/screens/dotted.html, css: shell/screens/dotted.css, handlers: []}
+  - path: /tree
+    screen: tree
+    files: {html: shell/screens/tree.html, css: shell/screens/tree.css, handlers: []}
+  - path: /unbound
+    screen: unbound
+    files: {html: shell/screens/unbound.html, css: shell/screens/unbound.css, handlers: []}
   - path: /refuses
     screen: refuses
     files: {html: shell/screens/refuses.html, css: shell/screens/refuses.css, handlers: []}

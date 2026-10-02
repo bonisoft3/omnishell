@@ -28,11 +28,11 @@ import {
   not,
   or,
 } from "./vendor/mecha-client.js";
-import { embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect } from "./fragment.js";
+import { embedDeps, embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect } from "./fragment.js";
 import { evaluateRole } from "./jessie.js";
 import { judge } from "./validate.js";
 
-export { embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect };
+export { embedDeps, embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect };
 
 const HEADERS = { "Content-Type": "application/json" };
 
@@ -943,7 +943,7 @@ export function createStore(base = "", cfg = {}) {
     }
     const deps = [
       table,
-      ...embedTables(opts.select),
+      ...embedDeps(opts.select, table, cfg.schema),
       ...accessDeps(table),
       ...foldSourceOf(table),
     ].filter(

@@ -1,0 +1,6 @@
+<section class="screen" data-screen="tree">
+  <ul data-live="nodes" data-filter="parent_id=is.null" data-order="id.asc" data-empty=""><template data-item data-name="node"><li>
+    <b data-live="nodes" data-filter="id=eq.{id}" data-machine='{"field":"state","initial":"off","states":{"off":{"on":{"click":"on"}},"on":{"on":{"click":"off"}}}}'></b>
+    <ul data-live="nodes" data-filter="parent_id=eq.{id}" data-order="id.asc" data-template="node" data-empty=""></ul>
+  </li></template></ul>
+</section>

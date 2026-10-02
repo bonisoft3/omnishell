@@ -22,11 +22,17 @@ const SESSION = {
   chrome_signout: "sign out",
 };
 
+// A guest's way to a passkey, drawn where the app offers one (auth.promote).
+const PROMOTE = {
+  chrome_passkey: "sign in",
+  chrome_passkey_failed: "sign-in did not go through",
+};
+
 /** Which copy a reader can reach, by the surface that shows it: an app is asked
  * for the group its own declaration puts on screen, never for the rest. */
-export const CHROME_KEYS = { login: Object.keys(LOGIN), session: Object.keys(SESSION) };
+export const CHROME_KEYS = { login: Object.keys(LOGIN), session: Object.keys(SESSION), promote: Object.keys(PROMOTE) };
 
-export const CHROME = { ...LOGIN, ...SESSION };
+export const CHROME = { ...LOGIN, ...SESSION, ...PROMOTE };
 
 /** What the chrome says, in the language the page is in. A key no group holds
  * is the terminal asking for copy it never wrote, which no catalogue can

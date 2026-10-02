@@ -189,7 +189,14 @@ export type MachineRegion = {
   parallel: string[];
   emptyRow?: string;
   filter?: string;
+  /** Every chain of regions it is stamped under, each innermost first: what
+   * a row-stamped filter is stamped from. A named template contributes one
+   * chain per region that references it by data-template and one for the
+   * region whose own content holds it, and none when no region does either. */
+  enclosing: Enclosing[][];
 };
+
+type Enclosing = { table: string; filter?: string };
 
 /** Every data-machine region in one screen's markup, with the attributes its
  * validity depends on. Single-quoted values are the norm here — a machine is
@@ -198,9 +205,60 @@ export type MachineRegion = {
  * precondition, not a shape this rule may guess at. */
 export function machineRegions(html: string): MachineRegion[] {
   const out: MachineRegion[] = [];
-  for (const [, closing, , attrText] of strip(html).matchAll(ANY_TAG)) {
-    if (closing === "/") continue;
-    const { attr } = attrsOf(attrText);
+  // `named` is a template[data-item][data-name]: a chain stops there and goes
+  // on through each region that stamps it, which `referrers` holds.
+  type Open = { tag: string; table?: string; filter?: string; named?: string };
+  const stack: Open[] = [];
+  // The lexical regions up to the nearest named template, and that template.
+  const reach = (): { chain: Enclosing[]; via?: string } => {
+    const chain: Enclosing[] = [];
+    for (let i = stack.length - 1; i >= 0; i--) {
+      const { table, filter, named } = stack[i];
+      if (named !== undefined) return { chain, via: named };
+      if (table !== undefined) chain.push({ table, filter });
+    }
+    return { chain };
+  };
+  const referrers = new Map<string, { chain: Enclosing[]; via?: string }[]>();
+  const refer = (name: string, entry: { chain: Enclosing[]; via?: string }) => {
+    const entries = referrers.get(name);
+    if (entries === undefined) referrers.set(name, [entry]);
+    else entries.push(entry);
+  };
+  // Whether the nearest region holds the open tag in its own content: a
+  // template between them keeps it out of the region's querySelector.
+  const lexical = (): boolean => {
+    for (let i = stack.length - 1; i >= 0; i--) {
+      if (stack[i].tag === "template") return false;
+      if (stack[i].table !== undefined) return true;
+    }
+    return false;
+  };
+  const found: { region: Omit<MachineRegion, "enclosing">; chain: Enclosing[]; via?: string }[] = [];
+  for (const [, closing, rawTag, attrText] of strip(html).matchAll(ANY_TAG)) {
+    const tag = rawTag.toLowerCase();
+    if (closing === "/") {
+      for (let i = stack.length - 1; i >= 0; i--) {
+        if (stack[i].tag !== tag) continue;
+        stack.splice(i);
+        break;
+      }
+      continue;
+    }
+    const { attr, has } = attrsOf(attrText);
+    implied(stack, tag);
+    const { chain, via } = reach();
+    const ref = attr("data-template");
+    if (ref !== undefined && attr("data-live") !== undefined) {
+      refer(ref, { chain: [{ table: attr("data-live") as string, filter: attr("data-filter") }, ...chain], via });
+    }
+    if (!VOID.has(tag) && !/\/\s*$/.test(attrText)) {
+      const named = tag === "template" && has("data-item") ? attr("data-name") : undefined;
+      // hydrateRegion takes every item template whose nearest region it is,
+      // named or not, so that region stamps it too.
+      if (named !== undefined && lexical()) refer(named, { chain, via });
+      stack.push({ tag, table: attr("data-live"), filter: attr("data-filter"), named });
+    }
     const machine = attr("data-machine");
     if (machine === undefined) continue;
     const table = attr("data-live");
@@ -240,9 +298,20 @@ export function machineRegions(html: string): MachineRegion[] {
     }
     const parallel = parallelCharts.map((c) => JSON.stringify(c));
     for (const one of parallel) {
-      out.push({ table, machine: one, parallel, emptyRow: attr("data-empty-row"), filter: attr("data-filter") });
+      found.push({
+        region: { table, machine: one, parallel, emptyRow: attr("data-empty-row"), filter: attr("data-filter") },
+        chain,
+        via,
+      });
     }
   }
+  // A template stamped inside itself is stamped first under whatever stamps
+  // the outermost copy, so a chain revisiting a name adds no way in.
+  const chains = (chain: Enclosing[], via: string | undefined, seen: string[]): Enclosing[][] =>
+    via === undefined ? [chain] : seen.includes(via) ? [] : (referrers.get(via) ?? []).flatMap((r) =>
+      chains(r.chain, r.via, [...seen, via]).map((outer) => [...chain, ...outer])
+    );
+  for (const { region, chain, via } of found) out.push({ ...region, enclosing: chains(chain, via, []) });
   return out;
 }
 

@@ -199,3 +199,34 @@ describe("the clause set is closed", () => {
     await expect(mount("b", files)).rejects.toThrow(/is a slot and declares data-project/)
   })
 })
+
+describe("the fixture tier", () => {
+  it("keeps a row's own columns beside its projected ones", async () => {
+    // A fixture row is a Proxy owning no keys, so `{...row, ...derived}` kept
+    // only the projected names: {state} beside a projection threw "not in
+    // row [up]", the outage guard retried it forever, and `check i18n` hung.
+    const route = { screen: "pj", files: { html: "pj.html", css: "pj.css" }, states: ["populated"] }
+    const source = `<section class="screen" data-screen="pj">
+      <div data-live="view" data-project='{"up":{"eq":["state","upcoming"]}}'>
+        <template data-item><p data-view="{state}" data-up="{up}"></p></template>
+      </div>
+    </section>`
+    const { renderStorybook } = await import("../interpreter/storybook.js")
+    const { parseHTML } = await import("npm:linkedom@0.18.4")
+    // deno-lint-ignore no-explicit-any
+    const g = globalThis as any
+    const [doc, fetched] = [g.document, g.fetch]
+    g.document = (parseHTML(`<!doctype html><html><head></head><body><div id="mount"></div></body></html>`) as unknown as {
+      document: unknown
+    }).document
+    g.fetch = (url: unknown) => Promise.resolve(new Response(String(url).endsWith(".css") ? "" : source))
+    try {
+      const mount = g.document.getElementById("mount")
+      await renderStorybook(mount, "http://app.test/", route)
+      expect(mount.querySelector(".frame p").getAttribute("data-view")).toBe("Sample state 1")
+    } finally {
+      g.document = doc
+      g.fetch = fetched
+    }
+  })
+})
