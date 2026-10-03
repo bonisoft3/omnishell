@@ -1,5 +1,6 @@
 #!/usr/bin/env -S mise tool-stub
 bin = "deno"
+version = "2.3.7"
 
 [platforms.darwin-arm64]
 url = "https://github.com/denoland/deno/releases/download/v2.3.7/deno-aarch64-apple-darwin.zip"
