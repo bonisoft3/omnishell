@@ -1,12 +1,19 @@
 Deno.test("visual integration commands share the configured Compose project", async () => {
   const cue = await Deno.readTextFile(new URL("../terminal.cue", import.meta.url));
+  const definition = cue.split("#ComposeProject: {")[1]?.split("\n}")[0];
+  if (definition === undefined) throw new Error("terminal.cue has no #ComposeProject");
+  if (!definition.includes("COMPOSE_PROJECT_NAME") || !definition.includes("\\(app)")) {
+    throw new Error("the compose project must use the environment override and app fallback");
+  }
+
   const visual = cue.split("checks: visual: {")[1]?.split('note: "DOM checks')[0];
   if (visual === undefined) throw new Error("terminal.cue has no visual integration check");
-
-  const project = visual.match(/let composeProject = "([^"\n]+)"/)?.[1];
-  if (project === undefined || !project.includes("COMPOSE_PROJECT_NAME") || !project.includes("\\(T.app)")) {
-    throw new Error("visual integration project must use the environment override and app fallback");
+  if (!visual.includes("let composeProject = (#ComposeProject & {app: T.app}).out")) {
+    throw new Error("visual integration must name its project through #ComposeProject");
   }
-  const uses = visual.split("docker compose -p \\(composeProject)").length - 1;
-  if (uses !== 2) throw new Error(`visual integration has ${uses} Compose project selections, expected 2`);
+  const ups = visual.split("docker compose -p \\(composeProject)").length - 1;
+  const closures = visual.split("#ClosureUp & {project: composeProject,").length - 1;
+  if (ups !== 1 || closures !== 1) {
+    throw new Error(`visual integration selects its project ${ups} + ${closures} times, expected the launch up and its closure`);
+  }
 });

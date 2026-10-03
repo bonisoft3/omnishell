@@ -773,10 +773,10 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
     jobs: live.map((route) => ({ route, out: [] as Finding[] })),
   }))
 
-  // The door is TLS on a certificate mkcert issued for the developer's own
-  // trust store, which this browser does not share; ignoring it lets the lint
-  // drive h2 without a per-CI trust install. Browser-wide, because a context's
-  // ignoreHTTPSErrors does not reach the service worker's script fetch.
+  // The door is TLS on a certificate Caddy's own CA signs, which this browser
+  // does not trust; ignoring it lets the lint drive h2 without a trust install.
+  // Browser-wide, because a context's ignoreHTTPSErrors does not reach the
+  // service worker's script fetch.
   const browser = await chromium.launch({ args: ["--ignore-certificate-errors"] })
   try {
     // Never rejects: a board that fails records why and lets its sibling

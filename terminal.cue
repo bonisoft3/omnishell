@@ -12,6 +12,24 @@ import (
 	"strings"
 )
 
+// The running cluster's compose project, as a nushell expression: the
+// COMPOSE_PROJECT_NAME the app's mise env publishes, else the app's own name.
+// Everything that joins that cluster names it this way, or brings up a second.
+#ComposeProject: {
+	app: string
+	out: "(^mise exec -- printenv COMPOSE_PROJECT_NAME | complete | get stdout | str trim | str replace -r '^$' '\(app)')"
+}
+
+// A target's closure up as a verdict: its `bayt` service's exit code, with its
+// dependencies' output attached, so a runtime that fails to come up says why.
+// -p, not --project-directory: the closure's own directory is where its
+// includes and extends resolve, so only the project NAME may move.
+#ClosureUp: {
+	project: string
+	target:  string
+	out: "mise exec -- docker compose -p \(project) --profile '*' -f .bayt/compose.\(target).closure.yaml up bayt --abort-on-container-failure --exit-code-from bayt --build --remove-orphans --attach-dependencies"
+}
+
 #Path:   string
 #Jessie: #Path & =~"\\.js$"
 
@@ -408,7 +426,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 		verbs: [Name=string]: {verb: "setup" | "generate" | "build" | "launch" | "release", cmds: [...string], note: string}
 		checks: [Name=string]: {verb: "lint" | "test" | "integrate", cmds: [...string], note: string}
 		checks: visual: {
-			let composeProject = "(^mise exec -- printenv COMPOSE_PROJECT_NAME | complete | get stdout | str trim | str replace -r '^$' '\(T.app)')"
+			let composeProject = (#ComposeProject & {app: T.app}).out
 			// A laid-out page over real content, so the cluster has to be up
 			// however cheap `lint` would look.
 			verb: "integrate"
@@ -423,17 +441,11 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 				// data-backed app starts every run with an empty database and its
 				// rows-first screens never settle. --build is the part that
 				// matters, and it rebuilds without discarding state.
-				// -p, not --project-directory: the closure's own directory is
-				// where its includes and extends resolve, so only the project
-				// NAME may move. Without it the closure starts a second project
-				// named after .bayt, which brings up a second caddy and collides
-				// with the first on its port — and the runtime the line above
-				// started would not be the one the lint talks to. The name is
-				// the one the line above resolves, read from the same mise env:
-				// the published COMPOSE_PROJECT_NAME, else the app's own, which
-				// compose derives from the app directory. An empty one counts as
-				// unpublished.
-				"mise exec -- docker compose -p \(composeProject) --profile '*' -f .bayt/compose.integrate.closure.yaml up bayt --abort-on-container-failure --exit-code-from bayt --build --remove-orphans --attach-dependencies",
+				// The runtime's own project: under the closure's default, named
+				// after .bayt, a second caddy comes up and collides with the first
+				// on its port — and the runtime the line above started would not
+				// be the one the lint talks to.
+				(#ClosureUp & {project: composeProject, target: "integrate"}).out,
 			]
 			note: "DOM checks over every route at two viewports, run in a container beside the app; only critical findings fail"
 		}
