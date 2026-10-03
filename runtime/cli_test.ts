@@ -44,6 +44,8 @@ Deno.test("Omnishell materializes relocatable source assets and names its evalua
     assert(await snapshot(join(app, ".omnishell")) === clean, "materialization is not repeatable");
     const mode = await run(["mode", "."]);
     assert(mode.includes('interpreterRoot: ".omnishell/interpreter"'), "external mode leaked its source location");
+    assert(mode.includes('componentsRoot: ".omnishell/components"'), "external mode serves adapters from a checkout");
+    assert((await Deno.stat(join(app, ".omnishell/components/wallclock.js"))).isFile, "materialization left out the adapters componentsRoot names");
     assert(mode.includes('markupReader: ".omnishell/read-markup.ts"'), "external reader still names a checkout");
     const reader = await new Deno.Command(Deno.execPath(), {
       args: ["run", "--no-config", "--no-check", "--no-lock", "--allow-read", ".omnishell/read-markup.ts", "."],
