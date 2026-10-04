@@ -1,20 +1,17 @@
 // Bundles npm:morphlex for browser delivery, rewriting the top-level prototype
 // check so headless test runners evaluate without a global Element.
-const config = new URL("../deno.json", import.meta.url).pathname;
-const entry = new URL("./entry-morphlex.ts", import.meta.url).pathname;
-const dest = new URL("./morphlex.js", import.meta.url).pathname;
-
-const command = new Deno.Command("deno", {
+const command = new Deno.Command(Deno.execPath(), {
+  cwd: new URL(".", import.meta.url),
   args: [
     "bundle",
     "--config",
-    config,
+    "../deno.json",
     "--platform",
     "browser",
     "--format",
     "esm",
     "--minify",
-    entry,
+    "entry-morphlex.ts",
   ],
 });
 
@@ -25,9 +22,11 @@ if (!output.success) {
 }
 
 const raw = new TextDecoder().decode(output.stdout);
-const guarded = raw.replace(
-  '"moveBefore"in Element.prototype',
-  'typeof Element!=="undefined"&&"moveBefore"in Element.prototype',
-);
+const check = '"moveBefore"in Element.prototype';
+const found = raw.split(check).length - 1;
+if (found !== 1) {
+  throw new Error(`bundle:morphlex expected the prototype check once in the bundle, found it ${found} times`);
+}
+const guarded = raw.replace(check, `typeof Element!=="undefined"&&${check}`);
 
-await Deno.writeTextFile(dest, guarded);
+await Deno.writeTextFile(new URL("./morphlex.js", import.meta.url), guarded);
