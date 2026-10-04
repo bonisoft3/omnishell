@@ -189,8 +189,40 @@ _omnishell: bayt.#project & {
 		}
 
 		"generate": sayt.generate & {deps: [":bundle"], cmd: "builtin": do: "nu -c \"null\""}
+
+		// What an installed app's images read of the terminal, at the image's
+		// root: the interpreter and adapters caddy serves, the visual checker
+		// and what it imports, the URL base tests share, and the markup reader
+		// and machine schema. Published as bonitao/omnishell (cd.yml); an app
+		// in the monorepo builds it from here instead (MONOREPO_COMPOSE_MODE).
+		"runtime-image": {
+			visibility: "public"
+			cmd: "builtin": null
+			activate: ""
+			srcs: globs: _runtimeTree
+			// At the root: the sources bayt copies land where the app's
+			// images read them, as one layer.
+			dockerfile: {
+				from:    null
+				workdir: "/"
+			}
+		}
 	}
 }
+
+// The runtime image's tree; runtime/cli_test.ts holds it closed under what
+// check-visual.ts and read-markup.ts import.
+_runtimeTree: [
+	"interpreter/**",
+	"components/**",
+	"src/**",
+	"test/storybook-injector.ts",
+	"test/canonical.ts",
+	"check-visual.ts",
+	"base-url.ts",
+	"read-markup.ts",
+	"machine.cue",
+]
 
 _packageJson: _ @embed(file="package.json")
 

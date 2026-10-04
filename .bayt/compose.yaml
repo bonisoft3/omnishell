@@ -28,3 +28,9 @@ services:
       service: plugins_omnishell-bundle
     profiles:
     - bundle
+  runtime-image:
+    extends:
+      file: ./compose.runtime-image.yaml
+      service: plugins_omnishell-runtime-image
+    profiles:
+    - runtime-image

@@ -2,13 +2,13 @@
 FROM plugins_omnishell-setup AS bundle
 WORKDIR /monorepo/plugins/omnishell
 COPY --from=libraries_mecha-setup_srcs --parents /monorepo/libraries/mecha/packages/** /
-COPY --parents interpreter/vendor/entry.ts ./
-RUN ["mise", "x", "--", "deno", "bundle", "--node-modules-dir=none", "--no-lock", "--config", "../../libraries/mecha/packages/client/deno.json", "--platform", "browser", "--format", "esm", "--minify", "interpreter/vendor/entry.ts", "-o", "interpreter/vendor/mecha-client.js"]
+COPY --parents interpreter/vendor/entry.ts interpreter/vendor/entry-morphlex.ts interpreter/vendor/bundle-morphlex.ts interpreter/vendor/entry-js-yaml.ts ./
+RUN mise x -- sh -c 'deno bundle --node-modules-dir=none --no-lock --config ../../libraries/mecha/packages/client/deno.json --platform browser --format esm --minify interpreter/vendor/entry.ts -o interpreter/vendor/mecha-client.js && deno run --allow-run=deno --allow-read --allow-write interpreter/vendor/bundle-morphlex.ts && deno bundle --config interpreter/deno.json --platform browser --format esm --minify interpreter/vendor/entry-js-yaml.ts -o interpreter/vendor/js-yaml.js && deno bundle --node-modules-dir=none --no-lock --platform browser --format esm --minify src/messages.ts -o interpreter/vendor/messages.js'
 COPY .bayt/Taskfile.yml .bayt/Taskfile.bayt.yml .bayt/Taskfile.bundle.yaml .bayt/bayt.bundle.json ./.bayt/
 
 FROM busybox:musl@sha256:03db190ed4c1ceb1c55d179a0940e2d71d42130636a780272629735893292223 AS bundle_ctxs
 WORKDIR /monorepo/plugins/omnishell
-COPY --parents interpreter/vendor/entry.ts ./
+COPY --parents interpreter/vendor/entry.ts interpreter/vendor/entry-morphlex.ts interpreter/vendor/bundle-morphlex.ts interpreter/vendor/entry-js-yaml.ts ./
 ARG SOURCE_DATE_EPOCH
 ARG BAYT_CLAMP=1
 RUN if [ "${BAYT_CLAMP:-1}" != 0 ]; then find /monorepo/plugins/omnishell -exec touch -hd @${SOURCE_DATE_EPOCH:-0} {} + && touch -hd @${SOURCE_DATE_EPOCH:-0} /monorepo /monorepo/plugins; fi
@@ -17,7 +17,7 @@ COPY --from=bundle_ctxs /monorepo /monorepo
 
 FROM busybox:musl@sha256:03db190ed4c1ceb1c55d179a0940e2d71d42130636a780272629735893292223 AS bundle_outs_ctxs
 WORKDIR /monorepo/plugins/omnishell
-COPY --from=plugins_omnishell-bundle --parents /monorepo/plugins/omnishell/interpreter/vendor/mecha-client.js /
+COPY --from=plugins_omnishell-bundle --parents /monorepo/plugins/omnishell/interpreter/vendor/mecha-client.js /monorepo/plugins/omnishell/interpreter/vendor/morphlex.js /monorepo/plugins/omnishell/interpreter/vendor/js-yaml.js /
 ARG SOURCE_DATE_EPOCH
 ARG BAYT_CLAMP=1
 RUN if [ "${BAYT_CLAMP:-1}" != 0 ]; then find /monorepo/plugins/omnishell -exec touch -hd @${SOURCE_DATE_EPOCH:-0} {} + && touch -hd @${SOURCE_DATE_EPOCH:-0} /monorepo /monorepo/plugins; fi

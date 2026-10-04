@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { expandGlob } from "jsr:@std/fs@1.0.19/expand-glob";
 
 const decoder = new TextDecoder();
 
@@ -7,65 +8,57 @@ function assert(ok: unknown, message: string): asserts ok {
   if (!ok) throw new Error(message);
 }
 
-Deno.test("Omnishell materializes relocatable source assets and names its evaluator", async () => {
+const terminal = fileURLToPath(new URL("../", import.meta.url));
+
+async function run(cwd: string, args: string[]): Promise<string> {
+  const result = await new Deno.Command(Deno.execPath(), {
+    args: ["run", "--no-check", "--config", join(terminal, "test/deno.json"), "--allow-read", "--allow-write=.", "--allow-env", join(terminal, "runtime/cli.ts"), ...args],
+    cwd, stdout: "piped", stderr: "piped",
+  }).output();
+  assert(result.success, decoder.decode(result.stderr));
+  return decoder.decode(result.stdout);
+}
+
+Deno.test("an installed terminal is named from its own root, a checkout's from the app", async () => {
   const app = await Deno.makeTempDir({ prefix: "omnishell runtime " });
-  const terminal = fileURLToPath(new URL("../", import.meta.url));
-  async function run(args: string[]): Promise<string> {
-    const result = await new Deno.Command(Deno.execPath(), {
-      args: ["run", "--no-check", "--config", join(terminal, "test/deno.json"), "--allow-read", "--allow-write=.", "--allow-env", join(terminal, "runtime/cli.ts"), ...args],
-      cwd: app, stdout: "piped", stderr: "piped",
-    }).output();
-    assert(result.success, decoder.decode(result.stderr));
-    return decoder.decode(result.stdout);
-  }
   try {
     await Deno.writeTextFile(join(app, "program.cue"), "package fixture\n");
-    await Deno.mkdir(join(app, "shell/screens"), { recursive: true });
-    await run(["materialize", "."]);
-    const asset = ".omnishell/interpreter/shell.js";
-    assert(await Deno.readTextFile(join(app, asset)) === await Deno.readTextFile(join(terminal, "interpreter/shell.js")), "materialized interpreter differs");
-    async function snapshot(dir: string): Promise<string> {
-      const entries: string[] = [];
-      for await (const entry of Deno.readDir(dir)) {
-        const path = join(dir, entry.name);
-        entries.push(JSON.stringify([entry.name, entry.isDirectory ? await snapshot(path) : Array.from(await Deno.readFile(path))]));
+    const installed = await run(app, ["mode", "."]);
+    assert(installed.includes('runtime: ""'), "installed mode named a checkout");
+    assert(installed.includes('interpreterRoot: "interpreter"'), "installed interpreter not named from omnishell's root");
+    assert(installed.includes('componentsRoot: "components"'), "installed adapters not named from omnishell's root");
+    assert(installed.includes('markupReader: "read-markup.ts"'), "installed reader not named from omnishell's root");
+    assert(installed.includes('machineSchema: "machine.cue"'), "installed schema not named from omnishell's root");
+    assert(!installed.includes(".omnishell"), "installed mode names a copy in the app");
+  } finally {
+    await Deno.remove(app, { recursive: true });
+  }
+});
+
+Deno.test("the runtime image's tree holds everything its entry points import", async () => {
+  // The image's tree as bayt builds it: the runtime-image target's srcs.
+  const project = JSON.parse(await Deno.readTextFile(join(terminal, "bayt.json")));
+  const globs: string[] = project.targets["runtime-image"].srcs.globs;
+  const image = await Deno.makeTempDir({ prefix: "omnishell image " });
+  try {
+    for (const glob of globs) {
+      for await (const file of expandGlob(glob, { root: terminal, includeDirs: false })) {
+        const rel = file.path.slice(terminal.length);
+        await Deno.mkdir(join(image, dirname(rel)), { recursive: true });
+        await Deno.copyFile(file.path, join(image, rel));
       }
-      return entries.sort().join("\n");
     }
-    const clean = await snapshot(join(app, ".omnishell"));
-    await Deno.writeTextFile(join(app, asset), "outdated interpreter");
-    await Deno.writeTextFile(join(app, ".omnishell/interpreter/removed.js"), "obsolete");
-    await Deno.mkdir(join(app, ".omnishell/removed"));
-    await Deno.writeTextFile(join(app, ".omnishell/removed/asset.js"), "obsolete");
-    await run(["materialize", "."]);
-    assert(await snapshot(join(app, ".omnishell")) === clean, "materialization did not replace the generated tree exactly");
-    assert(await Deno.readTextFile(join(app, "program.cue")) === "package fixture\n", "materialization changed an app-owned file");
-    await run(["materialize", "."]);
-    assert(await snapshot(join(app, ".omnishell")) === clean, "materialization is not repeatable");
-    const mode = await run(["mode", "."]);
-    assert(mode.includes('interpreterRoot: ".omnishell/interpreter"'), "external mode leaked its source location");
-    assert(mode.includes('componentsRoot: ".omnishell/components"'), "external mode serves adapters from a checkout");
-    assert((await Deno.stat(join(app, ".omnishell/components/wallclock.js"))).isFile, "materialization left out the adapters componentsRoot names");
-    assert(mode.includes('markupReader: ".omnishell/read-markup.ts"'), "external reader still names a checkout");
-    const reader = await new Deno.Command(Deno.execPath(), {
-      args: ["run", "--no-config", "--no-check", "--no-lock", "--allow-read", ".omnishell/read-markup.ts", "."],
-      cwd: app, stdout: "piped", stderr: "piped",
-    }).output();
-    assert(reader.success, decoder.decode(reader.stderr));
-    assert(JSON.parse(decoder.decode(reader.stdout)).screens !== undefined, "materialized reader is not executable");
-    // What an image runs from .omnishell reaches nothing outside it.
     for (const entry of ["check-visual.ts", "read-markup.ts", "base-url.ts"]) {
       const info = await new Deno.Command(Deno.execPath(), {
-        args: ["info", "--json", "--no-config", "--no-lock", `.omnishell/${entry}`],
-        cwd: app, stdout: "piped", stderr: "piped",
+        args: ["info", "--json", "--no-config", "--no-lock", entry],
+        cwd: image, stdout: "piped", stderr: "piped",
       }).output();
       assert(info.success, decoder.decode(info.stderr));
       // The tree as deno spells it, from the entry it was handed: a path
       // rebuilt here could differ in spelling (Windows short names).
       const graph = JSON.parse(decoder.decode(info.stdout)) as { roots: string[]; modules: { specifier: string; error?: string }[] };
       const root = new URL(".", graph.roots[0]).href;
-      const modules = graph.modules;
-      // A miss counts when the terminal's own tree holds the file: the copy
+      // A miss counts when the terminal's own tree holds the file: the image
       // left it out.
       const left = (m: { specifier: string }) => {
         try {
@@ -74,10 +67,10 @@ Deno.test("Omnishell materializes relocatable source assets and names its evalua
           return false;
         }
       };
-      const outside = modules.filter((m) => m.specifier.startsWith("file:") && (!m.specifier.startsWith(root) || (m.error && left(m))));
-      assert(outside.length === 0, `materialized ${entry} reaches ${outside.map((m) => m.error ?? m.specifier).join(", ")}`);
+      const outside = graph.modules.filter((m) => m.specifier.startsWith("file:") && (!m.specifier.startsWith(root) || (m.error && left(m))));
+      assert(outside.length === 0, `the image's ${entry} reaches ${outside.map((m) => m.error ?? m.specifier).join(", ")}`);
     }
   } finally {
-    await Deno.remove(app, { recursive: true });
+    await Deno.remove(image, { recursive: true });
   }
 });

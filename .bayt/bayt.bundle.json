@@ -25,13 +25,18 @@
   "activate": "mise x --",
   "srcs": {
     "globs": [
-      "interpreter/vendor/entry.ts"
+      "interpreter/vendor/entry.ts",
+      "interpreter/vendor/entry-morphlex.ts",
+      "interpreter/vendor/bundle-morphlex.ts",
+      "interpreter/vendor/entry-js-yaml.ts"
     ],
     "exclude": []
   },
   "outs": {
     "globs": [
-      "interpreter/vendor/mecha-client.js"
+      "interpreter/vendor/mecha-client.js",
+      "interpreter/vendor/morphlex.js",
+      "interpreter/vendor/js-yaml.js"
     ],
     "exclude": []
   },
@@ -88,7 +93,9 @@
       },
       "outs": {
         "globs": [
-          "interpreter/vendor/mecha-client.js"
+          "interpreter/vendor/mecha-client.js",
+          "interpreter/vendor/morphlex.js",
+          "interpreter/vendor/js-yaml.js"
         ],
         "exclude": []
       },
@@ -120,7 +127,10 @@
       },
       "outs": {
         "globs": [
-          "interpreter/vendor/entry.ts"
+          "interpreter/vendor/entry.ts",
+          "interpreter/vendor/entry-morphlex.ts",
+          "interpreter/vendor/bundle-morphlex.ts",
+          "interpreter/vendor/entry-js-yaml.ts"
         ],
         "exclude": []
       },
@@ -217,15 +227,18 @@
     {
       "srcs": {
         "globs": [
-          "interpreter/vendor/entry.ts"
+          "interpreter/vendor/entry.ts",
+          "interpreter/vendor/entry-morphlex.ts",
+          "interpreter/vendor/bundle-morphlex.ts",
+          "interpreter/vendor/entry-js-yaml.ts"
         ],
         "exclude": [],
         "defaultGlobs": null,
         "defaultExclude": null
       },
-      "do": "deno bundle --node-modules-dir=none --no-lock --config ../../libraries/mecha/packages/client/deno.json --platform browser --format esm --minify interpreter/vendor/entry.ts -o interpreter/vendor/mecha-client.js",
+      "shell": "sh",
+      "do": "sh -c 'deno bundle --node-modules-dir=none --no-lock --config ../../libraries/mecha/packages/client/deno.json --platform browser --format esm --minify interpreter/vendor/entry.ts -o interpreter/vendor/mecha-client.js && deno run --allow-run=deno --allow-read --allow-write interpreter/vendor/bundle-morphlex.ts && deno bundle --config interpreter/deno.json --platform browser --format esm --minify interpreter/vendor/entry-js-yaml.ts -o interpreter/vendor/js-yaml.js && deno bundle --node-modules-dir=none --no-lock --platform browser --format esm --minify src/messages.ts -o interpreter/vendor/messages.js'",
       "name": "builtin",
-      "shell": "exec",
       "stop": false
     }
   ],

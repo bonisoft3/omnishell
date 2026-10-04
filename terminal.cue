@@ -300,16 +300,16 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 		runtime: *"" | string
 
 		// One leaf of that command line, run over the app's own directory.
-		// Both spellings are one word and a leaf, because which entry answers
-		// to the word is the toolchain's to say: a checkout answers with the
-		// task below, naming the tree it is standing in, and an install with
-		// the platform-native entry it put on PATH. Neither asks the rule
-		// which OS it woke up on.
+		// Which entry answers is the toolchain's to say: a checkout answers
+		// with the task below, naming the tree it is standing in, and an
+		// install with the entry its mise config resolves, through mise
+		// rather than PATH, where a shim is no promise (mise makes none for a
+		// `path:` version). Neither asks the rule which OS it woke up on.
 		_command: {
 			for leaf in ["check markup", "check handlers", "check machines", "check battery", "check i18n"] {
 				(leaf): [
 					if T.surface.runtime != "" {"mise run omnishell -- \(leaf) ."},
-					"omnishell \(leaf) .",
+					"use tools.nu [run-mise]; run-mise exec -- omnishell \(leaf) .",
 				][0]
 			}
 		}
