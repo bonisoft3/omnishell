@@ -750,10 +750,13 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
         }
       }
     } catch (err) {
+      // What the page logged is the only account of a screen that never left
+      // loading.
+      const logged = console_.messages.map((m) => `${m.type}: ${m.text}`).join(" | ")
       out.push({
         severity: "critical",
         path: url,
-        message: `${where}: could not be linted — ${err instanceof Error ? err.message : String(err)}`,
+        message: `${where}: could not be linted — ${err instanceof Error ? err.message : String(err)}${logged ? ` (console: ${logged})` : ""}`,
       })
     } finally {
       console_.dispose()
