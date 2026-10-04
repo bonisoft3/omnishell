@@ -53,6 +53,30 @@ Deno.test("Omnishell materializes relocatable source assets and names its evalua
     }).output();
     assert(reader.success, decoder.decode(reader.stderr));
     assert(JSON.parse(decoder.decode(reader.stdout)).screens !== undefined, "materialized reader is not executable");
+    // What an image runs from .omnishell reaches nothing outside it.
+    for (const entry of ["check-visual.ts", "read-markup.ts", "base-url.ts"]) {
+      const info = await new Deno.Command(Deno.execPath(), {
+        args: ["info", "--json", "--no-config", "--no-lock", `.omnishell/${entry}`],
+        cwd: app, stdout: "piped", stderr: "piped",
+      }).output();
+      assert(info.success, decoder.decode(info.stderr));
+      // The tree as deno spells it, from the entry it was handed: a path
+      // rebuilt here could differ in spelling (Windows short names).
+      const graph = JSON.parse(decoder.decode(info.stdout)) as { roots: string[]; modules: { specifier: string; error?: string }[] };
+      const root = new URL(".", graph.roots[0]).href;
+      const modules = graph.modules;
+      // A miss counts when the terminal's own tree holds the file: the copy
+      // left it out.
+      const left = (m: { specifier: string }) => {
+        try {
+          return Deno.statSync(join(terminal, decodeURIComponent(m.specifier.slice(root.length)))).isFile;
+        } catch {
+          return false;
+        }
+      };
+      const outside = modules.filter((m) => m.specifier.startsWith("file:") && (!m.specifier.startsWith(root) || (m.error && left(m))));
+      assert(outside.length === 0, `materialized ${entry} reaches ${outside.map((m) => m.error ?? m.specifier).join(", ")}`);
+    }
   } finally {
     await Deno.remove(app, { recursive: true });
   }
