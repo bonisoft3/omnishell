@@ -106,6 +106,12 @@ carries only the `enum` and `bounds` the checkers read, so narrowing chess's
 `setup.bot` leaves a saved setup naming a bot the program no longer admits.
 `@bufbuild/cel`, which pronto's `cel.ts` already parses with, runs in a browser.
 
+**The `or` every subset carries as `NOT (NOT (...))`** goes when
+electric-db-collection parenthesizes a two-argument `and`/`or` itself; the
+pinned-bug test in mecha's client fails on that upgrade and says so. Until
+then a wrapped predicate is invisible to TanStack's subset dedupe, which can
+cost a repeated snapshot request.
+
 **Declaration ceremony that scales with durability**
 ([data](docs/data.md#declaration-follows-durability)).
 

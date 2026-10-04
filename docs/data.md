@@ -24,6 +24,57 @@ so no writer knows a region changed; the renderer does, having just applied the
 rows. Elm's one funnel knows what it changed and needs no hook; here the
 transition has to be published and its cycles bounded.
 
+## A table synced on demand
+
+`shell.yaml`'s `sync` names the tables pronto derived as on demand
+([screens](../../pronto/docs/screens.md#the-reads-decide-how-a-table-syncs)).
+The store passes the mode to mecha's client, which opens the shape from now and
+loads each maintained view's rows, and its embeds' by key, as subset
+snapshots. Three rules follow from a collection that holds only what its views
+asked for:
+
+- **A view is read only once it is settled**: ready, and loading no subset.
+  `toArrayWhenReady` answers on the first row, which renders half a list as the
+  list. A read holds the view while it waits, so a region released mid-load
+  (a Back press) still gets its answer and its refresh ends.
+- **A failed subset is charged to the views that were loading it, and only
+  those.** mecha's client tells each failure as it happens and keeps none,
+  since a failure kept on the collection would fail every later view of the
+  table. A refusal of the subset itself, a 400 whose `errors.subset` names
+  the parameter as Electric, the stack's gate and the page's cluster answer
+  one, is a `ProgramError` naming the table, because no retry repairs a predicate that
+  cannot be stated. Any other failure is said on the console and the view is
+  rebuilt after a pause that doubles from 100ms to 5s, while the reads waiting
+  on it go on waiting. Failing the read at once instead sends the screen to
+  network-error and re-reads on the region's backoff, seconds per miss, and a
+  screen loading forty subsets misses more than once. Electric's own fetch
+  already waits out a 5xx and a dropped connection, so what reaches a view is
+  a 4xx a retry answers: a token to re-mint, a token minted for a where the
+  stream has moved off, a 409 loop the client gave up on. A failure still
+  there after six rebuilds, about six seconds, is not one of those: an auth
+  service that mints nothing, a gate that refuses what it minted. It fails the
+  reads waiting on the view, so the screen says network-error and the region's
+  backoff takes over, and the next read starts the rebuilds over.
+- **A view holds its wakes while it loads a subset**, so no region binds a row
+  whose embed has not arrived yet.
+- **Nothing else reads the collection as the table.** A snapshot read, a
+  validation, a visibility rule, a fold's projection, an upsert, a delete by
+  filter and a mutation reduce's write by key all raise a `ProgramError`
+  naming the site (`whole` in `data-sync.js`) when they meet an on-demand
+  table. pronto's rule keeps such a table eager, so one raised is a drift
+  between the two.
+- **An update or a delete by key loads its row first.** A row the collection
+  lacks is loaded as a view of its key and held until the write has gone out;
+  Electric keeps a loaded row current from then on. A key no row has stays
+  missing, and the write is the collection's refusal of it.
+
+A clause on a typed column sends one literal of its type, read against the
+column's own field and in the spelling its rows carry (`1.50` against a decimal
+is the row holding `1.5`), which is also what the subset asks Electric to cast.
+A literal the column cannot hold equals no row. Only an untyped column, or one
+declared by a physical label such as `timestamptz`, whose rows keep the
+transport's spelling, hedges between the text and the number a value could be.
+
 ## The fold seat
 
 After every refresh of a region, first paint included, its `data-on-mutation`
@@ -107,10 +158,11 @@ keeps its `surface.handlers` entry and its ir section whatever the durability.
 
 ## Derived, not restated
 
-A screen's `reads` (the entities `data-live` and `data-reads` touch) and
-`files.handlers` (every name `data-handler` and `data-on-*` bind) are projected
-out of its markup by [`derive.ts`](../../pronto/derive.ts) into
-`program_derived.cue`. Check against published data, never a copy: a rule
+A screen's `reads` (every read `data-live`, `data-reads` and `data-read-*`
+make, routed by `fragment.js`'s `routeOf` as the store routes them), `writes`
+and `files.handlers` (every name `data-handler` and `data-on-*` bind) are
+projected out of its markup by [`read-markup.ts`](../read-markup.ts) for
+[`derive.ts`](../../pronto/derive.ts), into `program_derived.cue`. Check against published data, never a copy: a rule
 comparing a restatement with the markup would grade a copy, so none exists
 ([screens](../../pronto/docs/screens.md#derived-from-the-markup)).
 

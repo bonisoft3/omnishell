@@ -12,14 +12,15 @@
 // because the image carries no app to read a real one from.
 export const FIXTURE_TYPES = {
   types: {
-    string: { sql: "portable_string", base: ["text"], json: "string", order: "text", beyond: [] },
-    int32: { sql: "portable_int32", base: ["int4"], json: "number", min: -2147483648, max: 2147483647, order: "number", beyond: [] },
-    int64: { sql: "portable_int64", base: ["int8"], json: "string", order: "integer", beyond: [] },
-    timestamp: { sql: "portable_timestamp", base: ["timestamptz"], json: "string", order: "text", beyond: [] },
-    date: { sql: "portable_date", base: ["date"], json: "string", order: "text", beyond: [] },
-    duration: { sql: "portable_duration", base: ["interval"], json: "string", order: "duration", beyond: [] },
-    decimal: { base: ["numeric"], json: "string", order: "decimal", beyond: ["decimal-profile"] },
-    double: { sql: "portable_double", base: ["float8"], json: "number", order: "number", beyond: [] },
+    string: { pg: "text", column: "plain", subset: true, base: ["text"], json: "string", order: "text", beyond: [] },
+    int32: { pg: "integer", column: "plain", subset: true, base: ["int4"], json: "number", min: -2147483648, max: 2147483647, order: "number", beyond: [] },
+    int64: { pg: "bigint", column: "domain", subset: false, sql: "portable_int64", base: ["int8"], json: "string", order: "integer", beyond: [] },
+    timestamp: { pg: "timestamptz", column: "domain", subset: false, sql: "portable_timestamp", base: ["timestamptz"], json: "string", order: "text", beyond: [] },
+    date: { pg: "date", column: "checked", subset: true, base: ["date"], json: "string", order: "text", beyond: [] },
+    duration: { pg: "interval", column: "domain", subset: false, sql: "portable_duration", base: ["interval"], json: "string", order: "duration", beyond: [] },
+    decimal: { pg: "numeric", column: "domain", subset: false, base: ["numeric"], json: "string", order: "decimal", beyond: ["decimal-profile"] },
+    double: { pg: "double precision", column: "checked", subset: true, base: ["float8"], json: "number", order: "number", beyond: [] },
+    uuid: { pg: "uuid", column: "plain", subset: true, base: ["uuid"], json: "string", order: "text", beyond: [] },
   },
   aliases: { text: "string", int: "int32", bigint: "int64", timestamptz: "timestamp", tsvector: "string" },
 };

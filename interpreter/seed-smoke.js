@@ -7,49 +7,7 @@
 // read.
 
 import { FIXTURE_CARRIERS } from "./fixture-types.js";
-
-const assert = (cond, msg) => {
-  if (!cond) throw new Error(`smoke failed: ${msg}`);
-};
-
-// A window with exactly what the vendored client touches: its storage probe,
-// resolveUrl's origin, and the online detector's listener seam.
-async function withBrowser(fn) {
-  const hadWindow = "window" in globalThis;
-  const hadDocument = "document" in globalThis;
-  if (!hadDocument) {
-    globalThis.document = { addEventListener: () => {}, removeEventListener: () => {} };
-  }
-  const backing = new Map();
-  const storage = {
-    getItem: (k) => backing.get(k) ?? null,
-    setItem: (k, v) => void backing.set(k, v),
-    removeItem: (k) => void backing.delete(k),
-    key: (i) => [...backing.keys()][i] ?? null,
-    get length() {
-      return backing.size;
-    },
-  };
-  Object.defineProperty(globalThis, "localStorage", { value: storage, configurable: true });
-  if (!hadWindow) {
-    globalThis.window = {
-      localStorage: storage,
-      location: { origin: "http://localhost" },
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      setTimeout: globalThis.setTimeout.bind(globalThis),
-      clearTimeout: globalThis.clearTimeout.bind(globalThis),
-    };
-  }
-  try {
-    const { createStore } = await import("./data-sync.js");
-    await fn(createStore);
-  } finally {
-    delete globalThis.localStorage;
-    if (!hadWindow) delete globalThis.window;
-    if (!hadDocument) delete globalThis.document;
-  }
-}
+import { assert, withBrowser } from "./smoke-browser.js";
 
 const PALETTE = {
   local: { command: "tab" },
@@ -67,7 +25,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await withBrowser(async (createStore) => {
+    await withBrowser({}, async (createStore) => {
       const store = await createStore("", { ...config(), carriers: FIXTURE_CARRIERS });
       const rows = await store.query("command", "position.asc", {});
       assert(rows.length === 3, `three seeded rows, got ${rows.length}`);
@@ -84,7 +42,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await withBrowser(async (createStore) => {
+    await withBrowser({}, async (createStore) => {
       const store = await createStore("", { ...config(), carriers: FIXTURE_CARRIERS });
       const rows = await store.query("command", null, { filter: "id=eq.search" });
       assert(rows.length === 1 && rows[0].label === "Search", `one row by id, got ${JSON.stringify(rows)}`);
@@ -97,7 +55,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await withBrowser(async (createStore) => {
+    await withBrowser({}, async (createStore) => {
       const store = await createStore("", { ...config(), carriers: FIXTURE_CARRIERS });
       await store.query("command", null, {});
       await store.drop("command", ["search"]);
@@ -113,7 +71,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await withBrowser(async (createStore) => {
+    await withBrowser({}, async (createStore) => {
       const first = await createStore("", { ...config(), carriers: FIXTURE_CARRIERS });
       await first.query("command", null, {});
       await first.drop("command", ["search"]);
@@ -129,7 +87,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await withBrowser(async (createStore) => {
+    await withBrowser({}, async (createStore) => {
       const store = await createStore("", { carriers: FIXTURE_CARRIERS,
         local: { command: "tab" },
         seed: { command: [{ label: "New note" }] },

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@test/harness"
 import { parseHTML } from "linkedom"
+import { parse, type DefaultTreeAdapterMap } from "parse5"
 import { interpretScreen } from "../interpreter/screen.js"
 
 // Materialized SSR (M-SSR): Zero-diff hydration adopts server-rendered
@@ -76,3 +77,38 @@ describe("M-SSR zero-diff hydration", () => {
     expect(updatedItems[0].querySelector("span")?.textContent).toBe("Updated Note 1")
   })
 })
+
+// A served document is reparsed by the browser, and a <p> in a <tbody> is
+// foster-parented out of the table. The empty note of a table section is a
+// row for that reason; this holds it in place across the round trip.
+describe("a table section's empty note across serialization", () => {
+  it("stays inside the tbody once the document is reparsed", async () => {
+    const { document } = parseHTML("<!doctype html><html><head></head><body><div id=shell></div></body></html>")
+    globalThis.document = document as any
+    const screen = `<section class="screen" data-screen="wall">
+      <table><thead><tr><th>Title</th><th>When</th></tr></thead>
+        <tbody data-live="note" data-empty="Nothing here"><template data-item><tr><td data-text="{title}"></td><td></td></tr></template></tbody>
+      </table>
+    </section>`
+    globalThis.fetch = ((url: any) =>
+      Promise.resolve(new Response(String(url).endsWith(".html") ? screen : ""))) as any
+    const store = { query: async () => [], subscribe: () => () => {}, create: async () => {}, update: async () => {}, remove: async () => {} }
+    const mount = document.getElementById("shell")
+    await interpretScreen(mount, "http://localhost/", ROUTE, store, {}, { handlers: false })
+    // parse5 is the HTML standard's parser, foster parenting included, which
+    // linkedom's is not.
+    type Node = DefaultTreeAdapterMap["node"]
+    const find = (node: Node, path: string[] = []): string[] | null => {
+      const here = "tagName" in node ? [...path, node.tagName] : path
+      if ("attrs" in node && node.attrs.some((a) => a.name === "class" && a.value === "empty")) return here
+      for (const child of "childNodes" in node ? node.childNodes : []) {
+        const found = find(child, here)
+        if (found !== null) return found
+      }
+      return null
+    }
+    const path = find(parse(document.toString()))
+    expect(path?.slice(-3)).toEqual(["table", "tbody", "tr"])
+  })
+})
+

@@ -5,65 +5,22 @@
 // corruption that happened after it.
 
 import { FIXTURE_CARRIERS } from "./fixture-types.js";
-
-const assert = (cond, msg) => {
-  if (!cond) throw new Error(`smoke failed: ${msg}`);
-};
+import { assert, withBrowser } from "./smoke-browser.js";
 
 // A device table persists as localStorage["mecha:<table>"] holding
 // {"s:<key>": {versionKey, data}} (the vendored client's own serialization);
 // seeding that before createStore is what "rows from a previous era" is.
-function seedStorage(entries) {
-  const backing = new Map();
-  for (const [k, v] of Object.entries(entries)) backing.set(k, JSON.stringify(v));
-  return {
-    getItem: (k) => backing.get(k) ?? null,
-    setItem: (k, v) => void backing.set(k, v),
-    removeItem: (k) => void backing.delete(k),
-    key: (i) => [...backing.keys()][i] ?? null,
-    get length() {
-      return backing.size;
-    },
-  };
-}
-
 const stored = (rows) =>
   Object.fromEntries(rows.map((r, i) => [`s:${r.id}`, { versionKey: `v${i}`, data: r }]));
 
 async function withDeviceStorage(entries, fn) {
-  const hadWindow = "window" in globalThis;
-  const hadDocument = "document" in globalThis;
-  if (!hadDocument) {
-    globalThis.document = { addEventListener: () => {}, removeEventListener: () => {} };
-  }
-  const storage = seedStorage(entries);
-  Object.defineProperty(globalThis, "localStorage", {
-    value: storage,
-    configurable: true,
-  });
-  // A window with exactly what the vendored client touches: its storage
-  // probe, resolveUrl's origin, and the online detector's listener seam.
-  if (!hadWindow) {
-    globalThis.window = {
-      localStorage: storage,
-      location: { origin: "http://localhost" },
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      setTimeout: globalThis.setTimeout.bind(globalThis),
-      clearTimeout: globalThis.clearTimeout.bind(globalThis),
-    };
-  }
   const warnings = [];
   const warn = console.warn;
   console.warn = (...args) => warnings.push(args.join(" "));
   try {
-    const { createStore } = await import("./data-sync.js");
-    await fn(createStore, warnings);
+    await withBrowser({ storage: entries }, (createStore) => fn(createStore, warnings));
   } finally {
     console.warn = warn;
-    delete globalThis.localStorage;
-    if (!hadWindow) delete globalThis.window;
-    if (!hadDocument) delete globalThis.document;
   }
 }
 

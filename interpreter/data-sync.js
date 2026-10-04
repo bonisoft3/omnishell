@@ -28,11 +28,11 @@ import {
   not,
   or,
 } from "./vendor/mecha-client.js";
-import { embedDeps, embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect } from "./fragment.js";
+import { embedDeps, embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect, ProgramError, routeOf } from "./fragment.js";
 import { evaluateRole } from "./jessie.js";
 import { judge } from "./validate.js";
 
-export { embedDeps, embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect };
+export { embedDeps, embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect, routeOf };
 
 const HEADERS = { "Content-Type": "application/json" };
 
@@ -100,28 +100,15 @@ export function touches(preds, changes) {
 }
 
 /**
- * Whether a read can become a view the engine maintains, given its parsed
- * filter, its parsed select, and the table's visibility rule.
- *
- * Every `false` here is a read that already goes to PostgREST or already needs
- * a predicate the query cannot state, so this draws no new boundary. It is
- * kept pure and exported because the interesting failure is silent: a read
- * wrongly called maintainable builds a view whose rows are missing what the
- * region binds, and the region renders blank rather than erroring.
+ * Whether a read fragment.js's routeOf sends to a view can become one, given
+ * its parsed select and the table's visibility rule: the program's half of
+ * the question, where routeOf, which pronto's derive reads too, is the
+ * markup's. It is kept pure and exported because the interesting failure is
+ * silent: a read wrongly called maintainable builds a view whose rows are
+ * missing what the region binds, and the region renders blank rather than
+ * erroring.
  */
-export function isMaintainable(spec, embeds, access, accessOf = () => undefined) {
-  // null is "server-computed", never "nothing to do" — for both of these.
-  if (spec === null || embeds === null) return false;
-  // A boolean the schema defaults is absent on an unconfirmed optimistic row,
-  // which the snapshot predicate admits and a column comparison would not.
-  if (spec.some((s) => s.op === "true" || s.op === "false")) return false;
-  // A cursor reads client-side but is not maintained: the engine's clause
-  // vocabulary has no lt/gt, and an unstatable clause would widen to every
-  // row.
-  if (spec.some((s) => s.op === "lt" || s.op === "lte" || s.op === "gt" || s.op === "gte")) return false;
-  // A pattern is a predicate the engine's clause vocabulary cannot state, and
-  // an unstatable clause would silently widen to "every row" — see `clause`.
-  if (spec.some((s) => s.op === "like" || s.op === "ilike")) return false;
+export function isMaintainable(embeds, access, accessOf = () => undefined) {
   // An embed becomes a left join, and a left join has nowhere to put a
   // per-row visibility test: the snapshot path binds the whole embed null for
   // a row this reader cannot see, and a join would leak its columns instead.
@@ -137,25 +124,21 @@ export function isMaintainable(spec, embeds, access, accessOf = () => undefined)
 /** A table not everyone may read. undefined means no policy at all, so anyone may. */
 const isRestricted = (a) => a !== undefined && a.scope !== "public";
 
-/**
- * Whether a read is the whole table: no predicate, no embed, no cap.
- *
- * Such a read gets no view. The collection already is that set, kept current
- * by the same event stream a view would be fed from, so a view over it would
- * maintain the set twice — and keep its order by moving array elements, which
- * charges a bulk write the length of the table per row (subscribe-smoke.js,
- * "a whole-table read is served by the collection"). Sorting the snapshot at
- * read costs the read once.
- */
-function isWhole(spec, embeds, limit) {
-  return Array.isArray(spec) && spec.length === 0 &&
-    Array.isArray(embeds) && embeds.length === 0 && limit === undefined;
-}
-
 // Every mecha table's txid is the platform's int8, delivered as its int64
 // carrier string. It is set after the schema's own fields below, so a table
 // that declares a column of that name is still compared as the platform's.
 const TXID = { name: "txid", type: "int64" };
+/** A filter literal its column cannot hold: equal to no row of it. */
+const NOHOLD = Symbol("a literal its column cannot hold");
+/** The pause before a view whose subset failed in transit is rebuilt, and the
+ * most it doubles to. Electric's own fetch already waits out a 5xx and a
+ * dropped connection; what reaches a view is a 4xx a retry answers, so the
+ * first retry is prompt. A view rebuilt this many times without settling
+ * fails the reads waiting on it, about six seconds on: a failure that keeps
+ * coming back is an outage the screen says, not one the console alone does. */
+const RETRY_FIRST_MS = 100;
+const RETRY_LAST_MS = 5000;
+const RETRY_ATTEMPTS = 6;
 
 /** The value order of one table's columns, for parseFilter and compareBy:
  * undefined for a column the schema does not type. The comparator is the
@@ -313,6 +296,7 @@ export function createStore(base = "", cfg = {}) {
       fields: cfg.schema?.[t]?.fields,
       durability: local[t],
       access: cfg.access?.[t],
+      sync: cfg.sync?.[t],
     })),
     electricUrl: `${base}/electric`,
     crudUrl: `${base}/crud`,
@@ -330,6 +314,29 @@ export function createStore(base = "", cfg = {}) {
   // RLS-scoped server-side.
   const access = cfg.access ?? {};
   const keyOf = (t) => cfg.keys?.[t] ?? "id";
+
+  // shell.yaml `sync` names the tables pronto's derive proved are only ever
+  // read through maintained views, and that therefore sync on demand: the
+  // collection holds the rows some view asked for, not the table. Every read
+  // below that would treat it as the table is a program error, raised where
+  // the read is rather than rendered as a silently short list — derive and
+  // this file state the same rule, and this is where a drift between them
+  // shows.
+  const onDemand = (table) => cfg.sync?.[table] === "on-demand";
+  const whole = (table, site) => {
+    if (onDemand(table)) {
+      throw new ProgramError(`${site} reads ${table} whole, and ${table} syncs on demand: its collection holds only the rows its views loaded`);
+    }
+  };
+  // A collection read as the table, once it holds the first snapshot: an
+  // unsynced collection is empty, not authoritative.
+  async function wholeCollection(table, site) {
+    whole(table, site);
+    const c = client.collections[table];
+    if (c === undefined) throw new Error(`${site} reads ${table}, which has no collection`);
+    if (!c.isReady()) await c.toArrayWhenReady();
+    return c;
+  }
 
   // Validations by table (shell.yaml); each table's modules load on its first
   // write, through the same compartment a handler runs in.
@@ -366,9 +373,7 @@ export function createStore(base = "", cfg = {}) {
   async function validate(table, type, row, current, edgeIndex) {
     const list = await predicatesFor(table);
     if (list.length === 0) return;
-    const collection = client.collections[table];
-    if (collection === undefined) throw new Error(`validation on unsynced table: ${table}`);
-    if (!collection.isReady()) await collection.toArrayWhenReady();
+    const collection = await wholeCollection(table, `validation of ${table}`);
     const key = keyOf(table);
     const held = type !== "update"
       ? undefined
@@ -380,9 +385,7 @@ export function createStore(base = "", cfg = {}) {
     }
     const rowsFor = async (edge, produced, name) => {
       await ensurePrepared(edge.table);
-      const c = client.collections[edge.table];
-      if (c === undefined) throw new Error(`validation ${table}.${name}: reads unsynced table ${edge.table}`);
-      if (!c.isReady()) await c.toArrayWhenReady();
+      const c = await wholeCollection(edge.table, `validation ${table}.${name}`);
       const want = String(produced[edge.from]);
       const at = `${edge.table} ${edge.key}`;
       let index = edgeIndex.get(at);
@@ -535,6 +538,7 @@ export function createStore(base = "", cfg = {}) {
     if (a.scope === "private") {
       if (row[a.owner] === uid) return true;
       if (a.shared) {
+        whole(a.shared.via, `${table}'s visibility`);
         const via = client.collections[a.shared.via];
         const pk = row[keyOf(table)];
         return (
@@ -547,6 +551,7 @@ export function createStore(base = "", cfg = {}) {
     // folder: visible exactly when the parent row is (a vanished parent
     // hides the child, matching the policy's EXISTS).
     if (a.scope === "folder") {
+      whole(a.parent, `${table}'s visibility`);
       const parent = client.collections[a.parent];
       const p = parent?.get(row[a.on]);
       return p !== undefined && visible(a.parent, p);
@@ -572,8 +577,8 @@ export function createStore(base = "", cfg = {}) {
   // re-derives on every wake. The differential-dataflow engine ships inside
   // the client bundle; this is the door into it.
   //
-  // Not every read qualifies; isMaintainable holds the disqualifiers, all of
-  // them reads that already go to PostgREST, so this draws no new boundary.
+  // Not every read qualifies; routeOf and isMaintainable hold the
+  // disqualifiers.
   const views = new Map();
   const indexed = new Set();
   // createIndex refuses to choose a type, and the two questions want different
@@ -591,38 +596,80 @@ export function createStore(base = "", cfg = {}) {
   globalThis.__prontoViews = views;
   function maintainedView(table, opts = {}, create = false) {
     const order = opts.order;
-    const collection = client.collections[table];
-    if (collection === undefined) return null;
-    const spec = parseFilterSpec(opts.filter);
-    const a = access[table];
-    const embeds = parseSelect(opts.select);
-    if (!isMaintainable(spec, embeds, a, (t) => access[t])) return null;
-    if (isWhole(spec, embeds, parseLimit(opts.filter))) return null;
-    // A column the engine would order differently from the carrier — or not at
-    // all — is left to the snapshot path, which sorts by carrier and refuses
-    // what has no order. An untyped column keeps the engine's own comparison.
-    const typeOf = (col) => col === TXID.name ? TXID.type : cfg.schema?.[table]?.fields?.find((f) => f.name === col)?.type;
-    const ordered = (col) => typeOf(col) === undefined || ordersInEngine().has(typeOf(col));
-    if (!(order ?? "").split(",").filter(Boolean).every((k) => ordered(k.split(".")[0]))) return null;
-    if (embeds !== null && embeds.some((e) => client.collections[e.table] === undefined)) return null;
     // Views are keyed by the read they stand for, so the many nested regions
     // that share one — every row's comment probe on a screen — enter the graph
     // once between them.
     const key = `${table}|${order ?? ""}|${opts.filter ?? ""}|${opts.select ?? ""}`;
     const held = views.get(key);
-    if (held !== undefined) {
-      if (create) held.refs += 1;
-      return held;
-    }
+    if (held !== undefined) return held;
     // Only a subscription opens a view; a read joins one already open, so a
     // server-computed region cannot leave a view behind it never closes.
     if (!create) return null;
+    const collection = client.collections[table];
+    if (collection === undefined) return null;
+    const spec = parseFilterSpec(opts.filter);
+    const embeds = parseSelect(opts.select);
+    const limit = parseLimit(opts.filter);
+    // A whole read gets no view either: the collection already is that set,
+    // kept current by the stream a view would be fed from, and a view over it
+    // would keep its order by moving array elements, a bulk write the length
+    // of the table per row (subscribe-smoke.js, "a whole-table read is served
+    // by the collection").
+    if (routeOf(spec, embeds, limit) !== "view" || !isMaintainable(embeds, access[table], (t) => access[t])) return null;
+    // A column the engine would order differently from the carrier — or not at
+    // all — is left to the snapshot path, which sorts by carrier and refuses
+    // what has no order. An untyped column keeps the engine's own comparison.
+    const fieldOf = (col) => col === TXID.name ? TXID : cfg.schema?.[table]?.fields?.find((f) => f.name === col);
+    const typeOf = (col) => fieldOf(col)?.type;
+    const ordered = (col) => typeOf(col) === undefined || ordersInEngine().has(typeOf(col));
+    if (!(order ?? "").split(",").filter(Boolean).every((k) => ordered(k.split(".")[0]))) return null;
+    if (embeds.some((e) => client.collections[e.table] === undefined)) return null;
+    // A typed column is compared with one literal of its type, in the
+    // canonical spelling its rows carry, which is also what a subset sends
+    // Electric to cast: `1.50` against a decimal column is the row holding
+    // `1.5`, and an uppercase uuid the row holding it in lowercase. Only a
+    // column the schema does not type, or types by a physical label, hedges
+    // between the text and the number a value could be, and the hedge is an
+    // `or`, which a subset carries only by the client's parenthesizing
+    // (mecha-client.ts parenthesizeOr).
+    //
+    // A literal the column cannot hold is NOHOLD. Rows are canonical, so it
+    // equals no row: the empty string a null placeholder interpolates to,
+    // compared with a uuid, is the case every nullable foreign key's probe
+    // meets. The column's own field is what it is read against, precision and
+    // scale included, because a decimal out of the column's profile is one no
+    // row of it holds either.
+    const literal = (col, value) => {
+      const field = fieldOf(col);
+      // A column declared by a physical label holds the transport's own
+      // spelling (normalizeRow leaves it), so it is compared as an untyped one.
+      if (field === undefined || cfg.carriers?.aliases?.[field.type] !== undefined) return undefined;
+      const json = carrier().canonicalType(field.type);
+      const num = Number(value);
+      const typed = json === "int32" || json === "double"
+        ? (value !== "" && !Number.isNaN(num) ? num : value)
+        : json === "bool" ? (value === "true" ? true : value === "false" ? false : value) : value;
+      try {
+        return carrier().normalizeValue(field, typed, "canonical");
+      } catch (err) {
+        if (err instanceof TypeError) return NOHOLD;
+        throw err;
+      }
+    };
     const clause = (row, { col, op, value }) => {
       const num = Number(value);
       const isNum = value !== "" && !Number.isNaN(num) && String(num) === value;
-      const test = isNum
-        ? or(eq(row[col], value), eq(row[col], num))
-        : eq(row[col], value);
+      const typed = op === "eq" || op === "neq" ? literal(col, value) : undefined;
+      // Said as a key that is null rather than as the literal, which a subset
+      // would send Electric to cast and Electric would refuse.
+      if (typed === NOHOLD) {
+        return op === "eq" ? isNull(row[keyOf(table)]) : not(isNull(row[col]));
+      }
+      const test = typed !== undefined
+        ? eq(row[col], typed)
+        : isNum
+          ? or(eq(row[col], value), eq(row[col], num))
+          : eq(row[col], value);
       return op === "eq"
         ? test
         : op === "neq"
@@ -641,57 +688,199 @@ export function createStore(base = "", cfg = {}) {
     for (const e of embeds) ensureIndex(e.table, keyOf(e.table), BasicIndex);
     // An ordered read with a cap can stop early, but only over a sorted index;
     // without one the engine says so and loads the whole collection to sort it.
-    if (parseLimit(opts.filter) !== undefined) {
+    if (limit !== undefined) {
       for (const k of (order ?? "").split(",").filter(Boolean)) {
         ensureIndex(table, k.split(".")[0], BTreeIndex);
       }
     }
-    const view = createLiveQueryCollection({
-      query: (q) => {
-        let built = q.from({ row: collection });
-        for (const s of spec) built = built.where(({ row }) => clause(row, s));
+    // Started as it is built, not on its first listener: a write holding a
+    // row's view waits on it with no listener at all.
+    const started = () => {
+      const view = createLiveQueryCollection({
+        query: (q) => {
+          let built = q.from({ row: collection });
+          for (const s of spec) built = built.where(({ row }) => clause(row, s));
 
-        for (const k of (order ?? "").split(",").filter(Boolean)) {
-          const [col, dir] = k.split(".");
-          built = built.orderBy(({ row }) => row[col], dir === "desc" ? "desc" : "asc");
-        }
-        const limit = parseLimit(opts.filter);
-        if (limit !== undefined) built = built.limit(limit);
-        if (embeds.length === 0) return built;
-        // A flat FK embed is a left join on `<alias>_id`, and left is what
-        // makes an unmatched row bind blank instead of vanishing — the same
-        // thing the snapshot path means by a null embed.
-        for (const e of embeds) {
-          built = built.join(
-            { [e.alias]: client.collections[e.table] },
-            (refs) => eq(refs.row[`${e.alias}_id`], refs[e.alias][keyOf(e.table)]),
-            "left",
-          );
-        }
-        // The row the region binds: every base column, plus each embed under
-        // the name it is addressed by.
-        return built.select((refs) => {
-          const out = { ...refs.row };
-          for (const e of embeds) {
-            out[e.alias] = Object.fromEntries(e.cols.map((col) => [col, refs[e.alias][col]]));
+          for (const k of (order ?? "").split(",").filter(Boolean)) {
+            const [col, dir] = k.split(".");
+            built = built.orderBy(({ row }) => row[col], dir === "desc" ? "desc" : "asc");
           }
-          return out;
-        });
-      },
-    });
+          if (limit !== undefined) built = built.limit(limit);
+          if (embeds.length === 0) return built;
+          // A flat FK embed is a left join on `<alias>_id`, and left is what
+          // makes an unmatched row bind blank instead of vanishing — the same
+          // thing the snapshot path means by a null embed.
+          for (const e of embeds) {
+            built = built.join(
+              { [e.alias]: client.collections[e.table] },
+              (refs) => eq(refs.row[`${e.alias}_id`], refs[e.alias][keyOf(e.table)]),
+              "left",
+            );
+          }
+          // The row the region binds: every base column, plus each embed under
+          // the name it is addressed by.
+          return built.select((refs) => {
+            const out = { ...refs.row };
+            for (const e of embeds) {
+              out[e.alias] = Object.fromEntries(e.cols.map((col) => [col, refs[e.alias][col]]));
+            }
+            return out;
+          });
+        },
+      });
+      view.startSyncImmediate();
+      return view;
+    };
+    const sources = [[table, collection], ...embeds.map((e) => [e.table, client.collections[e.table]])];
     const entry = {
-      view,
-      refs: 1,
+      view: started(),
+      // Held by each subscription standing on the view, each read waiting on
+      // it and each write holding its row: a view released while a read waits
+      // would never settle, and the region awaiting that read would hold its
+      // refresh, and every parent's, for good.
+      refs: 0,
+      // The subset failure charged to this view, as {table, error, refused}: a
+      // load of one of its sources failed while it was loading, so it may hold
+      // a partial set. TanStack does not say which subscription a load was
+      // for, so a failure landing while two views of one table load is charged
+      // to both; a rebuild re-asks for what each needs. A refusal stays; any
+      // other failure is cleared by the rebuild `retry` schedules.
+      failure: undefined,
+      // The pending rebuild after a failure in transit, and the rebuilds since
+      // the view last settled, which double the pause before the next.
+      retrying: undefined,
+      attempts: 0,
+      // Who stands on the view: each is attached again to the view a rebuild
+      // replaces it with.
+      attached: new Set(),
+      // settled() checks waiting on it, rechecked when it is rebuilt.
+      waiters: new Set(),
+      attach(fn) {
+        const a = { fn, stop: fn(entry.view) };
+        entry.attached.add(a);
+        return () => {
+          a.stop();
+          entry.attached.delete(a);
+        };
+      },
+      acquire() {
+        entry.refs += 1;
+        return entry;
+      },
       release() {
         entry.refs -= 1;
         if (entry.refs > 0) return;
         views.delete(key);
-        view.cleanup?.();
+        clearTimeout(entry.retrying);
+        for (const off of offs) off();
+        entry.view.cleanup();
+      },
+      // A view whose subset failed holds what it held when it failed, and
+      // nothing asks for the rest again; a view built afresh does.
+      rebuild() {
+        const old = entry.view;
+        for (const a of entry.attached) a.stop();
+        entry.failure = undefined;
+        entry.view = started();
+        for (const a of entry.attached) a.stop = a.fn(entry.view);
+        old.cleanup();
+        for (const check of [...entry.waiters]) check();
+      },
+      // A failure in transit is said, and the view rebuilt after a pause,
+      // while every read waiting on it goes on waiting: the read's own
+      // backoff is the screen's, a network-error and seconds per miss, where
+      // a load asked again costs one request. Once the rebuilds run out the
+      // failure is the reads', and the next read starts them over.
+      retry(failure) {
+        if (entry.retrying !== undefined) return;
+        if (exhausted(entry)) {
+          for (const check of [...entry.waiters]) check();
+          return;
+        }
+        const pause = Math.min(RETRY_FIRST_MS * 2 ** entry.attempts, RETRY_LAST_MS);
+        console.error(`a subset of ${failure.table} failed; asking again in ${pause}ms:`, failure.error);
+        entry.retrying = setTimeout(() => {
+          entry.retrying = undefined;
+          entry.attempts += 1;
+          entry.rebuild();
+        }, pause);
+      },
+      // Whether the view holds every row it stands for: ready, loading no
+      // subset, and charged with no failure. A view that does has spent its
+      // rebuilds.
+      complete() {
+        if (entry.failure !== undefined || !entry.view.isReady() || entry.view.isLoadingSubset) return false;
+        entry.attempts = 0;
+        return true;
       },
     };
+    const offs = sources.filter(([t]) => onDemand(t)).map(([t, c]) =>
+      c.utils.onSubsetFailure((error) => {
+        if (!entry.view.isLoadingSubset || entry.failure !== undefined) return;
+        entry.failure = { table: t, error, refused: refusal(error) };
+        if (!entry.failure.refused) entry.retry(entry.failure);
+      })
+    );
     views.set(key, entry);
     return entry;
   }
+
+  /**
+   * A maintained view's rows, once they are all there: the view is ready and
+   * loading no subset, the lazy side of a join included. Built on the
+   * collection's public readiness and its `loadingSubset:change` event alone.
+   *
+   * Not toArrayWhenReady: it answers as soon as the view holds any row, and an
+   * on-demand view holds rows while its subset is still arriving — the first
+   * read would render a partial list as if it were the whole one.
+   *
+   * A view that failed rejects, and so does one whose subset was refused: the
+   * program asking for a predicate that cannot be stated, which no retry
+   * repairs, is a ProgramError naming the table. A subset that failed in
+   * transit is asked again (`retry`), and the read waits on the rebuilt view
+   * until the rebuilds run out.
+   */
+  function settled(entry) {
+    if (exhausted(entry)) {
+      entry.attempts = 0;
+      entry.rebuild();
+    }
+    return new Promise((resolve, reject) => {
+      const { view } = entry;
+      const offs = [];
+      const done = (settle, value) => {
+        entry.waiters.delete(check);
+        for (const off of offs.splice(0)) off();
+        settle(value);
+      };
+      function check() {
+        if (entry.view !== view) return done(resolve, settled(entry));
+        const failure = entry.failure;
+        if (failure?.refused) {
+          return done(reject, new ProgramError(`the stack refused a subset of ${failure.table}: ${failure.error.message}`));
+        }
+        if (exhausted(entry)) {
+          return done(reject, new Error(`a subset of ${failure.table} failed ${RETRY_ATTEMPTS + 1} times in a row: ${failure.error?.message ?? failure.error}`, { cause: failure.error }));
+        }
+        if (failure !== undefined) return;
+        if (view.status === "error") return done(reject, new Error(`a view of ${view.id} failed`));
+        if (view.status === "cleaned-up") return done(reject, new Error(`a view of ${view.id} was cleaned up while a read waited on it`));
+        if (entry.complete()) done(resolve);
+      }
+      entry.waiters.add(check);
+      offs.push(view.on("loadingSubset:change", check), view.on("status:change", check));
+      view.onFirstReady(check);
+      check();
+    });
+  }
+  /** A failure in transit the view's rebuilds ran out on: the reads' now. */
+  const exhausted = (entry) => entry.failure !== undefined && !entry.failure.refused && entry.attempts >= RETRY_ATTEMPTS;
+  /** A refusal of the subset itself, which every retry would meet again: a
+   * 400 whose `errors.subset` names the parameter, as Electric, the stack's
+   * gate and the page's cluster answer one. Anything else may be answered on
+   * a retry: a token to re-mint, a token minted for a where the stream has
+   * moved off, a 409 loop the client gave up on, a transport that dropped. */
+  const refusal = (error) => error?.status === 400 && error.json?.errors?.subset !== undefined;
 
   const crud = (table) => `${base}/crud/${table}`;
   const search = (order, opts = {}) => {
@@ -723,6 +912,8 @@ export function createStore(base = "", cfg = {}) {
     if (p === undefined || rows.length === 0 || p.pair === undefined) return rows;
     const source = client.collections[p.from];
     if (source === undefined) return rows;
+    whole(p.from, `the fold projection of ${table}`);
+    whole(p.pair.table, `the fold projection of ${table}`);
     const pairs = client.collections[p.pair.table];
     return rows.map((sinkRow) => {
       const k = sinkRow[p.key];
@@ -751,10 +942,16 @@ export function createStore(base = "", cfg = {}) {
     await ensurePrepared(table);
     // A read the engine already maintains needs no re-derivation: the view is
     // the filter and the order, kept current by the deltas that woke us.
-    const held = maintainedView(table, opts);
+    const held = maintainedView(table, { ...opts, order: order ?? opts.order });
     if (held !== null) {
-      if (!held.view.isReady?.()) await held.view.toArrayWhenReady?.();
-      return held.view.toArray;
+      if (held.complete()) return held.view.toArray;
+      held.acquire();
+      try {
+        await settled(held);
+        return held.view.toArray;
+      } finally {
+        held.release();
+      }
     }
     const preds = parseFilter(opts.filter, orderOf(table));
     const embeds = preds !== null ? parseSelect(opts.select) : null;
@@ -763,16 +960,16 @@ export function createStore(base = "", cfg = {}) {
         ? client.collections[table]
         : undefined;
     if (c !== undefined) {
-      // First read awaits the initial shape snapshot — an unsynced collection
-      // is empty, not authoritative, and must never render as "empty state".
-      // After that, read the live snapshot synchronously: it includes the
-      // optimistic overlay, and it must keep rendering while the stream is
-      // down (an outage would otherwise freeze every region).
-      if (!c.isReady()) await c.toArrayWhenReady();
-      for (const { table } of embeds) {
-        const ec = client.collections[table];
-        if (!ec.isReady()) await ec.toArrayWhenReady();
-      }
+      // First read awaits the initial shape snapshot. After that, read the
+      // live snapshot synchronously: it includes the optimistic overlay, and
+      // it must keep rendering while the stream is down (an outage would
+      // otherwise freeze every region). Each collection is checked whole as
+      // its wait starts, so all are checked before any is waited on, and a
+      // stalled shape cannot hold back an embed's program error.
+      await Promise.all([
+        wholeCollection(table, "a read the view engine does not maintain"),
+        ...embeds.map((e) => wholeCollection(e.table, `a read of ${table} embedding it`)),
+      ]);
       // The FK column is a convention, not a schema fact the client holds:
       // probe it on a synced row (synced rows carry every column) and leave
       // an unresolvable embed to the server.
@@ -871,7 +1068,7 @@ export function createStore(base = "", cfg = {}) {
    * torn down in the same task would otherwise be refreshed as if it stood,
    * re-hydrating nested regions nothing will ever stop.
    */
-  function coalesce(fn) {
+  function coalesce(fn, holding = () => false) {
     let scheduled = false;
     let stopped = false;
     let batch = [];
@@ -882,6 +1079,8 @@ export function createStore(base = "", cfg = {}) {
       later(() => {
         scheduled = false;
         if (stopped || (batch.length === 0 && !unattributed)) return;
+        // Kept, not dropped: `released` schedules the wake again.
+        if (holding()) return;
         const changes = unattributed ? undefined : batch;
         batch = [];
         unattributed = false;
@@ -905,6 +1104,8 @@ export function createStore(base = "", cfg = {}) {
         else for (const id of keys) batch.push({ value: { id } });
         schedule();
       },
+      /** What held the wake has let go of it. */
+      released: () => schedule(),
       stop: () => {
         stopped = true;
       },
@@ -912,20 +1113,34 @@ export function createStore(base = "", cfg = {}) {
   }
 
   function subscribe(table, fn, opts = {}) {
-    const wakes = coalesce(fn);
     // A maintained view's own changes ARE this region's input changing —
     // computed by the engine against the actual query rather than guessed
     // from a predicate over one table's raw change set. Nothing else needs
     // watching: a row leaving the filter, a row entering it, and a row moving
     // in the order all arrive here and nowhere else.
-    const view = maintainedView(table, opts, true);
+    const view = maintainedView(table, opts, true)?.acquire() ?? null;
+    // While the view loads a subset — its own rows, or the lazy side of a join
+    // fetching a row a change named — what it holds is partial: a row whose
+    // embedded row has not arrived binds the embed blank. Its wakes wait for
+    // the load to end, and go out together then.
+    const wakes = coalesce(fn, view === null ? undefined : () => view.view.isLoadingSubset);
     if (view !== null) {
       // Through watch, for the same reason a raw collection is: a region
       // joining a view another already holds subscribes after the view has
       // its rows, and would otherwise never hear one of them go.
-      const stop = watch(view.view, (changes) => {
-        if (Array.isArray(changes)) wakes.named(changes);
-        else wakes.widened();
+      // The view a rebuild replaces is the one listened to from then on.
+      const stop = view.attach((v) => {
+        const unwatch = watch(v, (changes) => {
+          if (Array.isArray(changes)) wakes.named(changes);
+          else wakes.widened();
+        });
+        const unload = v.on("loadingSubset:change", (event) => {
+          if (!event.isLoadingSubset) wakes.released();
+        });
+        return () => {
+          unwatch();
+          unload();
+        };
       });
       // The engine maintains the view over the sink alone; the projection is
       // applied after it, so the source's changes have to arrive separately.
@@ -1006,9 +1221,7 @@ export function createStore(base = "", cfg = {}) {
       if (e?.key === undefined) throw new Error(`write ${table}: an edit names no ${key}`);
       return { ...e.row, [key]: e.key };
     });
-    const collection = client.collections[table];
-    if (collection === undefined) throw new Error(`write on unsynced table: ${table}`);
-    if (!collection.isReady()) await collection.toArrayWhenReady();
+    const collection = await wholeCollection(table, "a write by key");
     // Asked once for the batch. Asked per row it is a scan of the table per
     // row, which is the quadratic term this whole shape exists to remove — and
     // the standing row itself, so the judge below does not scan for it either.
@@ -1068,20 +1281,44 @@ export function createStore(base = "", cfg = {}) {
     );
   }
 
+  // A write by key names its row, and a table synced on demand holds only the
+  // rows some view loaded; the key a form or an effect carries need not be one
+  // of them. Each row the collection lacks is loaded as a view of its key, held
+  // until the write has gone out. A row that does not exist stays missing, and
+  // the write is the collection's own refusal of it.
+  async function holding(table, keys, write) {
+    if (!onDemand(table)) return write();
+    const collection = client.collections[table];
+    const held = [];
+    try {
+      for (const k of new Set(keys.filter((k) => !collection.has(k)))) {
+        const entry = maintainedView(table, { filter: `${keyOf(table)}=eq.${k}` }, true);
+        if (entry === null) throw new ProgramError(`${table} syncs on demand, and a view of one row of it by ${keyOf(table)} is not one the engine maintains`);
+        held.push(entry.acquire());
+      }
+      await Promise.all(held.map(settled));
+      return await write();
+    } finally {
+      for (const entry of held) entry.release();
+    }
+  }
+
   /** Named fields of rows that are already there. */
   async function patch(table, edits, onRefused) {
     if (edits.length === 0) return;
     await ensurePrepared(table);
     const key = keyOf(table);
-    // The key last: a `changes` naming the key cannot redirect the judgement
-    // onto a row other than the one this edit identifies.
-    const edgeIndex = new Map();
-    for (const e of edits) await validate(table, "update", { ...e.changes, [key]: e.key }, undefined, edgeIndex);
-    await settle(
-      onSettled(client.update(table, edits), table, edits.map((e) => String(e.key))),
-      ACCEPT_MS,
-      onRefused,
-    );
+    await holding(table, edits.map((e) => e.key), async () => {
+      // The key last: a `changes` naming the key cannot redirect the judgement
+      // onto a row other than the one this edit identifies.
+      const edgeIndex = new Map();
+      for (const e of edits) await validate(table, "update", { ...e.changes, [key]: e.key }, undefined, edgeIndex);
+      await settle(
+        onSettled(client.update(table, edits), table, edits.map((e) => String(e.key))),
+        ACCEPT_MS,
+        onRefused,
+      );
+    });
   }
 
   // Write the row for a natural key, whether or not it exists yet.
@@ -1103,9 +1340,7 @@ export function createStore(base = "", cfg = {}) {
     if (keys === null) {
       throw new Error(`upsert ${table}: no natural key covers ${Object.keys(values).join(",")}`);
     }
-    const collection = client.collections[table];
-    if (collection === undefined) throw new Error(`upsert on unsynced table: ${table}`);
-    if (!collection.isReady()) await collection.toArrayWhenReady();
+    const collection = await wholeCollection(table, "an upsert by natural key");
     const at = (r, c) => String(r[c] ?? (c === owner ? userId() : ""));
     const wanted = keys.map((c) => at(values, c));
     const existing = collection.toArray.find(
@@ -1122,11 +1357,12 @@ export function createStore(base = "", cfg = {}) {
 
   async function drop(table, keys, onRefused) {
     if (keys.length === 0) return;
-    await settle(
-      onSettled(client.remove(table, keys), table, keys.map((k) => String(k))),
-      ACCEPT_MS,
-      onRefused,
-    );
+    await holding(table, keys, () =>
+      settle(
+        onSettled(client.remove(table, keys), table, keys.map((k) => String(k))),
+        ACCEPT_MS,
+        onRefused,
+      ));
   }
 
   // Filter-scoped bulk delete (SPEC #Form.filter): resolve the matching keys,
@@ -1148,21 +1384,19 @@ export function createStore(base = "", cfg = {}) {
     if (parseLimit(filter) !== undefined) throw new Error(`delete filter carries a limit: ${filter}`);
     await ensurePrepared(table);
     const preds = parseFilter(filter, orderOf(table));
-    const collection = client.collections[table];
     // A precondition, not a branch: resolving these keys anywhere but the
     // collection reintroduces the divergence this comment block describes, so
     // an untranslatable delete filter is a program error rather than a quieter
     // path that works until it doesn't.
     if (preds === null) throw new Error(`delete filter is not translatable: ${filter}`);
-    if (collection === undefined) throw new Error(`delete on unsynced table: ${table}`);
-    if (!collection.isReady()) await collection.toArrayWhenReady();
+    const collection = await wholeCollection(table, "a delete by filter");
     const rows = collection.toArray.filter((r) => visible(table, r) && preds.every((f) => f(r)));
     // Re-check presence at the moment of the delete: resolution and mutation
     // are separated by an await, and a concurrent settle can retire a row in
     // between.
     const keys = rows
       .map((r) => r[keyOf(table)])
-      .filter((k) => collection === undefined || collection.has?.(k) !== false);
+      .filter((k) => collection.has?.(k) !== false);
     await drop(table, keys, onRefused);
   }
 

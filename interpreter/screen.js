@@ -11,7 +11,9 @@ import {
   machineCandidates,
   machineShape,
   parseFilter,
+  OrderError,
   parseFilterSpec,
+  parseOrder,
   parseReadSpec,
   PLACEHOLDER,
   PLACEHOLDERS,
@@ -39,9 +41,6 @@ export class TemplateCycleError extends ProgramError {}
 export class ProjectionError extends ProgramError {}
 // A data-key naming a key outside APG's set, or a form that is not one.
 export class KeyBindingError extends ProgramError {}
-// A data-order whose closed map is malformed, or whose column named an order
-// the map does not carry.
-export class OrderError extends ProgramError {}
 
 // The terminal's own generator, seeded from the URL when one asks. Every draw
 // an app makes comes through here, so a replay is a property of the terminal
@@ -666,40 +665,6 @@ export function parseProjection(spec, table) {
   });
 }
 
-/**
- * A region's order: either the literal one, or a closed map of them chosen by a
- * column.
- *
- * `data-order="pos.asc"` is the order. `{"by":"{sort}","of":{...}}` states EVERY
- * order the region can be read in, in the file, and lets a column pick among
- * them — so a sortable header is a form writing a key, and the reader can still
- * finish reading what the screen can do. The order itself never interpolates:
- * a column naming a column is reflection, and the set of reads a screen has
- * would stop being enumerable.
- */
-export function parseOrder(spec, table) {
-  // Structural, not a probe: a value that opens a map and fails to parse is a
-  // broken declaration, never quietly the literal order "{...".
-  if (!spec.trimStart().startsWith("{")) return { literal: spec };
-  let declared;
-  try {
-    declared = JSON.parse(spec);
-  } catch {
-    throw new OrderError(`region "${table}": data-order opens a map and is not JSON`);
-  }
-  const { by, of: of_, ...rest } = declared ?? {};
-  if (
-    typeof by !== "string" || of_ === null || typeof of_ !== "object" || Array.isArray(of_) ||
-    Object.keys(rest).length > 0 || Object.keys(of_).length === 0 ||
-    Object.values(of_).some((o) => typeof o !== "string")
-  ) {
-    throw new OrderError(
-      `region "${table}": data-order is ${spec}; a closed order map is {"by": "{column}", "of": {"<key>": "<order>"}}`,
-    );
-  }
-  return { by, of: of_ };
-}
-
 function orderOf(parsed, ctx, table) {
   if (parsed === undefined) return undefined;
   if (parsed.literal !== undefined) return parsed.literal;
@@ -1015,9 +980,29 @@ function clearBindings(scope) {
 const PHRASING_REGION = /^(A|ABBR|B|BUTTON|CODE|EM|I|LABEL|OUTPUT|P|SMALL|SPAN|STRONG|H[1-6])$/;
 
 /** The element a note may be, from the region it stands in: a list admits only
- * li, a phrasing container only phrasing, and everything else takes the
- * paragraph the note reads as. */
-const noteTag = (tag) => /^(UL|OL)$/.test(tag) ? "li" : PHRASING_REGION.test(tag) ? "span" : "p";
+ * li, a table section only a row, a phrasing container only phrasing, and
+ * everything else takes the paragraph the note reads as. */
+const noteTag = (tag) =>
+  /^(UL|OL)$/.test(tag) ? "li" : TABLE_SECTION.test(tag) ? "tr" : PHRASING_REGION.test(tag) ? "span" : "p";
+const TABLE_SECTION = /^(THEAD|TBODY|TFOOT)$/;
+
+/** How many columns a table section's note spans: the cells of the table
+ * head's last row, else of the row its items are stamped from, else of a
+ * slot's own row. */
+function noteColumns(region, item) {
+  const rowOf = (parent) => [...(parent?.children ?? [])].filter((c) => c.tagName === "TR");
+  const table = region.closest("table");
+  const head = [...(table?.children ?? [])].find((c) => c.tagName === "THEAD");
+  const row = rowOf(head).at(-1) ?? rowOf(item?.content ?? item)[0] ?? rowOf(region)[0];
+  if (row === undefined) {
+    throw new ProgramError(
+      `region "${region.dataset.live}": an empty note in a ${region.tagName.toLowerCase()} spans the table's columns, and the table has no thead row, no item row and no row of its own to count them by`,
+    );
+  }
+  return [...row.children]
+    .filter((c) => c.tagName === "TD" || c.tagName === "TH")
+    .reduce((n, c) => n + Number(c.getAttribute("colspan") ?? 1), 0);
+}
 
 /**
  * The copy `data-empty` declares, for a region holding nothing: a list with no
@@ -1037,15 +1022,23 @@ function submitsOnChange(form) {
   return form !== null && form !== undefined && !form.querySelector('button, [type="submit"]');
 }
 
-function emptyNote(region, copy, ctx) {
+function emptyNote(region, copy, ctx, item) {
   region._prontoEmpty?.remove();
   region._prontoEmpty = undefined;
   if (!copy) return;
   const note = document.createElement(noteTag(region.tagName));
   note.className = "empty";
-  note.textContent = ctx && PLACEHOLDER.test(copy)
+  const text = ctx && PLACEHOLDER.test(copy)
     ? interpolate(copy, ctx)
     : copy;
+  // A row's only content is cells: a paragraph in a table section is moved
+  // out of the table by a parser reading the served page.
+  if (TABLE_SECTION.test(region.tagName)) {
+    const cell = document.createElement("td");
+    cell.setAttribute("colspan", String(noteColumns(region, item)));
+    cell.textContent = text;
+    note.append(cell);
+  } else note.textContent = text;
   region._prontoEmpty = note;
   region.append(note);
 }
@@ -1388,6 +1381,12 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     screen.dataset.state = s;
   };
   setState(base);
+  // The regions whose outage the screen says: a top region whose read failed,
+  // a nested region whose first read did. Whichever reads again last puts the
+  // state back, so a region nested two deep that recovers on its own pass
+  // clears what it set, and a top region's pass does not clear what a nested
+  // one still says.
+  const outages = new Set();
 
   // Connect only once the tree carries its state: screens style themselves per
   // `[data-state]`, so a screen mounted before this paints with every
@@ -3150,8 +3149,13 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // handle lands in the element the incoming one now owns — and lands second.
     let stopped = false;
 
+    // Whether the pass in flight is still waiting on the store's answer, so
+    // that a failure is told apart as the read's rather than the render's.
+    let reading = false;
     const refresh = async (changes) => {
+      reading = true;
       const stored = await store.query(table, opts.order, opts);
+      reading = false;
       if (stopped) return;
       currentRows = stored;
       const rows = projected(stored);
@@ -3329,7 +3333,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             if (HAS_MOVE_BEFORE && node.isConnected) region.moveBefore(node, cursor);
             else region.insertBefore(node, cursor);
           }
-          emptyNote(region, order.length === 0 ? region.dataset.empty : undefined, ctx);
+          emptyNote(region, order.length === 0 ? region.dataset.empty : undefined, ctx, templates[0]?.el);
           // A list of options landing under a select whose bound value had no
           // option to take yet.
           const select = region.closest("select");
@@ -3462,7 +3466,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         else if (queuedChanges !== undefined && changes !== undefined) queuedChanges = [...queuedChanges, ...changes];
         else queuedChanges = undefined;
         queued = true;
-        return;
+        return false;
       }
       running = true;
       busy += 1;
@@ -3477,6 +3481,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         running = false;
         busy -= 1;
       }
+      return true;
     };
     // A dead gateway must degrade, never crash: a failed read leaves the
     // region's DOM (and every form in it) standing, flips the screen to
@@ -3491,13 +3496,36 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // one whatever it was handed, or the rows the failed delta named stay
     // bound to values no pass read.
     let stale = false;
+    // A nested region's first attempt, which is what its `ready` answers: the
+    // enclosing row awaits it before it is painted, so a wake queued behind
+    // the first read does not count it painted. A pass that ran settles it,
+    // and so does one that failed: a read that never answers cannot hold the
+    // row, its list or the screen, and the region says its outage until it
+    // reads again (`outages`), so the screen says populated only once what it
+    // shows is on it. Settled by the region's stop too, since a region gone
+    // paints nothing more. A top region's `ready` is its first attempt.
+    let paint;
+    const painted = top ? undefined : new Promise((resolve, reject) => (paint = { resolve, reject }));
+    let shown = false;
+    // A top region's pass clears any network-error no region still says; a
+    // nested region's clears only one it said.
+    const recovered = (clears) => {
+      const said = outages.delete(guarded);
+      if ((clears || said) && outages.size === 0 && screen.dataset.state === "network-error") setState(base);
+    };
     const guarded = async (changes) => {
       clearTimeout(retryTimer);
       try {
-        await refreshSerially(stale ? undefined : changes);
+        // A wake queued behind a pass in flight has painted nothing; the
+        // call running the pass answers for it.
+        const ran = await refreshSerially(stale ? undefined : changes);
         stale = false;
         retryMs = 2000;
-        if (top && screen.dataset.state === "network-error") setState(base);
+        if (ran) {
+          shown = true;
+          paint?.resolve();
+          recovered(top);
+        }
       } catch (err) {
         stale = true;
         // A slot that matched two rows, or a row no template admits, is a
@@ -3506,9 +3534,16 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         // wrong. The rejection propagates — hydration fails on a first paint,
         // a later wake rejects loudly — and the next real change re-checks
         // without a timer.
-        if (err instanceof ProgramError) throw err;
+        if (err instanceof ProgramError) {
+          paint?.reject(err);
+          throw err;
+        }
         console.error(err);
-        if (top) setState("network-error");
+        if (top || (reading && !shown)) {
+          outages.add(guarded);
+          setState("network-error");
+        }
+        paint?.resolve();
         retryTimer = setTimeout(guarded, retryMs);
         retryMs = Math.min(retryMs * 2, 15000);
       }
@@ -3534,12 +3569,16 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         wireForm(form, () => currentRow.id, () => ({ params: ctx.params, row: currentRow }), region);
       }
     }
+    const attempt = guarded();
+    // A nested region's ProgramError reaches its enclosing row through
+    // `painted`, which rejects with it.
+    if (!top) attempt.catch(() => {});
     return {
       // Whether this region binds its own element from the row it hangs under
       // — the same condition that guards the call, and not re-derivable from
       // the DOM afterwards, since a first render sweeps the template away.
       binds: templates.length > 0,
-      ready: guarded(),
+      ready: top ? attempt : painted,
       // A re-render on the same rows, for a parent whose projection parameter
       // moved. Not resume(): the subscription is already standing.
       restate: () => guarded(),
@@ -3557,6 +3596,8 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         stopped = true;
         detach();
         dropAll();
+        paint?.resolve();
+        recovered(false);
       },
     };
   }

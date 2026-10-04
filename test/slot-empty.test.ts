@@ -143,6 +143,12 @@ const NOTE_FILES = {
     <ol class="rows" data-live="note" data-filter="step_id=eq.z" data-empty="None.">
       <template data-item><li></li></template>
     </ol>
+    <table class="grid">
+      <thead><tr><th colspan="2">Who</th><th>Goals</th></tr></thead>
+      <tbody data-live="note" data-filter="step_id=eq.z" data-empty="None.">
+        <template data-item><tr><td></td><td></td><td></td></tr></template>
+      </tbody>
+    </table>
   </section>`,
   "nt.css": "",
 }
@@ -164,6 +170,42 @@ describe("the empty note's own element", () => {
     expect((m.one(".readout .empty") as El).tagName).toBe("SPAN")
     expect((m.one(".cards .empty") as El).tagName).toBe("P")
     expect((m.one(".rows .empty") as El).tagName).toBe("LI")
+    // A table section holds rows, and a row cells: the note is one cell
+    // spanning every column the head declares.
+    expect((m.one(".grid tbody .empty") as El).tagName).toBe("TR")
+    const cell = m.one(".grid tbody .empty td") as El
+    expect(cell.getAttribute("colspan")).toBe("3")
+    expect(cell.textContent).toBe("None.")
+    await m.stop()
+  })
+
+  it("spans a headless table's columns by a slot's own row", async () => {
+    // Regression: the columns were counted from a thead or an item template
+    // alone, and a slot has neither, so a slot on the tbody of a table with no
+    // head refused its declared copy as a program error.
+    const m = await mountScreen({
+      route: NOTE_ROUTE,
+      files: {
+        "nt.html": `<section class="screen" data-screen="nt">
+          <ul data-live="step" data-order="pos.asc">
+            <template data-item>
+              <li><table class="pair">
+                <tbody data-live="note" data-filter="step_id=eq.{id}" data-empty="None.">
+                  <tr><td data-text="{body}"></td><td></td></tr>
+                </tbody>
+              </table></li>
+            </template>
+          </ul>
+        </section>`,
+        "nt.css": "",
+      },
+      tables: { step: [{ id: "a", pos: 1 }], note: [] },
+      seed: 1,
+    })
+    await m.settle()
+    const cell = m.one(".pair tbody .empty td") as El
+    expect(cell.getAttribute("colspan")).toBe("2")
+    expect(cell.textContent).toBe("None.")
     await m.stop()
   })
 })

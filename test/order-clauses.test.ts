@@ -7,7 +7,7 @@
 // the inventory finite — the same trade `data-when` arms and a machine's state
 // set already make.
 import { describe, expect, it } from "@test/harness"
-import { parseOrder } from "../interpreter/screen.js"
+import { parseOrder } from "../interpreter/fragment.js"
 
 describe("the order parser, read directly", () => {
   it("reads a literal order as the order", () => {

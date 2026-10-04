@@ -5,49 +5,7 @@
 // refusal — the seat has no fallback for a rule that did not answer.
 
 import { FIXTURE_CARRIERS } from "./fixture-types.js";
-
-const assert = (cond, msg) => {
-  if (!cond) throw new Error(`smoke failed: ${msg}`);
-};
-
-// A window with exactly what the vendored client touches: its storage probe,
-// resolveUrl's origin, and the online detector's listener seam.
-async function withBrowser(fn) {
-  const hadWindow = "window" in globalThis;
-  const hadDocument = "document" in globalThis;
-  if (!hadDocument) {
-    globalThis.document = { addEventListener: () => {}, removeEventListener: () => {} };
-  }
-  const backing = new Map();
-  const storage = {
-    getItem: (k) => backing.get(k) ?? null,
-    setItem: (k, v) => void backing.set(k, v),
-    removeItem: (k) => void backing.delete(k),
-    key: (i) => [...backing.keys()][i] ?? null,
-    get length() {
-      return backing.size;
-    },
-  };
-  Object.defineProperty(globalThis, "localStorage", { value: storage, configurable: true });
-  if (!hadWindow) {
-    globalThis.window = {
-      localStorage: storage,
-      location: { origin: "http://localhost" },
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      setTimeout: globalThis.setTimeout.bind(globalThis),
-      clearTimeout: globalThis.clearTimeout.bind(globalThis),
-    };
-  }
-  try {
-    const { createStore } = await import("./data-sync.js");
-    await fn(createStore);
-  } finally {
-    delete globalThis.localStorage;
-    if (!hadWindow) delete globalThis.window;
-    if (!hadDocument) delete globalThis.document;
-  }
-}
+import { assert, withBrowser } from "./smoke-browser.js";
 
 const OWN_ARTICLE = `(state, event) => state.rows.article.every((a) => a.author_id !== event.row.user_id);\n`;
 const UNANSWERED = `(state, event) => "maybe";\n`;
@@ -104,7 +62,7 @@ Deno.test({
   async fn() {
     await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
     serve({ "shell/validations/own-article.js": OWN_ARTICLE });
-    await withBrowser(async (createStore) => {
+    await withBrowser({}, async (createStore) => {
       const store = createStore("", config("shell/validations/own-article.js"));
       const err = await refusal(store.add("favorite", [{ id: "f1", article_id: "a1", user_id: "u1" }]));
       assert(err !== null, "the own-article favorite is refused");
@@ -135,7 +93,7 @@ Deno.test({
     serve({ "shell/validations/own-article.js": OWN_ARTICLE });
     sessionStorage.setItem("pronto-token", JSON.stringify({ token: "t", user: { id: "u1" } }));
     try {
-      await withBrowser(async (createStore) => {
+      await withBrowser({}, async (createStore) => {
         const store = createStore("", owned("shell/validations/own-article.js"));
         // The form never says whose the row is — the server's DEFAULT would —
         // so a predicate reading the owner judges nothing unless the seat fills
@@ -167,7 +125,7 @@ Deno.test({
   async fn() {
     await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
     serve({ "shell/validations/own-article.js": OWN_ARTICLE });
-    await withBrowser(async (createStore) => {
+    await withBrowser({}, async (createStore) => {
       const store = createStore("", config("shell/validations/own-article.js"));
       const err = await refusal(store.patch("favorite", [{ key: "nope", changes: { article_id: "a2" } }]));
       assert(err !== null && err.name !== "NonRetriableError", `an unheld update is not a refusal, got ${err?.name}`);
@@ -192,7 +150,7 @@ Deno.test({
       attempts += 1;
       return Promise.resolve(attempts === 1 ? new Response("", { status: 404 }) : new Response(OWN_ARTICLE));
     };
-    await withBrowser(async (createStore) => {
+    await withBrowser({}, async (createStore) => {
       const store = createStore("", config("shell/validations/own-article.js"));
       const err = await refusal(store.add("favorite", [{ id: "f1", article_id: "a2", user_id: "u1" }]));
       assert(err !== null && err.name !== "NonRetriableError", `a failed fetch is a program error, got ${err?.name}`);
@@ -218,7 +176,7 @@ Deno.test({
   async fn() {
     await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
     serve({ "shell/validations/own-article.js": OWN_ARTICLE });
-    await withBrowser(async (createStore) => {
+    await withBrowser({}, async (createStore) => {
       const store = createStore("", config("shell/validations/own-article.js"));
       await store.add("favorite", [{ id: "f1", article_id: "a2", user_id: "u1" }]);
 
@@ -253,7 +211,7 @@ Deno.test({
   async fn() {
     await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
     serve({ "shell/validations/own-article.js": OWN_ARTICLE });
-    await withBrowser(async (createStore) => {
+    await withBrowser({}, async (createStore) => {
       const store = createStore("", keyed("shell/validations/own-article.js"));
       const refused = await refusal(store.upsertBy("favorite", { article_id: "a1", user_id: "u1" }));
       assert(refused?.validation === "own-article", `the minted row is judged before it is written, got ${refused?.message}`);
@@ -286,7 +244,7 @@ Deno.test({
   async fn() {
     await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
     serve({ "shell/validations/unanswered.js": UNANSWERED });
-    await withBrowser(async (createStore) => {
+    await withBrowser({}, async (createStore) => {
       const store = createStore("", config("shell/validations/unanswered.js"));
       const err = await refusal(store.add("favorite", [{ id: "f1", article_id: "a2", user_id: "u1" }]));
       assert(err !== null && err.name !== "NonRetriableError", `a non-boolean is thrown as a program error, got ${err?.name}`);

@@ -17,6 +17,7 @@ import {
   parseFilterSpec,
   parseLimit,
   parseSelect,
+  routeOf,
   touches,
 } from "./data-sync.js";
 import * as fragment from "./fragment.js";
@@ -98,17 +99,37 @@ Deno.test("a wake carrying no change set is always relevant", () => {
   assert(touches(preds, null), "no batch");
 });
 
-// Which reads may become a maintained view. The dangerous direction is a
-// false yes: the view is built without what the region binds, and the region
-// renders blank instead of failing. `*,author:app_user(handle)` is the case
-// that actually shipped broken — parseSelect rejects the alias syntax and
-// returns null, which read as "no embeds" instead of "server-computed".
-const can = (filter, select, access, embedAccess = {}) =>
-  isMaintainable(parseFilterSpec(filter), parseSelect(select), access, (t) => embedAccess[t]);
+// pronto's derive decides which tables a browser loads on demand from the
+// markup's routing; the store serves reads by the same function, so the two
+// cannot disagree about which reads are views.
+Deno.test("the store routes a read by the markup's own routeOf", () => {
+  assert(routeOf === fragment.routeOf, "data-sync re-exports fragment.js's routeOf");
+  const route = (filter, select) => routeOf(parseFilterSpec(filter), parseSelect(select), parseLimit(filter));
+  assert(route("id=eq.a", "*") === "view", "an eq");
+  assert(route("", "*") === "whole", "nothing");
+  assert(route("limit=3", "*") === "view", "a cap");
+  assert(route("done=is.true", "*") === "snapshot", "a boolean");
+  assert(route("n=lte.3", "*") === "snapshot", "a range");
+  assert(route("t=ilike.*a*", "*") === "snapshot", "a pattern");
+  assert(route("t=fts.a", "*") === "server", "an fts");
+  assert(route("id=eq.a", "*,note_label!inner(label(name))") === "server", "a nested embed");
+});
+
+// Which reads may become a maintained view: routeOf's "view", and the
+// program's half. The dangerous direction is a false yes: the view is built
+// without what the region binds, and the region renders blank instead of
+// failing. `*,author:app_user(handle)` is the case that actually shipped
+// broken — parseSelect rejects the alias syntax and returns null, which read
+// as "no embeds" instead of "server-computed".
+const can = (filter, select, access, embedAccess = {}) => {
+  const embeds = parseSelect(select);
+  return routeOf(parseFilterSpec(filter), embeds, parseLimit(filter)) === "view" &&
+    isMaintainable(embeds, access, (t) => embedAccess[t]);
+};
 
 Deno.test("a plain read on a public table is maintainable", () => {
   assert(can("article_id=eq.a1", undefined, { scope: "public" }), "eq on public");
-  assert(can(undefined, undefined, undefined), "unfiltered, no access rule");
+  assert(!can(undefined, undefined, undefined), "unfiltered is the collection itself");
   assert(can("deleted_at=is.null", undefined, undefined), "is.null");
 });
 
@@ -317,14 +338,13 @@ Deno.test({
     // Spy through the seam: the same read must come back out of this view.
     const real = entry.view;
     let served = 0;
-    entry.view = {
-      isReady: () => real.isReady?.() ?? true,
-      toArrayWhenReady: () => real.toArrayWhenReady?.(),
-      get toArray() {
-        served++;
-        return real.toArray;
+    entry.view = new Proxy(real, {
+      get(target, prop) {
+        if (prop === "toArray") served++;
+        const value = Reflect.get(target, prop, target);
+        return typeof value === "function" ? value.bind(target) : value;
       },
-    };
+    });
     const rows = await store.query(spec.table, spec.order, opts);
     entry.view = real;
     assert(served === 1, `the held view served the read, served ${served}`);

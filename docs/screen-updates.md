@@ -30,6 +30,21 @@ that. Three mechanisms, each owning one kind of change:
   touches a row; nothing in the interpreter calls it
   ([a pre-rendered page](#a-pre-rendered-page)).
 
+On a table synced on demand a view is a subset still loading until its rows
+and its embeds' have arrived; the store holds its wakes until then, so the
+keyed loop never binds a row whose embed is missing
+([data](data.md#a-table-synced-on-demand)).
+
+A row is painted once the regions nested in it have made their first
+attempt, and the screen says `populated` once its top regions' rows are and no
+region says an outage, so `populated` means what it shows is on it. A nested
+region whose first read fails lets its row in standing empty and says
+`network-error`, retrying on its backoff; whichever region in outage reads
+again last puts the state back, however deep it is. A read that never answers
+thus holds neither its row nor its list's later passes. A render that throws
+once the store has answered is said on the console and retried on the region's
+backoff, as an outage is.
+
 Every number below was measured in Playwright's Chromium with the harnesses in
 [`reconciliation-spike/`](reconciliation-spike/README.md), so it can be re-run
 rather than believed.
@@ -113,7 +128,9 @@ Two mechanisms let a live screen take over markup it did not render:
   (`stamp` in `screen.js`, [`m-ssr-hydration.test.ts`](../test/m-ssr-hydration.test.ts)).
   The key comes from the data, so adoption is one pass and a newer row is a
   delta to apply rather than a mismatch to reconcile, which is what makes
-  hydration hard for a framework that matches by position.
+  hydration hard for a framework that matches by position. What a region
+  renders must survive a parser: its empty note in a table section is a row,
+  since a `<p>` there is moved out of the table when the served page is read.
 - **The skeleton morphs in place.** `morphScreen` runs morphlex over a screen's
   static markup, never descending into `[data-live]` or `[data-hatch]`, and
   keeps what the reader typed (`preserveChanges`,

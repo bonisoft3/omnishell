@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@test/harness"
-import { isMaintainable, parseFilter, parseFilterSpec } from "../interpreter/data-sync.js"
+import { parseFilter, parseFilterSpec, routeOf } from "../interpreter/data-sync.js"
 
 // The same two-reader hazard filter-neq.test.ts guards, for the operator a
 // browser-tier search depends on: with no server to compute an fts read, a
@@ -42,7 +42,7 @@ describe("ilike", () => {
   })
 
   it("is not maintainable: the view's clause vocabulary cannot state it", () => {
-    expect(isMaintainable(parseFilterSpec("title=ilike.*boat*"), [], undefined)).toBe(false)
-    expect(isMaintainable(parseFilterSpec("title=like.*boat*"), [], undefined)).toBe(false)
+    expect(routeOf(parseFilterSpec("title=ilike.*boat*"), [], undefined)).toBe("snapshot")
+    expect(routeOf(parseFilterSpec("title=like.*boat*"), [], undefined)).toBe("snapshot")
   })
 })
