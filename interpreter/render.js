@@ -45,15 +45,15 @@ export function safeUrl(raw) {
 }
 
 const GLOBAL_ATTRS = new Set(["class", "title", "lang", "dir"]);
+const SVG_GLOBAL_ATTRS = new Set(["class", "title", "lang", "dir", "role", "aria-label"]);
 
 // Prose elements, and only prose. Absent by decision, not by oversight:
 // script/style (code, and this is the whole point), iframe/object/embed (the
 // hatch is how a foreign document gets mounted, under a sandbox this path
 // cannot express), form/input/button (mutations are forms the screen author
 // wrote, never markup a renderer invented), link/meta/base (document-scoped
-// authority), and svg/math (their own attribute surfaces — xlink:href,
-// foreignObject — which this allowlist does not model). Widening the set is a
-// deliberate change here, which is the point of it living here.
+// authority), and math (its own attribute surface). SVG is the one narrow
+// extension below: chart primitives with no embedded documents or resources.
 const TAGS = {
   p: [], br: [], hr: [], div: [], span: [],
   h1: [], h2: [], h3: [], h4: [], h5: [], h6: [],
@@ -67,13 +67,30 @@ const TAGS = {
   th: ["colspan", "rowspan", "scope"], td: ["colspan", "rowspan"],
 };
 
+// SVG has a different attribute and execution surface from HTML. Keep its
+// vocabulary small and declarative: enough for charts, with no foreignObject,
+// embedded images, animation, filters, or external resource references.
+const SVG_NS = "http://www.w3.org/2000/svg";
+const SVG_TAGS = {
+  svg: ["viewBox", "width", "height", "role", "aria-label", "focusable"],
+  g: [], title: [], desc: [],
+  line: ["x1", "y1", "x2", "y2", "stroke-width", "stroke-dasharray"],
+  polyline: ["points", "stroke-width", "stroke-linejoin", "stroke-linecap"],
+  polygon: ["points", "stroke-width"],
+  path: ["d", "stroke-width", "stroke-linejoin", "stroke-linecap"],
+  circle: ["cx", "cy", "r", "stroke-width", "tabindex"],
+  rect: ["x", "y", "width", "height", "rx", "stroke-width"],
+  text: ["x", "y", "text-anchor", "dominant-baseline"],
+  a: ["href", "target", "rel", "aria-label", "tabindex"],
+};
+
 // Every allowlisted attribute that HTML treats as a URL. A URL-valued
 // attribute added to TAGS but not here gives the builder an allowlisted
 // attribute carrying an unchecked scheme, which is why this set is written
 // beside TAGS rather than inferred from it.
 const URL_ATTRS = new Set(["href", "src", "cite"]);
 
-function checkAttr(tag, name) {
+function checkAttr(tag, name, svg) {
   // data-* is refused ahead of the allowlist because its reason is different
   // and worth saying: the terminal's own binding vocabulary is data-*, so a
   // renderer that could emit one could forge a data-live region, a data-text
@@ -84,7 +101,9 @@ function checkAttr(tag, name) {
   // on* would be script, and style is both an exfiltration channel and a
   // second opinion about appearance, which design tokens already own.
   if (name.startsWith("on") || name === "style") throw new Error(`renderer may not set ${name}`);
-  if (!GLOBAL_ATTRS.has(name) && !TAGS[tag].includes(name)) {
+  const allowed = svg ? SVG_TAGS[tag] : TAGS[tag];
+  const global = svg ? SVG_GLOBAL_ATTRS.has(name) : GLOBAL_ATTRS.has(name);
+  if (!global && !allowed.includes(name)) {
     throw new Error(`renderer may not set ${name} on <${tag}>`);
   }
 }
@@ -95,14 +114,16 @@ function checkAttr(tag, name) {
 // document never reaches it.
 const MAX_DEPTH = 256;
 
-function toNode(node, depth = 0) {
+function toNode(node, depth = 0, inSvg = false) {
   if (typeof node === "string") return document.createTextNode(node);
   if (node === null || typeof node !== "object" || typeof node.tag !== "string") {
     throw new Error(`renderer produced ${JSON.stringify(node)}, not a string or {tag}`);
   }
   if (depth >= MAX_DEPTH) throw new Error(`renderer nested deeper than ${MAX_DEPTH} elements`);
   const { tag, attrs = {}, children = [] } = node;
-  if (!Object.hasOwn(TAGS, tag)) throw new Error(`renderer may not produce <${tag}>`);
+  const svg = inSvg || tag === "svg";
+  const allowedTags = svg ? SVG_TAGS : TAGS;
+  if (!Object.hasOwn(allowedTags, tag)) throw new Error(`renderer may not produce <${tag}>`);
   // A string is iterable, so `children: "abc"` would spread into one text node
   // per code unit — a shape the schema does not describe quietly becoming a
   // different document. Same for attrs, whose entries would be its indices.
@@ -110,9 +131,9 @@ function toNode(node, depth = 0) {
   if (attrs === null || typeof attrs !== "object" || Array.isArray(attrs)) {
     throw new Error(`<${tag}> attrs must be an object, got ${JSON.stringify(attrs)}`);
   }
-  const el = document.createElement(tag);
+  const el = svg ? document.createElementNS(SVG_NS, tag) : document.createElement(tag);
   for (const [name, value] of Object.entries(attrs)) {
-    checkAttr(tag, name);
+    checkAttr(tag, name, svg);
     // `{target: cond ? "_blank" : undefined}` is how a conditional attribute
     // is written, and setAttribute stringifies: left alone it sets the literal
     // "undefined", which for target is a real browsing-context name.
@@ -130,7 +151,7 @@ function toNode(node, depth = 0) {
   // on the element, not the description: any path that puts a target on the
   // DOM is a path this has to see, whatever shape the description had.
   if (tag === "a" && el.hasAttribute("target")) el.setAttribute("rel", "noopener noreferrer");
-  for (const child of children) el.append(toNode(child, depth + 1));
+  for (const child of children) el.append(toNode(child, depth + 1, svg));
   return el;
 }
 

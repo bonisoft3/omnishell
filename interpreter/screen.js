@@ -1275,7 +1275,8 @@ function bindElementAttributes(el, ctx) {
     // `:not([href])` treatment is what the reader gets. A param the markup
     // never declared is a different thing and still raises: routeHref reads
     // undefined, and the link lint refused it at generate.
-    const href = routeHref(ctx.cfg, el.dataset.route, args, el.dataset.locale ?? ctx.locale);
+    const explicitLocale = (el.dataset.locale !== undefined && el.dataset.locale !== ctx.locale) || Boolean(ctx.cfg?.i18n && ctx.locale === ctx.cfg.i18n.default && typeof location !== "undefined" && new URLSearchParams(location.search).has("lang"));
+    const href = routeHref(ctx.cfg, el.dataset.route, args, el.dataset.locale ?? ctx.locale, { explicitLocale });
     if (href === undefined) el.removeAttribute("href");
     else el.setAttribute("href", href);
   }
@@ -1444,7 +1445,8 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     for (const el of root.querySelectorAll("[data-route]:not(form)")) {
       const routeArgs = routeParams(el);
       if (Object.values(routeArgs).some((v) => PLACEHOLDER.test(v))) continue;
-      const href = routeHref(cfg, el.dataset.route, routeArgs, el.dataset.locale ?? currentLocale);
+      const explicitLocale = (el.dataset.locale !== undefined && el.dataset.locale !== currentLocale) || Boolean(cfg.i18n && currentLocale === cfg.i18n.default && typeof location !== "undefined" && new URLSearchParams(location.search).has("lang"));
+      const href = routeHref(cfg, el.dataset.route, routeArgs, el.dataset.locale ?? currentLocale, { explicitLocale });
       if (href === undefined) el.removeAttribute("href");
       else if (el.getAttribute("href") !== href) el.setAttribute("href", href);
       // Which option of a language switcher is the page the reader is already
@@ -1782,7 +1784,8 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         }
         // A form whose route has no address yet submits to nowhere, which is
         // not an error: the same row that empties a link empties this.
-        const target = routeHref(cfg, form.dataset.route, formParams(form), currentLocale);
+        const explicitLocale = Boolean(cfg.i18n && currentLocale === cfg.i18n.default && typeof location !== "undefined" && new URLSearchParams(location.search).has("lang"));
+        const target = routeHref(cfg, form.dataset.route, formParams(form), currentLocale, { explicitLocale });
         if (target !== undefined) screenOpts.navigate(target);
         return;
       }

@@ -52,9 +52,42 @@ Deno.test("the tag allowlist is the platform's, and a renderer cannot widen it",
   // Each of these is absent from TAGS for its own stated reason; a renderer
   // reaching for one is a bug in the renderer, so it is loud rather than
   // quietly dropped.
-  for (const tag of ["script", "style", "iframe", "object", "embed", "form", "input", "link", "meta", "svg"]) {
+  for (const tag of ["script", "style", "iframe", "object", "embed", "form", "input", "link", "meta"]) {
     await refuses([{ tag }], `<${tag}> is not a prose element`);
   }
+});
+
+Deno.test("chart SVG builds in its namespace while the SVG surface stays narrow", async () => {
+  const { buildNodes } = await import("./render.js");
+  const { target } = dom();
+  buildNodes([{
+    tag: "svg", attrs: { viewBox: "0 0 100 60", role: "group", "aria-label": "Ratings" },
+    children: [
+      { tag: "title", children: ["Ratings"] },
+      { tag: "line", attrs: { x1: 0, y1: 50, x2: 100, y2: 50, class: "team-chart__axis" } },
+      { tag: "a", attrs: { href: "/jogo/123", tabindex: 0, "aria-label": "Match 1, rating 7" },
+        children: [{ tag: "circle", attrs: { cx: 40, cy: 20, r: 4, title: "7" } }] },
+      { tag: "text", attrs: { x: 2, y: 58, "text-anchor": "start" }, children: ["2026"] },
+    ],
+  }], target);
+  const svg = target.querySelector("svg");
+  assert(svg.namespaceURI === "http://www.w3.org/2000/svg", "svg root uses the SVG namespace");
+  assert(svg.querySelector("line").namespaceURI === svg.namespaceURI, "SVG children use the SVG namespace recursively");
+  assert(svg.querySelector("a").getAttribute("href") === "/jogo/123", "a local SVG point link survives");
+  assert(svg.querySelector("a").getAttribute("tabindex") === "0", "SVG point link is keyboardable");
+
+  for (const tag of ["script", "foreignObject", "image", "use", "animate"]) {
+    await refuses([{ tag: "svg", children: [{ tag }] }], `<${tag}> is outside the chart SVG vocabulary`);
+  }
+  await refuses([{ tag: "svg", attrs: { onclick: "alert(1)" } }], "SVG event attributes are script");
+  await refuses([{ tag: "svg", attrs: { style: "background:url(https://e.example)" } }], "SVG inline styles are refused");
+  await refuses([{ tag: "svg", attrs: { fill: "url(https://e.example/p.svg#paint)" } }], "SVG paint references are not a fetch surface");
+  await refuses([{ tag: "svg", attrs: { "data-live": "forged" } }], "SVG cannot forge terminal bindings");
+
+  const { target: hostileTarget } = dom();
+  buildNodes([{ tag: "svg", children: [{ tag: "a", attrs: { href: "javascript:alert(1)" }, children: ["match"] }] }], hostileTarget);
+  assert(hostileTarget.querySelector("svg a").getAttribute("href") === null, "SVG links use the URL-scheme check");
+  assert(hostileTarget.querySelector("svg a").textContent === "match", "unsafe SVG URLs do not erase point labels");
 });
 
 Deno.test("attributes outside the allowlist are refused, data-* especially", async () => {

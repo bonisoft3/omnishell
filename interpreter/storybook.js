@@ -11,8 +11,20 @@
 import { screenEnv } from "./fragment.js";
 import { interpretScreen } from "./screen.js";
 
-function fixture(field, i, state, counted) {
+function fixture(field, i, state, counted, fields = []) {
   const leaf = field.split(".").pop();
+  const declared = fields.find((candidate) => candidate.name === leaf);
+  if (Array.isArray(declared?.enum) && declared.enum.length > 0) {
+    if (declared.enum.includes(declared.default)) return declared.default;
+    if (
+      typeof declared.default === "string" &&
+      /^'(?:[^']|'')*'$/.test(declared.default)
+    ) {
+      const unquoted = declared.default.slice(1, -1).replaceAll("''", "'");
+      if (declared.enum.includes(unquoted)) return unquoted;
+    }
+    return declared.enum[0];
+  }
   // A field named like the frame's state answers true, so state frames whose
   // standout treatment rides attribute reflection (data-due="{due}" under the
   // "due" frame) render it instead of a pixel-copy of populated. -dark twins
@@ -27,13 +39,16 @@ function fixture(field, i, state, counted) {
   return `Sample ${leaf} ${i + 1}`;
 }
 
-const row = (i, state, counted) =>
+const row = (i, state, counted, fields) =>
   new Proxy({}, {
-    get: (_, f) => (typeof f === "string" ? fixture(f, i, state, counted) : undefined),
-    has: () => true,
+    get: (_, f) => (typeof f === "string"
+      ? fixture(f, i, state, counted, fields)
+      : undefined),
+    has: () =>
+      true,
   });
 
-export function fixtureStore(state, counted = new Set()) {
+export function fixtureStore(state, counted = new Set(), schema = {}) {
   const empty = state === "empty" || state === "loading";
   const reject = () => {
     throw new Error("storybook is read-only");
@@ -46,8 +61,14 @@ export function fixtureStore(state, counted = new Set()) {
     // row is still reading none when there is none. What stands in its place
     // is the app's own data-empty-row — which is what a reader with no rows
     // sees, and the whole of what a prerendered document offers a crawler.
-    query: async (_table, _order, opts) =>
-      empty ? [] : opts?.singleton ? [row(0, state, counted)] : [0, 1, 2].map((i) => row(i, state, counted)),
+    query: async (table, _order, opts) => {
+      const fields = schema?.[table]?.fields ?? [];
+      return empty
+        ? []
+        : opts?.singleton
+        ? [row(0, state, counted, fields)]
+        : [0, 1, 2].map((i) => row(i, state, counted, fields));
+    },
     subscribe: () => () => {},
     create: reject,
     update: reject,
@@ -56,7 +77,14 @@ export function fixtureStore(state, counted = new Set()) {
   };
 }
 
-export async function renderStorybook(mount, appBase, route, params = {}, units = {}, opts = {}) {
+export async function renderStorybook(
+  mount,
+  appBase,
+  route,
+  params = {},
+  units = {},
+  opts = {},
+) {
   // Which columns a plural reads, so the fixture row answers them with
   // a count rather than the sentence it answers every other column with.
   const counted = new Set();
@@ -96,7 +124,10 @@ export async function renderStorybook(mount, appBase, route, params = {}, units 
       .filter((p) => typeof p === "string")
       .flatMap((p) => [...p.matchAll(/:(\w+)/g)].map((m) => m[1])),
   );
-  const addressed = { ...Object.fromEntries([...declared].map((n) => [n, `fixture-${n}`])), ...params };
+  const addressed = {
+    ...Object.fromEntries([...declared].map((n) => [n, `fixture-${n}`])),
+    ...params,
+  };
 
   const style = document.createElement("style");
   style.textContent = `
@@ -143,17 +174,24 @@ export async function renderStorybook(mount, appBase, route, params = {}, units 
     // Every data-hatch resolves before a region hydrates, ahead of the inert
     // check, so a screen declaring a unit needs the table even though
     // `fixtures: true` means none is mounted.
-    await interpretScreen(frame, appBase, route, fixtureStore(state, counted), addressed, screenEnv(opts, {
-      handlers: false,
-      fixtures: true,
-      units,
-      messages: opts.messages,
-      locale: opts.locale,
-      // A storybook frame is compared — by eye, by the visual gate, by a golden
-      // — and it is rendered off a reader's machine. Left to the host, every
-      // date-bearing frame would differ between a laptop and CI.
-      timeZone: "UTC",
-    }));
+    await interpretScreen(
+      frame,
+      appBase,
+      route,
+      fixtureStore(state, counted, opts.schema),
+      addressed,
+      screenEnv(opts, {
+        handlers: false,
+        fixtures: true,
+        units,
+        messages: opts.messages,
+        locale: opts.locale,
+        // A storybook frame is compared — by eye, by the visual gate, by a golden
+        // — and it is rendered off a reader's machine. Left to the host, every
+        // date-bearing frame would differ between a laptop and CI.
+        timeZone: "UTC",
+      }),
+    );
     // data-state alone cannot say "posed": the live states (loading, empty,
     // populated, …) are drawn here under the same names the interpreter sets on
     // a running screen. A frame-only rule — one that poses an arm the probes

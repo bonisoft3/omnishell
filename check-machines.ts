@@ -153,11 +153,33 @@ function chartsOn(el: El): string[] {
   return charts.map((c) => JSON.stringify(c));
 }
 
+/** Bind route parameters in a chart description the way the mounted screen
+ * does. The authored scan sees placeholders in the source; the mounted DOM
+ * may already carry their resolved values. */
+function bindMachineParams(chart: string, params: Record<string, string>): string {
+  const bind = (value: unknown): unknown => {
+    if (typeof value === "string") {
+      return value.replace(PARAM, (whole, name: string) => params[name] ?? whole);
+    }
+    if (Array.isArray(value)) return value.map(bind);
+    if (value !== null && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, bind(child)]));
+    }
+    return value;
+  };
+  return JSON.stringify(bind(JSON.parse(chart)));
+}
+
 /** What pairs a mounted chart with the region the markup states: everything it
- * reads through, and the chart itself. */
-const keyOf = (el: El, chart: string) => {
+ * reads through, and the chart itself. Resolve parameter placeholders on both
+ * sides so a route-bound value does not make an authored chart look missing. */
+function machineKey(table: string, filter: string | undefined, chart: string, params: Record<string, string>) {
+  return `${table}\u0000${filled(filter ?? "", params) ?? ""}\u0000${bindMachineParams(chart, params)}`;
+}
+
+const keyOf = (el: El, chart: string, params: Record<string, string>) => {
   const { table, filter } = readsOf(el);
-  return `${table}\u0000${filter ?? ""}\u0000${chart}`;
+  return machineKey(table, filter, chart, params);
 };
 
 /** The route params a filter names, substituted the way the interpreter
@@ -371,7 +393,7 @@ async function walkScreen(
       // walks, and the floor below counts charts.
       const els = m.all("[data-machine]").flatMap((el) => chartsOn(el).map((chart) => ({ el, chart })));
       if (i === 0) {
-        mounted.push(...els.map(({ el, chart }) => keyOf(el, chart)));
+        mounted.push(...els.map(({ el, chart }) => keyOf(el, chart, params)));
         enumerated = true;
       }
       if (i < els.length) {
@@ -459,14 +481,21 @@ async function walkScreen(
   // reads is not.
   const ran = new Set(mounted);
   for (const region of authored) {
-    if (ran.has(`${region.table}\u0000${region.filter ?? ""}\u0000${region.machine}`)) continue;
-    // Stamped per row of a region the seed leaves empty: nothing mounts it.
-    if (rowStamped(region.filter) && stampedUnderNothing(region.enclosing, tables, params)) {
+    if (ran.has(machineKey(region.table, region.filter, region.machine, params))) continue;
+    // A chart inside a row template cannot mount when an enclosing read has no
+    // matching seed row. This also covers route-bound parent regions: their
+    // real params arrive from navigation, while this offline walk has only the
+    // app's seed to answer them. A genuinely absent chart under a populated
+    // parent still reaches the error below.
+    if (stampedUnderNothing(region.enclosing, tables, params)) {
       findings.push({
         severity: "advisory",
         path: html,
-        message: `a chart on "${region.table}" is stamped per row of an enclosing region the seed ` +
-          `leaves empty, so nothing here walks it`,
+        message: rowStamped(region.filter)
+          ? `a chart on "${region.table}" is stamped per row of an enclosing region the seed ` +
+            `leaves empty, so nothing here walks it`
+          : `a chart on "${region.table}" is inside an enclosing region the seed leaves empty, ` +
+            `so nothing here walks it`,
       });
       continue;
     }
@@ -737,6 +766,31 @@ export async function selfTest(): Promise<{ failures: string[] }> {
   });
   if (ordered.plans[0]?.op !== "eq") {
     failures.push(`a param named by both a lt and an eq planned as ${JSON.stringify(ordered.plans)}`);
+  }
+
+  // Authored markup keeps route placeholders, while the mounted side may hold
+  // their concrete values. Pairing resolves both filter and machine strings.
+  const params = { id: "team 7" };
+  const authoredKey = machineKey(
+    "archive_page",
+    "id=eq.team-{param.id}",
+    `{"context":{"owner_id":"{param.id}"}}`,
+    params,
+  );
+  const mountedKey = machineKey(
+    "archive_page",
+    "id=eq.team-team%207",
+    `{"context":{"owner_id":"team 7"}}`,
+    params,
+  );
+  const otherChartKey = machineKey(
+    "archive_page",
+    "id=eq.team-team%207",
+    `{"context":{"owner_id":"team 7","other":true}}`,
+    params,
+  );
+  if (authoredKey !== mountedKey || authoredKey === otherChartKey) {
+    failures.push("parameter-bound chart keys did not normalize symmetrically");
   }
 
   // The orchestration, against a fixture app carrying one screen per branch:

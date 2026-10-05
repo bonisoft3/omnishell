@@ -623,6 +623,7 @@ export function createStore(base = "", cfg = {}) {
     const fieldOf = (col) => col === TXID.name ? TXID : cfg.schema?.[table]?.fields?.find((f) => f.name === col);
     const typeOf = (col) => fieldOf(col)?.type;
     const ordered = (col) => typeOf(col) === undefined || ordersInEngine().has(typeOf(col));
+    if (limit !== undefined && (order ?? "").split(",").filter(Boolean).length === 0) return null;
     if (!(order ?? "").split(",").filter(Boolean).every((k) => ordered(k.split(".")[0]))) return null;
     if (embeds.some((e) => client.collections[e.table] === undefined)) return null;
     // A typed column is compared with one literal of its type, in the

@@ -95,13 +95,13 @@ export function guestBox(doc) {
  * label, and aria-current names the link that IS this page — which is the
  * link whose address is this one (`here`, a pathname), not merely a link to
  * the same route with someone else's :params. */
-export function localizeStrip(nav, cfg, { locale, here, messages }) {
+export function localizeStrip(nav, cfg, { locale, here, messages, explicitLocale = false } = {}) {
   if (!nav) return;
   for (const a of nav.querySelectorAll("a[data-route]")) {
-    const href = routeHref(cfg, a.getAttribute("data-route"), routeParams(a), locale);
+    const href = routeHref(cfg, a.getAttribute("data-route"), routeParams(a), locale, { explicitLocale });
     if (href === undefined) a.removeAttribute("href");
     else a.setAttribute("href", href);
-    if (a.getAttribute("href") === here) a.setAttribute("aria-current", "page");
+    if (href !== undefined && (a.getAttribute("href") === here || new URL(href, "https://shell.local").pathname === here)) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   }
   // The strip's own links, and not the person's: renderSession's anchor

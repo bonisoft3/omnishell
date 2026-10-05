@@ -766,7 +766,7 @@ export async function createShell({ config, mount }) {
       // address is restated here, where it costs no round trip.
       const negotiated = !asked && params.locale === undefined && locale !== written;
       if ((route.paths !== undefined && asked) || negotiated) {
-        const canonical = routeHref(cfg, route.screen, params, locale);
+        const canonical = routeHref(cfg, route.screen, params, locale, { explicitLocale: asked && locale === cfg.i18n?.default });
         if (canonical !== undefined) restate(canonical);
         ({ route, params, locale, written } = currentRoute());
       }
@@ -774,7 +774,8 @@ export async function createShell({ config, mount }) {
         await ensureMessages(locale);
         if (turn !== showing) return;
       }
-      localizeStrip(nav, cfg, { locale, here: location.pathname, messages });
+      const explicitLocale = Boolean(cfg.i18n && locale === cfg.i18n.default && typeof location !== "undefined" && new URLSearchParams(location.search).has("lang"));
+      localizeStrip(nav, cfg, { locale, here: location.pathname, messages, explicitLocale });
       const key = keyOf(route, params);
       if (current) {
         current.scrollY = window.scrollY;
@@ -924,6 +925,20 @@ export async function createShell({ config, mount }) {
       "navigation" in globalThis
         ? navigation.navigate(href)
         : (history.pushState(null, "", href), show("push"));
+    // The entry document's <base> locates shell assets. A section fragment
+    // still belongs to the visible address; preserve native scrolling/history
+    // by resolving it there before the browser follows the anchor.
+    const fragments = new WeakMap();
+    addEventListener("click", (e) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const a = e.target?.closest?.("a[href]");
+      if (!a || a.target || a.hasAttribute("download")) return;
+      const href = a.getAttribute("href");
+      if (href.startsWith("#")) fragments.set(a, href);
+      // Held screens reuse their anchors after a language/address change.
+      const fragment = fragments.get(a);
+      if (fragment !== undefined) a.href = new URL(fragment, location.href).href;
+    }, true);
     // The Navigation API is the platform's own navigation stack, and the only
     // thing that can tell a push from a traverse — which is what decides
     // whether a held screen resumes its scroll. It also takes scroll policy as
@@ -956,6 +971,7 @@ export async function createShell({ config, mount }) {
         if (href.startsWith("#")) return;
         const url = new URL(href, location.href);
         if (url.origin !== location.origin || addresses(url) === null) return;
+        if (url.pathname === location.pathname && url.search === (location.search ?? "")) return;
         e.preventDefault();
         navigate(url.pathname + url.search);
       }, true);

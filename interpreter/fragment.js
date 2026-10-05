@@ -79,8 +79,12 @@ export function parseFilterSpec(filter) {
     const col = part.slice(0, eq);
     const expr = part.slice(eq + 1);
     // A cap is not a predicate: parseLimit reads it, and both read paths
-    // apply it after ordering.
+    // apply it after ordering. Offset stays the server's (routeOf).
     if (col === "limit" && /^\d+$/.test(expr)) continue;
+    if (col === "offset" && /^\d+$/.test(expr)) {
+      spec.push({ col: "offset", op: "offset", value: expr });
+      continue;
+    }
     if (col.includes(".")) return null; // embed-path filter — server-computed
     if (expr.startsWith("eq.")) spec.push({ col, op: "eq", value: decodeURIComponent(expr.slice(3)) });
     else if (expr.startsWith("neq.")) spec.push({ col, op: "neq", value: decodeURIComponent(expr.slice(4)) });
@@ -135,6 +139,8 @@ export function routeOf(spec, embeds, limit) {
   // A pattern is a predicate the engine's clause vocabulary cannot state, and
   // an unstatable clause would silently widen to "every row".
   if (spec.some((s) => s.op === "like" || s.op === "ilike")) return "snapshot";
+  // Paging over a set that is still arriving is a different question: offset stays the server's.
+  if (spec.some((s) => s.op === "offset")) return "server";
   // No predicate, no embed, no cap: the collection already is that set, kept
   // current by the stream a view would be fed from (data-sync.js maintainedView).
   if (spec.length === 0 && embeds.length === 0 && limit === undefined) return "whole";
@@ -334,6 +340,25 @@ export function parseFilter(filter, compare = () => undefined) {
     if (op === "eq") return (row) => String(row[col]) === value;
     if (op === "neq") return (row) => String(row[col]) !== value;
     if (op === "like" || op === "ilike") {
+      const isCollation =
+        col === "search_key" ||
+        col === "search_name" ||
+        col.endsWith("_search_key") ||
+        col.endsWith("_search_name");
+      if (isCollation) {
+        const fold = (s) =>
+          String(s ?? "")
+            .normalize("NFD")
+            .replace(/\p{Diacritic}/gu, "")
+            .toLowerCase()
+            .replaceAll("ı", "i")
+            .replaceAll("þ", "th")
+            .replaceAll("Þ", "th")
+            .replaceAll("æ", "ae")
+            .replaceAll("Æ", "ae");
+        const re = new RegExp(`^${likeSource(fold(value))}$`, "s");
+        return (row) => row[col] != null && re.test(fold(row[col]));
+      }
       const re = new RegExp(`^${likeSource(value)}$`, op === "ilike" ? "is" : "s");
       return (row) => row[col] != null && re.test(String(row[col]));
     }
@@ -343,6 +368,7 @@ export function parseFilter(filter, compare = () => undefined) {
     // unconfirmed row must not hide it (the offline-captured note has to
     // render on the wall). Synced rows always carry every column.
     if (op === "false") return (row) => row[col] === false || (row.$synced === false && row[col] === undefined);
+    if (op === "offset") return () => true;
     if (op === "null") return (row) => row[col] == null;
     if (op === "notnull") return (row) => row[col] != null;
     if (op === "lt") return ordered(col, value, (d) => d < 0);
@@ -665,7 +691,7 @@ export function routePattern(route, locale) {
  * what the renderer's URL check gives for a refused one: a reader's data must
  * not take the screen down. A NAME the app got wrong still throws, because
  * that is the author's mistake and no row can fix it. */
-export function routeHref(cfg, screen, params, locale) {
+export function routeHref(cfg, screen, params, locale, { explicitLocale = false } = {}) {
   const route = cfg.routes?.find((r) => r.screen === screen);
   if (route === undefined) throw new ProgramError(`data-route names "${screen}", which is no route of this app`);
   const pattern = routePattern(route, locale);
@@ -689,7 +715,10 @@ export function routeHref(cfg, screen, params, locale) {
   });
   if (unaddressed) return undefined;
   // An app declaring no locales has one language and no prefixes at all.
-  if (cfg.i18n === undefined || locale === cfg.i18n.default) return mounted(cfg, filled);
+  if (cfg.i18n === undefined) return mounted(cfg, filled);
+  if (locale === cfg.i18n.default) {
+    return mounted(cfg, explicitLocale ? `${filled}?lang=${encodeURIComponent(locale)}` : filled);
+  }
   const declared = localeTable(cfg.i18n)[locale];
   if (declared === undefined) throw new ProgramError(`locale "${locale}" is not one this app declares`);
   return mounted(cfg, `/${declared.path}${filled === "/" ? "" : filled}`);
