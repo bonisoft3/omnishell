@@ -24,7 +24,7 @@
 //       "lists":  [N, ...],                     // the reads of the lists stamping it, each once per row
 //       "route":  "server" | "snapshot" | "whole" | "view",  // fragment.js routeOf
 //       "clauses": [{"col": "...", "op": "..."}],  // absent where the server computes it
-//       "embeds": ["<table>", ...],             // absent likewise
+//       "embeds": ["<relation>", ...],          // table or foreign-key column, including nested embeds
 //       "limit":  N,                            // absent where the filter caps nothing
 //       "orders": ["col", ...]                  // every column an order it can be in names
 //     }],
@@ -216,6 +216,11 @@ export function selfTest(): { failures: string[] } {
   });
   check("a filter the server computes states no clauses", reads[3], {
     table: "article", kind: "live", nested: false, lists: [], route: "server", embeds: [], orders: [],
+  });
+  check("server selects retain nested, hinted and aliased invalidation dependencies", projectScreen(
+    '<ul data-live="goal" data-select="*,scorer:player!inner(name,club(name)),home:home_id(name)"></ul>',
+  ).reads[0], {
+    table: "goal", kind: "live", nested: false, lists: [], route: "server", clauses: [], embeds: ["player", "club", "home_id"], orders: [],
   });
   // pronto's sync rule keeps a table eager when a view of it is read once per
   // row of a list, and lets one nested only in slots load on demand: a slot

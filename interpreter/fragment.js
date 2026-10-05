@@ -129,6 +129,8 @@ export function parseFilterSpec(filter) {
 export function routeOf(spec, embeds, limit) {
   // null is "server-computed", never "nothing to do" — for both of these.
   if (spec === null || embeds === null) return "server";
+  // Paging over a set that is still arriving is a different question: offset stays the server's.
+  if (spec.some((s) => s.op === "offset")) return "server";
   // A boolean the schema defaults is absent on an unconfirmed optimistic row,
   // which the snapshot predicate admits and a column comparison would not.
   if (spec.some((s) => s.op === "true" || s.op === "false")) return "snapshot";
@@ -139,8 +141,6 @@ export function routeOf(spec, embeds, limit) {
   // A pattern is a predicate the engine's clause vocabulary cannot state, and
   // an unstatable clause would silently widen to "every row".
   if (spec.some((s) => s.op === "like" || s.op === "ilike")) return "snapshot";
-  // Paging over a set that is still arriving is a different question: offset stays the server's.
-  if (spec.some((s) => s.op === "offset")) return "server";
   // No predicate, no embed, no cap: the collection already is that set, kept
   // current by the stream a view would be fed from (data-sync.js maintainedView).
   if (spec.length === 0 && embeds.length === 0 && limit === undefined) return "whole";

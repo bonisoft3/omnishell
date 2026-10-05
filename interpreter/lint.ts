@@ -5,6 +5,7 @@
 // nothing in this file touches the filesystem or an app.
 
 import {
+  embedDeps,
   machineCandidates,
   machineShape,
   parseFilterSpec,
@@ -111,7 +112,7 @@ export type ScreenRead = {
    * once, as a slot binds one row. */
   lists: number[];
   route: "server" | "snapshot" | "whole" | "view";
-  /** Absent, as embeds is, where the server computes the read. */
+  /** Absent where the server computes the filter. */
   clauses?: { col: string; op: string }[];
   embeds?: string[];
   limit?: number;
@@ -149,7 +150,7 @@ function readOf(
     lists,
     route: routeOf(spec, embeds, limit),
     ...(spec === null ? {} : { clauses: spec.map(({ col, op }) => ({ col, op })) }),
-    ...(embeds === null ? {} : { embeds: embeds.map((e) => e.table) }),
+    embeds: embedDeps(select, table),
     ...(limit === undefined ? {} : { limit }),
     orders: [...new Set(orders.flatMap((o) => o.split(",").filter(Boolean).map((k) => k.split(".")[0])))],
   };

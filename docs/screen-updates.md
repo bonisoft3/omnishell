@@ -30,6 +30,57 @@ that. Three mechanisms, each owning one kind of change:
   it brings a screen to a newer template, served or running, and its rows to
   the newer item ([a pre-rendered page](#a-pre-rendered-page)).
 
+## When a served release changes
+
+An app with `terminal.liveUpdates: true` emits `shell/release.json`. Pronto
+hashes its served app assets and interpreter modules, records the pinned OmniShell runtime and separates
+screen HTML/CSS from the configuration, handlers and other code. On a first
+visit the browser fetches and verifies the manifest and every named asset,
+then establishes a pinned document before creating the store. Drafts entered
+into the initial document survive this bootstrap; its release selector is
+removed from the public URL. On later visits it verifies the retained set before drawing the page; background
+checks fetch past the service worker and promote only complete new sets. An
+interrupted deployment cannot promote a mixture; a returning tab boots from the
+last verified set. The terminal checks for a newer release after the screen
+mounts, every 30 seconds, and on tab return or service-worker activation. A
+control losing focus only retries an update already found while editing. The
+service worker serves cached pages and assets immediately while revalidating
+them in the background. A restarted document and its asset requests are pinned
+to one verified release by the service worker; another tab staging a release
+cannot change that document's runtime. Verified assets from older releases
+remain for an hour before cleanup, and releases pinned by open clients remain
+available until those clients leave. Release downloads time out after 15 seconds
+without progress; a body that keeps arriving may take longer.
+
+If only a screen's HTML or CSS changes, the terminal uses the existing screen
+morph to update each retained instance. It retemplates regions and binds new
+sections inside `[data-live]` against the running store. It waits for an
+editable control to lose focus and carries edited native fields through the
+morph, including edits made while asynchronous region work is pending. Handlers,
+adapters, renderers and validations are read from the selected verified release.
+CSS imports remain native so each stylesheet retains its URL base; the service
+worker serves their bytes from the document's pinned release. Shared CSS changes
+require a restart, so compatible screen updates keep those imports unchanged.
+Mounts and style updates wait for the browser to finish loading these imports.
+
+A changed configuration, handler, screen set, entry asset or runtime pin needs
+a new store or interpreter, so the terminal restarts from the verified entry
+and runtime after the controlling service worker confirms it can serve that
+complete set. It waits
+while an editable control is focused, a file is selected or a form submits;
+before reload it records edited identifiable controls and `tab` rows. Rows
+return only when their schema is identical. Recovery belongs to the account
+that saved it; signing out or switching accounts discards it. A plain-text
+draft stays text when its control becomes a rich editor. Passwords and file
+contents are never serialized. A query that needs no materialized output still
+belongs to [[data]], not to the release mechanism.
+
+The runtime pin must name immutable interpreter bytes. A tab still running the
+old protocol cannot interpret a release manifest, so enabling this policy
+does not itself migrate already-open old tabs. Offline navigation and a
+restart across an incompatible schema remain bounded by the assets and draft
+state the browser actually has.
+
 On a table synced on demand a view is a subset still loading until its rows
 and its embeds' have arrived; the store holds its wakes until then, so the
 keyed loop never binds a row whose embed is missing
@@ -114,9 +165,8 @@ comment region:
 
 ## A pre-rendered page
 
-Regions, items, text and filters over collections, styled by CSS, are
-synchronous once the rows are in memory, so a screen renders wherever a DOM
-exists. [`interpreter/document.js`](../interpreter/document.js) renders a
+Regions, items, text and filters over collections, styled by CSS, render
+wherever a DOM exists. [`interpreter/document.js`](../interpreter/document.js) renders a
 route's whole document in linkedom with the interpreter itself: the app's entry
 page with the screen in its mount (marked `data-served`), the strip a guest
 sees beside it and the head the shell would write (`describe` and the strip are
@@ -129,6 +179,23 @@ terminal's modules after its first contentful paint, observed with a
 `PerformanceObserver`, so the page's own bytes have the link until it has
 painted. No unit is mounted and no screen script is kept: both are the shell's
 to start, on the screen it takes over.
+
+The selected route's existing `files` declarations also supply hydration
+preloads. Templates, stylesheets read by the interpreter, and Jessie sources
+use fetch preloads; shared stylesheet dependencies use style preloads. These
+start alongside the boot modules after first contentful paint, with duplicate
+URLs removed. A SPA starts the selected route's source and shared-style hints
+as soon as its initial route is resolved, beside its existing template fetch.
+Verified-release startup already holds those assets and skips these hints.
+Neither path speculates about other routes, data, or images.
+
+On-request rendering waits for the screen's current reads, derived writes and
+resulting region refreshes before serializing. A derived region's declared
+auxiliary reads are revisited when another initial derivation writes their
+tables. Long-poll streams and future
+machine timers do not belong to that finite work. A failed read or derivation,
+or a derivation that does not converge, fails the render rather than caching
+an incomplete document. Browser mounting remains incremental.
 
 Two callers render one:
 

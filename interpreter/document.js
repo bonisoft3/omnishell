@@ -15,6 +15,7 @@
 import { describe, drawStrip, guestBox, hasStrip, localizeStrip } from "./chrome.js";
 import { screenEnv } from "./fragment.js";
 import { interpretScreen } from "./screen.js";
+import { preloadScreen } from "./preloads.js";
 
 /** Whether a reader of this app arrives as a guest: the session every app with
  * a table of its own hands out, unless it walls itself behind a sign-in. A
@@ -95,6 +96,7 @@ export async function renderDocument({
     // stop it, and its regions listening to a store for a document nobody holds.
     let drawn = false;
     try {
+      if (rows) await handle.settle();
       const screen = slot.firstElementChild;
       if (!rows) {
         for (const region of screen.querySelectorAll("[data-live]")) region._prontoEmpty?.remove();
@@ -128,6 +130,7 @@ export async function renderDocument({
         }).join(" "));
         doc.head.append(named);
       }
+      preloadScreen(doc, appBase, route);
       deferBoot(doc);
 
       // The entry's comments explain the entry to whoever edits it, and the

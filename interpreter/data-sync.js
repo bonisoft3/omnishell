@@ -31,6 +31,7 @@ import {
 import { embedDeps, embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect, ProgramError, routeOf } from "./fragment.js";
 import { evaluateRole } from "./jessie.js";
 import { judge } from "./validate.js";
+import { releaseReader } from "./release-assets.js";
 
 export { embedDeps, embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect, routeOf };
 
@@ -56,6 +57,10 @@ const later = (fn) => {
     fn();
   };
   channel.port2.postMessage(null);
+  return () => {
+    channel.port1.close();
+    channel.port2.close();
+  };
 };
 
 function token() {
@@ -264,6 +269,7 @@ export function othersFor(p, sinkRow, mine, pair, compareTxid) {
 }
 
 export function createStore(base = "", cfg = {}) {
+  const readCode = cfg.release ? releaseReader() : null;
   // cfg.local names the browser-owned tables (shell.yaml `local:`), which are
   // collections like any other here — read by a region, mutated by a form —
   // but built from a local factory rather than an Electric shape, so they are
@@ -316,13 +322,9 @@ export function createStore(base = "", cfg = {}) {
   const access = cfg.access ?? {};
   const keyOf = (t) => cfg.keys?.[t] ?? "id";
 
-  // shell.yaml `sync` names the tables pronto's derive proved are only ever
-  // read through maintained views, and that therefore sync on demand: the
-  // collection holds the rows some view asked for, not the table. Every read
-  // below that would treat it as the table is a program error, raised where
-  // the read is rather than rendered as a silently short list — derive and
-  // this file state the same rule, and this is where a drift between them
-  // shows.
+  // Partial collections are never an authoritative whole outside a query.
+  // Queries explicitly lease completeness where their local evaluation needs
+  // it; validation, visibility and fold reads still require an eager table.
   const onDemand = (table) => cfg.sync?.[table] === "on-demand";
   const whole = (table, site) => {
     if (onDemand(table)) {
@@ -339,6 +341,47 @@ export function createStore(base = "", cfg = {}) {
     return c;
   }
 
+  function completeDemand(table) {
+    const entry = maintainedView(table, { filter: `${keyOf(table)}=not.is.null` }, true);
+    if (entry === null) throw new ProgramError(`cannot demand all rows of ${table}`);
+    return entry;
+  }
+
+  // Adapter references alone do not prevent TanStack's five-second GC after
+  // a screen's last subscriber leaves. Reads and writes need a real listener
+  // across the wait too, reattached if a failed subset rebuilds the view.
+  function lease(entry) {
+    entry.acquire();
+    const stop = entry.attach(view => watch(view, () => {}));
+    return () => { stop(); entry.release(); };
+  }
+
+  function snapshotTables(table, opts) {
+    const spec = parseFilterSpec(opts.filter);
+    const embeds = parseSelect(opts.select);
+    if (routeOf(spec, embeds, parseLimit(opts.filter)) === "server" || client.collections[table] === undefined) return [];
+    if (embeds.some(e => client.collections[e.table] === undefined)) return [];
+    return [...new Set([table, ...embeds.map(e => e.table)])];
+  }
+
+  // Opaque reducers can request a whole-table mutation without making every
+  // collection eager at startup. Its demand stays subscribed so later writes
+  // keep the complete optimistic view, including rows no screen displays.
+  const mutationDemands = new Map();
+  async function mutationCollection(table, site) {
+    if (!onDemand(table)) return wholeCollection(table, site);
+    const c = client.collections[table];
+    if (c === undefined) throw new Error(`${site} reads ${table}, which has no collection`);
+    let entry = mutationDemands.get(table);
+    if (entry === undefined) {
+      entry = completeDemand(table);
+      lease(entry);
+      mutationDemands.set(table, entry);
+    }
+    await settled(entry);
+    return c;
+  }
+
   // Validations by table (shell.yaml); each table's modules load on its first
   // write, through the same compartment a handler runs in.
   const validations = cfg.validations ?? {};
@@ -349,10 +392,16 @@ export function createStore(base = "", cfg = {}) {
       // Dropped on rejection: a fetch that failed once would otherwise refuse
       // the table for the rest of the session.
       p = Promise.all(Object.entries(validations[table] ?? {}).map(async ([name, v]) => {
-        const res = await fetch(new URL(v.src, cfg.appBase));
-        if (!res.ok) throw new Error(`validation ${table}.${name}: ${v.src} ${res.status}`);
+        const url = new URL(v.src, cfg.appBase);
+        let source;
+        if (readCode) source = await readCode(url);
+        else {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`validation ${table}.${name}: ${v.src} ${res.status}`);
+          source = await res.text();
+        }
         const granted = cfg.endowments?.[v.src] ?? cfg.endowments?.[v.src.split("/").pop()] ?? [];
-        return { name, edges: v.edges ?? [], test: await evaluateRole(await res.text(), "validation", granted) };
+        return { name, edges: v.edges ?? [], test: await evaluateRole(source, "validation", granted) };
       })).catch((e) => {
         predicates.delete(table);
         throw e;
@@ -416,6 +465,7 @@ export function createStore(base = "", cfg = {}) {
   // Server tables never arrive here: Postgres owns their uniques, and their
   // bootstrap rows are 900_seed.sql.
   const preparedAt = new Map();
+  const restoredTabs = new Map();
   const ensurePrepared = (table) => {
     if (local[table] === undefined) return Promise.resolve();
     let p = preparedAt.get(table);
@@ -468,7 +518,7 @@ export function createStore(base = "", cfg = {}) {
   // row's own. Called only where the store is built, which is what makes the
   // empty collection the whole ledger #Entity.seed relies on.
   async function seed(table) {
-    const rows = cfg.seed?.[table];
+    const rows = restoredTabs.has(table) ? restoredTabs.get(table) : cfg.seed?.[table];
     if (rows === undefined) return;
     const c = client.collections[table];
     if (c === undefined) throw new Error(`seed on unknown table: ${table}`);
@@ -574,6 +624,54 @@ export function createStore(base = "", cfg = {}) {
     return out;
   }
 
+  // A typed column is compared with one literal of its type, in the
+  // canonical spelling its rows carry, which is also what a subset sends
+  // Electric to cast: `1.50` against a decimal column is the row holding
+  // `1.5`, and an uppercase uuid the row holding it in lowercase. Only a
+  // column the schema does not type, or types by a physical label, hedges
+  // between the text and the number a value could be, and the hedge is an
+  // `or`, which a subset carries only by the client's parenthesizing
+  // (mecha-client.ts parenthesizeOr).
+  //
+  // A literal the column cannot hold is NOHOLD. Rows are canonical, so it
+  // equals no row: the empty string a null placeholder interpolates to,
+  // compared with a uuid, is the case every nullable foreign key's probe
+  // meets. The column's own field is what it is read against, precision and
+  // scale included, because a decimal out of the column's profile is one no
+  // row of it holds either.
+  const literal = (table, col, value) => {
+    const field = col === TXID.name ? TXID : cfg.schema?.[table]?.fields?.find(f => f.name === col);
+    // A column declared by a physical label holds the transport's own
+    // spelling (normalizeRow leaves it), so it is compared as an untyped one.
+    if (field === undefined || cfg.carriers?.aliases?.[field.type] !== undefined) return undefined;
+    const json = carrier().canonicalType(field.type);
+    const num = Number(value);
+    const typed = json === "int32" || json === "double"
+      ? (value !== "" && !Number.isNaN(num) ? num : value)
+      : json === "bool" ? (value === "true" ? true : value === "false" ? false : value) : value;
+    try {
+      return carrier().normalizeValue(field, typed, "canonical");
+    } catch (err) {
+      if (err instanceof TypeError) return NOHOLD;
+      throw err;
+    }
+  };
+  function queryPredicates(table, filter) {
+    const predicates = parseFilter(filter, orderOf(table));
+    if (predicates === null) return null;
+    return parseFilterSpec(filter).map(({ col, op, value }, i) => {
+      if (op !== "eq" && op !== "neq") return predicates[i];
+      const type = col === TXID.name ? TXID.type : cfg.schema?.[table]?.fields?.find(f => f.name === col)?.type;
+      if (cfg.carriers?.types?.[type]?.json === "value") return predicates[i];
+      const typed = literal(table, col, value);
+      if (typed === undefined) return predicates[i];
+      if (typed === NOHOLD) return op === "eq" ? () => false : row => row[col] != null;
+      return op === "eq"
+        ? row => row[col] === typed
+        : row => row[col] != null && row[col] !== typed;
+    });
+  }
+
   // A region's read as a view the engine maintains, rather than a snapshot it
   // re-derives on every wake. The differential-dataflow engine ships inside
   // the client bundle; this is the door into it.
@@ -603,8 +701,7 @@ export function createStore(base = "", cfg = {}) {
     const key = `${table}|${order ?? ""}|${opts.filter ?? ""}|${opts.select ?? ""}`;
     const held = views.get(key);
     if (held !== undefined) return held;
-    // Only a subscription opens a view; a read joins one already open, so a
-    // server-computed region cannot leave a view behind it never closes.
+    // A subscription or a temporary read lease owns every opened view.
     if (!create) return null;
     const collection = client.collections[table];
     if (collection === undefined) return null;
@@ -626,42 +723,23 @@ export function createStore(base = "", cfg = {}) {
     if (limit !== undefined && (order ?? "").split(",").filter(Boolean).length === 0) return null;
     if (!(order ?? "").split(",").filter(Boolean).every((k) => ordered(k.split(".")[0]))) return null;
     if (embeds.some((e) => client.collections[e.table] === undefined)) return null;
-    // A typed column is compared with one literal of its type, in the
-    // canonical spelling its rows carry, which is also what a subset sends
-    // Electric to cast: `1.50` against a decimal column is the row holding
-    // `1.5`, and an uppercase uuid the row holding it in lowercase. Only a
-    // column the schema does not type, or types by a physical label, hedges
-    // between the text and the number a value could be, and the hedge is an
-    // `or`, which a subset carries only by the client's parenthesizing
-    // (mecha-client.ts parenthesizeOr).
-    //
-    // A literal the column cannot hold is NOHOLD. Rows are canonical, so it
-    // equals no row: the empty string a null placeholder interpolates to,
-    // compared with a uuid, is the case every nullable foreign key's probe
-    // meets. The column's own field is what it is read against, precision and
-    // scale included, because a decimal out of the column's profile is one no
-    // row of it holds either.
-    const literal = (col, value) => {
-      const field = fieldOf(col);
-      // A column declared by a physical label holds the transport's own
-      // spelling (normalizeRow leaves it), so it is compared as an untyped one.
-      if (field === undefined || cfg.carriers?.aliases?.[field.type] !== undefined) return undefined;
-      const json = carrier().canonicalType(field.type);
-      const num = Number(value);
-      const typed = json === "int32" || json === "double"
-        ? (value !== "" && !Number.isNaN(num) ? num : value)
-        : json === "bool" ? (value === "true" ? true : value === "false" ? false : value) : value;
-      try {
-        return carrier().normalizeValue(field, typed, "canonical");
-      } catch (err) {
-        if (err instanceof TypeError) return NOHOLD;
-        throw err;
-      }
+    const profile = (t, col) => {
+      const field = col === TXID.name ? TXID : cfg.schema?.[t]?.fields?.find(f => f.name === col);
+      return field === undefined ? undefined : cfg.carriers?.types?.[carrier().canonicalType(field.type)];
     };
+    const comparable = (t, col) => profile(t, col)?.subset !== false;
+    // These restrictions belong to this query, not every use of its table.
+    // Null tests bind no typed value, including the PK test for completeness.
+    if (onDemand(table) && spec.some(s => ["eq", "neq"].includes(s.op) && !comparable(table, s.col))) return null;
+    if (onDemand(table) && limit !== undefined && (order ?? "").split(",").some(k => {
+      const p = profile(table, k.split(".")[0]);
+      return p?.subset === false || (p?.order === "text" && p.pattern === undefined);
+    })) return null;
+    if (embeds.some(e => onDemand(e.table) && !comparable(e.table, keyOf(e.table)))) return null;
     const clause = (row, { col, op, value }) => {
       const num = Number(value);
       const isNum = value !== "" && !Number.isNaN(num) && String(num) === value;
-      const typed = op === "eq" || op === "neq" ? literal(col, value) : undefined;
+      const typed = op === "eq" || op === "neq" ? literal(table, col, value) : undefined;
       // Said as a key that is null rather than as the literal, which a subset
       // would send Electric to cast and Electric would refuse.
       if (typed === NOHOLD) {
@@ -941,70 +1019,74 @@ export function createStore(base = "", cfg = {}) {
     project(table, await read(table, order, opts));
 
   async function read(table, order, opts = {}) {
+    order ??= opts.order;
     await ensurePrepared(table);
     // A read the engine already maintains needs no re-derivation: the view is
     // the filter and the order, kept current by the deltas that woke us.
-    const held = maintainedView(table, { ...opts, order: order ?? opts.order });
+    const held = maintainedView(table, { ...opts, order }, onDemand(table));
     if (held !== null) {
-      if (held.complete()) return held.view.toArray;
-      held.acquire();
+      const release = lease(held);
       try {
-        await settled(held);
+        if (!held.complete()) await settled(held);
         return held.view.toArray;
       } finally {
-        held.release();
+        release();
       }
     }
-    const preds = parseFilter(opts.filter, orderOf(table));
+    if (routeOf(parseFilterSpec(opts.filter), parseSelect(opts.select), parseLimit(opts.filter)) === "server") {
+      return (await http(`${crud(table)}?${search(order, opts)}`)).json();
+    }
+    const preds = queryPredicates(table, opts.filter);
     const embeds = preds !== null ? parseSelect(opts.select) : null;
     const c =
       embeds !== null && embeds.every((e) => client.collections[e.table] !== undefined)
         ? client.collections[table]
         : undefined;
     if (c !== undefined) {
-      // First read awaits the initial shape snapshot. After that, read the
-      // live snapshot synchronously: it includes the optimistic overlay, and
-      // it must keep rendering while the stream is down (an outage would
-      // otherwise freeze every region). Each collection is checked whole as
-      // its wait starts, so all are checked before any is waited on, and a
-      // stalled shape cannot hold back an embed's program error.
-      await Promise.all([
-        wholeCollection(table, "a read the view engine does not maintain"),
-        ...embeds.map((e) => wholeCollection(e.table, `a read of ${table} embedding it`)),
-      ]);
-      // The FK column is a convention, not a schema fact the client holds:
-      // probe it on a synced row (synced rows carry every column) and leave
-      // an unresolvable embed to the server.
-      // Enumerated once: every row is enriched on the way out, and a table's
-      // length is what that costs.
-      const all = c.toArray;
-      const probe = all.find((r) => r.$synced !== false);
-      if (probe === undefined || embeds.every(({ alias }) => probe[`${alias}_id`] !== undefined)) {
-        // The snapshot is a fresh array, so it is sorted in place, and copied
-        // only where a predicate, a cap or an embed makes a different one.
-        const rows = access[table] === undefined && preds.length === 0
-          ? all
-          : all.filter((r) => visible(table, r) && preds.every((p) => p(r)));
-        if (order) rows.sort(compareBy(order, orderOf(table)));
-        const limit = parseLimit(opts.filter);
-        const capped = limit === undefined ? rows : rows.slice(0, limit);
-        if (embeds.length === 0) return capped;
-        return capped.map((row) => {
-          const out = { ...row };
-          for (const { alias, table: rel, cols } of embeds) {
-            // A collection is keyed by the same column keyOf names, so the
-            // joined row is one lookup; a scan of the related table per row
-            // is the product of the two tables per read.
-            const target = client.collections[rel].get(row[`${alias}_id`]);
-            // null embed mirrors PostgREST under RLS: a joined row this
-            // reader cannot see binds blank, never leaks.
-            out[alias] =
-              target !== undefined && visible(rel, target)
-                ? Object.fromEntries(cols.map((col) => [col, target[col]]))
-                : null;
-          }
-          return out;
-        });
+      const releases = [];
+      try {
+        await Promise.all(snapshotTables(table, opts).map(t => {
+          if (!onDemand(t)) return wholeCollection(t, `a read of ${table}`);
+          const entry = completeDemand(t);
+          releases.push(lease(entry));
+          return settled(entry);
+        }));
+        // The FK column is a convention, not a schema fact the client holds:
+        // probe it on a synced row (synced rows carry every column) and leave
+        // an unresolvable embed to the server.
+        // Enumerated once: every row is enriched on the way out, and a table's
+        // length is what that costs.
+        const all = c.toArray;
+        const probe = all.find((r) => r.$synced !== false);
+        if (probe === undefined || embeds.every(({ alias }) => probe[`${alias}_id`] !== undefined)) {
+          // The snapshot is a fresh array, so it is sorted in place, and copied
+          // only where a predicate, a cap or an embed makes a different one.
+          const rows = access[table] === undefined && preds.length === 0
+            ? all
+            : all.filter((r) => visible(table, r) && preds.every((p) => p(r)));
+          if (order) rows.sort(compareBy(order, orderOf(table)));
+          const limit = parseLimit(opts.filter);
+          const capped = limit === undefined ? rows : rows.slice(0, limit);
+          if (embeds.length === 0) return capped;
+          return capped.map((row) => {
+            const out = { ...row };
+            for (const { alias, table: rel, cols } of embeds) {
+              // A collection is keyed by the same column keyOf names, so the
+              // joined row is one lookup; a scan of the related table per row
+              // is the product of the two tables per read.
+              const target = client.collections[rel].get(row[`${alias}_id`]);
+              // null embed mirrors PostgREST under RLS: a joined row this
+              // reader cannot see binds blank, never leaks.
+              out[alias] =
+                target !== undefined && visible(rel, target)
+                  ? Object.fromEntries(cols.map((col) => [col, target[col]]))
+                  : null;
+            }
+            return out;
+          });
+        }
+      } finally {
+        for (const release of releases) release();
       }
     }
     // Server-computed read: fts, embed-path filter, or untranslatable
@@ -1057,6 +1139,15 @@ export function createStore(base = "", cfg = {}) {
   /** An engine subscription handle, either shape, as a plain stop. */
   const stopper = (sub) => (typeof sub === "function" ? sub : () => sub.unsubscribe());
 
+  const notifications = new Set();
+  /** Pending subscription wakes only; shape streams and machine clocks are
+   * independent of a document finishing its present reads. */
+  function flushNotifications() {
+    const queued = [...notifications];
+    for (const wake of queued) wake();
+    return queued.length;
+  }
+
   /**
    * One wake per burst, carrying what the burst named.
    *
@@ -1075,19 +1166,23 @@ export function createStore(base = "", cfg = {}) {
     let stopped = false;
     let batch = [];
     let unattributed = false;
+    let cancel;
+    const wake = () => {
+      cancel?.();
+      notifications.delete(wake);
+      scheduled = false;
+      if (stopped || (batch.length === 0 && !unattributed)) return;
+      if (holding()) return;
+      const changes = unattributed ? undefined : batch;
+      batch = [];
+      unattributed = false;
+      fn(changes);
+    };
     const schedule = () => {
       if (scheduled) return;
       scheduled = true;
-      later(() => {
-        scheduled = false;
-        if (stopped || (batch.length === 0 && !unattributed)) return;
-        // Kept, not dropped: `released` schedules the wake again.
-        if (holding()) return;
-        const changes = unattributed ? undefined : batch;
-        batch = [];
-        unattributed = false;
-        fn(changes);
-      });
+      notifications.add(wake);
+      cancel = later(wake);
     };
     return {
       /** These rows moved. */
@@ -1110,6 +1205,8 @@ export function createStore(base = "", cfg = {}) {
       released: () => schedule(),
       stop: () => {
         stopped = true;
+        cancel?.();
+        notifications.delete(wake);
       },
     };
   }
@@ -1121,11 +1218,17 @@ export function createStore(base = "", cfg = {}) {
     // watching: a row leaving the filter, a row entering it, and a row moving
     // in the order all arrive here and nowhere else.
     const view = maintainedView(table, opts, true)?.acquire() ?? null;
+    const demands = view === null ? snapshotTables(table, opts).filter(onDemand).map(completeDemand) : [];
+    const releaseDemands = demands.map(lease);
     // While the view loads a subset — its own rows, or the lazy side of a join
     // fetching a row a change named — what it holds is partial: a row whose
     // embedded row has not arrived binds the embed blank. Its wakes wait for
     // the load to end, and go out together then.
-    const wakes = coalesce(fn, view === null ? undefined : () => view.view.isLoadingSubset);
+    const loading = view === null ? demands : [view];
+    const wakes = coalesce(fn, () => loading.some(entry => entry.view.isLoadingSubset));
+    const unloads = demands.map(entry => entry.attach(v => v.on("loadingSubset:change", event => {
+      if (!event.isLoadingSubset) wakes.released();
+    })));
     if (view !== null) {
       // Through watch, for the same reason a raw collection is: a region
       // joining a view another already holds subscribes after the view has
@@ -1170,7 +1273,7 @@ export function createStore(base = "", cfg = {}) {
     // could never show is not this region's input changing, so it must not
     // cost a re-read: without this every comment written anywhere re-queries
     // every comment region on the page.
-    const preds = parseFilter(opts.filter, orderOf(table));
+    const preds = queryPredicates(table, opts.filter);
     // Whether a change to this table names exactly the rows whose rendering it
     // can move. That holds when the read is decided here — predicates the
     // client evaluates, nothing joined — so a row the change did not name is
@@ -1197,6 +1300,8 @@ export function createStore(base = "", cfg = {}) {
     return () => {
       wakes.stop();
       for (const stop of stops) stop();
+      for (const off of unloads) off();
+      for (const release of releaseDemands) release();
       for (const t of deps) settleListeners.get(t).delete(t === table ? settle : wakes.widened);
     };
   }
@@ -1223,7 +1328,7 @@ export function createStore(base = "", cfg = {}) {
       if (e?.key === undefined) throw new Error(`write ${table}: an edit names no ${key}`);
       return { ...e.row, [key]: e.key };
     });
-    const collection = await wholeCollection(table, "a write by key");
+    const collection = await mutationCollection(table, "a write by key");
     // Asked once for the batch. Asked per row it is a scan of the table per
     // row, which is the quadratic term this whole shape exists to remove — and
     // the standing row itself, so the judge below does not scan for it either.
@@ -1342,7 +1447,7 @@ export function createStore(base = "", cfg = {}) {
     if (keys === null) {
       throw new Error(`upsert ${table}: no natural key covers ${Object.keys(values).join(",")}`);
     }
-    const collection = await wholeCollection(table, "an upsert by natural key");
+    const collection = await mutationCollection(table, "an upsert by natural key");
     const at = (r, c) => String(r[c] ?? (c === owner ? userId() : ""));
     const wanted = keys.map((c) => at(values, c));
     const existing = collection.toArray.find(
@@ -1391,7 +1496,7 @@ export function createStore(base = "", cfg = {}) {
     // an untranslatable delete filter is a program error rather than a quieter
     // path that works until it doesn't.
     if (preds === null) throw new Error(`delete filter is not translatable: ${filter}`);
-    const collection = await wholeCollection(table, "a delete by filter");
+    const collection = await mutationCollection(table, "a delete by filter");
     const rows = collection.toArray.filter((r) => visible(table, r) && preds.every((f) => f(r)));
     // Re-check presence at the moment of the delete: resolution and mutation
     // are separated by an await, and a concurrent settle can retire a row in
@@ -1402,5 +1507,26 @@ export function createStore(base = "", cfg = {}) {
     await drop(table, keys, onRefused);
   }
 
-  return { query, add, write, patch, drop, dropWhere, upsertBy, subscribe };
+  async function tabSnapshot() {
+    const saved = {};
+    for (const [table, durability] of Object.entries(local)) {
+      if (durability !== "tab") continue;
+      await ensurePrepared(table);
+      const collection = client.collections[table];
+      if (!collection.isReady?.()) await collection.toArrayWhenReady?.();
+      saved[table] = { schema: cfg.schema?.[table], rows: collection.toArray ?? [] };
+    }
+    return saved;
+  }
+
+  function restoreTabs(saved) {
+    for (const [table, value] of Object.entries(saved ?? {})) {
+      if (local[table] !== "tab" ||
+          JSON.stringify(value.schema) !== JSON.stringify(cfg.schema?.[table])) continue;
+      if (preparedAt.has(table)) throw new Error(`tab recovery after ${table} was prepared`);
+      restoredTabs.set(table, value.rows);
+    }
+  }
+
+  return { query, add, write, patch, drop, dropWhere, upsertBy, subscribe, flushNotifications, tabSnapshot, restoreTabs };
 }

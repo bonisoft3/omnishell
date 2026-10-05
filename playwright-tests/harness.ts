@@ -34,7 +34,7 @@ export { afterAll, afterEach, beforeAll, beforeEach } from "jsr:@std/testing@1/b
 export { expect } from "jsr:@std/expect@1"
 export type { Page }
 
-export type PageOptions = { viewport?: { width: number; height: number } }
+export type PageOptions = { viewport?: { width: number; height: number }; locale?: string }
 
 let shared: Browser | null = null
 

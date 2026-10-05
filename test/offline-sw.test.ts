@@ -19,8 +19,11 @@ function worker(initial: string | null, cacheControl = "public, no-cache") {
   let served = initial
   let status = 200
   let control = cacheControl
+  let rejectCacheWrites = false
   const store = new Map<string, Response>()
   const posted: unknown[] = []
+  const lifetime: Promise<unknown>[] = []
+  const key = (req: Request | string) => typeof req === "string" ? new URL(req, self.location.origin).href : req.url
   const handlers: Record<string, (e: unknown) => void> = {}
   const self = {
     location: { origin: "https://app.test" },
@@ -31,9 +34,11 @@ function worker(initial: string | null, cacheControl = "public, no-cache") {
   const caches = {
     open: () =>
       Promise.resolve({
-        match: (req: Request) => Promise.resolve(store.get(req.url)?.clone()),
-        put: (req: Request, res: Response) => Promise.resolve(void store.set(req.url, res)),
-        delete: (req: Request) => Promise.resolve(store.delete(req.url)),
+        match: (req: Request) => Promise.resolve(store.get(key(req))?.clone()),
+        put: (req: Request, res: Response) => rejectCacheWrites
+          ? Promise.reject(new Error("cache full"))
+          : Promise.resolve(void store.set(key(req), res)),
+        delete: (req: Request) => Promise.resolve(store.delete(key(req))),
         addAll: () => Promise.resolve(),
       }),
     keys: () => Promise.resolve([]),
@@ -53,13 +58,14 @@ function worker(initial: string | null, cacheControl = "public, no-cache") {
     // A Request cannot be constructed in navigate mode; the worker reads only
     // these four.
     const req = { method: "GET", url: `https://app.test${path}`, mode, cache }
-    handlers.fetch({ request: req, respondWith: (p: Promise<Response>) => (answer = p) })
+    handlers.fetch({ request: req, respondWith: (p: Promise<Response>) => (answer = p),
+      waitUntil: (p: Promise<unknown>) => lifetime.push(p) })
     return await answer!
   }
   const get = async (path: string, mode = "cors", cache = "default") => {
     const text = await (await raw(path, mode, cache)).text()
     // The revalidation outlives the answer when a cached copy was served.
-    await new Promise((r) => setTimeout(r, 10))
+    await Promise.all(lifetime.splice(0))
     return text
   }
   const serve = (next: string | null, answer = 200, cc = cacheControl) => {
@@ -67,10 +73,38 @@ function worker(initial: string | null, cacheControl = "public, no-cache") {
     status = answer
     control = cc
   }
-  return { get, raw, posted, store, serve }
+  return { get, raw, posted, store, serve,
+    rejectWrites: () => { rejectCacheWrites = true },
+    settle: () => Promise.allSettled(lifetime.splice(0)) }
 }
 
 describe("the offline service worker", () => {
+  it("answers from its copy while refreshing it for the next request", async () => {
+    const sw = worker("old")
+    await sw.get("/messages/pt-BR.json")
+    sw.serve("new")
+    expect(await sw.get("/messages/pt-BR.json")).toBe("old")
+    expect(await sw.get("/messages/pt-BR.json")).toBe("new")
+    sw.serve(null)
+    expect(await sw.get("/messages/pt-BR.json")).toBe("new")
+  })
+
+  it("returns a successful uncached navigation when Cache Storage cannot retain it", async () => {
+    const sw = worker("ready")
+    sw.rejectWrites()
+    const response = await sw.raw("/", "navigate")
+    expect(await response.text()).toBe("ready")
+    expect((await sw.settle())[0].status).toBe("rejected")
+  })
+
+  it("drops a navigation made private", async () => {
+    const sw = worker("public")
+    await sw.get("/conta", "navigate")
+    sw.serve("mine", 200, "private, no-store")
+    expect(await sw.get("/conta", "navigate")).toBe("public")
+    expect(sw.store.has("https://app.test/conta")).toBe(false)
+  })
+
   it("does not announce a skeleton it is fetching for the first time", async () => {
     const sw = worker("<section class=\"screen\"></section>")
     expect(await sw.get("/shell/screens/select.html")).toBe("<section class=\"screen\"></section>")
@@ -87,6 +121,17 @@ describe("the offline service worker", () => {
       url: "https://app.test/shell/screens/select.html",
       pathname: "/shell/screens/select.html",
       html: "<section class=\"screen\">new</section>",
+    }])
+  })
+
+  it("announces a changed code asset to the running shell", async () => {
+    const sw = worker("new code")
+    sw.store.set("https://app.test/omnishell/interpreter/shell.js", new Response("old code"))
+    expect(await sw.get("/omnishell/interpreter/shell.js")).toBe("old code")
+    expect(sw.posted).toEqual([{
+      type: "PRONTO_ASSET_UPDATED",
+      url: "https://app.test/omnishell/interpreter/shell.js",
+      pathname: "/omnishell/interpreter/shell.js",
     }])
   })
 

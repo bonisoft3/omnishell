@@ -83,6 +83,25 @@ Deno.test({
 });
 
 Deno.test({
+  name: "tab recovery replaces bootstrap rows before the first read",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withBrowser({}, async (createStore) => {
+      const first = await createStore("", { ...config(), carriers: FIXTURE_CARRIERS });
+      await first.query("command", null, {});
+      await first.drop("command", ["search"]);
+      const snapshot = await first.tabSnapshot();
+      const next = await createStore("", { ...config(), carriers: FIXTURE_CARRIERS });
+      next.restoreTabs(snapshot);
+      const rows = await next.query("command", null, {});
+      assert(rows.length === 2, `recovery restores the deletion without duplicate seeds: ${JSON.stringify(rows)}`);
+      assert(!rows.some((row) => row.id === "search"), "the removed row stays removed");
+    });
+  },
+});
+
+Deno.test({
   name: "a seed row with no key is a program error, not a row the store invents one for",
   sanitizeOps: false,
   sanitizeResources: false,

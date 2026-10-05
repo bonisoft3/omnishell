@@ -35,11 +35,10 @@ describe("deleteSpec", () => {
 })
 
 // data-sync refuses the same cap, before it touches any collection.
-describe("data-sync dropWhere", () => {
-  it("refuses a limit before reconciling", async () => {
-    const store = await createStore()
-    let err: Error | undefined
-    await store.dropWhere("note", "kind=eq.card&limit=1").catch((e: Error) => (err = e))
-    expect(String(err)).toMatch(/carries a limit/)
-  })
-})
+// The store's offline executor runs until page exit.
+Deno.test({ name: "data-sync dropWhere refuses a limit before reconciling", sanitizeOps: false, sanitizeResources: false, fn: async () => {
+  const store = await createStore()
+  let err: Error | undefined
+  await store.dropWhere("note", "kind=eq.card&limit=1").catch((e: Error) => (err = e))
+  expect(String(err)).toMatch(/carries a limit/)
+} })

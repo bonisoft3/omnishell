@@ -89,6 +89,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 
 #Terminal: T={
 	app: string
+	liveUpdates: *false | bool
 	// Fills the entry page's meta description. Double quotes would close the
 	// attribute they land in.
 	description: string
@@ -288,15 +289,15 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 		sw: *"offline-first-sw.js" | string
 
 		assets: {
-			html: strings.Replace(
+			html: strings.Replace(strings.Replace(
 				strings.Replace(
 					strings.Replace(
 						strings.Replace(_shellHtmlAsset, "{description}", T.description, 1),
 						"{language}", T.language, 1),
 					"{direction}", T.direction, 1),
-				"{modulepreload}", _preloadHtml, 1)
+				"{modulepreload}", _preloadHtml, 1), "{sharedstyles}", _sharedStyles, 1)
 			css:  _shellCssAsset
-			boot: *_bootJsAsset | string
+			boot: *strings.Replace(_bootJsAsset, "liveUpdates: false", "liveUpdates: \(T.liveUpdates)", 1) | string
 			sw:   _swJsAsset
 		}
 
@@ -403,12 +404,19 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 		modules: [...#Path]
 		modules: [
 			"shell.js", "chrome.js", "screen.js", "fragment.js", "data-sync.js", "validate.js", "render.js",
+			"release-plan.js", "release-assets.js", "preloads.js",
 			"hatch.js", "hatch-worker.js", "storybook.js", "jessie.js", "kinetic.js", "prng.js",
 			"vendor/mecha-client.js", "vendor/js-yaml.js", "vendor/ses.umd.min.js", "vendor/morphlex.js",
 			"vendor/messages.js",
 		]
 
-		screens: [...{name: string, html: #Path, css: #Path}]
+		screens: [...{name: string, html: #Path, css: #Path, shared: *[] | [...#Path]}]
+		// A stylesheet every screen imports defines the frame before any screen
+		// loads. Route-specific imports remain with their screen.
+		_sharedStyles: strings.Join([for p in shared if len(screens) > 0
+			if len([for s in screens if !list.Contains(s.shared, p) {s.name}]) == 0 {
+				"<link rel=\"stylesheet\" href=\"../\(p)\">"
+			}], "\n")
 
 		handlers: [...#Jessie]
 		handlers: *[] | [...#Jessie]
@@ -549,6 +557,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 				{file: "shell/shell.json", target: "/srv/shell/shell.json", watch: true},
 				{file: "shell/design.css", target: "/srv/shell/design.css", watch: true},
 			],
+			[if T.liveUpdates {{file: "shell/release.json", target: "/srv/shell/release.json", watch: true}}],
 			[for s in T.surface.screens for kind in ["html", "css"] {
 				file:   s[kind]
 				target: "/srv/\(s[kind])"

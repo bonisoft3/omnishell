@@ -23,6 +23,7 @@ import {
   Unanswered,
 } from "./fragment.js";
 import { evaluateRole } from "./jessie.js";
+import { releaseReader } from "./release-assets.js";
 
 export async function fetchText(url, init) {
   const res = await fetch(url, init).catch((err) => {
@@ -32,6 +33,43 @@ export async function fetchText(url, init) {
   if (res.status >= 500) throw new Unanswered(`${res.status} fetching ${url}`);
   if (!res.ok) throw new Error(`${res.status} fetching ${url}`);
   return res.text();
+}
+
+const stylesheetLoads = new WeakMap();
+function releaseStyle(id, css) {
+  const prior = document.getElementById(id);
+  const loading = stylesheetLoads.get(prior);
+  if (loading?.css === css) return loading.ready;
+  if (loading && !loading.done) return loading.ready.then(() => releaseStyle(id, css));
+  const style = document.createElement("style");
+  style.id = id;
+  // Populate before insertion: appending an empty sheet first can fire a
+  // load event before its imports finish. Keep the prior sheet until ready.
+  style.textContent = css;
+  const entry = { css, done: false, ready: null };
+  entry.ready = new Promise((resolve, reject) => {
+    const finish = (event) => {
+      entry.done = true;
+      style.removeEventListener("load", finish);
+      style.removeEventListener("error", finish);
+      if (event.type === "load") {
+        prior?.remove();
+        resolve();
+      } else {
+        style.remove();
+        if (prior) prior.id = id;
+        reject(new Error(`failed to load stylesheet ${id}`));
+      }
+    };
+    style.addEventListener("load", finish);
+    style.addEventListener("error", finish);
+  });
+  stylesheetLoads.set(style, entry);
+  if (prior) {
+    prior.removeAttribute("id");
+    prior.after(style);
+  } else document.head.append(style);
+  return entry.ready;
 }
 
 // A screen's files asked for ahead of its mount, each taken once: the next
@@ -216,7 +254,7 @@ const mintUuid = () => {
 // Every role resolves the same way: the attribute names the role, its value
 // names the module, and route.files.handlers is the app's list of Jessie
 // sources whatever role each one plays.
-async function loadRole(screen, appBase, route, attr, role, listed = "handlers", endowmentsMap = {}) {
+async function loadRole(screen, appBase, route, attr, role, listed = "handlers", endowmentsMap = {}, read = fetchText) {
   const loaded = new Map();
   for (const el of screen.querySelectorAll(`[${attr}]`)) {
     const name = el.getAttribute(attr);
@@ -224,7 +262,7 @@ async function loadRole(screen, appBase, route, attr, role, listed = "handlers",
     const path = (route.files[listed] ?? []).find((p) => p.split("/").pop() === `${name}.js`);
     if (!path) throw new Error(`no Jessie module for ${attr}="${name}"`);
     const granted = endowmentsMap[path] ?? endowmentsMap[name] ?? endowmentsMap[`${name}.js`] ?? [];
-    loaded.set(name, await evaluateRole(await fetchText(new URL(path, appBase)), role, granted));
+    loaded.set(name, await evaluateRole(await read(new URL(path, appBase)), role, granted));
   }
   return loaded;
 }
@@ -253,8 +291,8 @@ function adapterOf(el, ctx) {
   return adapter;
 }
 
-async function loadAdapters(screen, appBase, route, endowmentsMap = {}) {
-  const loaded = await loadRole(screen, appBase, route, "data-value-adapter", "adapter", "adapters", endowmentsMap);
+async function loadAdapters(screen, appBase, route, endowmentsMap = {}, read = fetchText) {
+  const loaded = await loadRole(screen, appBase, route, "data-value-adapter", "adapter", "adapters", endowmentsMap, read);
   // A control in an item template is bound per row, and its markup is not in
   // the screen's own tree — the same reason loadHandlers and loadRenderers
   // walk withTemplates.
@@ -265,14 +303,14 @@ async function loadAdapters(screen, appBase, route, endowmentsMap = {}) {
       const path = (route.files.adapters ?? []).find((p) => p.split("/").pop() === `${name}.js`);
       if (!path) throw new Error(`no Jessie module for data-value-adapter="${name}"`);
       const granted = endowmentsMap[path] ?? endowmentsMap[name] ?? endowmentsMap[`${name}.js`] ?? [];
-      loaded.set(name, await evaluateRole(await fetchText(new URL(path, appBase)), "adapter", granted));
+      loaded.set(name, await evaluateRole(await read(new URL(path, appBase)), "adapter", granted));
     }
   }
   return loaded;
 }
 
-async function loadHandlers(screen, appBase, route, endowmentsMap = {}) {
-  const loaded = await loadRole(screen, appBase, route, "data-handler", "handler", "handlers", endowmentsMap);
+async function loadHandlers(screen, appBase, route, endowmentsMap = {}, read = fetchText) {
+  const loaded = await loadRole(screen, appBase, route, "data-handler", "handler", "handlers", endowmentsMap, read);
   // The same modules, reached by the other spelling. An item's handler lives in
   // a template, whose markup is never in the screen's own tree.
   for (const scope of withTemplates(screen)) {
@@ -282,7 +320,7 @@ async function loadHandlers(screen, appBase, route, endowmentsMap = {}) {
         const path = route.files.handlers.find((f) => f.split("/").pop() === `${name}.js`);
         if (!path) throw new Error(`no Jessie module for data-on-* handler "${name}"`);
         const granted = endowmentsMap[path] ?? endowmentsMap[name] ?? endowmentsMap[`${name}.js`] ?? [];
-        loaded.set(name, await evaluateRole(await fetchText(new URL(path, appBase)), "handler", granted));
+        loaded.set(name, await evaluateRole(await read(new URL(path, appBase)), "handler", granted));
       }
     }
   }
@@ -301,14 +339,14 @@ async function loadHandlers(screen, appBase, route, endowmentsMap = {}) {
           const path = route.files.handlers.find((f) => f.split("/").pop() === `${name}.js`);
           if (!path) throw new Error(`no Jessie module for machine reference "${name}"`);
           const granted = endowmentsMap[path] ?? endowmentsMap[name] ?? endowmentsMap[`${name}.js`] ?? [];
-          loaded.set(name, await evaluateRole(await fetchText(new URL(path, appBase)), "handler", granted));
+          loaded.set(name, await evaluateRole(await read(new URL(path, appBase)), "handler", granted));
         }
         for (const name of shape.assignStrings) {
           if (loaded.has(name)) continue;
           const path = route.files.handlers.find((f) => f.split("/").pop() === `${name}.js`);
           if (path) {
             const granted = endowmentsMap[path] ?? endowmentsMap[name] ?? endowmentsMap[`${name}.js`] ?? [];
-            loaded.set(name, await evaluateRole(await fetchText(new URL(path, appBase)), "handler", granted));
+            loaded.set(name, await evaluateRole(await read(new URL(path, appBase)), "handler", granted));
           }
         }
       }
@@ -338,7 +376,7 @@ const TEXT_FORMATS = new Set(["plain", "datetime", "number"]);
 // sentence around it. plain is not one: it is the default spelled out.
 const VALUE_FORMATS = new Set(["datetime", "number"]);
 
-async function loadRenderers(screen, appBase, route, endowmentsMap = {}) {
+async function loadRenderers(screen, appBase, route, endowmentsMap = {}, read = fetchText) {
   const declared = route.files.renderers ?? [];
   for (const path of declared) {
     const name = path.split("/").pop().replace(/\.js$/, "");
@@ -356,7 +394,7 @@ async function loadRenderers(screen, appBase, route, endowmentsMap = {}) {
       const path = declared.find((p) => p.split("/").pop() === `${name}.js`);
       if (!path) throw new Error(`no renderer module for data-text-format="${name}"`);
       const granted = endowmentsMap[path] ?? endowmentsMap[name] ?? endowmentsMap[`${name}.js`] ?? [];
-      loaded[name] = await evaluateRole(await fetchText(new URL(path, appBase)), "renderer", granted);
+      loaded[name] = await evaluateRole(await read(new URL(path, appBase)), "renderer", granted);
     }
   }
   return loaded;
@@ -1074,7 +1112,7 @@ function noteColumns(region, item) {
  */
 /** A form with no submit button submits on change: its controls carry the
  * row's state rather than an edit waiting to be sent. */
-function submitsOnChange(form) {
+export function submitsOnChange(form) {
   return form !== null && form !== undefined && !form.querySelector('button, [type="submit"]');
 }
 
@@ -1325,8 +1363,9 @@ function staticOrParam(template, ctx) {
 // opts.navigate is how a navigate form reaches the terminal's stack.
 export async function interpretScreen(mount, appBase, route, store, params = {}, opts = {}) {
   const screenOpts = opts;
+  const read = opts.release ? releaseReader() : fetchText;
   const files = [new URL(route.files.html, appBase), new URL(route.files.css, appBase)];
-  let [html, css] = await Promise.all(files.map(screenFile));
+  let [html, css] = await Promise.all(files.map(opts.release ? read : screenFile));
   const styleId = `screen-css-${route.screen}`;
   // A document the shell was served or kept for this address (document.js): its
   // screen is taken over where it stands rather than drawn again, so nothing
@@ -1336,16 +1375,19 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // old, and a hash cannot say which of two is the newer. Where they disagree
   // the network says which is current: a revalidating request, which the
   // worker answers past its copy (offline-first-sw.js).
-  if (served !== undefined && (served.cas !== templateHash(html) || document.getElementById(styleId)?.textContent !== css)) {
+  if (!opts.release && served !== undefined && (served.cas !== templateHash(html) || document.getElementById(styleId)?.textContent !== css)) {
     [html, css] = await Promise.all(files.map((url) => fetchText(url, { cache: "no-cache" })));
   }
-  const style = document.getElementById(styleId);
-  if (style === null) {
-    const fresh = document.createElement("style");
-    fresh.id = styleId;
-    fresh.textContent = css;
-    document.head.append(fresh);
-  } else if (style.textContent !== css) style.textContent = css;
+  if (opts.release) await releaseStyle(styleId, css);
+  else {
+    let style = document.getElementById(styleId);
+    if (style === null) {
+      style = document.createElement("style");
+      style.id = styleId;
+      document.head.append(style);
+    }
+    if (style.textContent !== css) style.textContent = css;
+  }
 
   // Subscriptions of the previously mounted screen would refresh dead DOM and
   // keep their poll keys hot — stop them before mounting the next one.
@@ -1354,6 +1396,68 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   mount._prontoStops = cleanups;
   // One seat per data-on-mutation handler, screen-wide (see wireEvents).
   const folds = new Map();
+  const work = new Set();
+  const derived = new Map();
+  const dirty = new Set();
+  let failure;
+  let settling;
+  const failed = (err) => {
+    failure ??= err;
+  };
+  const track = (promise) => {
+    const tracked = promise.then((value) => {
+      work.delete(tracked);
+      return value;
+    }, (err) => {
+      work.delete(tracked);
+      failed(err);
+      throw err;
+    });
+    work.add(tracked);
+    return tracked;
+  };
+  const finite = (run) => {
+    // A seat's finally can start another fold. Its lifecycle belongs to
+    // readiness until the chain explicitly hands control to a future timer.
+    let pause;
+    const waiting = new Promise((resolve) => (pause = resolve));
+    const running = run(pause);
+    track(Promise.race([running, waiting])).catch(failed);
+    return running;
+  };
+  const checkSettlement = (region) => {
+    if (settling === undefined) return;
+    const passes = (settling.get(region) ?? 0) + 1;
+    settling.set(region, passes);
+    if (passes > 256) throw new ProgramError(`screen did not settle: ${region.dataset.live} exceeded 256 passes`);
+  };
+  const settle = async () => {
+    if (settling !== undefined) throw new Error("screen settlement is already running");
+    settling = new Map();
+    try {
+      for (let turns = 0;; turns++) {
+        if (turns >= 256) throw new ProgramError("screen did not settle in 256 turns");
+        if (failure !== undefined) throw failure;
+        await Promise.allSettled([...work]);
+        // A completed fold can enqueue its next seat or a store wake after
+        // the promise it wrote through answers. Drain those before declaring
+        // the document complete, without waiting on the store's streams.
+        await Promise.resolve();
+        const wakes = store.flushNotifications?.() ?? 0;
+        const changed = [...dirty];
+        dirty.clear();
+        // A child can read an absent seed before its parent writes it. The
+        // parent's fallback and stored row bind identically, so no ordinary
+        // nested rebind wakes that auxiliary read.
+        const readers = new Set(changed.flatMap((table) => [...(derived.get(table) ?? [])]));
+        for (const refresh of readers) refresh();
+        if (failure !== undefined) throw failure;
+        if (work.size === 0 && wakes === 0 && dirty.size === 0) return;
+      }
+    } finally {
+      settling = undefined;
+    }
+  };
 
   // The screen as its template states it, every {param.*} and {msg.*}
   // resolved: what a mount connects, and what a served screen is read against
@@ -1511,11 +1615,11 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     ...(route.files?.endowments ?? {}),
     ...(route.endowments ?? {}),
   };
-  const handlers = opts.handlers === false ? new Map() : await loadHandlers(markup, appBase, route, endowmentsMap);
-  adapters = opts.handlers === false ? null : await loadAdapters(markup, appBase, route, endowmentsMap);
+  const handlers = opts.handlers === false ? new Map() : await loadHandlers(markup, appBase, route, endowmentsMap, read);
+  adapters = opts.handlers === false ? null : await loadAdapters(markup, appBase, route, endowmentsMap, read);
   const renderers = opts.handlers === false
     ? {}
-    : await loadRenderers(markup, appBase, route, endowmentsMap);
+    : await loadRenderers(markup, appBase, route, endowmentsMap, read);
 
   const units = opts.units ?? {};
   const resolveUnit = (name) => {
@@ -1555,6 +1659,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     return named;
   };
   let namedTemplates = templatesOf(markup);
+  // Drafts return after adoption checks the template's structure, before
+  // a pending read lets the reader edit the replacement controls.
+  let preserveMorph;
   const resolveTemplate = (name) => {
     const t = namedTemplates.get(name);
     if (t === undefined) throw new Error(`no template declares data-name="${name}"`);
@@ -2090,6 +2197,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           deliver(entity, id, err);
           return false;
         }
+        dirty.add(entity);
         at = upto;
       }
       return true;
@@ -2138,6 +2246,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           return false;
         }
         if (refused) return false;
+        dirty.add(entity);
         if (machineAck.length > 0) {
           const ackEvent = { type: "sync_ack", entity, token: eff.token };
           for (const hear of machineAck) hear(ackEvent);
@@ -2146,25 +2255,28 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       return true;
     };
 
-    const step = async (reduce, event, depth) => {
-      const result = reduce({ items: getRows(), rows: await worldOf() }, event);
-      // A `then` that is callable is a promise, not a command: an async reduce
-      // otherwise resolves to undefined updates and does nothing at all.
-      if (typeof result?.then === "function") {
-        throw new Error(`handler for "${event.type}" returned a promise; a reduce returns its updates`);
-      }
-      if (!await applyUpdates(result?.updates ?? [], deliver)) return;
-      if (result?.effects && result.effects.length > 0) {
-        if (!await applyEffects(result.effects, deliver)) return;
-      }
-      const next = result?.then;
+    const step = async (reduce, event, depth, pause) => {
+      const next = await track((async () => {
+        checkSettlement(region);
+        const result = reduce({ items: getRows(), rows: await worldOf() }, event);
+        // A promise is not a continuation command and cannot be a reduce.
+        if (typeof result?.then === "function") {
+          throw new Error(`handler for "${event.type}" returned a promise; a reduce returns its updates`);
+        }
+        if (!await applyUpdates(result?.updates ?? [], deliver)) return;
+        if (result?.effects && result.effects.length > 0) {
+          if (!await applyEffects(result.effects, deliver)) return;
+        }
+        if (result?.then?.type && depth + 1 >= STEPS) {
+          throw new Error(`handler chain did not settle in ${STEPS} steps at "${result.then.type}"`);
+        }
+        return result?.then;
+      })());
       if (!next?.type) return;
-      // The terminal owns the depth. A cascade with no owner has no end, and
-      // an app cannot bound one it cannot see.
-      if (depth + 1 >= STEPS) {
-        throw new Error(`handler chain did not settle in ${STEPS} steps at "${next.type}"`);
+      if (next.delay > 0) {
+        pause?.();
+        await rest(next.delay / TEMPO, { kind: "then", type: next.type });
       }
-      if (next.delay > 0) await rest(next.delay / TEMPO, { kind: "then", type: next.type });
       const carried = { type: next.type };
       // A draw the reduce asked for. It has no randomness of its own — the
       // compartment endows nothing — so it says it wants one and is called
@@ -2173,7 +2285,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       // draws from that instead, and the same run comes back.
       if (next.seed === true) carried.seed = draw();
       if (next.with !== undefined) carried.with = next.with;
-      await step(reduce, carried, depth + 1);
+      await step(reduce, carried, depth + 1, pause);
     };
 
     const bind = (el, id) => {
@@ -2695,11 +2807,11 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
 
       // Every invocation arms the state its chain ended in; the entered flag
       // is set even on a self-target, which is what re-arms the timer.
-      const runMachine = async (reduce, event) => {
+      const runMachine = (reduce, event) => finite(async (pause) => {
         entered = undefined;
-        await step(reduce, event, 0);
+        await step(reduce, event, 0, pause);
         if (entered !== undefined) armAfter(entered);
-      };
+      });
 
       // `after` is the relocated invoke: armed on state entry, canceled on
       // exit, re-armed by a self-target, performed by the terminal's clock.
@@ -2832,7 +2944,10 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         const node = resolveStateNode(current);
         if (node?.always !== undefined) {
           const alwaysList = machineCandidates(node.always).map((c, index) => ({ c, key: "always", index, origin: current }));
-          runMachine((state, event) => apply(machineRow(state), event, alwaysList), { type: "always" }).catch(console.error);
+          runMachine((state, event) => apply(machineRow(state), event, alwaysList), { type: "always" }).catch((err) => {
+            failed(err);
+            console.error(err);
+          });
         }
       }
     }
@@ -2866,9 +2981,11 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       const seatKey = [
         region.dataset.onMutation,
         ...reads,
-        ...[...region.attributes]
-          .filter((a) => a.name.startsWith("data-read-"))
-          .map((a) => `${a.name}=${a.value}`)
+        ...named
+          .map((r) => JSON.stringify([
+            r.name, r.table, r.order ?? null,
+            r.filter === undefined ? null : interpolateFilter(r.filter, ctx),
+          ]))
           .sort(),
       ].join("\u0000");
       const seat = folds.get(seatKey) ?? { running: false, again: false };
@@ -2877,17 +2994,20 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       else {
         const wake = () => {
           seat.running = true;
-          step(rowsReduce, { type: "mutation" }, 0)
+          let rejected = false;
+          finite((pause) => step(rowsReduce, { type: "mutation" }, 0, pause)
             .catch((err) => {
+              rejected = true;
+              failed(err);
               console.error(err);
               setState("network-error");
             })
             .finally(() => {
               seat.running = false;
-              if (!seat.again) return;
+              if (!seat.again || rejected) return;
               seat.again = false;
               wake();
-            });
+            }));
         };
         wake();
       }
@@ -3635,6 +3755,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       try {
         do {
           queued = false;
+          checkSettlement(region);
           await refresh(changes);
           changes = queuedChanges;
           queuedChanges = undefined;
@@ -3675,12 +3796,14 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       const said = outages.delete(guarded);
       if ((clears || said) && outages.size === 0 && screen.dataset.state === "network-error") setState(base);
     };
-    const guarded = async (changes) => {
+    const guarded = (changes) => track((async () => {
+      if (stopped) return;
       clearTimeout(retryTimer);
       try {
         // A wake queued behind a pass in flight has painted nothing; the
         // call running the pass answers for it.
         const ran = await refreshSerially(stale ? undefined : changes);
+        if (stopped) return;
         stale = false;
         retryMs = 2000;
         if (ran) {
@@ -3689,6 +3812,8 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           recovered(top);
         }
       } catch (err) {
+        if (stopped) return;
+        failed(err);
         stale = true;
         // A slot that matched two rows, or a row no template admits, is a
         // broken invariant, not an outage: no retry can repair it, and the
@@ -3709,7 +3834,17 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         retryTimer = setTimeout(guarded, retryMs);
         retryMs = Math.min(retryMs * 2, 15000);
       }
-    };
+    })());
+    const dependencies = new Set([
+      ...(region.dataset.reads ?? "").split(",").map((table) => table.trim()).filter(Boolean),
+      ...[...region.attributes].filter((attr) => attr.name.startsWith("data-read-"))
+        .map((attr) => parseReadSpec(attr.value).table),
+    ]);
+    for (const dependency of dependencies) {
+      const readers = derived.get(dependency) ?? new Set();
+      readers.add(guarded);
+      derived.set(dependency, readers);
+    }
     let unsub = store.subscribe(table, guarded, opts);
     const detach = () => {
       clearTimeout(retryTimer);
@@ -3724,7 +3859,16 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       unsub?.();
       unsub = null;
     };
-    cleanups.push(detach);
+    const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      for (const dependency of dependencies) derived.get(dependency).delete(guarded);
+      detach();
+      dropAll();
+      paint?.resolve();
+      recovered(false);
+    };
+    cleanups.push(stop);
     // A slot's forms act on its one row: wired as it hydrates, and as a newer
     // template brings more (retemplate).
     const wireSlotForms = () => {
@@ -3765,6 +3909,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           adoptTree(from, region, { rows: true, scripts: false, live: true, pairs, enter: true });
           retemplateNested(live.get(SLOT)?.nested ?? new Map(), pairs, ready);
           wireSlotForms();
+          preserveMorph?.();
           await Promise.all(ready);
           return guarded();
         }
@@ -3790,6 +3935,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           // again reaches only what the newer item added.
           entry.wired = false;
         }
+        preserveMorph?.();
         await Promise.all(ready);
         return guarded();
       },
@@ -3803,13 +3949,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         eachNested((h) => h.resume());
         return guarded();
       },
-      stop: () => {
-        stopped = true;
-        detach();
-        dropAll();
-        paint?.resolve();
-        recovered(false);
-      },
+      stop,
     };
   }
 
@@ -3875,6 +4015,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // (retemplate). A region it adds, or whose read it changes, is hydrated
   // where it stands, as the mount would have, and one it drops is stopped.
   const morph = async (newHtml) => {
+    const read = opts.release ? releaseReader() : fetchText;
     const next = prepare(newHtml);
     // Everything the mount refuses or loads before anything hydrates, before
     // the running screen or anything it reads by name is touched: a template
@@ -3884,9 +4025,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     }
     const named = templatesOf(next);
     const modules = opts.handlers === false ? null : {
-      handlers: await loadHandlers(next, appBase, route, endowmentsMap),
-      adapters: await loadAdapters(next, appBase, route, endowmentsMap),
-      renderers: await loadRenderers(next, appBase, route, endowmentsMap),
+      handlers: await loadHandlers(next, appBase, route, endowmentsMap, read),
+      adapters: await loadAdapters(next, appBase, route, endowmentsMap, read),
+      renderers: await loadRenderers(next, appBase, route, endowmentsMap, read),
     };
     namedTemplates = named;
     if (modules !== null) {
@@ -3923,6 +4064,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       ready.push(h.ready);
     }
     wireScreen();
+    preserveMorph?.();
     await Promise.all(ready);
     base = standing;
     setState(state);
@@ -3933,6 +4075,14 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // template names, and a later one landing first would be morphed back.
   let morphing = Promise.resolve();
   return {
+    settle,
+    updateStyle: async (css) => {
+      if (opts.release) await releaseStyle(styleId, css);
+      else {
+        const style = document.getElementById(styleId);
+        if (style.textContent !== css) style.textContent = css;
+      }
+    },
     // Which template this screen was drawn from (templateHash).
     cas,
     pause: () => {
@@ -3946,11 +4096,16 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     stop: () => {
       held = "stopped";
       for (const r of regions) r.stop();
+      for (const cleanup of cleanups.splice(0)) cleanup();
     },
     // Its words written again, in the catalogues as they now stand.
     localize: () => localize(screen),
-    morph: (newHtml) => {
-      const turn = morphing.then(() => morph(newHtml));
+    morph: (newHtml, { preserve } = {}) => {
+      const turn = morphing.then(async () => {
+        preserveMorph = preserve;
+        try { await morph(newHtml); }
+        finally { preserveMorph = undefined; }
+      });
       morphing = turn.then(() => {}, () => {});
       return turn;
     },

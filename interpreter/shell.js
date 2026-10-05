@@ -15,8 +15,31 @@
 
 import { chromeText, describe, drawStrip, guestBox, hasStrip, localizeStrip } from "./chrome.js";
 import { localeByPath, localeTable, resolveLocale, routeHref, routePattern, screenEnv, Unanswered } from "./fragment.js";
-import { fetchText, interpretScreen, prefetchScreen, templateHash } from "./screen.js";
+import { fetchText, interpretScreen, prefetchScreen, templateHash, submitsOnChange } from "./screen.js";
 import { compileCatalog } from "./vendor/messages.js";
+import { planRelease } from "./release-plan.js";
+import { activateRelease, fetchRelease, prepareRestartRelease, readAsset, startupReleaseId } from "./release-assets.js";
+import { preloadScreen } from "./preloads.js";
+
+const recoveryKey = "pronto-live-update-recovery";
+const sessionOwner = (session) => {
+  if (session === null) return null;
+  const subject = claimsOf(session.token)?.sub ?? session.user?.id;
+  return JSON.stringify(subject === undefined ? ["token", session.token] : ["subject", subject]);
+};
+const forgetSession = () => {
+  sessionStorage.removeItem(recoveryKey);
+  sessionStorage.removeItem("pronto-token");
+};
+const storedSessionOwner = () => {
+  try {
+    return sessionOwner(JSON.parse(sessionStorage.getItem("pronto-token") ?? "null"));
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    forgetSession();
+    return undefined;
+  }
+};
 
 /** Whether the account a stored token names still exists.
  *
@@ -264,6 +287,7 @@ function renderSession(session, cfg, store, signOut, chrome, served = null) {
         signIn.textContent = chrome(signIn.dataset.key, document.documentElement.lang);
         return;
       }
+      if (sessionOwner(next) !== sessionOwner(session)) sessionStorage.removeItem(recoveryKey);
       sessionStorage.setItem("pronto-token", JSON.stringify(next));
       location.reload();
     });
@@ -338,7 +362,7 @@ function matchRoute(pattern, path) {
   // /note/7?id=9 is note 7. Refusing the pair instead would let any pasted URL
   // take the screen down, which is not a visitor's to do.
   if (queryString) {
-    for (const [k, v] of new URLSearchParams(queryString)) params[k] = v;
+    for (const [k, v] of new URLSearchParams(queryString)) if (k !== "pronto-release") params[k] = v;
   }
   for (let i = 0; i < ps.length; i++) {
     if (ps[i].startsWith(":") && xs[i]) params[ps[i].slice(1)] = decodeURIComponent(xs[i]);
@@ -423,7 +447,7 @@ export function routeAt(cfg, pathname, search, preferred) {
  * newer copy once the one asked has landed, so the older cannot land after
  * it; `taken` counts what has been taken, which a screen compares with what it
  * was last written in. */
-function catalogues(appBase, i18n) {
+function catalogues(appBase, i18n, release = false) {
   const messages = {};
   const witnessed = {};
   const asked = new Map();
@@ -436,11 +460,14 @@ function catalogues(appBase, i18n) {
     witnessed[loc] = templateHash(text);
     taken++;
   };
-  const load = (loc, init) =>
-    fetch(urlOf(loc), init).then(async (res) => {
+  const load = async (loc, init) => {
+    if (release) take(loc, await readAsset(urlOf(loc)));
+    else {
+      const res = await fetch(urlOf(loc), init);
       if (res.ok) take(loc, await res.text());
-      answered.add(loc);
-    });
+    }
+    answered.add(loc);
+  };
   const ensure = (loc) => {
     if (loc === undefined || !Object.hasOwn(declared, loc)) return Promise.resolve();
     let pending = asked.get(loc);
@@ -478,13 +505,129 @@ function catalogues(appBase, i18n) {
   };
 }
 
-export async function createShell({ config, mount }) {
+export async function createShell({ config, mount, liveUpdates = false }) {
+  let initialDraftOwner = liveUpdates ? storedSessionOwner() : null;
+  const editedFields = new WeakSet();
+  const morphDrafts = new Map();
+  if (liveUpdates) {
+    for (const type of ["input", "change"]) {
+      document.addEventListener(type, (event) => {
+        const field = event.target?.closest?.("input, textarea, select, [contenteditable]");
+        if (!field) return;
+        const changed = field.type === "radio" && field.name
+          ? [...document.querySelectorAll('input[type="radio"]')].filter(candidate =>
+            candidate.name === field.name && candidate.form === field.form)
+          : [field];
+        for (const candidate of changed) editedFields.add(candidate);
+        for (const [el, saved] of morphDrafts) {
+          if (!el.contains(field)) continue;
+          for (const [candidate, key] of keyedFields(el)) {
+            if (changed.includes(candidate)) saved.set(key, captureField(candidate));
+          }
+        }
+      }, true);
+    }
+  }
+  const fields = (el) => [...el.querySelectorAll("input, textarea, select, [contenteditable]")]
+    .filter((field) => field.type !== "password" && field.type !== "file" &&
+      (field.id || field.name));
+  const keyedFields = (el) => {
+    const candidates = fields(el).map((field) => {
+      const owners = [];
+      for (let node = field.parentElement; node && node !== el; node = node.parentElement) {
+        if (node.hasAttribute("data-id")) owners.unshift(`row:${node.getAttribute("data-id")}`);
+        else if (node.id) owners.unshift(`node:${node.id}`);
+      }
+      const name = field.id ? `#${field.id}` : field.name;
+      const choice = field.type === "radio" || field.type === "checkbox" ? field.value : "";
+      return [field, JSON.stringify([owners, name, choice])];
+    });
+    const counts = new Map();
+    for (const [, key] of candidates) counts.set(key, (counts.get(key) ?? 0) + 1);
+    return candidates.filter(([, key]) => counts.get(key) === 1);
+  };
+  const fieldKind = (field) => field.isContentEditable ? "rich"
+    : field.type === "checkbox" || field.type === "radio" ? field.type
+    : field.matches("select[multiple]") ? "multiple" : "text";
+  const captureField = (field) => ({
+    kind: fieldKind(field),
+    text: field.isContentEditable ? field.textContent : undefined,
+    value: field.isContentEditable ? field.innerHTML : field.value,
+    selectedValues: field.matches("select[multiple]")
+      ? [...field.options].filter((option) => option.selected).map((option) => option.value) : undefined,
+    checked: field.checked,
+  });
+  const captureFields = (el) => new Map(keyedFields(el).filter(([field]) => editedFields.has(field))
+    .map(([field, key]) => [key, captureField(field)]));
+  const restoreFields = (el, saved) => {
+    for (const [field, key] of keyedFields(el)) {
+      const prior = saved.get(key);
+      const kind = fieldKind(field);
+      if (!prior?.kind || (prior.kind !== kind &&
+          ![prior.kind, kind].every(value => value === "text" || value === "rich"))) continue;
+      if (field.isContentEditable) {
+        const property = prior.kind === "rich" ? "innerHTML" : "textContent";
+        if (field[property] !== prior.value) field[property] = prior.value;
+      }
+      else if (field.type === "checkbox" || field.type === "radio") {
+        if (field.checked !== prior.checked) field.checked = prior.checked;
+      }
+      else if (field.matches("select[multiple]")) {
+        const selected = new Set(prior.selectedValues ?? []);
+        for (const option of field.options) {
+          if (option.selected !== selected.has(option.value)) option.selected = selected.has(option.value);
+        }
+      }
+      else {
+        const value = prior.kind === "rich" ? prior.text : prior.value;
+        if (field.value !== value) field.value = value;
+      }
+      editedFields.add(field);
+      if (field.closest("[data-machine]") === null && field.type !== "checkbox" &&
+          !submitsOnChange(field.closest("form"))) field._prontoDirty = true;
+    }
+  };
+  let gesture = 0;
+  if (liveUpdates) {
+    for (const field of fields(mount)) {
+      const changed = !field.isContentEditable && (field.matches("select")
+        ? [...field.options].some(option => option.selected !== option.defaultSelected)
+        : field.type === "checkbox" || field.type === "radio"
+          ? field.checked !== field.defaultChecked
+          : field.value !== field.defaultValue);
+      if (changed) editedFields.add(field);
+    }
+    for (const type of ["input", "change", "keydown", "pointerdown"]) {
+      document.addEventListener(type, () => { gesture += 1; }, true);
+    }
+  }
+  const editing = () => {
+    const focused = document.activeElement;
+    return focused?.matches?.("input:not([type=hidden]), textarea, select, [contenteditable]") ||
+      mount.querySelector("form[data-submitting]") !== null ||
+      [...mount.querySelectorAll("input[type=password]")].some(field => field.value !== "") ||
+      [...mount.querySelectorAll("input[type=file]")].some(field => field.files?.length > 0);
+  };
+  const idle = () => new Promise(resolve => {
+    const events = ["focusout", "input", "change"];
+    const check = () => {
+      if (editing()) return;
+      for (const type of events) document.removeEventListener(type, changed, true);
+      observer.disconnect();
+      resolve();
+    };
+    const changed = () => queueMicrotask(check);
+    const observer = new document.defaultView.MutationObserver(check);
+    for (const type of events) document.addEventListener(type, changed, true);
+    observer.observe(mount, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-submitting"] });
+    check();
+  });
   // A document rendered before this script ran (document.js), from the
   // network or from the service worker's copy: its screen in the mount, its
   // strip beside it, and the template it was rendered from in its head. The
   // first show() takes the screen over where it stands.
   let served = mount.querySelector(":scope > .shell-screen[data-served]");
-  const servedStrip = mount.previousElementSibling?.localName === "nav" ? mount.previousElementSibling : null;
+  let servedStrip = mount.previousElementSibling?.localName === "nav" ? mount.previousElementSibling : null;
   const servedCas = document.querySelector('meta[name="pronto-cas"]')?.getAttribute("content");
   const servedWords = document.querySelector('meta[name="pronto-words"]')?.getAttribute("content") ?? "";
   const banner = (err) => {
@@ -525,11 +668,16 @@ export async function createShell({ config, mount }) {
       // One announced before the catalogue is first asked for has nothing to
       // replace: the request is answered from the worker's copy, this one.
       if (type === "PRONTO_MESSAGES_UPDATED") {
+        if (liveUpdates) { hear?.(); return; }
         words?.heard(e.data.pathname, e.data.json).then((took) => took && hear?.(), banner);
         return;
       }
+      if (type === "PRONTO_ASSET_UPDATED") {
+        if (liveUpdates) hear?.();
+        return;
+      }
       if (type !== "PRONTO_SKELETON_UPDATED" && type !== "PRONTO_STYLE_UPDATED") return;
-      announced.set(e.data.pathname, e.data.html ?? e.data.css);
+      if (!liveUpdates) announced.set(e.data.pathname, e.data.html ?? e.data.css);
       hear?.();
     });
 
@@ -538,7 +686,34 @@ export async function createShell({ config, mount }) {
     // /shell/, and resolving there asks for a shell.yaml beside the route.
     const configUrl = new URL(config, document.baseURI);
     const appBase = new URL("..", configUrl);
-    const text = await fetchText(configUrl);
+    const releaseId = liveUpdates ? await startupReleaseId() : null;
+    let selectedRelease = liveUpdates ? await fetchRelease(appBase, null, { preferCached: true, releaseId }) : null;
+    if (liveUpdates && !selectedRelease) throw new Error("live updates require shell/release.json");
+    if (liveUpdates && !releaseId) {
+      const commit = await prepareRestartRelease(appBase, selectedRelease);
+      await idle();
+      sessionStorage.setItem(recoveryKey, JSON.stringify({
+        expected: selectedRelease.manifest.id,
+        owner: initialDraftOwner,
+        initial: [...captureFields(served ?? mount)],
+      }));
+      commit();
+      return { restarting: true };
+    }
+    if (liveUpdates && new URL(location.href).searchParams.has("pronto-release")) {
+      const address = new URL(location.href);
+      address.searchParams.delete("pronto-release");
+      history.replaceState(history.state, "", address.href);
+    }
+    let initialFields = liveUpdates ? captureFields(served ?? mount) : null;
+    if (selectedRelease) {
+      activateRelease(selectedRelease);
+      served?.remove();
+      served = null;
+      servedStrip?.remove();
+      servedStrip = null;
+    }
+    const text = await (liveUpdates ? readAsset(configUrl) : fetchText(configUrl));
     const cfg = configUrl.pathname.endsWith(".json")
       ? JSON.parse(text)
       : (await import("./vendor/js-yaml.js")).load(text);
@@ -559,10 +734,13 @@ export async function createShell({ config, mount }) {
     // and the screen's own files. Asked one after another, each is a round
     // trip the first paint pays in turn.
     const arriving = addresses(location);
-    words = catalogues(appBase, cfg.i18n);
+    words = catalogues(appBase, cfg.i18n, liveUpdates);
     const { messages, ensure: ensureMessages, answered, all: allMessages } = words;
     const storybook = search.has("storybook");
-    if (arriving !== null && !storybook) prefetchScreen(appBase, arriving.route);
+    if (arriving !== null && !storybook && !liveUpdates) {
+      preloadScreen(document, appBase, arriving.route, { template: false });
+      prefetchScreen(appBase, arriving.route);
+    }
     // Ahead of the gate, not beside the screens: the terminal's own chrome is
     // drawn before any route is mounted and speaks the reader's language too.
     // The default's comes along because a key one catalogue lacks is read from
@@ -603,7 +781,7 @@ export async function createShell({ config, mount }) {
       // guarantees: app_user is the cluster's own table, written by the auth
       // service itself, so this holds for any app on this terminal.
       if (stored && !(await accountLives(JSON.parse(stored)))) {
-        sessionStorage.removeItem("pronto-token");
+        forgetSession();
       }
       const live = sessionStorage.getItem("pronto-token");
       if (live) {
@@ -624,11 +802,11 @@ export async function createShell({ config, mount }) {
       if (stored) {
         try {
           if (!(await accountLives(JSON.parse(stored)))) {
-            sessionStorage.removeItem("pronto-token");
+            forgetSession();
             stored = null;
           }
         } catch {
-          sessionStorage.removeItem("pronto-token");
+          forgetSession();
           stored = null;
         }
       }
@@ -636,6 +814,7 @@ export async function createShell({ config, mount }) {
         session = JSON.parse(stored);
       } else {
         session = await mintGuest(cfg, served !== null);
+        if (initialDraftOwner === null) initialDraftOwner = sessionOwner(session);
         sessionStorage.setItem("pronto-token", JSON.stringify(session));
       }
     }
@@ -643,7 +822,27 @@ export async function createShell({ config, mount }) {
     await catalogued;
     if (served !== null) await words.settle(servedWords);
     const { createStore } = await dataPlane;
-    const store = createStore("", { ...cfg, appBase });
+    const store = createStore("", { ...cfg, appBase, release: liveUpdates });
+    let recovery = liveUpdates ? JSON.parse(sessionStorage.getItem(recoveryKey) ?? "null") : null;
+    const owner = liveUpdates ? (session === null ? storedSessionOwner() : sessionOwner(session)) : null;
+    if (initialDraftOwner !== owner) initialFields = null;
+    const ownsRecovery = owner !== undefined && (recovery?.owner === owner ||
+      (recovery?.owner === null && initialDraftOwner === owner &&
+        recovery.initial && !recovery.screens && !recovery.tabs));
+    if (recovery && ownsRecovery && recovery.expected === selectedRelease?.manifest.id) {
+      recovery.owner = owner;
+      if (recovery.tabs) await store.restoreTabs(recovery.tabs);
+      delete recovery.tabs;
+    } else if (recovery) {
+      sessionStorage.removeItem(recoveryKey);
+      recovery = null;
+    }
+    const retainRecovery = () => {
+      if (!recovery) return;
+      if (Object.keys(recovery.screens ?? {}).length || recovery.initial?.length) {
+        sessionStorage.setItem(recoveryKey, JSON.stringify(recovery));
+      } else sessionStorage.removeItem(recoveryKey);
+    };
 
     // Debug & visual-lint seam: pose fixture rows in-memory without page reloads.
     globalThis.__prontoStore = store;
@@ -713,7 +912,7 @@ export async function createShell({ config, mount }) {
       current = null;
       nav?.remove();
       mount.replaceChildren();
-      sessionStorage.removeItem("pronto-token");
+      forgetSession();
       location.reload();
     };
 
@@ -798,7 +997,7 @@ export async function createShell({ config, mount }) {
         // back resumes. Only "push" is treated as an arrival.
         window.scrollTo(0, navigationType === "push" ? 0 : entry.scrollY);
         await entry.handle?.resume();
-        await catchUp(entry).catch(unheard(entry));
+        if (!liveUpdates) await catchUp(entry).catch(unheard(entry));
         return;
       }
       // A served document is already the screen on show, so the first show()
@@ -824,7 +1023,7 @@ export async function createShell({ config, mount }) {
       }
       // In the catalogues as they stand now: one taken while it mounts is
       // written in once it is on show.
-      const fresh = { key, el, route, locale, words: words.taken(), scrollY: 0, seq: ++seq };
+      const fresh = { key, el, route, params, written, locale, words: words.taken(), scrollY: 0, seq: ++seq };
       held.set(key, fresh);
       current = fresh;
       evict(route);
@@ -837,19 +1036,32 @@ export async function createShell({ config, mount }) {
         // A screen composes its own links and hands the move back: the stack is
         // the terminal's, and a screen that pushed its own entry would be
         // deciding scroll and history for a back button it does not own.
-        fresh.handle = await interpretScreen(el, appBase, route, store, params, screenEnv(cfg, {
+        fresh.loading = interpretScreen(el, appBase, route, store, params, screenEnv(cfg, {
           messages,
           ensureMessages,
           locale,
           navigate,
+          release: liveUpdates,
           ...(adopting ? { served: { screen: adopting.firstElementChild, cas: servedCas } } : {}),
         }));
+        fresh.handle = await fresh.loading;
         fresh.cas = fresh.handle.cas;
-        // Bound, so the screen is the shell's now rather than the document's.
-        el.removeAttribute("data-served");
-        // Left, or dropped, before the load landed: a back press during the
-        // fetch is the common case.
         if (fresh.gone) return fresh.handle.stop();
+        el.removeAttribute("data-served");
+        // Hydration can leave controls usable while another region reads.
+        // Capture their newer edits before restoring any saved value.
+        const drafts = new Map([
+          ...(recovery?.screens?.[key] ?? []),
+          ...(initialFields === null ? [] : [...(recovery?.initial ?? []), ...initialFields]),
+          ...captureFields(el),
+        ]);
+        restoreFields(el, drafts);
+        if (recovery?.screens) delete recovery.screens[key];
+        if (initialFields !== null) {
+          initialFields = null;
+          if (recovery) delete recovery.initial;
+        }
+        retainRecovery();
         if (current !== fresh) return fresh.handle.pause();
         // After the render: the screen's own h1 is where its name comes from.
         describe(document, cfg, { route, params, locale, written, el, origin: location.origin });
@@ -872,7 +1084,7 @@ export async function createShell({ config, mount }) {
         clearTimeout(capped);
         if (!adopting) release(el);
       }
-      await catchUp(fresh).catch(unheard(fresh));
+      if (!liveUpdates) await catchUp(fresh).catch(unheard(fresh));
     };
     // A newer template is a deploy's, and names its modules in that deploy's
     // config. The worker answers the config from its copy and announces none
@@ -917,6 +1129,35 @@ export async function createShell({ config, mount }) {
       console.error(err);
       entry.el.querySelector(".screen")?.setAttribute("data-state", "network-error");
     };
+    const updateScreens = async (paths, next) => {
+      for (const entry of [...held.values()]) {
+        const path = entry.route.files.html;
+        if (!paths.includes(path)) continue;
+        if (entry.loading && !entry.handle) await entry.loading;
+        if (entry.gone || held.get(entry.key) !== entry) continue;
+        const current = selectedRelease.manifest.screens[path];
+        const changed = next.manifest.screens[path];
+        if (current.html !== changed.html) {
+          const html = next.assets.get(new URL(path, appBase).href);
+          if (html === undefined) throw new Error(`verified release lacks ${path}`);
+          const saved = captureFields(entry.el);
+          morphDrafts.set(entry.el, saved);
+          try {
+            await entry.handle.morph(html, { preserve: () => restoreFields(entry.el, saved) });
+          } finally {
+            morphDrafts.delete(entry.el);
+            restoreFields(entry.el, saved);
+          }
+          entry.cas = templateHash(html);
+        }
+        if (current.css !== changed.css) {
+          const cssPath = entry.route.files.css;
+          const css = next.assets.get(new URL(cssPath, appBase).href);
+          if (css === undefined) throw new Error(`verified release lacks ${cssPath}`);
+          await entry.handle.updateStyle(css);
+        }
+      }
+    };
     // The one way anything inside the app moves, to an address routeHref
     // composed, mounted already. Through the platform's stack where there is
     // one, so a push and a traverse stay distinguishable; by hand where there
@@ -954,6 +1195,8 @@ export async function createShell({ config, mount }) {
         // screen already on show, which leaves sign-out doing nothing visible.
         if (e.navigationType === "reload") return;
         const url = new URL(e.destination.url, location.href);
+        if (url.searchParams.has("pronto-release") &&
+            url.searchParams.get("pronto-release") !== new URL(location.href).searchParams.get("pronto-release")) return;
         // Only a path names a screen. An in-page fragment (an href="#id", the
         // chrome's own sign-out anchor) changes nothing the stack owns, and a
         // path this app has no route for belongs to the server.
@@ -978,10 +1221,91 @@ export async function createShell({ config, mount }) {
       addEventListener("popstate", () => show("traverse"));
     }
 
-    hear = () => current !== null && catchUp(current).catch(unheard(current));
+    let checking = null;
+    let restartTarget = null;
+    let deferredRelease = false;
+    let restarting = null;
+    const restart = () => {
+      if (restarting) return restarting;
+      if (!restartTarget || editing()) return Promise.resolve();
+      restarting = (async () => {
+        const target = restartTarget;
+        const commit = await prepareRestartRelease(appBase, target);
+        if (restartTarget !== target || editing()) return;
+        const at = gesture;
+        const screens = { ...recovery?.screens };
+        for (const entry of held.values()) {
+          screens[entry.key] = [...new Map([...(screens[entry.key] ?? []), ...captureFields(entry.el)])];
+        }
+        const tabs = await store.tabSnapshot();
+        if (restartTarget !== target || gesture !== at || editing()) return;
+        sessionStorage.setItem(recoveryKey, JSON.stringify({
+          expected: target.manifest.id,
+          owner,
+          screens,
+          tabs,
+          ...(initialFields === null ? {} : { initial: [...new Map([...(recovery?.initial ?? []), ...initialFields])] }),
+        }));
+        commit();
+      })().finally(() => { restarting = null; });
+      return restarting;
+    };
+    const checkRelease = () => {
+      if (checking) return checking;
+      checking = (async () => {
+        const next = await fetchRelease(appBase, restartTarget ?? selectedRelease);
+        if (!next) throw new Error("live updates require shell/release.json");
+        if (restartTarget) {
+          if (next?.manifest.id !== restartTarget.manifest.id) restartTarget = next;
+          return restart();
+        }
+        if (!next || next.manifest.id === selectedRelease?.manifest.id) return;
+        const plan = planRelease(selectedRelease.manifest, next.manifest);
+        if (plan.kind === "restart") {
+          restartTarget = next;
+          await restart();
+          return;
+        }
+        if (plan.kind === "morph") {
+          if (editing()) {
+            deferredRelease = true;
+            return;
+          }
+          activateRelease(next);
+          try {
+            await updateScreens(plan.screens, next);
+          } catch (error) {
+            restartTarget = next;
+            await restart();
+            throw error;
+          }
+          selectedRelease = next;
+          deferredRelease = false;
+        }
+      })().finally(() => { checking = null; });
+      return checking;
+    };
+    if (liveUpdates) {
+      const retryDeferred = () => {
+        if (restartTarget) void restart();
+        else if (deferredRelease) void checkRelease();
+      };
+      document.addEventListener("focusout", () => setTimeout(retryDeferred, 0));
+      document.addEventListener("change", () => setTimeout(retryDeferred, 0));
+    }
+
+    hear = liveUpdates ? () => void checkRelease() : () => current !== null && catchUp(current).catch(unheard(current));
 
     await show();
     booted = true;
+    if (liveUpdates) {
+      void checkRelease();
+      setInterval(() => checkRelease(), 30000);
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) checkRelease();
+      });
+      navigator.serviceWorker?.addEventListener("controllerchange", () => checkRelease());
+    }
     return { store, navigate };
   } catch (err) {
     banner(err);

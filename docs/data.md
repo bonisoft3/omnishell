@@ -30,7 +30,7 @@ transition has to be published and its cycles bounded.
 ([screens](../../pronto/docs/screens.md#the-reads-decide-how-a-table-syncs)).
 The store passes the mode to mecha's client, which opens the shape from now and
 loads each maintained view's rows, and its embeds' by key, as subset
-snapshots. Three rules follow from a collection that holds only what its views
+snapshots. These rules follow from a collection that holds only what its views
 asked for:
 
 - **A view is read only once it is settled**: ready, and loading no subset.
@@ -57,12 +57,25 @@ asked for:
   backoff takes over, and the next read starts the rebuilds over.
 - **A view holds its wakes while it loads a subset**, so no region binds a row
   whose embed has not arrived yet.
-- **Nothing else reads the collection as the table.** A snapshot read, a
-  validation, a visibility rule, a fold's projection, an upsert, a delete by
-  filter and a mutation reduce's write by key all raise a `ProgramError`
-  naming the site (`whole` in `data-sync.js`) when they meet an on-demand
-  table. pronto's rule keeps such a table eager, so one raised is a drift
-  between the two.
+- **Whole and snapshot queries demand completeness explicitly.** Each acquires
+  full-table subset views for its base and local embeds, waits for all of them,
+  then evaluates with the local carrier comparisons and optimistic state.
+  Predicate, cap, ordering and join eligibility are checked per query against
+  carrier metadata. An unsupported query elsewhere does not widen this query.
+  Subscriptions retain these demands while mounted; named reads use temporary
+  leases with real listeners until settlement, surviving navigation and view
+  garbage collection. Releasing a view need not evict cached source rows.
+- **Incidental whole reads outside queries are refused.** A validation,
+  visibility rule or fold's projection raises a `ProgramError` naming the
+  site (`whole` in `data-sync.js`) when it meets an on-demand table. Pronto's
+  rule keeps such a table eager, so one raised is a drift between the two.
+- **Opaque mutations demand completeness before writing.** A reducer's keyed
+  put, natural-key upsert or filtered delete loads all visible rows before
+  classifying inserts, resolving uniqueness or selecting deletion targets.
+  That demand stays subscribed for the store's lifetime, including across
+  view rebuilds, so later operations include remote rows and optimistic
+  changes. An initial mutation requires connectivity if those rows have not
+  loaded; read-only visits pay only for their views.
 - **An update or a delete by key loads its row first.** A row the collection
   lacks is loaded as a view of its key and held until the write has gone out;
   Electric keeps a loaded row current from then on. A key no row has stays

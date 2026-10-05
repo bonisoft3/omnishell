@@ -12,46 +12,46 @@
 // This pins the names only. What each one MEANS is every other test in this
 // directory; what this catches is a method renamed, added, or dropped on one
 // side of the pair.
-import { describe, expect, it } from "@test/harness"
+import { expect } from "@test/harness"
 import { batched } from "../interpreter/batched-store.js"
 
 /** Every call the interpreter makes on a store. */
 const SURFACE = ["query", "add", "write", "patch", "drop", "dropWhere", "upsertBy", "subscribe"]
+const RUNTIME = ["tabSnapshot", "restoreTabs", "flushNotifications"]
 
 /** The singular writes a test double states for itself, which the adapter
  * decomposes a batch into. */
 const SINGULAR = ["create", "put", "update", "remove"]
 
-describe("the store surface", () => {
-  it("is what data-sync offers", async () => {
-    // The store reads localStorage at construction for its device identity.
-    const had = Object.prototype.hasOwnProperty.call(globalThis, "localStorage")
-    if (!had) {
-      const kv = new Map<string, string>()
-      ;(globalThis as Record<string, unknown>).localStorage = {
-        getItem: (k: string) => kv.get(k) ?? null,
-        setItem: (k: string, v: string) => void kv.set(k, v),
-        removeItem: (k: string) => void kv.delete(k),
-      }
+// The store's offline executor runs until page exit.
+Deno.test({ name: "the store surface is what data-sync offers", sanitizeOps: false, sanitizeResources: false, fn: async () => {
+  // The store reads localStorage at construction for its device identity.
+  const had = Object.prototype.hasOwnProperty.call(globalThis, "localStorage")
+  if (!had) {
+    const kv = new Map<string, string>()
+    ;(globalThis as Record<string, unknown>).localStorage = {
+      getItem: (k: string) => kv.get(k) ?? null,
+      setItem: (k: string, v: string) => void kv.set(k, v),
+      removeItem: (k: string) => void kv.delete(k),
     }
-    try {
-      const { createStore } = await import("../interpreter/data-sync.js")
-      const store = await createStore("", { app: "surface", entities: {}, migrations: [], pipelines: [] })
-      expect(Object.keys(store).sort()).toEqual([...SURFACE].sort())
-    } finally {
-      if (!had) delete (globalThis as Record<string, unknown>).localStorage
-    }
-  })
+  }
+  try {
+    const { createStore } = await import("../interpreter/data-sync.js")
+    const store = await createStore("", { app: "surface", entities: {}, migrations: [], pipelines: [] })
+    expect(Object.keys(store).sort()).toEqual([...SURFACE, ...RUNTIME].sort())
+  } finally {
+    if (!had) delete (globalThis as Record<string, unknown>).localStorage
+  }
+} })
 
-  it("is what the adapter answers, over a double that knows none of it", () => {
-    // The double states only the singular writes; everything the interpreter
-    // calls has to come out of the adapter or be passed straight through.
-    const double = Object.fromEntries(
-      [...SINGULAR, "query", "subscribe", "dropWhere", "upsertBy"].map((m) => [m, () => {}]),
-    )
-    const store = batched(double) as Record<string, unknown>
-    for (const call of SURFACE) {
-      expect(typeof store[call]).toBe("function")
-    }
-  })
+Deno.test("the store surface is what the adapter answers, over a double that knows none of it", () => {
+  // The double states only the singular writes; everything the interpreter
+  // calls has to come out of the adapter or be passed straight through.
+  const double = Object.fromEntries(
+    [...SINGULAR, "query", "subscribe", "dropWhere", "upsertBy"].map((m) => [m, () => {}]),
+  )
+  const store = batched(double) as Record<string, unknown>
+  for (const call of SURFACE) {
+    expect(typeof store[call]).toBe("function")
+  }
 })
