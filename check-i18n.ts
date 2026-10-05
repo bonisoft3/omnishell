@@ -15,7 +15,7 @@ import { directionOf, PLACEHOLDER, PLACEHOLDERS } from "./interpreter/fragment.j
 // The terminal's own copy table, so the keys required here are the keys the
 // terminal actually asks for and cannot drift from them.
 import { CHROME_KEYS } from "./interpreter/chrome.js";
-import { controlProperties } from "./test/linkedom-controls.ts";
+import { controlProperties } from "./server/linkedom-controls.ts";
 import { type MessageNode, compileCatalog, parseMessage } from "./src/messages.ts";
 
 export type Finding = { severity: string; path: string; message: string };
@@ -49,10 +49,10 @@ type Route = {
   // that declares no slug.
   paths?: Record<string, string>;
   // What the terminal's nav strip says about this route. `label` is the
-  // default-language spelling; `key` and `labels` are what `slug` and `paths`
-  // are for the address. Optional here, where an emitted shell.yaml is graded
-  // with no program beside it.
-  nav?: { label: string; key?: string; labels?: Record<string, string>; strip?: boolean };
+  // default-language spelling; `key` names the word in each catalogue.
+  // Optional here, where an emitted shell.yaml is graded with no program
+  // beside it.
+  nav?: { label: string; key?: string; strip?: boolean };
   files: { html: string; css: string; handlers?: string[]; shared?: string[] };
   states?: string[];
 };
@@ -472,11 +472,6 @@ export function checkMessageArms(
  * one that does declare them, only the chrome its own declaration puts on
  * screen is asked: the gate where auth is required, the strip wherever a
  * session exists, and a label only for a route the strip actually lists.
- *
- * Under the label half sits a stronger check: the emitter resolves `nav.labels`
- * out of the catalogues, so a missing key is a cue error before any check runs.
- * It is restated here for the reason checkLocalizedUrls states, and because a
- * route carrying no key at all is invisible to that check.
  */
 export function checkChrome(
   shell: ShellConfig,
@@ -531,10 +526,6 @@ export function checkChrome(
     }
     for (const tag of tags) {
       if (!said(tag, key)) report(`messages/${tag}.json`, `route '${route.screen}' [${tag}]: label key "${key}" is missing`);
-      const label = route.nav?.labels?.[tag];
-      if (typeof label !== "string" || label.trim() === "") {
-        report(shellPath, `route '${route.screen}' [${tag}]: nav.labels resolves "${key}" to nothing`);
-      }
     }
   }
   return findings;
@@ -1337,8 +1328,8 @@ function chromeFailures(): string[] {
     auth: { required: true },
     tables: ["match"],
     routes: [
-      route("arena", "/", { label: "Mesa", key: "nav_table", labels: { "pt-BR": "Mesa", es: "Mesa" } }),
-      route("bar", "/bar", { label: "Bar", key: "nav_bar", labels: { "pt-BR": "Bar", es: "Bar" } }),
+      route("arena", "/", { label: "Mesa", key: "nav_table" }),
+      route("bar", "/bar", { label: "Bar", key: "nav_bar" }),
     ],
   };
   const catalogue = {
@@ -1414,12 +1405,6 @@ function chromeFailures(): string[] {
 
   grades("a label key no catalogue answers", `route 'bar' [es]: label key "nav_bar" is missing`, {
     messages: without("nav_bar"),
-  });
-
-  grades("a label the emitter resolved for one locale only", `route 'bar' [es]: nav.labels resolves "nav_bar"`, {
-    shell: {
-      routes: [shell.routes![0], route("bar", "/bar", { label: "Bar", key: "nav_bar", labels: { "pt-BR": "Bar" } })],
-    },
   });
 
   quiet("a route that takes itself off the strip", {

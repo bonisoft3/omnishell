@@ -78,6 +78,18 @@ intrinsics cannot run once lockdown has frozen them. No role can reach a
 library: `import` is refused, and `interpreter/vendor/` holds only the
 terminal's own.
 
+**A served document names no position in the change log (`pronto-lsn`).** The
+shell takes it over and each region's first read asks for its view whole
+([screen updates](docs/screen-updates.md#a-pre-rendered-page)). A position
+would let it ask only for what changed since the document was drawn, but
+Electric resumes a shape only from a handle of its own, which a document drawn
+for everyone has no business carrying.
+
+**A rendered moment is in UTC until the shell redraws it.** A document is drawn
+for no one in particular, so `datetime` binds in UTC and the shell's first pass
+rebinds it in the reader's zone; a reader outside UTC sees the hour change as
+the page boots.
+
 ## Data
 
 **A `SchemaSkewError` that is a `ProgramError`**, and the two versions the

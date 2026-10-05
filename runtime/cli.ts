@@ -3,6 +3,7 @@
 //
 //   omnishell check markup|handlers|machines|battery <appDir> | --self-test
 //   omnishell read markup <appDir> | --self-test
+//   omnishell render documents <appDir> <outDir> <origin>
 //   omnishell mode <appDir> [--local]
 //
 // What a check needs from deno — a lockfile policy, a type-check policy, a
@@ -29,6 +30,7 @@ function toolDir(name: string): string {
 const usage = [
   "usage: omnishell check markup|handlers|machines|battery|parity|i18n <appDir> | --self-test",
   "       omnishell read markup <appDir> | --self-test",
+  "       omnishell render documents <appDir> <outDir> <origin>",
   "       omnishell mode <appDir> [--local]",
 ].join("\n");
 
@@ -85,6 +87,8 @@ async function mode(appDir: string, local: boolean): Promise<void> {
       `  interpreterRoot: ${JSON.stringify(`${source}interpreter`)}`,
       `  componentsRoot: ${JSON.stringify(`${source}components`)}`,
       `  markupReader: ${JSON.stringify(`${source}read-markup.ts`)}`,
+      `  documentRenderer: ${JSON.stringify(`${source}render-documents.ts`)}`,
+      `  documentConfig: ${JSON.stringify(`${source}server/deno.json`)}`,
       `  machineSchema: ${JSON.stringify(`${source}machine.cue`)}`,
       `}`,
     ].join("\n"),
@@ -101,6 +105,13 @@ if (verb === "mode") {
   }
   await narrow(false);
   await mode(appDir, flags[0] === "--local");
+} else if (verb === "render") {
+  const [noun, ...args] = rest;
+  if (noun !== "documents") refuse(`render: no such leaf: ${noun ?? ""}`);
+  if (args.length !== 3) refuse("render documents: one <appDir>, one <outDir> and one <origin>");
+  const { run } = await import("../render-documents.ts");
+  await Deno.permissions.revoke({ name: "env" });
+  await run(args);
 } else if (verb === "check" || verb === "read") {
   const [noun, ...args] = rest;
   if (noun === undefined) refuse(`${verb}: no leaf`);

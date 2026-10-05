@@ -28,6 +28,8 @@ Deno.test("an installed terminal is named from its own root, a checkout's from t
     assert(installed.includes('interpreterRoot: "interpreter"'), "installed interpreter not named from omnishell's root");
     assert(installed.includes('componentsRoot: "components"'), "installed adapters not named from omnishell's root");
     assert(installed.includes('markupReader: "read-markup.ts"'), "installed reader not named from omnishell's root");
+    assert(installed.includes('documentRenderer: "render-documents.ts"'), "installed renderer not named from omnishell's root");
+    assert(installed.includes('documentConfig: "server/deno.json"'), "installed renderer config not named from omnishell's root");
     assert(installed.includes('machineSchema: "machine.cue"'), "installed schema not named from omnishell's root");
     assert(!installed.includes(".omnishell"), "installed mode names a copy in the app");
   } finally {
@@ -48,16 +50,24 @@ Deno.test("the runtime image's tree holds everything its entry points import", a
         await Deno.copyFile(file.path, join(image, rel));
       }
     }
-    for (const entry of ["check-visual.ts", "read-markup.ts", "base-url.ts"]) {
+    // The renderers resolve their packages through the config they run under.
+    const configs: Record<string, string[]> = {
+      "check-visual.ts": ["--no-config", "--no-lock"],
+      "read-markup.ts": ["--no-config", "--no-lock"],
+      "base-url.ts": ["--no-config", "--no-lock"],
+      "render-documents.ts": ["--config", "server/deno.json", "--lock", "server/deno.lock", "--frozen"],
+      "server/render.ts": ["--config", "server/deno.json", "--lock", "server/deno.lock", "--frozen"],
+    };
+    for (const [entry, flags] of Object.entries(configs)) {
       const info = await new Deno.Command(Deno.execPath(), {
-        args: ["info", "--json", "--no-config", "--no-lock", entry],
+        args: ["info", "--json", ...flags, entry],
         cwd: image, stdout: "piped", stderr: "piped",
       }).output();
       assert(info.success, decoder.decode(info.stderr));
       // The tree as deno spells it, from the entry it was handed: a path
       // rebuilt here could differ in spelling (Windows short names).
       const graph = JSON.parse(decoder.decode(info.stdout)) as { roots: string[]; modules: { specifier: string; error?: string }[] };
-      const root = new URL(".", graph.roots[0]).href;
+      const root = new URL(`./${"../".repeat(entry.split("/").length - 1)}`, graph.roots[0]).href;
       // A miss counts when the terminal's own tree holds the file: the image
       // left it out.
       const left = (m: { specifier: string }) => {

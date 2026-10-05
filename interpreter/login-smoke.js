@@ -33,7 +33,7 @@ tables: []
 routes:
   - path: /
     screen: home
-    nav: {label: Home, key: nav_home, labels: {pt-BR: Início}}
+    nav: {label: Home, key: nav_home}
     files: {html: shell/screens/home.html, css: shell/screens/home.css, handlers: []}
 `;
 

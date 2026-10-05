@@ -19,13 +19,56 @@ import {
   PLACEHOLDERS,
   ProgramError,
   routeHref,
+  routeParams,
+  Unanswered,
 } from "./fragment.js";
 import { evaluateRole } from "./jessie.js";
 
-async function fetchText(url) {
-  const res = await fetch(url);
+export async function fetchText(url, init) {
+  const res = await fetch(url, init).catch((err) => {
+    // fetch rejects with a TypeError when no answer arrived at all.
+    throw err instanceof TypeError ? new Unanswered(`nothing answered ${url}: ${err.message}`, { cause: err }) : err;
+  });
+  if (res.status >= 500) throw new Unanswered(`${res.status} fetching ${url}`);
   if (!res.ok) throw new Error(`${res.status} fetching ${url}`);
   return res.text();
+}
+
+// A screen's files asked for ahead of its mount, each taken once: the next
+// visit fetches again, so a redeployed screen is never served from here.
+const prefetched = new Map();
+const screenFile = (url) => {
+  const ahead = prefetched.get(url.href);
+  if (ahead === undefined) return fetchText(url);
+  prefetched.delete(url.href);
+  return ahead;
+};
+
+/** Starts a route's markup and stylesheet loading before the mount that reads
+ * them exists. The stylesheet is installed the moment it lands, so the shared
+ * sheets it @imports load beside the data plane rather than after it. */
+export function prefetchScreen(appBase, route) {
+  const html = new URL(route.files.html, appBase);
+  const css = new URL(route.files.css, appBase);
+  const styleId = `screen-css-${route.screen}`;
+  const ahead = [
+    [html, fetchText(html)],
+    [css, fetchText(css).then((text) => {
+      if (!document.getElementById(styleId)) {
+        const style = document.createElement("style");
+        style.id = styleId;
+        style.textContent = text;
+        document.head.append(style);
+      }
+      return text;
+    })],
+  ];
+  for (const [url, pending] of ahead) {
+    // The mount awaits this promise and throws what it threw; the mark only
+    // keeps a failure from being reported a second time before then.
+    pending.catch(() => {});
+    prefetched.set(url.href, pending);
+  }
 }
 
 // A slot read that matched more than one row. Its own type so the outage
@@ -330,6 +373,23 @@ const REGION_ATTRS = new Set([
   "data-text", "data-filter", "data-select", "data-empty", "data-empty-row", "data-when",
   "data-project", "data-order", "data-exit-motion", "data-machine",
 ]);
+
+// What hydrating a region reads off its own element once, and holds for as
+// long as the region runs.
+const READ_ATTRS = new Set([
+  "data-live", "data-template", "data-filter", "data-select", "data-order", "data-project",
+  "data-exit-motion", "data-machine", "data-empty-row", "data-reads", "data-handler", "data-on-mutation",
+]);
+/** A region's read as its element states it. A newer template stating another
+ * is another region, hydrated in its place rather than brought to it. */
+const readOf = (el) =>
+  [...el.attributes]
+    .filter(({ name }) => READ_ATTRS.has(name) || name.startsWith("data-read-"))
+    .map(({ name, value }) => `${name}=${value}`)
+    .sort()
+    .join("\n");
+/** Whether the running region `h` is not the one `from` states. */
+const moved = (h, from) => readOf(from) !== h.read || listRegion(from) !== h.binds;
 
 const WHOLE_PLACEHOLDER = new RegExp(`^${PLACEHOLDER.source}$`);
 // The key a slot's own entry is kept under, beside a list's rows.
@@ -836,20 +896,12 @@ function resolveHidden(template, ctx) {
 
 /* --- a route's address, as markup states it ------------------------------
  *
- * The composition itself is fragment.js's (routeHref); these two read the
- * :param values off the DOM that is asking for an address.
+ * The composition itself is fragment.js's (routeHref), and so is reading a
+ * link's :params (routeParams), which the chrome asks too; this reads a
+ * form's.
  */
 
-/** The data-param-<name> values an element carries. Read off the attributes
- * rather than the dataset, so a :param spelled `note_id` survives the
- * camel-casing the dataset would impose on it. */
-export function routeParams(el) {
-  const out = {};
-  for (const attr of el.attributes ?? []) {
-    if (attr.name.startsWith("data-param-")) out[attr.name.slice("data-param-".length)] = attr.value;
-  }
-  return out;
-}
+export { routeParams };
 
 /** The form's own inputs, by name: what a data-action="navigate" form fills
  * its route's :params from. */
@@ -963,7 +1015,11 @@ function clearBindings(scope) {
   for (const el of [scope, ...scope.querySelectorAll("*")]) {
     if (!ownedBy(el, scope)) continue;
     if (el.parentElement?.closest("[data-text-format]")) continue;
-    for (const name of Object.keys(el._prontoAttrs ?? {})) el.removeAttribute(name);
+    for (const name of Object.keys(el._prontoAttrs ?? {})) {
+      // Resolved at submit (resolveHidden), never bound back.
+      if (name === "data-value" && el.type === "hidden") continue;
+      el.removeAttribute(name);
+    }
   }
   const targets = scope.matches?.("[data-text]") ? [scope] : [];
   targets.push(...scope.querySelectorAll("[data-text]"));
@@ -1049,12 +1105,17 @@ function bindTexts(scope, ctx, renderers = {}) {
   for (const el of targets) {
     if (!ownedBy(el, scope)) continue;
     const format = el.dataset.textFormat;
+    // Written only where it differs: a served row already saying it keeps
+    // its text node, and the reader's selection in it.
+    const write = (text) => {
+      if (el.textContent !== text) el.textContent = text;
+    };
     if (VALUE_FORMATS.has(format)) {
-      el.textContent = el.dataset.text.replace(PLACEHOLDERS, (_, expr) =>
+      write(el.dataset.text.replace(PLACEHOLDERS, (_, expr) =>
         format === "datetime"
           ? formatDatetime(lookup(expr, ctx), ctx)
           : formatNumber(lookup(expr, ctx), ctx),
-      );
+      ));
       continue;
     }
     if (format !== undefined && format !== "plain") {
@@ -1062,12 +1123,25 @@ function bindTexts(scope, ctx, renderers = {}) {
       // Every format resolves at hydration, so an unresolved one can only be
       // the fixture adapter, which evaluates no Jessie. It shows the value as
       // text there, the way it shows a widget's markup unenhanced.
-      if (render === undefined) el.textContent = interpolate(el.dataset.text, ctx);
+      if (render === undefined) write(interpolate(el.dataset.text, ctx));
       else renderInto(render, interpolate(el.dataset.text, ctx), el);
       continue;
     }
-    el.textContent = interpolate(el.dataset.text, ctx);
+    write(interpolate(el.dataset.text, ctx));
   }
+}
+
+/** Marks a control edited once the reader types into it, until its form
+ * resets, so no binding overwrites what has not been sent. */
+function guardEdits(el) {
+  if (el._prontoDirtyWired) return;
+  el._prontoDirtyWired = true;
+  el.addEventListener("input", () => {
+    el._prontoDirty = true;
+  });
+  el.closest("form")?.addEventListener("reset", () => {
+    el._prontoDirty = false;
+  });
 }
 
 function bindAttributes(scope, ctx) {
@@ -1133,15 +1207,7 @@ function bindElementAttributes(el, ctx) {
       if (machined && el === document.activeElement) continue;
       if (!machined && el.type !== "checkbox" && !submitsOnChange(el.closest("form"))) {
         if (el._prontoDirty || el === document.activeElement) continue;
-        if (!el._prontoDirtyWired) {
-          el._prontoDirtyWired = true;
-          el.addEventListener("input", () => {
-            el._prontoDirty = true;
-          });
-          el.closest("form")?.addEventListener("reset", () => {
-            el._prontoDirty = false;
-          });
-        }
+        guardEdits(el);
       }
       if (el.type === "checkbox") {
         el.checked = Boolean(lookup(template.slice(1, -1), ctx));
@@ -1258,18 +1324,27 @@ function staticOrParam(template, ctx) {
 // opts.navigate is how a navigate form reaches the terminal's stack.
 export async function interpretScreen(mount, appBase, route, store, params = {}, opts = {}) {
   const screenOpts = opts;
-  const [html, css] = await Promise.all([
-    fetchText(new URL(route.files.html, appBase)),
-    fetchText(new URL(route.files.css, appBase)),
-  ]);
-
+  const files = [new URL(route.files.html, appBase), new URL(route.files.css, appBase)];
+  let [html, css] = await Promise.all(files.map(screenFile));
   const styleId = `screen-css-${route.screen}`;
-  if (!document.getElementById(styleId)) {
-    const style = document.createElement("style");
-    style.id = styleId;
-    style.textContent = css;
-    document.head.append(style);
+  // A document the shell was served or kept for this address (document.js): its
+  // screen is taken over where it stands rather than drawn again, so nothing
+  // on show is replaced and nothing the reader has done to it is lost.
+  const served = opts.served;
+  // The document and the worker's copies of its files are each any deploy
+  // old, and a hash cannot say which of two is the newer. Where they disagree
+  // the network says which is current: a revalidating request, which the
+  // worker answers past its copy (offline-first-sw.js).
+  if (served !== undefined && (served.cas !== templateHash(html) || document.getElementById(styleId)?.textContent !== css)) {
+    [html, css] = await Promise.all(files.map((url) => fetchText(url, { cache: "no-cache" })));
   }
+  const style = document.getElementById(styleId);
+  if (style === null) {
+    const fresh = document.createElement("style");
+    fresh.id = styleId;
+    fresh.textContent = css;
+    document.head.append(fresh);
+  } else if (style.textContent !== css) style.textContent = css;
 
   // Subscriptions of the previously mounted screen would refresh dead DOM and
   // keep their poll keys hot — stop them before mounting the next one.
@@ -1279,12 +1354,31 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // One seat per data-on-mutation handler, screen-wide (see wireEvents).
   const folds = new Map();
 
-  const holder = document.createElement("template");
-  holder.innerHTML = html;
-  const screen = holder.content.firstElementChild;
+  // The screen as its template states it, every {param.*} and {msg.*}
+  // resolved: what a mount connects, and what a served screen is read against
+  // and brought to when it is adopted.
+  const prepare = (text) => {
+    const holder = document.createElement("template");
+    holder.innerHTML = text;
+    const root = holder.content.firstElementChild;
+    localize(root);
+    // A URL still carrying its placeholder is a URL the document would fetch
+    // the instant this tree is connected — `src="{image_url}"` is a relative
+    // path, and the request 404s before any row exists to bind. Stash the
+    // template the way bindAttributes does and neutralise the attribute until
+    // it resolves.
+    for (const el of [root, ...root.querySelectorAll("*")]) {
+      for (const attr of [...(el.attributes ?? [])]) {
+        if (!URL_ATTRS.has(attr.name) || !PLACEHOLDER.test(attr.value)) continue;
+        (el._prontoAttrs ??= {})[attr.name] = attr.value;
+        if (el.localName === "img" && attr.name === "src") el.setAttribute("src", BLANK_PIXEL);
+        else el.removeAttribute(attr.name);
+      }
+    }
+    return root;
+  };
 
   let currentLocale = opts.locale ?? params.locale ?? opts.i18n?.default;
-  screen.dataset.locale = currentLocale;
   // A screen's own script says things the markup cannot bind — chrome that
   // outlives the row it speaks for. It reads the catalogue the bindings read,
   // so one app never keeps the same sentence in two places.
@@ -1316,19 +1410,21 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     },
   };
 
-  // {param.*} and {msg.*} resolve anywhere in the screen; row-level locale
-  // switches re-evaluate them in place without remounting the DOM.
-  const applyLocale = (newLocale) => {
-    currentLocale = newLocale;
-    screen.dataset.locale = currentLocale;
+  // {param.*} and {msg.*} resolve anywhere under `root`; row-level locale
+  // switches re-evaluate them in place without remounting the DOM. Each is
+  // written only where it differs, so a served screen that already says it
+  // keeps its text nodes, and the reader's selection in them.
+  const localize = (root) => {
+    root.dataset.locale = currentLocale;
     // A screen can be in a language the document is not: a row carrying its own
     // `locale` switches this one and leaves the rest of the page alone. The
     // document's dir is the chrome's; this one is the screen's, and without it
     // an Arabic match inside a Portuguese app lays out left-to-right.
-    if (currentLocale !== undefined) screen.dir = directionOf(currentLocale);
-    for (const el of [screen, ...screen.querySelectorAll("*")]) {
+    if (currentLocale !== undefined) root.dir = directionOf(currentLocale);
+    for (const el of [root, ...root.querySelectorAll("*")]) {
       if (el.dataset?.text && staticOrParam(el.dataset.text, screenCtx)) {
-        el.textContent = interpolate(el.dataset.text, screenCtx);
+        const text = interpolate(el.dataset.text, screenCtx);
+        if (el.textContent !== text) el.textContent = text;
       }
       for (const attr of [...(el.attributes ?? [])]) {
         if (regionAttr(attr.name) || attr.name === "data-value") continue;
@@ -1337,44 +1433,40 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           if (PLACEHOLDER.test(template)) {
             (el._prontoAttrs ??= {})[attr.name] = template;
           }
-          el.setAttribute(attr.name, interpolate(template, screenCtx));
+          const value = interpolate(template, screenCtx);
+          if (attr.value !== value) el.setAttribute(attr.name, value);
         }
       }
     }
     // A link carries the locale of the page it is on, so a switch re-addresses
     // every one whose :params are already known. A row-bound link still holds
     // its placeholders here and is addressed when its region binds.
-    for (const el of screen.querySelectorAll("[data-route]:not(form)")) {
+    for (const el of root.querySelectorAll("[data-route]:not(form)")) {
       const routeArgs = routeParams(el);
       if (Object.values(routeArgs).some((v) => PLACEHOLDER.test(v))) continue;
       const href = routeHref(cfg, el.dataset.route, routeArgs, el.dataset.locale ?? currentLocale);
       if (href === undefined) el.removeAttribute("href");
-      else el.setAttribute("href", href);
+      else if (el.getAttribute("href") !== href) el.setAttribute("href", href);
       // Which option of a language switcher is the page the reader is already
       // on. It rides the address rather than the mount because it moves when
       // the address does, and this pass is what a switch re-runs. Only an
       // element NAMING a locale can be the current one: every other link is in
       // the reader's language already, so marking them all would say nothing.
       if (el.dataset.localeCurrent !== undefined) {
-        if (el.dataset.locale === currentLocale) el.setAttribute("aria-current", el.dataset.localeCurrent || "page");
-        else el.removeAttribute("aria-current");
+        const current = el.dataset.localeCurrent || "page";
+        if (el.dataset.locale !== currentLocale) el.removeAttribute("aria-current");
+        else if (el.getAttribute("aria-current") !== current) el.setAttribute("aria-current", current);
       }
     }
   };
-  applyLocale(currentLocale);
+  const applyLocale = (newLocale) => {
+    currentLocale = newLocale;
+    localize(screen);
+  };
 
-  // A URL still carrying its placeholder is a URL the document would fetch the
-  // instant this tree is connected — `src="{image_url}"` is a relative path,
-  // and the request 404s before any row exists to bind. Stash the template the
-  // way bindAttributes does and neutralise the attribute until it resolves.
-  for (const el of [screen, ...screen.querySelectorAll("*")]) {
-    for (const attr of [...(el.attributes ?? [])]) {
-      if (!URL_ATTRS.has(attr.name) || !PLACEHOLDER.test(attr.value)) continue;
-      (el._prontoAttrs ??= {})[attr.name] = attr.value;
-      if (el.localName === "img" && attr.name === "src") el.setAttribute("src", BLANK_PIXEL);
-      else el.removeAttribute(attr.name);
-    }
-  }
+  const markup = prepare(html);
+  const cas = templateHash(html);
+  const screen = served?.screen ?? markup;
 
   let base = screen.getAttribute("data-state") || route.states?.[0] || "populated";
   const setState = (s) => {
@@ -1388,15 +1480,27 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // one still says.
   const outages = new Set();
 
-  // Connect only once the tree carries its state: screens style themselves per
-  // `[data-state]`, so a screen mounted before this paints with every
-  // state-scoped rule inert — every region visible at once, links wearing the
-  // user-agent underline — for as long as the awaited loads below take.
-  mount.replaceChildren(screen);
-  for (const s of screen.querySelectorAll("script")) {
-    const fresh = document.createElement("script");
-    fresh.textContent = s.textContent;
-    s.replaceWith(fresh);
+  if (served === undefined) {
+    // Connect only once the tree carries its state: screens style themselves
+    // per `[data-state]`, so a screen mounted before this paints with every
+    // state-scoped rule inert — every region visible at once, links wearing
+    // the user-agent underline — for as long as the awaited loads below take.
+    mount.replaceChildren(screen);
+    for (const s of screen.querySelectorAll("script")) {
+      const fresh = document.createElement("script");
+      fresh.textContent = s.textContent;
+      s.replaceWith(fresh);
+    }
+  } else {
+    // The witness: the template the document was rendered from, which this
+    // one is or is not. One it is not is morphed to this one first, and each
+    // row its lists hold, stamped from an older item, is morphed to this
+    // template's as its region adopts it.
+    const current = served.cas === cas;
+    if (!current) await morphScreen(screen, markup, { slots: true });
+    adoptTree(markup, screen, { rows: current, scripts: true });
+    // The words are this catalogue's, whichever the document was drawn with.
+    localize(screen);
   }
 
   const endowmentsMap = {
@@ -1405,11 +1509,11 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     ...(route.files?.endowments ?? {}),
     ...(route.endowments ?? {}),
   };
-  const handlers = opts.handlers === false ? new Map() : await loadHandlers(screen, appBase, route, endowmentsMap);
-  adapters = opts.handlers === false ? null : await loadAdapters(screen, appBase, route, endowmentsMap);
+  const handlers = opts.handlers === false ? new Map() : await loadHandlers(markup, appBase, route, endowmentsMap);
+  adapters = opts.handlers === false ? null : await loadAdapters(markup, appBase, route, endowmentsMap);
   const renderers = opts.handlers === false
     ? {}
-    : await loadRenderers(screen, appBase, route, endowmentsMap);
+    : await loadRenderers(markup, appBase, route, endowmentsMap);
 
   const units = opts.units ?? {};
   const resolveUnit = (name) => {
@@ -1421,32 +1525,39 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // included. Left to its mount, an undeclared unit would throw inside a
   // region's refresh, where the dead-gateway path catches it: the screen would
   // report a network error and retry a wiring mistake every two seconds.
-  for (const scope of withTemplates(screen)) {
+  for (const scope of withTemplates(markup)) {
     for (const el of scope.querySelectorAll("[data-hatch]")) resolveUnit(el.dataset.hatch);
   }
 
   // Named templates are screen-scoped, collected once here. A region inside a
   // named template may reference the very template it sits in — recursion,
   // terminating through data when a leaf's child read returns no rows.
-  const namedTemplates = new Map();
-  for (const scope of withTemplates(screen)) {
-    for (const t of scope.querySelectorAll("template[data-item][data-name]")) {
-      const name = t.getAttribute("data-name");
-      if (namedTemplates.has(name)) throw new Error(`two templates declare data-name="${name}"`);
-      namedTemplates.set(name, t);
+  // Every data-template resolves before a region hydrates, for the same
+  // reason every hatch name does: inside a refresh the dead-gateway path
+  // would dress the wiring mistake as a network error and retry it forever.
+  const templatesOf = (root) => {
+    const named = new Map();
+    for (const scope of withTemplates(root)) {
+      for (const t of scope.querySelectorAll("template[data-item][data-name]")) {
+        const name = t.getAttribute("data-name");
+        if (named.has(name)) throw new Error(`two templates declare data-name="${name}"`);
+        named.set(name, t);
+      }
     }
-  }
+    for (const scope of withTemplates(root)) {
+      for (const el of scope.querySelectorAll("[data-template]")) {
+        const name = el.getAttribute("data-template");
+        if (!named.has(name)) throw new Error(`no template declares data-name="${name}"`);
+      }
+    }
+    return named;
+  };
+  let namedTemplates = templatesOf(markup);
   const resolveTemplate = (name) => {
     const t = namedTemplates.get(name);
     if (t === undefined) throw new Error(`no template declares data-name="${name}"`);
     return t;
   };
-  // Every data-template resolves before a region hydrates, for the same
-  // reason every hatch name does: inside a refresh the dead-gateway path
-  // would dress the wiring mistake as a network error and retry it forever.
-  for (const scope of withTemplates(screen)) {
-    for (const el of scope.querySelectorAll("[data-template]")) resolveTemplate(el.getAttribute("data-template"));
-  }
 
   // data-hatch="<unit>" mounts a vendored unit here; data-prop-* carry its
   // props, already resolved against the row by bindAttributes, so a hatch in a
@@ -1602,9 +1713,13 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   }
 
   function wireForm(form, rowId, getCtx = () => ({ params, row: {} }), region) {
-    const entity = form.dataset.entity;
-    const action = form.dataset.action;
-    const invalid = form.querySelector(".invalid");
+    // Once per form, and everything it acts on is read at the gesture: what
+    // it declares, which a newer template may change, and the row and region
+    // of whoever wired it last, which a region hydrated again in place is.
+    form._prontoWiring = { rowId, getCtx, region };
+    if (form._prontoForm) return;
+    form._prontoForm = true;
+    const wiring = () => form._prontoWiring;
     // The shell owns validation so the storyboard's validation-error state is
     // observable; native tooltips would swallow the submit instead.
     form.noValidate = true;
@@ -1613,7 +1728,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // (add-line, capture) would lose every second entry.
     let edits = 0;
     const values = async () => {
-      const ctx = getCtx();
+      const ctx = wiring().getCtx();
       const out = {};
       for (const input of form.querySelectorAll("[name]")) {
         const adapter = adapterOf(input, screenCtx);
@@ -1649,6 +1764,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     };
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+      const entity = form.dataset.entity;
+      const action = form.dataset.action;
+      const invalid = form.querySelector(".invalid");
       if (!form.checkValidity()) {
         invalid?.removeAttribute("hidden");
         setState("validation-error");
@@ -1690,9 +1808,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         // With a mutation reduce mounted on the form's region, the refusal is
         // the reduce's event (see wireEvents' deliver) — the reduce writes the
         // words as a row, so the .store-error side channel stays untouched.
-        const deliver = region?._prontoRefusal;
+        const deliver = wiring().region?._prontoRefusal;
         if (deliver) {
-          const id = action === "create" || form.dataset.filter !== undefined ? undefined : rowId();
+          const id = action === "create" || form.dataset.filter !== undefined ? undefined : wiring().rowId();
           deliver(entity, id, err);
           // The reduce owns the words; the submit state is still this form's
           // to hand back, or a refused submit dims the screen forever.
@@ -1716,13 +1834,13 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         // store's question, answered against the collection.
         else if (action === "upsert") await store.upsertBy(entity, await values(), refused);
         else if (action === "update") {
-          await store.patch(entity, [{ key: rowId(), changes: await values() }], refused);
+          await store.patch(entity, [{ key: wiring().rowId(), changes: await values() }], refused);
         }
         else if (action === "delete" && form.dataset.filter !== undefined) {
           // Filter-scoped bulk delete: the filter, not the row context,
           // names the rows (SPEC #Form.filter).
-          await store.dropWhere(entity, interpolateFilter(form.dataset.filter, getCtx()), refused);
-        } else if (action === "delete") await store.drop(entity, [rowId()], refused);
+          await store.dropWhere(entity, interpolateFilter(form.dataset.filter, wiring().getCtx()), refused);
+        } else if (action === "delete") await store.drop(entity, [wiring().rowId()], refused);
         else throw new Error(`unknown action: ${action}`);
         // A form that submits on change is not reset: its controls already
         // show the row the write stated, and a select whose value was bound
@@ -1743,15 +1861,15 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     form.addEventListener("input", () => {
       edits++;
       if (["validation-error", "network-error"].includes(screen.dataset.state)) {
-        invalid?.setAttribute("hidden", "");
+        form.querySelector(".invalid")?.setAttribute("hidden", "");
         form.querySelector(".store-error")?.setAttribute("hidden", "");
         setState(base);
       }
     });
     // A form with no submit button (the toggle checkbox) submits on change.
-    if (submitsOnChange(form)) {
-      form.addEventListener("change", () => form.requestSubmit());
-    }
+    form.addEventListener("change", () => {
+      if (submitsOnChange(form)) form.requestSubmit();
+    });
   }
 
   // Stage-4's only handler event source: DOM drags become {type:"move",
@@ -2057,14 +2175,16 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
 
     const bind = (el, id) => {
       for (const { event, name } of onAttrs(el)) {
-        const reduce = handlers.get(name);
-        if (!reduce) continue;
+        if (!handlers.get(name)) continue;
         // Item nodes outlive a refresh, so each is wired once — re-wiring would
-        // stack another listener on every render.
+        // stack another listener on every render. The handler is the one the
+        // element names when it fires, which a newer template may change.
         const once = `_prontoOn_${event}`;
         if (el[once]) continue;
         el[once] = true;
         el.addEventListener(event, async (e) => {
+          const reduce = handlers.get(el.getAttribute(`data-on-${event}`));
+          if (!reduce) return;
           try {
             const fired = { type: event };
             if (id !== undefined) fired.id = id;
@@ -2793,7 +2913,8 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     if (ref !== undefined && own.length > 0) {
       throw new ProgramError(`region "${table}" has both data-template and its own item templates`);
     }
-    const templates = (ref !== undefined ? [resolveTemplate(ref)] : own).map((el) => {
+    // Read again when a newer template reaches the running screen (retemplate).
+    const compile = (own) => (ref !== undefined ? [resolveTemplate(ref)] : own).map((el) => {
       // An item is the template's first element child, and only that: a second
       // one is not rendered, not bound and not reported, so the region quietly
       // draws half of what the markup says it draws.
@@ -2817,6 +2938,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       }
       return { el, admits };
     });
+    let templates = compile(own);
     // First match in document order wins. A row no template admits is a broken
     // invariant — exhaustiveness is lint's job, and the runtime holds no
     // fallback shape.
@@ -3064,7 +3186,14 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // view on the whole read — so an order left out of this comparison is a
     // sortable header that writes its column and never re-reads.
     const syncNested = (entry, ready) => {
-      for (const el of nestedOf(entry.node)) {
+      const present = nestedOf(entry.node);
+      // One a newer template took out stops with it.
+      for (const [el, held] of entry.nested) {
+        if (present.includes(el)) continue;
+        held.h.stop();
+        entry.nested.delete(el);
+      }
+      for (const el of present) {
         const want = el.dataset.filter
           ? fromEnclosing(() => interpolateFilter(el.dataset.filter, entry.ctx), el.dataset.live, "data-filter")
           : undefined;
@@ -3098,6 +3227,24 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       }
     };
 
+    // The nested regions of a row, or of the slot, whose markup a newer
+    // template has just brought on (`pairs`, each against its counterpart):
+    // one still reading what it read takes the newer markup, and any other
+    // stands as a fresh copy of the markup it now has, for the pass after to
+    // hydrate as it would a stamp's. One the template took out is syncNested's.
+    const retemplateNested = (nested, pairs, ready) => {
+      for (const [el, from] of pairs) {
+        const held = nested.get(el);
+        if (held !== undefined && !moved(held.h, from)) {
+          ready.push(held.h.retemplate(from));
+          continue;
+        }
+        held?.h.stop();
+        nested.delete(el);
+        el.replaceWith(twin(from));
+      }
+    };
+
     // Stamps entry.node from tmpl and wires the forms the clone carries. The
     // wired closures read entry.ctx, which is mutated in place across
     // refreshes: a form on a surviving node must see the current row, not the
@@ -3106,7 +3253,10 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // is not inside itself, and querySelectorAll alone would leave it unwired,
     // clicking into silence.
     const stamp = (entry, tmpl) => {
-      // Pre-rendered DOM carries data-id; adopting avoids hydration teardown.
+      // A row already drawn under this key — a served document's, or one
+      // written into the markup — is the row's node from here on, and the
+      // binding below brings it to the row as it is now. One an older template
+      // drew is first morphed to this one's item (adoptTree).
       let node = null;
       if (first) {
         const key = String(entry.ctx.row.id);
@@ -3117,7 +3267,11 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           }
         }
       }
-      if (!node) {
+      if (node) {
+        const item = tmpl.content.firstElementChild.cloneNode(true);
+        if (region._prontoStale) morphTree(node, item.cloneNode(true), { slots: true });
+        adoptTree(item, node, { rows: !region._prontoStale, scripts: false });
+      } else {
         node = tmpl.content.firstElementChild.cloneNode(true);
         node.dataset.id = entry.ctx.row.id;
       }
@@ -3419,11 +3573,16 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           !screenOpts.fixtures &&
           row !== fallbackRow &&
           typeof row.locale === "string" &&
-          (screenOpts.messages ? row.locale in screenOpts.messages : true) &&
           !params.locale &&
           row.locale !== currentLocale
         ) {
-          applyLocale(row.locale);
+          // The shell fetches a catalogue when a language is first read, and a
+          // row is the one reader it cannot see coming.
+          if (screenOpts.messages && !(row.locale in screenOpts.messages)) {
+            await screenOpts.ensureMessages?.(row.locale);
+            if (stopped) return;
+          }
+          if (screenOpts.messages ? row.locale in screenOpts.messages : true) applyLocale(row.locale);
         }
         slotCtx.row = row;
         // A singleton has affordances too, and its one row is what they act
@@ -3563,17 +3722,22 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       unsub = null;
     };
     cleanups.push(detach);
-    if (templates.length === 0) {
+    // A slot's forms act on its one row: wired as it hydrates, and as a newer
+    // template brings more (retemplate).
+    const wireSlotForms = () => {
       for (const form of region.querySelectorAll("form[data-action]")) {
         if (!ownedBy(form, region)) continue;
         wireForm(form, () => currentRow.id, () => ({ params: ctx.params, row: currentRow }), region);
       }
-    }
+    };
+    if (templates.length === 0) wireSlotForms();
     const attempt = guarded();
     // A nested region's ProgramError reaches its enclosing row through
     // `painted`, which rejects with it.
     if (!top) attempt.catch(() => {});
     return {
+      // The read it was hydrated with (moved).
+      read: readOf(region),
       // Whether this region binds its own element from the row it hangs under
       // — the same condition that guards the call, and not re-derivable from
       // the DOM afterwards, since a first render sweeps the template away.
@@ -3582,6 +3746,50 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       // A re-render on the same rows, for a parent whose projection parameter
       // moved. Not resume(): the subscription is already standing.
       restate: () => guarded(),
+      // A newer template for the screen on show, `from` its counterpart of this
+      // region, reading what it read (handle.morph). A list takes its items
+      // from it and morphs each row it holds to its item in place, so a row
+      // drawn before, or one stamped from now on, is the newer item's. A slot
+      // morphs its own markup to the newer one. Either way the regions under
+      // it follow (retemplateNested), and the pass after binds what changed,
+      // wires what arrived and hydrates what was added, ending where a mount
+      // of the newer template would.
+      retemplate: async (from) => {
+        const ready = [];
+        if (templates.length === 0) {
+          await morphScreen(region, from);
+          const pairs = new Map();
+          adoptTree(from, region, { rows: true, scripts: false, live: true, pairs, enter: true });
+          retemplateNested(live.get(SLOT)?.nested ?? new Map(), pairs, ready);
+          wireSlotForms();
+          await Promise.all(ready);
+          return guarded();
+        }
+        if (ref === undefined) {
+          region._prontoItemTemplates = [...from.querySelectorAll("template[data-item]")]
+            .filter((t) => t.parentElement.closest("[data-live]") === from);
+        }
+        templates = compile(region._prontoItemTemplates);
+        for (const entry of live.values()) {
+          const tmpl = templateFor(entry.ctx.row);
+          const item = tmpl.content.firstElementChild;
+          const node = entry.node;
+          morphTree(node, item.cloneNode(true), { slots: false });
+          const pairs = new Map();
+          adoptTree(item, node, { rows: true, scripts: false, live: true, pairs });
+          entry.tmpl = tmpl;
+          entry.ctx.chain = chainInto(tmpl, entry.ctx.row);
+          retemplateNested(entry.nested, pairs, ready);
+          for (const form of formsIn(node)) {
+            if (ownedBy(form, node)) wireForm(form, () => node.dataset.id, () => entry.ctx, region);
+          }
+          // Keys and affordances attach once per element, so wiring the row
+          // again reaches only what the newer item added.
+          entry.wired = false;
+        }
+        await Promise.all(ready);
+        return guarded();
+      },
       // The region's half of the leave/return contract in shell.js.
       pause: () => {
         detach();
@@ -3607,43 +3815,48 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   for (const region of screen.querySelectorAll("[data-live]")) {
     if (region.parentElement.closest("[data-live]")) continue;
     const h = hydrateRegion(region, screenCtx, true);
+    h.el = region;
     regions.push(h);
     pending.push(h.ready);
   }
-  // Screen chrome outside every region — a combobox's input sits beside the
-  // listbox it drives, not inside it. Regions wire their own as they render.
-  wireKeysIn(screen);
+  // What the screen wires outside every region, at its mount and again for a
+  // newer template (each element once).
+  const wireScreen = () => {
+    // Screen chrome outside every region — a combobox's input sits beside the
+    // listbox it drives, not inside it. Regions wire their own as they render.
+    wireKeysIn(screen);
 
-
-  // A hatch outside every region has no row to resynchronise against; its
-  // props are whatever the screen-level {param.x} pass already resolved.
-  for (const el of screen.querySelectorAll("[data-hatch]")) {
-    if (!el.closest("template") && !el.closest("[data-live]")) {
-      // And no reduce either: wireEvents runs per region, so out here the
-      // listener would never be attached and the unit's answers would go
-      // nowhere, silently. A hatch whose event has to reach a handler lives
-      // inside a region — the same class of wiring mistake as naming a unit no
-      // app declared, and refused in the same place.
-      if (onAttrs(el).length > 0) {
-        throw new Error(`data-hatch="${el.dataset.hatch}" declares data-on-* outside every [data-live]`);
+    // A hatch outside every region has no row to resynchronise against; its
+    // props are whatever the screen-level {param.x} pass already resolved.
+    for (const el of screen.querySelectorAll("[data-hatch]")) {
+      if (!el.closest("template") && !el.closest("[data-live]")) {
+        // And no reduce either: wireEvents runs per region, so out here the
+        // listener would never be attached and the unit's answers would go
+        // nowhere, silently. A hatch whose event has to reach a handler lives
+        // inside a region — the same class of wiring mistake as naming a unit no
+        // app declared, and refused in the same place.
+        if (onAttrs(el).length > 0) {
+          throw new Error(`data-hatch="${el.dataset.hatch}" declares data-on-* outside every [data-live]`);
+        }
+        bindHatches(el, screenCtx);
       }
-      bindHatches(el, screenCtx);
     }
-  }
 
-  for (const form of screen.querySelectorAll("form[data-action]")) {
-    if (!form.closest("template") && !form.dataset.id && !form.closest("[data-live]")) {
-      // A screen-level update/delete form addresses its row through its own
-      // hidden id field (the {param.x} grammar) — the trash-note form sits
-      // outside every region by design. Only a form with neither a region
-      // nor a hidden id truly has no row context.
-      const idField = form.querySelector('input[type="hidden"][name="id"]');
-      wireForm(form, () => {
-        if (idField?.dataset.value !== undefined) return resolveHidden(idField.dataset.value, { params });
-        throw new Error("screen-level form has no row context");
-      });
+    for (const form of screen.querySelectorAll("form[data-action]")) {
+      if (!form.closest("template") && !form.dataset.id && !form.closest("[data-live]")) {
+        // A screen-level update/delete form addresses its row through its own
+        // hidden id field (the {param.x} grammar) — the trash-note form sits
+        // outside every region by design. Only a form with neither a region
+        // nor a hidden id truly has no row context.
+        const idField = form.querySelector('input[type="hidden"][name="id"]');
+        wireForm(form, () => {
+          if (idField?.dataset.value !== undefined) return resolveHidden(idField.dataset.value, { params });
+          throw new Error("screen-level form has no row context");
+        });
+      }
     }
-  }
+  };
+  wireScreen();
 
   await Promise.all(pending);
   if (regions.length === 0) {
@@ -3651,52 +3864,270 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   }
 
   // The terminal owns the navigation stack, so it needs more than a teardown:
-  // a screen it is holding for a back press is paused, not stopped.
+  // a screen it is holding for a back press is paused, not stopped. A morph
+  // waiting on the newer template's modules meets either when it resumes.
+  let held = "shown";
+  // A newer template for the screen on show (the service worker's
+  // revalidation): its skeleton is brought to it in place, then each region
+  // (retemplate). A region it adds, or whose read it changes, is hydrated
+  // where it stands, as the mount would have, and one it drops is stopped.
+  const morph = async (newHtml) => {
+    const next = prepare(newHtml);
+    // Everything the mount refuses or loads before anything hydrates, before
+    // the running screen or anything it reads by name is touched: a template
+    // that cannot be taken leaves the screen as it was.
+    for (const scope of withTemplates(next)) {
+      for (const el of scope.querySelectorAll("[data-hatch]")) resolveUnit(el.dataset.hatch);
+    }
+    const named = templatesOf(next);
+    const modules = opts.handlers === false ? null : {
+      handlers: await loadHandlers(next, appBase, route, endowmentsMap),
+      adapters: await loadAdapters(next, appBase, route, endowmentsMap),
+      renderers: await loadRenderers(next, appBase, route, endowmentsMap),
+    };
+    namedTemplates = named;
+    if (modules !== null) {
+      for (const [name, module] of modules.handlers) handlers.set(name, module);
+      adapters = modules.adapters;
+      Object.assign(renderers, modules.renderers);
+    }
+    await morphScreen(screen, next);
+    if (held === "stopped") return;
+    const pairs = new Map();
+    adoptTree(next, screen, { rows: true, scripts: false, live: true, pairs });
+    localize(screen);
+    // Every list re-binds its rows, and a top region's pass names the
+    // screen's state after its own rows: the region settling last would
+    // decide it, though a template moving on changes no row.
+    const [state, standing] = [screen.dataset.state, base];
+    const ready = [];
+    for (const r of [...regions]) {
+      const from = pairs.get(r.el);
+      if (from !== undefined && !moved(r, from)) {
+        ready.push(r.retemplate(from));
+        pairs.delete(r.el);
+        continue;
+      }
+      r.stop();
+      regions.splice(regions.indexOf(r), 1);
+    }
+    for (const [el, from] of pairs) {
+      const fresh = twin(from);
+      el.replaceWith(fresh);
+      const h = hydrateRegion(fresh, screenCtx, true);
+      h.el = fresh;
+      regions.push(h);
+      ready.push(h.ready);
+    }
+    wireScreen();
+    await Promise.all(ready);
+    base = standing;
+    setState(state);
+    // What it hydrated subscribed as it did, held or not.
+    if (held === "paused") for (const r of regions) r.pause();
+  };
+  // One at a time, in the order they arrive: each waits on the modules its
+  // template names, and a later one landing first would be morphed back.
+  let morphing = Promise.resolve();
   return {
+    // Which template this screen was drawn from (templateHash).
+    cas,
     pause: () => {
+      held = "paused";
       for (const r of regions) r.pause();
     },
-    resume: () => Promise.all(regions.map((r) => r.resume())),
+    resume: () => {
+      held = "shown";
+      return Promise.all(regions.map((r) => r.resume()));
+    },
     stop: () => {
+      held = "stopped";
       for (const r of regions) r.stop();
     },
-    morph: (newHtml) => morphScreen(screen, newHtml),
+    // Its words written again, in the catalogues as they now stand.
+    localize: () => localize(screen),
+    morph: (newHtml) => {
+      const turn = morphing.then(() => morph(newHtml));
+      morphing = turn.then(() => {}, () => {});
+      return turn;
+    },
   };
 }
 
-// Morphlex diffs the static skeleton in-place. beforeChildrenVisited prunes
-// descent into [data-live] islands (owned by store queries) and [data-hatch]
-// (sandboxed frames/workers); preserveChanges retains user inputs in flight.
-export async function morphScreen(liveScreen, newHtml) {
-  if (!liveScreen || liveScreen.nodeType !== 1) {
-    throw new Error("morphScreen: liveScreen element missing");
+/** The hash of a screen's template text: what a document says it was rendered
+ * from (`pronto-cas`, document.js), and what a shell holding the template it
+ * fetched recomputes to know whether the screen on show is that template's.
+ * Synchronous and dependency-free, so a renderer and a page compute it alike;
+ * it witnesses which text, and guards nothing. */
+export function templateHash(text) {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 2654435761);
+    h2 = Math.imul(h2 ^ c, 1597334677);
   }
-  const holder = document.createElement("template");
-  holder.innerHTML = newHtml;
-  const newScreen = holder.content.firstElementChild;
-  if (!newScreen) {
-    throw new Error("morphScreen: incoming markup has no root element");
-  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (h2 >>> 0).toString(16).padStart(8, "0") + (h1 >>> 0).toString(16).padStart(8, "0");
+}
 
-  for (const attr of [...newScreen.attributes]) {
-    if (liveScreen.getAttribute(attr.name) !== attr.value) {
-      liveScreen.setAttribute(attr.name, attr.value);
+/** A region whose children are rows: it states item templates, or names one. */
+function listRegion(el) {
+  if (!el.hasAttribute("data-live")) return false;
+  if (el.hasAttribute("data-template")) return true;
+  return [...el.querySelectorAll("template[data-item]")].some((t) => t.parentElement.closest("[data-live]") === el);
+}
+
+/**
+ * Takes `to` over as the render of `from`, the same template prepared
+ * (interpretScreen's prepare). A served screen is its template's tree with
+ * every binding resolved, every list's rows where its item templates stood and
+ * its scripts taken out (document.js), so what a render holds only in memory —
+ * a placeholder attribute's template, a list's item templates — is read off
+ * the template and set on the node it became. A served tree that is not that
+ * render is refused, not half adopted.
+ *
+ * `rows`: whether the rows a list holds were stamped from this template's
+ * items, or must be morphed to them as they are adopted. `scripts`: whether the template's
+ * scripts run, which they do once, on the screen's first mount. `live`: `to`
+ * is a screen already running, whose regions own everything under them; each
+ * region met is set in `pairs` against its counterpart in `from`. `enter`:
+ * `to` is a region taking its own markup over, which it owns down to the
+ * regions under it.
+ */
+function adoptTree(from, to, { rows, scripts, live = false, pairs, enter = false }) {
+  if (from.localName !== to.localName) {
+    throw new ProgramError(`the served screen has <${to.localName}> where its template has <${from.localName}>`);
+  }
+  const stash = { ...from._prontoAttrs };
+  for (const { name, value } of [...from.attributes]) {
+    if (!regionAttr(name) && PLACEHOLDER.test(value)) stash[name] ??= value;
+  }
+  if (Object.keys(stash).length > 0) to._prontoAttrs = stash;
+  else delete to._prontoAttrs;
+  // Typed into before the shell arrived: an edit its binding must not
+  // overwrite, as one typed after is. A running control's value is its
+  // binding's, set apart from the attribute, and says nothing of the reader.
+  if (
+    !live && stash["data-value"] !== undefined && (to.localName === "input" || to.localName === "textarea") &&
+    !["checkbox", "radio", "hidden"].includes(to.type) &&
+    to.value !== (to.localName === "textarea" ? to.textContent : to.getAttribute("value") ?? "")
+  ) {
+    guardEdits(to);
+    to._prontoDirty = true;
+  }
+  if (from.localName === "template" || from.hasAttribute("data-hatch") || from.hasAttribute("data-text")) return;
+  if (from.hasAttribute("data-live") && !enter) {
+    if (live) {
+      pairs?.set(to, from);
+      return;
+    }
+    if (listRegion(from)) {
+      to._prontoItemTemplates = [...from.querySelectorAll("template[data-item]")]
+        .filter((t) => t.parentElement.closest("[data-live]") === from);
+      if (!rows) to._prontoStale = true;
+      return;
     }
   }
-  for (const attr of [...liveScreen.attributes]) {
-    if (!newScreen.hasAttribute(attr.name)) {
-      liveScreen.removeAttribute(attr.name);
+  const theirs = [...to.children];
+  let at = 0;
+  for (const child of [...from.children]) {
+    if (child.localName === "script") {
+      if (!scripts) continue;
+      const run = document.createElement("script");
+      run.textContent = child.textContent;
+      to.insertBefore(run, theirs[at] ?? null);
+      continue;
     }
+    const counterpart = theirs[at++];
+    if (counterpart === undefined) {
+      throw new ProgramError(`the served screen lacks the <${child.localName}> its template states under <${from.localName}>`);
+    }
+    adoptTree(child, counterpart, { rows, scripts, live, pairs });
   }
+  if (at === theirs.length) return;
+  // A slot whose row is gone draws its note after its markup (emptyNote), and
+  // the slot's first pass takes it down or keeps it.
+  if (from.hasAttribute("data-live") && at === theirs.length - 1) {
+    to._prontoEmpty = theirs[at];
+    return;
+  }
+  throw new ProgramError(`the served screen has ${theirs.length - at} element(s) under <${from.localName}> its template does not state`);
+}
 
-  const { morphInner } = await import("./vendor/morphlex.js");
-  morphInner(liveScreen, newScreen, {
+/**
+ * Brings `live` to `markup` in place with morphlex: nodes that match are kept,
+ * with the reader's focus, selection and unsent input in them
+ * (preserveChanges). A list's rows are the store's and a hatch's frame its
+ * unit's, so neither is entered, and a slot is entered only when `slots` says
+ * so — on a served screen, whose slots nothing has bound yet; a running slot
+ * wired its markup when it hydrated. What a binding shows — a bound text, a
+ * bound attribute — stays as it is until the binding writes it: the markup
+ * says only `{column}` there, while a region's own attributes are its read
+ * and the markup's to state. The state is the screen's own, never the
+ * template's.
+ */
+export async function morphScreen(live, markup, { slots = false } = {}) {
+  if (!live || live.nodeType !== 1) throw new Error("morphScreen: the live screen is missing");
+  if (!markup || markup.nodeType !== 1) throw new Error("morphScreen: the markup has no root element");
+  morphlex ??= await import("./vendor/morphlex.js");
+  const target = markup.cloneNode(true);
+  // A URL prepare() took off until its row binds goes back on as the template
+  // it was, so the hook below sees a binding rather than an attribute the
+  // template dropped.
+  const restore = (from, to) => {
+    for (const [name, template] of Object.entries(from._prontoAttrs ?? {})) {
+      const held = from.getAttribute(name);
+      if (held === null || (name === "src" && held === BLANK_PIXEL)) to.setAttribute(name, template);
+    }
+    for (let i = 0; i < from.children.length; i++) restore(from.children[i], to.children[i]);
+  };
+  restore(markup, target);
+  morphTree(live, target, { slots });
+}
+
+// Loaded by the first morph: a screen whose template has not moved on never
+// asks for it. A row is morphed only after its screen was (adoptTree).
+let morphlex = null;
+
+/** morphScreen's walk over a target it may consume. */
+function morphTree(live, target, { slots }) {
+  // A screen's scripts run once, where it is first mounted (adoptTree), and
+  // never again for a morph.
+  for (const script of [...target.querySelectorAll("script")]) script.remove();
+  // The state is the screen's and the key the row's, never the template's.
+  const own = (name) => name === "data-state" || name === "data-id";
+  // A region's attributes are its read, which no binding writes over, so they
+  // are the template's to state with their placeholders.
+  for (const { name, value } of [...target.attributes]) {
+    if (own(name) || (PLACEHOLDER.test(value) && !regionAttr(name))) continue;
+    if (live.getAttribute(name) !== value) live.setAttribute(name, value);
+  }
+  for (const { name } of [...live.attributes]) {
+    if (!own(name) && !target.hasAttribute(name)) live.removeAttribute(name);
+  }
+  const halted = new WeakSet();
+  morphlex.morphInner(live, target, {
     preserveChanges: true,
-    beforeChildrenVisited: (fromEl) => {
-      if (fromEl.nodeType === 1 && (fromEl.hasAttribute("data-live") || fromEl.hasAttribute("data-hatch"))) {
-        return false;
-      }
+    beforeNodeVisited: (from, to) => {
+      if (to.nodeType === 1 && to.hasAttribute("data-live") && (!slots || listRegion(to))) halted.add(from);
       return true;
     },
+    beforeChildrenVisited: (from) =>
+      from.nodeType !== 1 || !(halted.has(from) || from.hasAttribute("data-hatch") || from.hasAttribute("data-text")),
+    beforeAttributeUpdated: (_el, name, value) => value === null || !PLACEHOLDER.test(value) || regionAttr(name),
   });
+}
+
+/** A copy of a prepared tree, carrying what prepare() holds only in memory:
+ * the template of each attribute it took off. */
+function twin(from) {
+  const to = from.cloneNode(true);
+  const carry = (a, b) => {
+    if (a._prontoAttrs !== undefined) b._prontoAttrs = { ...a._prontoAttrs };
+    for (let i = 0; i < a.children.length; i++) carry(a.children[i], b.children[i]);
+  };
+  carry(from, to);
+  return to;
 }

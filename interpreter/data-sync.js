@@ -75,7 +75,8 @@ async function http(url, init) {
   const res = await fetch(url, { ...init, headers });
   if (res.status === 401) {
     // Expired/invalid token: re-gate through the login screen. The reload
-    // tears the page down, so this promise never settles by design.
+    // tears the page down, so this promise never settles by design. The
+    // server terminal's reload is its end (server/render.ts inhabit).
     sessionStorage.removeItem("pronto-token");
     location.reload();
     return new Promise(() => {});

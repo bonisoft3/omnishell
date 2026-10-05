@@ -35,6 +35,8 @@
       "terminal.cue",
       "instrument.ts",
       "read-markup.ts",
+      "render-documents.ts",
+      "server/**/*",
       "runtime/**/*",
       "package.json",
       "tsconfig.json"
@@ -136,6 +138,8 @@
           "terminal.cue",
           "instrument.ts",
           "read-markup.ts",
+          "render-documents.ts",
+          "server/**/*",
           "runtime/**/*",
           "package.json",
           "tsconfig.json"
@@ -207,6 +211,8 @@
           "terminal.cue",
           "instrument.ts",
           "read-markup.ts",
+          "render-documents.ts",
+          "server/**/*",
           "runtime/**/*",
           "package.json",
           "tsconfig.json"

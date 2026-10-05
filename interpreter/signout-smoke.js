@@ -26,15 +26,15 @@ tables: []
 routes:
   - path: /
     screen: home
-    nav: {label: Home, key: nav_home, labels: {pt-BR: Início}}
+    nav: {label: Home, key: nav_home}
     files: {html: shell/screens/home.html, css: shell/screens/home.css, handlers: []}
   - path: /other
     screen: other
-    nav: {label: Other, key: nav_other, labels: {pt-BR: Outra}}
+    nav: {label: Other, key: nav_other}
     files: {html: shell/screens/other.html, css: shell/screens/other.css, handlers: []}
   - path: /profile/:handle
     screen: profile
-    nav: {label: Profile, key: nav_profile, labels: {pt-BR: Perfil}}
+    nav: {label: Profile, key: nav_profile}
     files: {html: shell/screens/profile.html, css: shell/screens/profile.css, handlers: []}
 `;
 

@@ -53,6 +53,32 @@ _shellCssAsset:  _ @embed(file="shell.css", type=text)
 _bootJsAsset:    _ @embed(file="boot.js", type=text)
 _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 
+// The server terminal (server/render.ts): a route's document rendered on
+// request, with its rows, by a process that reads the app through the door it
+// is served behind. Published as data for a compiler to run where its routes
+// ask for it, the way the statics are: an image pinned to the deno the
+// toolchain pins, the runtime directories it is built from, the step that
+// fetches its dependencies from the lock and only from the lock, the command,
+// and the address that says it is ready.
+#Render: {
+	image: "denoland/deno:debian-2.9.7@sha256:fa335acdf6b72106eda2cb6a8cb5f4187e7630e357467489db4b2e7352d5e432"
+	// Where this plugin sits in the runtime that holds it; the runtime image
+	// (bayt.cue's runtime-image) holds the same tree at its root.
+	home: "plugins/omnishell"
+	// Directories of this plugin, relative to the runtime that holds it, each
+	// copied whole to the same name under `workdir`.
+	dirs: ["\(home)/interpreter", "\(home)/server"]
+	workdir: "/render"
+	// The app's entry page, where the app keeps it and where the image places
+	// it: the door answers the entry's own address with a redirect, so it is
+	// the one file not read through it.
+	entry: {source: "shell/index.html", target: "/render/entry.html"}
+	port:  8090
+	cache: "deno cache --frozen --config plugins/omnishell/server/deno.json plugins/omnishell/server/render.ts"
+	command: ["deno", "run", "--frozen", "--cached-only", "--config", "plugins/omnishell/server/deno.json", "--allow-net", "--allow-env", "--allow-read=/render", "plugins/omnishell/server/render.ts"]
+	health: "http://127.0.0.1:8090/health"
+}
+
 // cluster.#Static-shaped, not imported: terminal.cue and cluster.cue each
 // define their own copy rather than coupling the two packages together.
 #Static: {
@@ -253,7 +279,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 		// assets below; see _shellHtmlAsset. design.css isn't listed here —
 		// it's #App's own generated file, nothing omnishell-specific about it.
 		entry: #Path
-		entry: *"shell/index.html" | string
+		entry: *#Render.entry.source | string
 		css: #Path
 		css: *"shell/shell.css" | string
 		boot: #Path
@@ -335,36 +361,40 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 
 		// What a compiler reaches this plugin through, rather than importing
 		// it: the command that prints one app's markup as JSON
-		// (read-markup.ts's header is the contract), and the published
-		// #Machine every chart in that markup is vetted against. Both are
-		// spawned from the app's own directory, so both are app-relative, and
+		// (read-markup.ts's header is the contract), the published #Machine
+		// every chart in that markup is vetted against, and the command that
+		// renders its documents. All are
+		// spawned from the app's own directory, so all are app-relative, and
 		// a consumer that keeps the terminal somewhere else states where by
 		// unifying these — which is the whole reason they are fields and not
 		// paths written into someone's source.
 		markupReader: #Path
 		markupReader: *"../../plugins/omnishell/read-markup.ts" | string
+		documentRenderer: #Path
+		documentRenderer: *"../../plugins/omnishell/render-documents.ts" | string
+		// The config the renderer runs under, whose lock pins everything it
+		// imports: the documents it writes are committed, so a dependency
+		// floating to a new release would change them with no change here.
+		documentConfig: #Path
+		documentConfig: *"../../plugins/omnishell/server/deno.json" | string
 		machineSchema: #Path
 		machineSchema: *"../../plugins/omnishell/machine.cue" | string
 
 		// The entry page fetches the boot graph in parallel at t=0 instead of
-		// discovering each import a round-trip after its parent executes.
-		// storybook.js loads only under ?storybook and stays lazy; ses/jessie
-		// stay undeclared here too — loaded after first paint; mecha-client,
-		// data-sync, and hatch are deferred so cold first paint loads minimal
-		// paint-critical weight.
+		// discovering each import a round-trip after its parent executes. The
+		// data plane is on that graph: every screen that paints a row waits on
+		// it, so deferring it moves a first paint later by its whole chain.
+		// What stays off loads only on a path a first paint does not take:
+		// storybook.js under ?storybook, ses when a handler first runs,
+		// js-yaml for a shell.yaml config, morphlex when a template changes
+		// under a mounted screen, kinetic and prng for a kinetic unit.
 		_preloadSkip: {
-			"storybook.js":           true
-			"vendor/ses.umd.min.js":  true
-			"vendor/js-yaml.js":      true
-			"vendor/mecha-client.js": true
-			"data-sync.js":           true
-			"validate.js":            true
-			"hatch.js":               true
-			"hatch-worker.js":        true
-			"jessie.js":              true
-			"vendor/morphlex.js":     true
-			"kinetic.js":             true
-			"prng.js":                true
+			"storybook.js":          true
+			"vendor/ses.umd.min.js": true
+			"vendor/js-yaml.js":     true
+			"vendor/morphlex.js":    true
+			"kinetic.js":            true
+			"prng.js":               true
 		}
 		_preloadHtml: strings.Join([for m in modules if _preloadSkip[m] == _|_ {
 			"<link rel=\"modulepreload\" href=\"/omnishell/interpreter/\(m)\">"
@@ -417,6 +447,13 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 		// catalogs by URL rather than embedding them into screen markup.
 		messages: [...#Path]
 		messages: *[] | [...#Path]
+
+		// The addresses answered with a document rendered before any request
+		// (render-documents.ts), each at documents<address>/index.html in the
+		// app's tree and served where a door resolving `{path}/index.html`
+		// finds it.
+		documents: [...string]
+		documents: *[] | [...string]
 
 		// Invariants of the terminal's own rendering surface, which no app can
 		// re-derive — the same reason auth and text-formats are published here.
@@ -554,6 +591,11 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 			[for m in T.surface.messages {
 				file:   m
 				target: "/srv/\(m)"
+				watch:  true
+			}],
+			[for a in T.surface.documents {
+				file:   "documents\(strings.TrimSuffix(a, "/"))/index.html"
+				target: "/srv\(strings.TrimSuffix(a, "/"))/index.html"
 				watch:  true
 			}],
 			// The interpreter is hand-written and edited in the loop, so it is

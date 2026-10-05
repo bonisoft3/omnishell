@@ -368,7 +368,9 @@ async function openRoute(
   const state = await page
     .waitForFunction(
       () => {
-        const el = document.querySelector("#app .shell-screen:not([hidden]) .screen")
+        // The shell's own screen, never a served document's it has not yet
+        // replaced: that one is painted but not yet the app.
+        const el = document.querySelector("#app .shell-screen:not([hidden]):not([data-served]) .screen")
         const s = el?.getAttribute("data-state")
         return s && s !== "loading" ? s : null
       },

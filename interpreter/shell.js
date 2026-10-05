@@ -13,9 +13,9 @@
 // bypasses it entirely: the fixture adapter runs without the cluster, so no auth
 // service exists to sign against.
 
-import { chromeText } from "./chrome.js";
-import { directionOf, localeByPath, localeTable, resolveLocale, routeHref, routePattern, screenEnv } from "./fragment.js";
-import { interpretScreen, routeParams } from "./screen.js";
+import { chromeText, describe, drawStrip, guestBox, hasStrip, localizeStrip } from "./chrome.js";
+import { localeByPath, localeTable, resolveLocale, routeHref, routePattern, screenEnv, Unanswered } from "./fragment.js";
+import { fetchText, interpretScreen, prefetchScreen, templateHash } from "./screen.js";
 import { compileCatalog } from "./vendor/messages.js";
 
 /** Whether the account a stored token names still exists.
@@ -42,6 +42,33 @@ async function accountLives(session) {
   }
 }
 
+/** A guest session from the auth service. A served or kept document on show
+ * (`reading`) stays the page while no answer can arrive — a tab opened offline
+ * paints what the worker kept, and holds no session yet, since one lives in
+ * the tab — so the mint is asked again once the browser is back online, or a
+ * backoff has passed. With nothing on show, there is nothing to keep. */
+async function mintGuest(cfg, reading) {
+  for (let wait = 2000; ; wait = Math.min(wait * 2, 15000)) {
+    let res;
+    try {
+      res = await fetch(`${cfg.auth?.service ?? "/auth"}/guest`, { method: "POST" });
+    } catch (err) {
+      // fetch rejects with a TypeError when no answer arrived at all.
+      if (!reading || !(err instanceof TypeError)) throw err;
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, wait);
+        addEventListener("online", () => {
+          clearTimeout(timer);
+          resolve();
+        }, { once: true });
+      });
+      continue;
+    }
+    if (!res.ok) throw new Error(`Guest auth failed with status ${res.status}: ${await res.text()}`);
+    return res.json();
+  }
+}
+
 /** The JWT payload, or null if it is not one. */
 function claimsOf(token) {
   try {
@@ -50,12 +77,6 @@ function claimsOf(token) {
   } catch {
     return null;
   }
-}
-
-async function fetchText(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${res.status} fetching ${url}`);
-  return res.text();
 }
 
 // A screen's fade covers its first load. The cap is what keeps it from covering
@@ -224,20 +245,15 @@ function renderLogin(mount, cfg, chrome) {
 // — `route` names it, its :params are filled from the session user, `name` is
 // the table and column their chosen name lives in. An app with no page for a
 // person declares no `self`, and the handle stands on its own.
-function renderSession(session, cfg, store, signOut, chrome) {
-  const box = document.createElement("span");
-  box.className = "shell-me";
+function renderSession(session, cfg, store, signOut, chrome, served = null) {
 
   // A guest has nothing to sign out of and a passkey to gain: one gesture
   // signs in to the passkey's account where the device has one, and otherwise
-  // makes one of this guest, keeping what it wrote.
+  // makes one of this guest, keeping what it wrote. A served document's strip
+  // already holds that box (document.js), and it is the one bound.
   if (session.user.guest && cfg.auth?.promote) {
-    const signIn = document.createElement("button");
-    signIn.type = "button";
-    signIn.className = "shell-signin";
-    // The word is the strip's to write in the page's language (localizeStrip);
-    // the key says which word.
-    signIn.dataset.key = "chrome_passkey";
+    const box = served?.querySelector(".shell-signin") ? served : guestBox(document);
+    const signIn = box.querySelector(".shell-signin");
     signIn.addEventListener("click", async () => {
       let next;
       try {
@@ -251,7 +267,6 @@ function renderSession(session, cfg, store, signOut, chrome) {
       sessionStorage.setItem("pronto-token", JSON.stringify(next));
       location.reload();
     });
-    box.append(signIn);
     return box;
   }
 
@@ -275,6 +290,8 @@ function renderSession(session, cfg, store, signOut, chrome) {
   handle.textContent = session.user.handle;
   who.append(name, handle);
 
+  const box = document.createElement("span");
+  box.className = "shell-me";
   const out = document.createElement("a");
   out.className = "shell-signout";
   out.href = "#";
@@ -389,27 +406,87 @@ export function routeAt(cfg, pathname, search, preferred) {
   return null;
 }
 
-/** Every catalogue the app declares, keyed by tag. A locale whose file does not
- * answer is left out of the map, and what reads it — a screen through
- * screenEnv, the chrome through chromeText — shows the copy it was written
- * with. */
-async function loadMessages(appBase, i18n) {
+/** The app's catalogues, keyed by tag, fetched one locale at a time: a reader
+ * is in one language, and the five they are not in cost a page its first paint
+ * on a slow link. `ensure` answers once the locale's file has been asked for,
+ * and a locale whose file answers with a failure is left out of the map, so
+ * what reads it — a screen through screenEnv, the chrome through chromeText —
+ * shows the copy it was written with. A request that never answered is no
+ * answer: it rejects whoever waits on it, and the next to ask asks again.
+ *
+ * The worker answers from its copy of a catalogue, which is any deploy old.
+ * `settle` takes a served document's witness of the catalogues it is drawn in
+ * (document.js) and asks the network past the worker for each this shell holds
+ * otherwise, as a screen does for its template: the screen writes its words
+ * again on taking the document over, and the older copy would write a newer
+ * document back to older words. `heard` takes the worker's announcement of a
+ * newer copy once the one asked has landed, so the older cannot land after
+ * it; `taken` counts what has been taken, which a screen compares with what it
+ * was last written in. */
+function catalogues(appBase, i18n) {
   const messages = {};
-  if (!i18n?.locales) return messages;
-  await Promise.all(
-    Object.keys(localeTable(i18n)).map(async (loc) => {
-      try {
-        const res = await fetch(new URL(`messages/${loc}.json`, appBase));
-        if (res.ok) {
-          messages[loc] = compileCatalog(await res.json());
-        }
-      } catch (_) {}
-    }),
-  );
-  return messages;
+  const witnessed = {};
+  const asked = new Map();
+  const answered = new Set();
+  let taken = 0;
+  const declared = i18n?.locales ? localeTable(i18n) : {};
+  const urlOf = (loc) => new URL(`messages/${loc}.json`, appBase);
+  const take = (loc, text) => {
+    messages[loc] = compileCatalog(JSON.parse(text));
+    witnessed[loc] = templateHash(text);
+    taken++;
+  };
+  const load = (loc, init) =>
+    fetch(urlOf(loc), init).then(async (res) => {
+      if (res.ok) take(loc, await res.text());
+      answered.add(loc);
+    });
+  const ensure = (loc) => {
+    if (loc === undefined || !Object.hasOwn(declared, loc)) return Promise.resolve();
+    let pending = asked.get(loc);
+    if (pending === undefined) {
+      pending = load(loc).catch((err) => {
+        asked.delete(loc);
+        throw err;
+      });
+      asked.set(loc, pending);
+    }
+    return pending;
+  };
+  return {
+    messages,
+    ensure,
+    // Whether asking would wait: a navigation within one language must not
+    // yield before it mounts, or a second navigation can land between the two.
+    answered: (loc) => loc === undefined || !Object.hasOwn(declared, loc) || answered.has(loc),
+    all: () => Promise.all(Object.keys(declared).map(ensure)),
+    settle: (witness) =>
+      Promise.all(witness.split(" ").filter(Boolean).map((pair) => {
+        const [loc, hash] = pair.split(":");
+        return Object.hasOwn(witnessed, loc) && witnessed[loc] !== hash ? load(loc, { cache: "no-cache" }) : undefined;
+      })),
+    heard: async (pathname, text) => {
+      const loc = [...asked.keys()].find((l) => urlOf(l).pathname === pathname);
+      if (loc === undefined) return false;
+      // Whoever asked for it hears how its request ended.
+      await Promise.allSettled([asked.get(loc)]);
+      if (witnessed[loc] === templateHash(text)) return false;
+      take(loc, text);
+      return true;
+    },
+    taken: () => taken,
+  };
 }
 
 export async function createShell({ config, mount }) {
+  // A document rendered before this script ran (document.js), from the
+  // network or from the service worker's copy: its screen in the mount, its
+  // strip beside it, and the template it was rendered from in its head. The
+  // first show() takes the screen over where it stands.
+  let served = mount.querySelector(":scope > .shell-screen[data-served]");
+  const servedStrip = mount.previousElementSibling?.localName === "nav" ? mount.previousElementSibling : null;
+  const servedCas = document.querySelector('meta[name="pronto-cas"]')?.getAttribute("content");
+  const servedWords = document.querySelector('meta[name="pronto-words"]')?.getAttribute("content") ?? "";
   const banner = (err) => {
     mount.replaceChildren();
     const pre = document.createElement("pre");
@@ -417,10 +494,11 @@ export async function createShell({ config, mount }) {
     pre.textContent = String(err?.stack ?? err);
     mount.append(pre);
   };
-  // The banner is a boot-failure surface only. Once a screen is mounted, a
-  // stray rejection (a severed gateway killing an in-flight fetch anywhere in
-  // the data plane) must never replace live DOM — the screen's own state
-  // machine degrades to network-error and its forms keep working.
+  // The banner is a boot-failure surface, and a deploy's (`unheard` below).
+  // Once a screen is mounted, a stray rejection (a severed gateway killing an
+  // in-flight fetch anywhere in the data plane) must never replace live DOM —
+  // the screen's own state machine degrades to network-error and its forms
+  // keep working.
   let booted = false;
   addEventListener("unhandledrejection", (e) => {
     if (!booted) {
@@ -434,6 +512,27 @@ export async function createShell({ config, mount }) {
   });
 
   try {
+    // The newest screen files the service worker has announced, by path. It
+    // answers a screen's fetch from its copy and announces a newer one once
+    // its revalidation lands, which can be before anything here is mounted; a
+    // message no listener hears is dropped, so this listens before anything
+    // is fetched, and a screen catches up once it is on show.
+    const announced = new Map();
+    let hear = null;
+    let words = null;
+    globalThis.navigator?.serviceWorker?.addEventListener("message", (e) => {
+      const type = e.data?.type;
+      // One announced before the catalogue is first asked for has nothing to
+      // replace: the request is answered from the worker's copy, this one.
+      if (type === "PRONTO_MESSAGES_UPDATED") {
+        words?.heard(e.data.pathname, e.data.json).then((took) => took && hear?.(), banner);
+        return;
+      }
+      if (type !== "PRONTO_SKELETON_UPDATED" && type !== "PRONTO_STYLE_UPDATED") return;
+      announced.set(e.data.pathname, e.data.html ?? e.data.css);
+      hear?.();
+    });
+
     // Against the document's base, not the address it arrived under: one entry
     // answers at every route, so location.href is /games as readily as
     // /shell/, and resolving there asks for a shell.yaml beside the route.
@@ -443,7 +542,8 @@ export async function createShell({ config, mount }) {
     const cfg = configUrl.pathname.endsWith(".json")
       ? JSON.parse(text)
       : (await import("./vendor/js-yaml.js")).load(text);
-    document.title = cfg.app;
+    // A served document's head already says what it is.
+    if (served === null) document.title = cfg.app;
 
     const search = new URLSearchParams(location.search);
     // This app's own reading of an address, at the terminal's preferences.
@@ -454,15 +554,29 @@ export async function createShell({ config, mount }) {
       return found;
     };
 
+    // Everything the first screen waits on that does not wait on each other
+    // leaves here at once: its catalogue, the session, the data plane's module
+    // and the screen's own files. Asked one after another, each is a round
+    // trip the first paint pays in turn.
+    const arriving = addresses(location);
+    words = catalogues(appBase, cfg.i18n);
+    const { messages, ensure: ensureMessages, answered, all: allMessages } = words;
+    const storybook = search.has("storybook");
+    if (arriving !== null && !storybook) prefetchScreen(appBase, arriving.route);
     // Ahead of the gate, not beside the screens: the terminal's own chrome is
     // drawn before any route is mounted and speaks the reader's language too.
-    const messages = await loadMessages(appBase, cfg.i18n);
+    // The default's comes along because a key one catalogue lacks is read from
+    // it (screen.js lookup).
+    const catalogued = storybook
+      ? allMessages()
+      : Promise.all([ensureMessages(arriving?.locale), ensureMessages(cfg.i18n?.default)]);
     // The terminal's own words, in whichever language the caller resolved: the
     // gate and the strip are both drawn before a screen is, so neither can take
     // a locale off one.
     const chrome = (key, locale) => chromeText(key, { messages, locale });
 
-    if (search.has("storybook")) {
+    if (storybook) {
+      await catalogued;
       const { renderStorybook } = await import("./storybook.js");
       const { route, params, locale } = currentRoute();
       await renderStorybook(mount, appBase, route, params, cfg.units ?? {}, {
@@ -474,6 +588,7 @@ export async function createShell({ config, mount }) {
       });
       return { storybook: true };
     }
+    const dataPlane = import("./data-sync.js");
 
     let session = null;
     if (cfg.auth?.required) {
@@ -495,6 +610,7 @@ export async function createShell({ config, mount }) {
         session = JSON.parse(live);
       } else {
         const gate = localeAt(cfg, location.pathname || "/", location.search ?? "", globalThis.navigator?.languages);
+        await Promise.all([catalogued, ensureMessages(gate.locale)]);
         session = await renderLogin(mount, cfg, (key) => chrome(key, gate.locale));
         // The gate takes its own chrome down. The navigation stack appends
         // each screen beside whatever is already mounted rather than replacing
@@ -519,16 +635,14 @@ export async function createShell({ config, mount }) {
       if (stored) {
         session = JSON.parse(stored);
       } else {
-        const res = await fetch(`${cfg.auth?.service ?? "/auth"}/guest`, { method: "POST" });
-        if (!res.ok) {
-          throw new Error(`Guest auth failed with status ${res.status}: ${await res.text()}`);
-        }
-        session = await res.json();
+        session = await mintGuest(cfg, served !== null);
         sessionStorage.setItem("pronto-token", JSON.stringify(session));
       }
     }
 
-    const { createStore } = await import("./data-sync.js");
+    await catalogued;
+    if (served !== null) await words.settle(servedWords);
+    const { createStore } = await dataPlane;
     const store = createStore("", { ...cfg, appBase });
 
     // Debug & visual-lint seam: pose fixture rows in-memory without page reloads.
@@ -603,123 +717,64 @@ export async function createShell({ config, mount }) {
       location.reload();
     };
 
-    // Parametrized routes have no static href; they are reached from rows. A
-    // route may also take itself off the strip, when it is reached from
-    // somewhere more specific than "everywhere".
-    const navRoutes = cfg.routes.filter((r) => !r.path.includes(":") && r.nav.strip !== false);
-    if (navRoutes.length > 1 || session) {
-      nav = document.createElement("nav");
-      for (const r of navRoutes) {
-        const a = document.createElement("a");
-        // The strip is built before any locale is resolved, and its addresses
-        // change with the one the reader is in: it names routes, and
-        // localizeStrip writes the hrefs on every navigation.
-        a.dataset.route = r.screen;
-        a.textContent = r.nav.label;
-        nav.append(a);
-      }
-      if (session) nav.append(renderSession(session, cfg, store, signOut, chrome));
-      mount.before(nav);
-    }
+    if (hasStrip(cfg, session)) {
+      nav = drawStrip(document, cfg);
+      // A served strip naming this strip's routes is this strip: kept, with
+      // the link the reader may be on, and its words and addresses rewritten
+      // in place by the first show(). One naming others is another deploy's,
+      // and gives way to this one, its words written in the same task.
+      const routesOf = (strip) => [...strip.querySelectorAll(":scope > a[data-route]")].map((a) => a.dataset.route).join(" ");
+      const kept = servedStrip !== null && routesOf(servedStrip) === routesOf(nav) ? servedStrip : null;
+      if (kept !== null) nav = kept;
+      else if (servedStrip) servedStrip.replaceWith(nav);
+      else mount.before(nav);
+      const servedBox = kept?.querySelector(":scope > .shell-me") ?? null;
+      if (session) {
+        const box = renderSession(session, cfg, store, signOut, chrome, servedBox);
+        if (box !== servedBox) {
+          servedBox?.remove();
+          nav.append(box);
+        }
+      } else servedBox?.remove();
+    } else servedStrip?.remove();
 
-    // The strip's addresses, its words and its state, all re-derived per
-    // navigation: an href carries the locale of the page it is on, so does a
-    // label, and aria-current names the link that IS this page — which is the
-    // link whose address is this one, not merely a link to the same route with
-    // someone else's :params.
-    const localizeStrip = (locale) => {
-      for (const a of nav?.querySelectorAll("a[data-route]") ?? []) {
-        const href = routeHref(cfg, a.dataset.route, routeParams(a), locale);
-        if (href === undefined) a.removeAttribute("href");
-        else a.setAttribute("href", href);
-        if (a.getAttribute("href") === location.pathname) a.setAttribute("aria-current", "page");
-        else a.removeAttribute("aria-current");
+    // The address this mount is already rendering, spelled as it should be.
+    // The Navigation API reports a replaceState as a navigation, and taking
+    // that one would mount the screen a second time under the first.
+    let restating = false;
+    const restate = (href) => {
+      restating = true;
+      try {
+        history.replaceState(null, "", href);
+      } finally {
+        restating = false;
       }
-      // The strip's own links, and not the person's: renderSession's anchor
-      // names a route too, and is a name and a handle rather than a word — a
-      // label written onto it takes both down.
-      for (const a of nav?.querySelectorAll(":scope > a[data-route]") ?? []) {
-        // Absent on a route the app declares no label key for, and on every
-        // route of an app declaring no catalogues: the table's own spelling
-        // stands, which is the language it was written in.
-        const label = cfg.routes.find((r) => r.screen === a.dataset.route)?.nav.labels?.[locale];
-        if (label !== undefined) a.textContent = label;
-      }
-      const out = nav?.querySelector(".shell-signout");
-      if (out) out.textContent = chrome("chrome_signout", locale);
-      const signIn = nav?.querySelector(".shell-signin");
-      if (signIn) signIn.textContent = chrome(signIn.dataset.key, locale);
     };
-
-    // What the document says it IS, rewritten on every navigation. One entry
-    // file answers at every address, so its head names no screen and no
-    // language of its own: until this runs, every route of every locale is
-    // `lang="en"` titled with the app. A screen reader takes the document's
-    // language from that attribute, and a crawler that renders the page has no
-    // other source for the title or for the fact that three addresses are one
-    // page in three languages.
-    const describe = (route, params, locale, written, el) => {
-      // The language RENDERED, which is what a screen reader has to pronounce,
-      // and which way its script runs, which is what the nav strip, the
-      // scrollbar and every unstyled box take their side from. It is the
-      // address's own everywhere but a plain route carrying `?lang=`, which
-      // names a language without naming an address. An app that declares no
-      // locales resolves none and makes no claim: the entry document's own
-      // attributes stand rather than being overwritten with `undefined`.
-      if (locale !== undefined) {
-        document.documentElement.lang = locale;
-        document.documentElement.dir = directionOf(locale);
-      }
-      // A screen's h1 names it; a screen without one — the home screen — is
-      // the app itself.
-      const name = el.querySelector("h1")?.textContent?.trim();
-      document.title = name ? `${name} — ${cfg.app}` : cfg.app;
-
-      for (const old of document.head.querySelectorAll('link[rel="canonical"], link[rel="alternate"][hreflang]')) {
-        old.remove();
-      }
-      const link = (rel, href, hreflang) => {
-        const node = document.createElement("link");
-        node.rel = rel;
-        // Absolute, which is what a crawler is asked to compare across
-        // locales — and absolute against the address the reader arrived under,
-        // so nothing here has to be told where the app is deployed. Every href
-        // composed here is root-relative, so the document's own path drops out.
-        node.href = new URL(href, location.href).href;
-        if (hreflang !== undefined) node.hreflang = hreflang;
-        document.head.append(node);
-      };
-      // The language the ADDRESS is written in, never the rendered one. The
-      // two part only on a plain route carrying `?lang=`, which is the case
-      // that would otherwise make a canonical vary per reader — and a
-      // canonical two readers of one URL disagree about is the one thing a
-      // canonical exists not to be.
-      const here = routeHref(cfg, route.screen, params, written);
-      // A route whose param carries nothing has no address, so this document
-      // has none to name — and none in any other locale either, since the
-      // param is the same in all of them.
-      if (here === undefined) return;
-      link("canonical", here);
-      if (cfg.i18n === undefined) return;
-      for (const tag of Object.keys(localeTable(cfg.i18n))) {
-        link("alternate", routeHref(cfg, route.screen, params, tag), tag);
-      }
-      // x-default names the default locale's unprefixed address: where a
-      // crawler is told to send a reader whose language matches no alternate.
-      link("alternate", routeHref(cfg, route.screen, params, cfg.i18n.default), "x-default");
-    };
-
+    // Which show() is the latest. One that waited for a catalogue and finds a
+    // later one started meanwhile mounts nothing: what it read off the
+    // address is no longer the address.
+    let showing = 0;
     const show = async (navigationType = "push") => {
+      const turn = ++showing;
       let { route, params, locale, written } = currentRoute();
+      const asked = new URLSearchParams(location.search).has("lang");
       // A localized route has one address, so `?lang=` on one is replaced by
       // the address it names rather than rendered — the server answers the
-      // same case with a 301.
-      if (route.paths !== undefined && new URLSearchParams(location.search).has("lang")) {
+      // same case with a 301. And an unprefixed address read in another
+      // language is that language's address: the door answered it with that
+      // document rather than a redirect (pronto's emitted Caddyfile), so the
+      // address is restated here, where it costs no round trip.
+      const negotiated = !asked && params.locale === undefined && locale !== written;
+      if ((route.paths !== undefined && asked) || negotiated) {
         const canonical = routeHref(cfg, route.screen, params, locale);
-        if (canonical !== undefined) history.replaceState(null, "", canonical);
+        if (canonical !== undefined) restate(canonical);
         ({ route, params, locale, written } = currentRoute());
       }
-      localizeStrip(locale);
+      if (!answered(locale)) {
+        await ensureMessages(locale);
+        if (turn !== showing) return;
+      }
+      localizeStrip(nav, cfg, { locale, here: location.pathname, messages });
       const key = keyOf(route, params);
       if (current) {
         current.scrollY = window.scrollY;
@@ -730,24 +785,45 @@ export async function createShell({ config, mount }) {
       }
       const entry = held.get(key);
       if (entry !== undefined) {
+        entry.locale = locale;
         entry.seq = ++seq;
         entry.el.hidden = false;
         enter(entry.el);
         current = entry;
         evict(route);
-        describe(route, params, locale, written, entry.el);
+        describe(document, cfg, { route, params, locale, written, el: entry.el, origin: location.origin });
         // Following a link to a screen visited before is a fresh arrival
         // however warm its DOM is, and an arrival starts at the top; going
         // back resumes. Only "push" is treated as an arrival.
         window.scrollTo(0, navigationType === "push" ? 0 : entry.scrollY);
         await entry.handle?.resume();
+        await catchUp(entry).catch(unheard(entry));
         return;
       }
-      const el = document.createElement("div");
-      el.className = "shell-screen";
-      el.dataset.entering = "";
-      mount.append(el);
-      const fresh = { key, el, route, scrollY: 0, seq: ++seq };
+      // A served document is already the screen on show, so the first show()
+      // takes it over where it stands: no fade, since nothing arrives, and no
+      // jump to the top, since the reader may already have scrolled what they
+      // were reading.
+      let adopting = served;
+      served = null;
+      // A kept document is any deploy old. One that names no template, or
+      // draws a screen this address no longer maps to, is a deploy's this
+      // shell is not: it gives way to a fresh mount, and the worker's copy
+      // to the network's on the next visit.
+      if (adopting !== null && (servedCas === undefined || adopting.firstElementChild?.dataset.screen !== route.screen)) {
+        adopting.remove();
+        adopting = null;
+      }
+      let el = adopting;
+      if (adopting === null) {
+        el = document.createElement("div");
+        el.className = "shell-screen";
+        el.dataset.entering = "";
+        mount.append(el);
+      }
+      // In the catalogues as they stand now: one taken while it mounts is
+      // written in once it is on show.
+      const fresh = { key, el, route, locale, words: words.taken(), scrollY: 0, seq: ++seq };
       held.set(key, fresh);
       current = fresh;
       evict(route);
@@ -755,28 +831,33 @@ export async function createShell({ config, mount }) {
       // fetch rather than racing it — and released anyway when the fetch
       // throws or outlasts the cap, because a stamp that outlives its load is
       // a screen nobody can see.
-      const capped = setTimeout(() => release(el), SCREEN_LOAD_CAP_MS);
+      const capped = adopting ? undefined : setTimeout(() => release(el), SCREEN_LOAD_CAP_MS);
       try {
         // A screen composes its own links and hands the move back: the stack is
         // the terminal's, and a screen that pushed its own entry would be
         // deciding scroll and history for a back button it does not own.
         fresh.handle = await interpretScreen(el, appBase, route, store, params, screenEnv(cfg, {
           messages,
+          ensureMessages,
           locale,
           navigate,
+          ...(adopting ? { served: { screen: adopting.firstElementChild, cas: servedCas } } : {}),
         }));
+        fresh.cas = fresh.handle.cas;
+        // Bound, so the screen is the shell's now rather than the document's.
+        el.removeAttribute("data-served");
         // Left, or dropped, before the load landed: a back press during the
         // fetch is the common case.
         if (fresh.gone) return fresh.handle.stop();
         if (current !== fresh) return fresh.handle.pause();
         // After the render: the screen's own h1 is where its name comes from.
-        describe(route, params, locale, written, el);
+        describe(document, cfg, { route, params, locale, written, el, origin: location.origin });
         // A screen arrived at starts at its own top. This lands there anyway
         // today, but only because hiding the outgoing screen collapses the page
         // and the browser clamps — an accident of ordering that any overlap of
         // the two screens would undo, and a cross-fade needs exactly that
         // overlap.
-        window.scrollTo(0, 0);
+        if (!adopting) window.scrollTo(0, 0);
       } catch (err) {
         // A slot whose load threw has no handle, and every later eviction calls
         // one: held onto, it turns the next visit to any screen into a
@@ -788,8 +869,52 @@ export async function createShell({ config, mount }) {
         throw err;
       } finally {
         clearTimeout(capped);
-        release(el);
+        if (!adopting) release(el);
       }
+      await catchUp(fresh).catch(unheard(fresh));
+    };
+    // A newer template is a deploy's, and names its modules in that deploy's
+    // config. The worker answers the config from its copy and announces none
+    // of its changes, so before a template is taken the config is asked of the
+    // network: one the deploy changed is a newer app than the one running, and
+    // the document is replaced by it, as sign-out replaces it.
+    const settleConfig = async () => {
+      if (await fetchText(configUrl, { cache: "no-cache" }) === text) return;
+      location.reload();
+      return new Promise(() => {});
+    };
+    // A screen on show takes the files announced for it: the catalogues it
+    // was not written in, its stylesheet in place, and its skeleton morphed to
+    // a template it was not drawn from.
+    const catchUp = async (entry) => {
+      if (entry.handle === undefined || current !== entry) return;
+      if (entry.words !== words.taken()) {
+        entry.words = words.taken();
+        entry.handle.localize();
+        localizeStrip(nav, cfg, { locale: entry.locale, here: location.pathname, messages });
+      }
+      const css = announced.get(new URL(entry.route.files.css, appBase).pathname);
+      const style = document.getElementById(`screen-css-${entry.route.screen}`);
+      if (css !== undefined && style !== null && style.textContent !== css) style.textContent = css;
+      const html = announced.get(new URL(entry.route.files.html, appBase).pathname);
+      if (html === undefined || templateHash(html) === entry.cas) return;
+      await settleConfig();
+      const was = entry.cas;
+      entry.cas = templateHash(html);
+      await entry.handle.morph(html).catch((err) => {
+        // Not taken, so asked again the next time the screen is shown.
+        if (entry.cas === templateHash(html)) entry.cas = was;
+        throw err;
+      });
+    };
+    // A newer file the screen cannot take. One the network failed to answer
+    // is an outage, said as a dropped connection is: the screen stays as it
+    // was, and usable. Anything else is a deploy that broke it, which the
+    // reader is told as a boot that failed is.
+    const unheard = (entry) => (err) => {
+      if (!(err instanceof Unanswered)) return banner(err);
+      console.error(err);
+      entry.el.querySelector(".screen")?.setAttribute("data-state", "network-error");
     };
     // The one way anything inside the app moves, to an address routeHref
     // composed, mounted already. Through the platform's stack where there is
@@ -808,7 +933,7 @@ export async function createShell({ config, mount }) {
     // pushed is the push, and popstate is the traverse.
     if ("navigation" in globalThis) {
       navigation.addEventListener("navigate", (e) => {
-        if (!e.canIntercept || e.downloadRequest !== null || e.formData) return;
+        if (restating || !e.canIntercept || e.downloadRequest !== null || e.formData) return;
         // A reload is a document replacement on purpose — sign-out's whole
         // effect — and intercepting one turns it into a re-render of the
         // screen already on show, which leaves sign-out doing nothing visible.
@@ -837,22 +962,7 @@ export async function createShell({ config, mount }) {
       addEventListener("popstate", () => show("traverse"));
     }
 
-    if (typeof navigator !== "undefined" && navigator.serviceWorker) {
-      navigator.serviceWorker.addEventListener("message", async (e) => {
-        if (e.data?.type === "PRONTO_SKELETON_UPDATED" && e.data?.html) {
-          const path = e.data.pathname || "";
-          if (current?.route?.files?.html && path.endsWith(current.route.files.html)) {
-            await current.handle?.morph?.(e.data.html);
-          }
-        } else if (e.data?.type === "PRONTO_STYLE_UPDATED" && e.data?.css) {
-          const path = e.data.pathname || "";
-          if (current?.route?.files?.css && path.endsWith(current.route.files.css)) {
-            const style = document.getElementById(`screen-css-${current.route.screen}`);
-            if (style) style.textContent = e.data.css;
-          }
-        }
-      });
-    }
+    hear = () => current !== null && catchUp(current).catch(unheard(current));
 
     await show();
     booted = true;

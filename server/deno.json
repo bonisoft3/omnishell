@@ -1,0 +1,6 @@
+{
+  "imports": {
+    "linkedom": "npm:linkedom@0.18.4"
+  },
+  "nodeModulesDir": "none"
+}

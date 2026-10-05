@@ -606,6 +606,11 @@ export function directionOf(tag) {
  * guard. */
 export class ProgramError extends Error {}
 
+/** A file the server did not answer: nothing arrived, or a server failed it,
+ * as a door does mid-deploy (a 5xx). An outage rather than a program: asked
+ * again, it may answer. */
+export class Unanswered extends Error {}
+
 // A data-order whose closed map is malformed, or whose column named an order
 // the map does not carry.
 export class OrderError extends ProgramError {}
@@ -688,6 +693,17 @@ export function routeHref(cfg, screen, params, locale) {
   const declared = localeTable(cfg.i18n)[locale];
   if (declared === undefined) throw new ProgramError(`locale "${locale}" is not one this app declares`);
   return mounted(cfg, `/${declared.path}${filled === "/" ? "" : filled}`);
+}
+
+/** The data-param-<name> values an element carries. Read off the attributes
+ * rather than the dataset, so a :param spelled `note_id` survives the
+ * camel-casing the dataset would impose on it. */
+export function routeParams(el) {
+  const out = {};
+  for (const attr of el.attributes ?? []) {
+    if (attr.name.startsWith("data-param-")) out[attr.name.slice("data-param-".length)] = attr.value;
+  }
+  return out;
 }
 
 /** An app address under the path the app is mounted at (cfg.prefix), where it

@@ -1,6 +1,8 @@
-// linkedom's missing form-control properties, installed on its prototypes.
-// Nothing runs at import, so a checker can take these without the harness's
-// lockdown.
+// linkedom's missing form-control properties, installed on its prototypes: a
+// document drawn in linkedom carries a bound control's state in its markup
+// through them (render.ts, render-documents.ts), and the test harness and the
+// checkers read a control as a browser holds it. Nothing runs at import, so a
+// checker can take these without the harness's lockdown.
 
 /** A number or range input's parsed value, which linkedom models nowhere:
  * without it the allowlist advertises a field this tier can never deliver, and

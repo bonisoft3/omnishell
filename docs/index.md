@@ -10,11 +10,11 @@
 
 # Subsystems
 
-* [The terminal and its units](terminal.md) - concept: What the terminal owns and what a unit may do — the surfaces it hands in, the unit ladder, and the compartment, iframe and worker seats.
+* [The terminal and its units](terminal.md) - concept: What the terminal owns and what a unit may do — the surfaces it hands in, the unit ladder, the compartment, iframe and worker seats, and the server terminal that renders documents on request.
 * [Rows, reduces and writes](data.md) - concept: How a region's rows reach a reduce, what it writes back, why a refusal returns as an event, and how stored rows meet a newer program.
 * [Machines](machines.md) - concept: A chart over one browser-owned row whose transitions assign columns and emit typed effects the terminal performs, times and answers.
 * [Focus and ARIA](accessibility.md) - concept: ARIA state is derived columns a region projects over its own rows, and the terminal owns the tab order, moving focus only when a column moves.
-* [Screen updates](screen-updates.md) - concept: How the terminal changes the page when data or state changes: rows moved by key, bodies replaced when their source changes, state stamped as attributes that stylesheets draw.
+* [Screen updates](screen-updates.md) - concept: How the terminal changes the page when data or state changes: rows moved by key, bodies replaced when their source changes, state stamped as attributes that stylesheets draw, and a served document taken over in place.
 * [Kinetic host](kinetic.md) - concept: Fixed-step tick engine, snapshot ring buffer, and time-travel controller for high-frequency interactive simulations.
 * [Visual lint](visual-lint.md) - concept: The Playwright DOM checks and vision review over a rendered app — what each check needs to be sound, where it runs, and how shared checks change.
 * [Automated tests](automated-tests-battery.md) - concept: Every handler and validation module an app ships is tested automatically, with no test written by hand, for confinement, termination through fuel, and purity.

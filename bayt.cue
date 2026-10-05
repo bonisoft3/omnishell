@@ -41,11 +41,12 @@ import (
 // (this package.json), not beside --config; without it the pins go unread.
 // test/design-tokens.test.ts, test/check-parity.test.ts,
 // test/chrome-direction.test.ts, test/entry-document.test.ts,
-// test/locale-resolver.test.ts, test/vendor-bundle.test.ts and
-// test/arbitrary-types.test.ts read the repository root — pronto's schema
-// and its type table, apps/realworld's emitted shell, every app's emitted
-// design.css, every app's entry document, every app's declared locales, and
-// the client source both the vendored bundle and the battery's generator are
+// test/document.test.ts, test/locale-resolver.test.ts,
+// test/vendor-bundle.test.ts and test/arbitrary-types.test.ts read the
+// repository root — pronto's schema and its type table, apps/realworld's
+// emitted shell, every app's emitted design.css, every app's entry document,
+// apps/golaberto's served tree, every app's declared locales, and the client
+// source both the vendored bundle and the battery's generator are
 // graded against — which no image here carries, so both
 // targets leave them out. The host test verb runs package.json's test
 // script on a full checkout, and that is where they run.
@@ -60,7 +61,7 @@ _smokeCmd: {
 	}
 	"builtin": {
 		shell: "sh"
-		do:    "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys --ignore=test/design-tokens.test.ts,test/check-parity.test.ts,test/chrome-direction.test.ts,test/entry-document.test.ts,test/locale-resolver.test.ts,test/vendor-bundle.test.ts,test/arbitrary-types.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read \(_smokes)'"
+		do:    "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys --ignore=test/design-tokens.test.ts,test/check-parity.test.ts,test/chrome-direction.test.ts,test/entry-document.test.ts,test/document.test.ts,test/locale-resolver.test.ts,test/vendor-bundle.test.ts,test/arbitrary-types.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read \(_smokes)'"
 	}
 }
 
@@ -115,6 +116,10 @@ _omnishell: bayt.#project & {
 				"terminal.cue",
 				"instrument.ts",
 				"read-markup.ts",
+				// The two renderers the tests import: the one a build runs and
+				// the one a cluster serves.
+				"render-documents.ts",
+				"server/**/*",
 				// The command line the checkers are reached through, which the
 				// check script typechecks beside them.
 				"runtime/**/*",
@@ -134,7 +139,7 @@ _omnishell: bayt.#project & {
 		// Stays parallel to integrate, which re-uses the same command —
 		// omnishell has no separate integration suite.
 		"test": sayt.test & mise.exec & {
-			srcs: globs: ["test/**/*", "interpreter/**/*", "components/**/*", "check-*.ts", "base-url.ts", "terminal.cue", "read-markup.ts", "offline-first-sw.js"]
+			srcs: globs: ["test/**/*", "interpreter/**/*", "components/**/*", "check-*.ts", "base-url.ts", "terminal.cue", "read-markup.ts", "render-documents.ts", "server/**/*", "offline-first-sw.js"]
 			cmd: _smokeCmd
 		}
 
@@ -143,7 +148,7 @@ _omnishell: bayt.#project & {
 		// (from the build chain) + the same unit tests. No dind.sh wrap
 		// (no docker socket needed).
 		"integrate": sayt.integrate & mise.exec & {
-			srcs: globs: ["test/**/*", "interpreter/**/*", "components/**/*", "check-*.ts", "base-url.ts", "terminal.cue", "read-markup.ts", "offline-first-sw.js"]
+			srcs: globs: ["test/**/*", "interpreter/**/*", "components/**/*", "check-*.ts", "base-url.ts", "terminal.cue", "read-markup.ts", "render-documents.ts", "server/**/*", "offline-first-sw.js"]
 			dockerfile: {
 				from: ref: ":build"
 			}
@@ -211,7 +216,7 @@ _omnishell: bayt.#project & {
 }
 
 // The runtime image's tree; runtime/cli_test.ts holds it closed under what
-// check-visual.ts and read-markup.ts import.
+// check-visual.ts, read-markup.ts and the two document renderers import.
 _runtimeTree: [
 	"interpreter/**",
 	"components/**",
@@ -221,6 +226,8 @@ _runtimeTree: [
 	"check-visual.ts",
 	"base-url.ts",
 	"read-markup.ts",
+	"render-documents.ts",
+	"server/**",
 	"machine.cue",
 ]
 

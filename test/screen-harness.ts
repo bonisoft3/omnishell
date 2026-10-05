@@ -19,7 +19,7 @@ import { upsertKey as resolveKey } from "../interpreter/data-sync.js";
 import { batched } from "../interpreter/batched-store.js";
 import "../interpreter/vendor/ses.umd.min.js";
 import { ensureSes } from "../interpreter/jessie.js";
-import { controlProperties } from "./linkedom-controls.ts";
+import { controlProperties } from "../server/linkedom-controls.ts";
 import { compileCatalog } from "../src/messages.ts";
 
 /** data-sync.js is the shipped store, not a typed module: the natural key an

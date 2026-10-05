@@ -31,6 +31,8 @@
       "check-visual.ts",
       "base-url.ts",
       "read-markup.ts",
+      "render-documents.ts",
+      "server/**",
       "machine.cue"
     ],
     "exclude": []
@@ -125,6 +127,8 @@
           "check-visual.ts",
           "base-url.ts",
           "read-markup.ts",
+          "render-documents.ts",
+          "server/**",
           "machine.cue"
         ],
         "exclude": []

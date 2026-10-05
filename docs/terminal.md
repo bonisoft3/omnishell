@@ -1,7 +1,7 @@
 ---
 type: concept
 title: The terminal and its units
-description: What the terminal owns and what a unit may do — the surfaces it hands in, the unit ladder, and the compartment, iframe and worker seats.
+description: What the terminal owns and what a unit may do — the surfaces it hands in, the unit ladder, the compartment, iframe and worker seats, and the server terminal that renders documents on request.
 ---
 
 # The terminal and its units
@@ -131,6 +131,77 @@ one and a fresh worker; at `UCI_Elo 1500` five runs gave three moves. The cost
 is strength thrown away per move and an uncalibrated node ladder. When
 evaluating a library for a unit, look for its one DOM seam first — Zag keeps
 DOM access in `@zag-js/dom-query`, so its pure half is the half worth having.
+
+## The server terminal
+
+[`server/render.ts`](../server/render.ts) is the terminal run as a process: a
+route's document rendered on request, with its rows, through the same
+[`document.js`](../interpreter/document.js) a build renders ahead of time with
+([a pre-rendered page](screen-updates.md#a-pre-rendered-page)). It reads the app
+as a reader does, through the door it is served behind (`DOOR`): the files the
+door serves, a guest it mints, and a store over the door's `/electric`, so every
+row it renders passed the shape gate a fresh guest's would. That is what makes
+a document cacheable by anyone, and why a route over anything but public reads
+is refused rather than rendered with a service token. The one file read off its
+image is the entry page, since the door answers the entry's own address with a
+redirect.
+
+Every table is synced whole (a browser's on-demand subsets serve one reader's
+screens, and a renderer serves every screen), and the renderer is healthy once
+every table has arrived; it listens from the start, so a request made while it
+syncs waits for the rows it reads. Its guest is minted again once half the
+token's life is gone (the auth service renews no token, so each is a guest of
+its own), and a mint that fails ends the process: a store whose token the gate
+refuses stops syncing without a word, and its documents would stand frozen
+behind a healthy `/health`. So does a token the door refuses: the store's
+reload, which gates a page's reader again, is the renderer's exit.
+
+A document is rendered on its first request and held until a read that drew
+it changes. Each read the render makes is listened to the moment it is made,
+beside the region that made it and on the same view, and that listener is what
+the held document keeps: the store's own wake — the one that refreshes a
+region — is what drops it, embeds and filters included, and no change landing
+between a read and the hold goes unheard. A render a read moved under is
+answered and not held. Nothing guesses a lifetime. An address whose rows do
+not exist (a slot gone, or every top-level region its :params select from a
+server table empty) answers 404 and is not held. A document's address is its
+path and the query keys its screen reads, learnt from the screen's renders
+(every key a render asked for and the path did not supply): a query key no
+screen reads makes no second document. The door answers any Host, so the Host
+decides nothing: every document spells its absolute links after the
+deployment's origin, `ORIGIN`, as the door's templated documents do
+([mecha's proxy](../../../libraries/mecha/docs/proxy.md#the-origin)), and a
+renderer started without one, or with a value that is not exactly an origin,
+exits. The cache is
+bounded, least recently used first. Answers say `Cache-Control: public,
+no-cache` with an ETag hashing the document's bytes: anyone may keep one,
+nobody may serve it unasked. The template's hash the document carries
+(`pronto-cas`) is no validator for it, since one template draws a new document
+at every change to its rows. A
+bound control is drawn as a browser shows it, through the control properties
+linkedom lacks (`server/linkedom-controls.ts`, shared with the documents
+renderer and the test harness). The
+interpreter reads one ambient document, so renders are serial; a request for an
+address already rendering waits for that render, and past a bounded queue
+(`RENDER_QUEUE`) a request is answered 503
+([`render-server.test.ts`](../test/render-server.test.ts)). The app's service
+worker paints a navigation from the copy it keeps, online or not, and
+revalidates it behind the paint, dropping the copy of an address answered 404,
+410 or private since ([`offline-sw.test.ts`](../test/offline-sw.test.ts));
+the shell brings that copy's rows current where they stand
+([screen updates](screen-updates.md#a-pre-rendered-page)).
+
+It reads the app once, as it starts: `shell.json` and every catalogue
+through the door, and its entry off its image. So it starts again whenever any
+of those may have moved, and with it go the documents it held: a compiler
+restarts it with the door and builds its image from every file it reads
+beside its entry, and an edit to the entry in a develop loop restarts it too.
+
+`terminal.cue` publishes it as `#Render`: the image (the deno the toolchain
+pins), the runtime directories it is built from, the cache step that fetches
+from the lock alone, the command and its health address. A compiler runs it
+where a route asks to be rendered on request; pronto does
+([screens](../../pronto/docs/screens.md#how-a-routes-first-document-is-rendered)).
 
 ## Rejected
 

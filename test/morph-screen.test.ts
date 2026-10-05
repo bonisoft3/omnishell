@@ -1,8 +1,15 @@
 import { describe, expect, it } from "@test/harness"
 import { parseHTML } from "linkedom"
-import { morphScreen } from "../interpreter/screen.js"
+import { interpretScreen, morphScreen } from "../interpreter/screen.js"
 
 type DomGlobal = typeof globalThis & { document: Document }
+
+/** A template's markup as the interpreter holds it, parsed into its root. */
+const markup = (html: string) => {
+  const holder = (globalThis as unknown as DomGlobal).document.createElement("template")
+  holder.innerHTML = html.trim()
+  return holder.content.firstElementChild!
+}
 
 describe("morphScreen with morphlex", () => {
   it("surgically morphs static skeleton while preserving dynamic regions untouched", async () => {
@@ -44,7 +51,7 @@ describe("morphScreen with morphlex", () => {
       </div>
     `
 
-    await morphScreen(liveScreen, newHtml)
+    await morphScreen(liveScreen, markup(newHtml))
 
     expect(liveScreen.querySelector("h1.title")?.textContent).toBe("New Brand Title")
     expect(liveScreen.querySelector("p.subtitle")?.textContent).toBe("New Subtitle")
@@ -77,7 +84,7 @@ describe("morphScreen with morphlex", () => {
         <div class="content"><p>New live content</p></div>
       </div>
     `
-    await morphScreen(liveScreen, newHtml)
+    await morphScreen(liveScreen, markup(newHtml))
     expect(liveScreen.querySelector("h1.title")?.textContent).toBe("Round 2")
     expect(liveScreen.querySelector(".content p")?.textContent).toBe("New live content")
     expect(liveScreen.classList.contains("updated")).toBe(true)
@@ -90,10 +97,27 @@ describe("morphScreen with morphlex", () => {
     ;(globalThis as unknown as DomGlobal).document = document
     const liveScreen = document.getElementById("screen")!
 
-    await expect(morphScreen(liveScreen, "   ")).rejects.toThrow("morphScreen: incoming markup has no root element")
+    await expect(morphScreen(liveScreen, markup("   "))).rejects.toThrow("morphScreen: the markup has no root element")
   })
 
   it("fails loudly when target screen element is missing", async () => {
-    await expect(morphScreen(null as unknown as Element, "<div></div>")).rejects.toThrow("morphScreen: liveScreen element missing")
+    await expect(morphScreen(null as unknown as Element, markup("<div></div>"))).rejects.toThrow("morphScreen: the live screen is missing")
+  })
+  // The service worker's newer template reached a screen as its raw markup, so
+  // every {param.*} and {msg.*} text it morphed went back to its braces.
+  it("keeps a running screen's resolved words through a newer template", async () => {
+    const { document } = parseHTML(`<!doctype html><html><head></head><body><div id="mount"></div></body></html>`) as unknown as { document: Document }
+    ;(globalThis as unknown as DomGlobal).document = document
+    const older = `<section class="screen" data-screen="team"><h1 data-text="{param.name}"></h1><p class="note">old</p></section>`
+    const newer = older.replace(">old<", ">new<")
+    globalThis.fetch = ((url: unknown) => Promise.resolve(new Response(String(url).endsWith(".html") ? older : ""))) as typeof fetch
+    const route = { screen: "team", files: { html: "team.html", css: "team.css", handlers: [] } }
+    const handle = await interpretScreen(document.getElementById("mount"), "https://app.test/", route, {}, { name: "Flamengo" }, {})
+    const heading = document.querySelector("h1")!
+    await handle.morph(newer)
+    expect(document.querySelector("h1")).toBe(heading)
+    expect(heading.textContent).toBe("Flamengo")
+    expect(document.querySelector(".note")?.textContent).toBe("new")
+    handle.stop()
   })
 })

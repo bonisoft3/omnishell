@@ -4,6 +4,7 @@
 // takes the click itself. Screens here carry no live regions, so no store
 // query runs and the cases stay about navigation.
 import { parseHTML } from "npm:linkedom@0.18.4";
+import { templateHash } from "./screen.js";
 
 const CONFIG_YAML = `
 app: smoke
@@ -17,7 +18,7 @@ tables: []
 routes:
   - path: /
     screen: home
-    nav: {label: Home, key: nav_home, labels: {pt-BR: Início, es: Inicio, en: Start}}
+    nav: {label: Home, key: nav_home}
     files: {html: shell/screens/home.html, css: shell/screens/home.css, handlers: []}
   - path: /other
     screen: other
@@ -37,6 +38,10 @@ routes:
     screen: search
     nav: {label: Search}
     files: {html: shell/screens/search.html, css: shell/screens/search.css, handlers: []}
+  - path: /palavras
+    screen: words
+    nav: {label: Words, strip: false}
+    files: {html: shell/screens/words.html, css: shell/screens/words.css, handlers: []}
 `;
 
 // Every screen carries a link named by route rather than by path, and home
@@ -44,16 +49,62 @@ routes:
 // The h1 is what names the screen in the document's title, so it is part of
 // what these cases exercise; `other` carries none, which is the home screen's
 // shape.
-const screenHtml = (name) => `<section class="screen" data-screen="${name}">${name === "other" ? "" : `<h1>${name}</h1>`}
+// `words` says one thing, in the reader's language.
+const screenHtml = (name) => name === "words" ? `<section class="screen" data-screen="words"><h1>words</h1><p class="greet" data-text="{msg.greet}"></p></section>` : `<section class="screen" data-screen="${name}">${name === "other" ? "" : `<h1>${name}</h1>`}
 <a class="rules" data-route="regras">R</a>
 ${name === "home" ? '<form data-action="navigate" data-route="search"><input name="q"></form>' : ""}
 </section>`;
 
-function boot({navigationAPI = true, at = "/", languages = ["pt-BR"], stall = [], rejects = []} = {}) {
-  const {document, Event} = parseHTML(
-    "<!doctype html><html><head></head><body><div id=shell></div></body></html>",
+// A document a renderer served before the shell booted: its strip, its screen
+// in the mount, and in its head the template it was rendered from
+// (interpreter/document.js). Rendered from `template`, the screen's own unless
+// the document is older than the template the shell fetches, and in `words`'s
+// catalogues, each the text it was drawn from by tag.
+const served = (name, template = screenHtml(name), witness = true, words = {}) => ({
+  head: (witness ? `<meta name="pronto-cas" content="${templateHash(template)}">` : "") +
+    (Object.keys(words).length > 0
+      ? `<meta name="pronto-words" content="${Object.entries(words).map(([tag, text]) => `${tag}:${templateHash(text)}`).join(" ")}">`
+      : ""),
+  body: '<nav><a data-route="home" href="/">Início</a><a data-route="other" href="/other">Other</a>' +
+    '<a data-route="regras" href="/regras" aria-current="page">Regras</a><a data-route="manual" href="/pt/manual">Manual</a></nav>' +
+    `<div id=shell><div class="shell-screen" data-served>${template.replace('data-route="regras"', 'data-route="regras" href="/regras"')}</div></div>`,
+});
+
+// `serving` names the screen a served document carries, `witness` whether its
+// head names its template, `servedWords` the catalogues it was drawn in;
+// `slowCatalogues` answer when released. `catalogues` are the worker's copies
+// by tag, and `deployed` the network's, which answers a request that
+// revalidates; `blips` fail once, as a network that drops. `config` is the
+// worker's copy of the config and `deployedConfig` the network's, and
+// `modules` answer each handler by name, a status at a time until one is
+// left. `tables` makes the app one a guest session is minted for, and
+// `offline` leaves the auth service unreachable.
+function boot({
+  navigationAPI = true,
+  at = "/",
+  languages = ["pt-BR"],
+  stall = [],
+  rejects = [],
+  serving,
+  servedFrom,
+  witness = true,
+  slowCatalogues = [],
+  catalogues = {},
+  deployed = catalogues,
+  blips = [],
+  servedWords = {},
+  config = CONFIG_YAML,
+  deployedConfig = config,
+  modules = {},
+  tables = [],
+  offline = false,
+} = {}) {
+  const page = serving ? served(serving, servedFrom, witness, servedWords) : {head: "", body: "<div id=shell></div>"};
+  const {document, Event, MutationObserver} = parseHTML(
+    `<!doctype html><html><head>${page.head}</head><body>${page.body}</body></html>`,
   );
   globalThis.document = document;
+  globalThis.MutationObserver = MutationObserver;
   globalThis.window = globalThis;
   globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
 
@@ -61,6 +112,7 @@ function boot({navigationAPI = true, at = "/", languages = ["pt-BR"], stall = []
   globalThis.addEventListener = (ev, fn) => (listeners[ev] ??= []).push(fn);
 
   let onNavigate = null;
+  const intercepted = [];
   delete globalThis.navigation;
   if (navigationAPI) {
     globalThis.navigation = {
@@ -73,29 +125,67 @@ function boot({navigationAPI = true, at = "/", languages = ["pt-BR"], stall = []
   // The reader's own system, which is the rung under every address here: left
   // to the host runtime it says English and every default-locale case reads as
   // a negotiation instead.
-  Object.defineProperty(globalThis, "navigator", {value: {languages}, configurable: true});
+  // The worker's announcements, delivered by `announce`.
+  const heard = [];
+  const serviceWorker = {addEventListener: (type, fn) => type === "message" && heard.push(fn)};
+  Object.defineProperty(globalThis, "navigator", {value: {languages, serviceWorker}, configurable: true});
 
   let scrollPos = 0;
   globalThis.scrollTo = (_x, y) => (scrollPos = y);
   Object.defineProperty(globalThis, "scrollY", {get: () => scrollPos, configurable: true});
 
   const ORIGIN = "http://localhost:8080";
-  const loc = {origin: ORIGIN};
+  const reloads = [];
+  const loc = {origin: ORIGIN, reload: () => reloads.push(loc.pathname)};
   const setUrl = (url) => {
     const u = new URL(url, ORIGIN);
     Object.assign(loc, {href: u.href, pathname: u.pathname, search: u.search, hash: u.hash});
   };
   setUrl(at);
   Object.defineProperty(globalThis, "location", {value: loc, configurable: true});
+  // Under the Navigation API a replaceState is a navigation too, raised
+  // before the URL moves and handled after it, which is what the terminal's
+  // own restating of an address has to survive.
   globalThis.history = {
     pushState: (_state, _title, url) => setUrl(url),
-    replaceState: (_state, _title, url) => setUrl(url),
+    replaceState: (_state, _title, url) => {
+      let handler;
+      onNavigate?.({
+        canIntercept: true,
+        downloadRequest: null,
+        formData: null,
+        navigationType: "replace",
+        destination: {url: new URL(url, ORIGIN).href, sameDocument: true},
+        intercept: (opts) => {
+          intercepted.push(url);
+          handler = opts.handler;
+        },
+      });
+      setUrl(url);
+      if (handler) queueMicrotask(handler);
+    },
   };
 
   sessionStorage.clear();
-  globalThis.fetch = (url) => {
+  const held = [];
+  const minted = [];
+  const revalidated = [];
+  globalThis.fetch = (url, init) => {
     const u = String(url);
-    if (u.endsWith("shell.yaml")) return Promise.resolve(new Response(CONFIG_YAML));
+    if (u.endsWith("shell.yaml")) {
+      const text = init?.cache === "no-cache" ? deployedConfig : config;
+      return Promise.resolve(new Response(text.replace("tables: []", `tables: [${tables}]`)));
+    }
+    const handler = u.match(/handlers\/(\w+)\.js$/)?.[1];
+    if (handler !== undefined && modules[handler] !== undefined) {
+      const answers = modules[handler];
+      const status = answers.length > 1 ? answers.shift() : answers[0];
+      return Promise.resolve(new Response(status === 200 ? "const reduce = (state) => state;\nreduce;" : "", {status}));
+    }
+    if (u.endsWith("/auth/guest")) {
+      minted.push(u);
+      if (offline) return Promise.reject(new TypeError("Failed to fetch"));
+    }
     const screen = u.match(/screens\/(\w+)\.html$/);
     if (screen) {
       // The two ways a first load ends without a screen: it never answers, or
@@ -105,6 +195,17 @@ function boot({navigationAPI = true, at = "/", languages = ["pt-BR"], stall = []
       return Promise.resolve(new Response(screenHtml(screen[1])));
     }
     if (u.endsWith(".css")) return Promise.resolve(new Response(""));
+    const catalogue = u.match(/\/messages\/([\w-]+)\.json$/)?.[1];
+    if (slowCatalogues.includes(catalogue)) {
+      return new Promise((resolve) => held.push(() => resolve(new Response("{}", {status: 404}))));
+    }
+    if (blips.includes(catalogue)) {
+      blips.splice(blips.indexOf(catalogue), 1);
+      return Promise.reject(new TypeError("Failed to fetch"));
+    }
+    if (init?.cache === "no-cache" && catalogue !== undefined) revalidated.push(catalogue);
+    const copy = (init?.cache === "no-cache" ? deployed : catalogues)[catalogue];
+    if (copy !== undefined) return Promise.resolve(new Response(copy));
     if (u.includes("/messages/")) return Promise.resolve(new Response("{}", {status: 404}));
     return Promise.reject(new Error(`unexpected fetch ${u}`));
   };
@@ -112,7 +213,27 @@ function boot({navigationAPI = true, at = "/", languages = ["pt-BR"], stall = []
   return {
     Event,
     document,
+    // Every guest session asked of the auth service.
+    minted,
+    // The browser telling the page it is back online.
+    online: () => (listeners.online ?? []).splice(0).forEach((fn) => fn()),
+    // Answers every catalogue held back so far.
+    releaseCatalogues: () => held.splice(0).forEach((answer) => answer()),
+    // The service worker telling every window a screen's template changed.
+    announce: (name, html) => {
+      for (const fn of heard) fn({data: {type: "PRONTO_SKELETON_UPDATED", pathname: `/shell/screens/${name}.html`, html}});
+    },
+    // And that a catalogue did.
+    announceWords: (tag, json) => {
+      for (const fn of heard) fn({data: {type: "PRONTO_MESSAGES_UPDATED", pathname: `/messages/${tag}.json`, json}});
+    },
+    // The catalogues asked of the network past the worker's copy.
+    revalidated,
+    // Every address the document was replaced at.
+    reloads,
     mount: document.getElementById("shell"),
+    // The replaceStates the terminal took as navigations of its own.
+    intercepted,
     userScrollsTo: (y) => (scrollPos = y),
     interceptedWith: null,
     at: () => loc.pathname + loc.search,
@@ -393,19 +514,24 @@ Deno.test({
 });
 
 Deno.test({
-  name: "the canonical is the address's own language, not the reader's",
+  name: "an unprefixed address read in another language becomes that language's address",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    // The door moves a reader off an unprefixed address their language does
-    // not match (negotiation_test.ts holds it to the same rule as this one),
-    // so a served /regras is Portuguese. Reached without a door — here, or a
-    // harness — the terminal still renders what the reader asked for, and the
-    // canonical stays the address's own: it is what a crawler is told to keep,
-    // and two readers of one URL must not be told two different things.
+    // The door answers /regras for an English reader with the English
+    // document rather than a 302 to /en/rules (negotiation_test.ts holds it to
+    // the same rule as this one), so the terminal is what moves the address.
+    // It must move it, not merely render English under it: the canonical is
+    // the address's own language, and two readers of one URL must not be told
+    // two different things.
     const app = await start({at: "/regras", languages: ["en"]});
+    assert(app.at() === "/en/rules", `settled at ${app.at()}`);
+    // Taken as a navigation, the restatement shows the screen a second time:
+    // in a browser that re-ran its entrance under a reader already looking
+    // at it, measured as a layout shift of 0.58 on golaberto's home.
+    assert(app.intercepted.length === 0, `the restated address was navigated to: ${app.intercepted}`);
     assert(
-      head(app, 'link[rel="canonical"]')[0]?.getAttribute("href") === "http://localhost:8080/regras",
+      head(app, 'link[rel="canonical"]')[0]?.getAttribute("href") === "http://localhost:8080/en/rules",
       `canonical ${head(app, 'link[rel="canonical"]')[0]?.getAttribute("href")}`,
     );
   },
@@ -487,7 +613,11 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const app = await start();
+    const app = await start({catalogues: {
+      "pt-BR": JSON.stringify({nav_home: "Início"}),
+      es: JSON.stringify({nav_home: "Inicio"}),
+      en: JSON.stringify({nav_home: "Start"}),
+    }});
     assert(app.link("home").textContent === "Início", `the strip reads ${app.link("home").textContent}`);
     await app.goto("/es");
     assert(app.link("home").textContent === "Inicio", `the strip reads ${app.link("home").textContent}`);
@@ -524,5 +654,396 @@ Deno.test({
     await settle(120);
     assert(app.at() === "/search/truco", `submitted to ${app.at()}`);
     assert(shown(app)[0]?.dataset.screen === "search", "the search screen never mounted");
+  },
+});
+
+Deno.test({
+  name: "a served document is taken over by the shell, not joined or replaced",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    // The shell appended each screen beside whatever the mount held, so a
+    // served document showed its screen twice. It then rendered its own out of
+    // sight and swapped it in, which threw away every node the reader was on.
+    const app = boot({at: "/regras", serving: "regras"});
+    const servedScreen = app.mount.querySelector("[data-served]");
+    const heading = servedScreen.querySelector("h1");
+    const {createShell} = await import("./shell.js");
+    await createShell({config: "./shell/shell.yaml", mount: app.mount});
+    await settle();
+    const screens = app.mount.querySelectorAll(".shell-screen");
+    assert(screens.length === 1 && screens[0] === servedScreen, `${screens.length} screens, the served one ${screens[0] === servedScreen ? "kept" : "gone"}`);
+    assert(!screens[0].hidden && !screens[0].hasAttribute("data-served"), "the served screen was not taken over");
+    assert(screens[0].querySelector("h1") === heading, "the heading was drawn again");
+    const navs = app.document.querySelectorAll("body > nav");
+    assert(navs.length === 1, `${navs.length} strips: ${[...navs].map((n) => n.outerHTML)}`);
+  },
+});
+
+Deno.test({
+  name: "a served strip is kept, with the link the reader is on",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    // The strip was drawn again over the served one, so a reader who had
+    // tabbed into it while the modules loaded lost the link they were on.
+    const app = boot({at: "/regras", serving: "regras"});
+    const strip = app.document.querySelector("body > nav");
+    const links = [...strip.querySelectorAll("a")];
+    const {createShell} = await import("./shell.js");
+    await createShell({config: "./shell/shell.yaml", mount: app.mount});
+    await settle();
+    assert(app.document.querySelector("body > nav") === strip, "the served strip was replaced");
+    const now = [...strip.querySelectorAll("a")];
+    assert(now.length === links.length && now.every((a, i) => a === links[i]), "a served link was drawn again");
+    assert(app.link("regras").getAttribute("aria-current") === "page", "the strip does not mark the page it is on");
+  },
+});
+
+Deno.test({
+  name: "a kept document of a screen this address no longer maps to gives way to a fresh mount",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    // The worker keeps a document for an address across deploys, and the shell
+    // read from a newer one mounts another screen there: the boot failed, and
+    // its banner replaced the page the reader had.
+    const app = boot({at: "/regras", serving: "other"});
+    const {createShell} = await import("./shell.js");
+    await createShell({config: "./shell/shell.yaml", mount: app.mount});
+    await settle();
+    assert(app.mount.querySelector("pre") === null, `a banner: ${app.mount.querySelector("pre")?.textContent}`);
+    assert(shown(app).length === 1 && shown(app)[0]?.dataset.screen === "regras", `showing ${shown(app).map((s) => s?.dataset.screen)}`);
+  },
+});
+
+Deno.test({
+  name: "a kept document naming no template gives way to a fresh mount",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const app = boot({at: "/regras", serving: "regras", witness: false});
+    const {createShell} = await import("./shell.js");
+    await createShell({config: "./shell/shell.yaml", mount: app.mount});
+    await settle();
+    assert(app.mount.querySelector("pre") === null, `a banner: ${app.mount.querySelector("pre")?.textContent}`);
+    assert(shown(app).length === 1 && shown(app)[0]?.dataset.screen === "regras", `showing ${shown(app).map((s) => s?.dataset.screen)}`);
+  },
+});
+
+Deno.test({
+  name: "a document opened offline stays the page while no guest session can be had",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    // A tab opened offline paints what the worker kept and holds no session,
+    // which lives in the tab. The guest mint failed, and the banner replaced
+    // the page the reader was reading with a stack trace.
+    const app = boot({at: "/regras", serving: "regras", tables: ["note"], offline: true});
+    const servedScreen = app.mount.querySelector("[data-served]");
+    const {createShell} = await import("./shell.js");
+    createShell({config: "./shell/shell.yaml", mount: app.mount});
+    await settle();
+    assert(app.mount.querySelector("pre") === null, `a banner: ${app.mount.querySelector("pre")?.textContent}`);
+    assert(app.mount.querySelector(".shell-screen") === servedScreen && !servedScreen.hidden, "the served screen was taken down");
+    assert(app.minted.length === 1, `${app.minted.length} mints`);
+    app.online();
+    await settle();
+    assert(app.minted.length === 2, `the mint was not asked again online: ${app.minted.length}`);
+    assert(app.mount.querySelector(".shell-screen") === servedScreen, "the served screen was taken down");
+  },
+});
+
+Deno.test({
+  name: "a served document stays the page, as it was, while the shell takes it over",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    // Nothing the reader is reading may blank, fade or jump while the shell
+    // boots: the served screen is the page throughout, scrolled where the
+    // reader scrolled it.
+    const app = boot({at: "/regras", serving: "regras", stall: ["regras"]});
+    app.userScrollsTo(640);
+    const {createShell} = await import("./shell.js");
+    createShell({config: "./shell/shell.yaml", mount: app.mount});
+    await settle();
+    const servedScreen = app.mount.querySelector("[data-served]");
+    assert(servedScreen !== null && !servedScreen.hidden, "the served screen was taken down while the shell booted");
+    assert(app.mount.querySelectorAll(".shell-screen").length === 1, "a second screen is being drawn beside the served one");
+    assert(servedScreen.dataset.entering === undefined, "a served screen fades in over itself");
+    assert(globalThis.scrollY === 640, `the reader was moved to ${globalThis.scrollY}`);
+  },
+});
+
+Deno.test({
+  name: "a served screen keeps the reader's scroll once taken over",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const app = boot({at: "/regras", serving: "regras"});
+    app.userScrollsTo(640);
+    const {createShell} = await import("./shell.js");
+    await createShell({config: "./shell/shell.yaml", mount: app.mount});
+    await settle();
+    assert(globalThis.scrollY === 640, `the reader was moved to ${globalThis.scrollY}`);
+  },
+});
+
+Deno.test({
+  name: "a served document older than its template is brought to it in place",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const app = boot({at: "/regras", serving: "regras", servedFrom: screenHtml("regras").replace("<h1>regras</h1>", "<h1>regras</h1><p>retired</p>")});
+    const servedScreen = app.mount.querySelector("[data-served]");
+    const heading = servedScreen.querySelector("h1");
+    const {createShell} = await import("./shell.js");
+    await createShell({config: "./shell/shell.yaml", mount: app.mount});
+    await settle();
+    assert(app.mount.querySelector(".shell-screen") === servedScreen, "the served screen was replaced");
+    assert(servedScreen.querySelector("h1") === heading, "an unchanged heading was drawn again");
+    assert(servedScreen.querySelector("p") === null, "the template's retired paragraph is still on the page");
+  },
+});
+
+Deno.test({
+  name: "a template the worker announces before its screen is mounted reaches the screen once it is",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    // The worker answers a screen's fetch from its copy and announces the newer
+    // template as soon as its revalidation lands, which the shell's own
+    // prefetch made sooner than anything was listening.
+    const app = boot({at: "/regras", serving: "regras"});
+    const heading = app.mount.querySelector("h1");
+    const {createShell} = await import("./shell.js");
+    const booting = createShell({config: "./shell/shell.yaml", mount: app.mount});
+    app.announce("regras", screenHtml("regras").replace("<h1>regras</h1>", "<h1>regras</h1><p class=\"deployed\">new</p>"));
+    await booting;
+    await settle();
+    assert(app.mount.querySelector(".deployed")?.textContent === "new", "the announced template never reached the screen");
+    assert(app.mount.querySelector("h1") === heading, "the heading was drawn again");
+  },
+});
+
+Deno.test({
+  name: "leaving a served document before it is taken over puts it out of sight",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const app = boot({at: "/regras", serving: "regras", stall: ["regras"]});
+    const {createShell} = await import("./shell.js");
+    createShell({config: "./shell/shell.yaml", mount: app.mount});
+    await settle();
+    await app.goto("/other");
+    assert(shown(app).length === 1 && shown(app)[0]?.dataset.screen === "other", `showing ${shown(app).map((s) => s?.dataset.screen)}`);
+  },
+});
+
+Deno.test({
+  name: "a move into another language that a later move overtakes mounts nothing",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    // A move into a language whose catalogue had not arrived waited for it
+    // with the route it had read; a move made meanwhile mounted, and the
+    // first then mounted its own screen over it at the second's address.
+    const app = await start({at: "/regras", slowCatalogues: ["en"]});
+    const switching = app.goto("/en/rules");
+    await settle(10);
+    await app.goto("/other");
+    app.releaseCatalogues();
+    await switching;
+    await settle();
+    assert(app.at() === "/other", `at ${app.at()}`);
+    assert(shown(app).length === 1 && shown(app)[0]?.dataset.screen === "other", `showing ${shown(app).map((s) => s?.dataset.screen)}`);
+  },
+});
+
+// A catalogue the worker kept is any deploy old, and so is a document. On
+// taking a document over the screen writes its words again in the catalogue
+// the shell holds, so a document newer than the worker's copy was written back
+// to the older words, and stayed so for the visit.
+const OLD_WORDS = JSON.stringify({greet: "Olá"});
+const NEW_WORDS = JSON.stringify({greet: "Olá de novo"});
+const greeting = (app) => app.mount.querySelector(".greet")?.textContent;
+
+Deno.test({
+  name: "a served document in newer words than the worker's catalogue keeps them",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const app = boot({
+      at: "/palavras",
+      serving: "words",
+      servedFrom: screenHtml("words").replace("></p>", ">Olá de novo</p>"),
+      servedWords: {"pt-BR": NEW_WORDS},
+      catalogues: {"pt-BR": OLD_WORDS},
+      deployed: {"pt-BR": NEW_WORDS},
+    });
+    const {createShell} = await import("./shell.js");
+    await createShell({config: "./shell/shell.yaml", mount: app.mount});
+    await settle();
+    assert(greeting(app) === "Olá de novo", `the served words were written back to ${JSON.stringify(greeting(app))}`);
+    // The shell holds the newer words from then on, and draws them.
+    await app.goto("/other");
+    await app.goto("/palavras", "traverse");
+    assert(greeting(app) === "Olá de novo", `drawn again as ${JSON.stringify(greeting(app))}`);
+  },
+});
+
+Deno.test({
+  name: "a served document in the worker's words asks nothing of the network",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const app = boot({
+      at: "/palavras",
+      serving: "words",
+      servedFrom: screenHtml("words").replace("></p>", ">Olá</p>"),
+      servedWords: {"pt-BR": OLD_WORDS},
+      catalogues: {"pt-BR": OLD_WORDS},
+    });
+    const {createShell} = await import("./shell.js");
+    await createShell({config: "./shell/shell.yaml", mount: app.mount});
+    await settle();
+    assert(app.revalidated.length === 0, `revalidated ${app.revalidated}`);
+    assert(greeting(app) === "Olá", `drawn as ${JSON.stringify(greeting(app))}`);
+  },
+});
+
+Deno.test({
+  name: "a catalogue the worker announces is written into the screen on show and the ones held",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    // The worker kept catalogues and announced none of their changes, so a
+    // deploy's words reached a reader one page load late.
+    const app = await start({at: "/palavras", catalogues: {"pt-BR": OLD_WORDS}});
+    assert(greeting(app) === "Olá", `drawn as ${JSON.stringify(greeting(app))}`);
+    app.announceWords("pt-BR", NEW_WORDS);
+    await settle();
+    assert(greeting(app) === "Olá de novo", `still ${JSON.stringify(greeting(app))}`);
+    await app.goto("/other");
+    app.announceWords("pt-BR", OLD_WORDS);
+    await settle();
+    await app.goto("/palavras", "traverse");
+    assert(greeting(app) === "Olá", `the held screen came back as ${JSON.stringify(greeting(app))}`);
+  },
+});
+
+Deno.test({
+  name: "a catalogue that failed to arrive is asked again",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    // The first answer was kept for the locale whatever it was, so one dropped
+    // request left every later move into that language throwing it.
+    const app = await start({at: "/", blips: ["es"], catalogues: {es: JSON.stringify({greet: "Hola"})}});
+    let dropped;
+    await app.goto("/es/reglas").catch((err) => (dropped = err));
+    assert(String(dropped).includes("Failed to fetch"), `the dropped request said ${dropped}`);
+    await app.goto("/es");
+    const screen = shown(app)[0];
+    assert(screen?.dataset.screen === "home" && screen.dataset.locale === "es", `showing ${screen?.dataset.screen} in ${screen?.dataset.locale}`);
+  },
+});
+
+Deno.test({
+  name: "a template the worker announces that cannot be taken says so",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    // The morph's rejection went unheard: the stray-rejection handler marked
+    // the screen offline and logged it, so a deploy that broke a screen read
+    // as a reader's dropped connection.
+    const app = await start({at: "/regras"});
+    app.announce("regras", screenHtml("regras").replace("<h1>regras</h1>", "<h1>regras</h1><div data-hatch=\"undeclared\"></div>"));
+    await settle();
+    const banner = app.mount.querySelector("pre")?.textContent ?? "";
+    assert(banner.includes(`no vendored unit for data-hatch="undeclared"`), `the banner says ${JSON.stringify(banner)}`);
+  },
+});
+
+// The strip's words were the config's, which the worker keeps any deploy old
+// and announces no change of: settling the catalogues against a served
+// document, and taking the ones the worker announced, left the strip in older
+// words for the visit.
+const home = (word) => JSON.stringify({nav_home: word});
+
+Deno.test({
+  name: "a served strip in newer words than the worker's keeps them",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const app = boot({
+      at: "/regras",
+      serving: "regras",
+      servedWords: {"pt-BR": home("Começo")},
+      catalogues: {"pt-BR": home("Início")},
+      deployed: {"pt-BR": home("Começo")},
+    });
+    app.link("home").textContent = "Começo";
+    const {createShell} = await import("./shell.js");
+    await createShell({config: "./shell/shell.yaml", mount: app.mount});
+    await settle();
+    assert(app.link("home").textContent === "Começo", `the strip was written back to ${app.link("home").textContent}`);
+  },
+});
+
+Deno.test({
+  name: "a catalogue the worker announces is written into the strip",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const app = await start({at: "/regras", catalogues: {"pt-BR": home("Início")}});
+    app.announceWords("pt-BR", home("Começo"));
+    await settle();
+    assert(app.link("home").textContent === "Começo", `the strip still reads ${app.link("home").textContent}`);
+  },
+});
+
+// A newer template names its modules in its own deploy's config, and the
+// shell runs on the config the worker kept, which it never announces: a deploy
+// adding a handler to a screen made the announced template unloadable, and the
+// banner put a stack trace where every screen had been. A module the door
+// failed mid-deploy did the same.
+const withHandler = (handlers) => CONFIG_YAML.replace(
+  "files: {html: shell/screens/regras.html, css: shell/screens/regras.css, handlers: []}",
+  `files: {html: shell/screens/regras.html, css: shell/screens/regras.css, handlers: [${handlers}]}`,
+);
+const handled = screenHtml("regras").replace("<h1>regras</h1>", '<h1>regras</h1><p class="deployed">new</p><button data-on-click="fresh">go</button>');
+
+Deno.test({
+  name: "a template the worker announces under a config the deploy changed replaces the document",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const app = await start({at: "/regras", deployedConfig: withHandler("shell/handlers/fresh.js"), modules: {fresh: [200]}});
+    app.announce("regras", handled);
+    await settle();
+    assert(app.mount.querySelector("pre") === null, `a banner: ${app.mount.querySelector("pre")?.textContent}`);
+    assert(app.reloads.length === 1 && app.reloads[0] === "/regras", `replaced at ${JSON.stringify(app.reloads)}`);
+    assert(shown(app)[0]?.dataset.screen === "regras", `showing ${shown(app).map((s) => s?.dataset.screen)}`);
+  },
+});
+
+Deno.test({
+  name: "a template whose module the network fails leaves the screen as it was, and is taken once it is shown again",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const config = withHandler("shell/handlers/fresh.js");
+    const app = await start({at: "/regras", config, modules: {fresh: [502, 200]}});
+    app.announce("regras", handled);
+    await settle();
+    assert(app.mount.querySelector("pre") === null, `a banner: ${app.mount.querySelector("pre")?.textContent}`);
+    assert(app.reloads.length === 0, `replaced at ${JSON.stringify(app.reloads)}`);
+    const screen = shown(app)[0];
+    assert(screen?.dataset.screen === "regras" && screen.dataset.state === "network-error", `showing ${screen?.dataset.screen} as ${screen?.dataset.state}`);
+    assert(app.mount.querySelector(".deployed") === null, "a template not taken reached the screen");
+    await app.goto("/other");
+    await app.goto("/regras", "traverse");
+    assert(app.mount.querySelector(".deployed")?.textContent === "new", "the template was not asked again");
   },
 });
