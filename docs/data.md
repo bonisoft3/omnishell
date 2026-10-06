@@ -13,11 +13,22 @@ why the contract has that shape, and where it bites.
 
 ## A region's rows
 
-`data-live` with its filter, order and select is a query the store maintains
-(`subscribe`, [`data-sync.js`](../interpreter/data-sync.js)). A region wakes
-when a row its filter could show changes, or a table its embeds, row visibility
-or fold sink depends on; a write elsewhere costs it nothing. Each wake re-reads,
-keeps `currentRows` and [patches by key](screen-updates.md#when-data-changes).
+`data-live` names a rendered query; the entity's durability decides its
+freshness. A `server` entity reads through PostgREST on entry, changed query
+parameters, explicit refresh or a completed local command. It opens no remote
+subscription and retains no query snapshot. A `live` entity updates while its
+region is active: a maintainable query uses its demanded local view, while a
+server-computed query refetches on dependency invalidation. `offline`, `tab`
+and `device` keep their collection behavior.
+
+Server-computed live reads observe authorized changes independently of retained
+rows. A deletion of a row never loaded locally still invalidates the query.
+The base table, schema-resolved embeds, access dependencies and fold sources
+supply its dependency set. These notifications conservatively refresh the
+whole result and are coalesced; there is no polling. Initial stream catch-up
+and a reset request another read, closing the gap before observation began.
+Grant families retain their authorized collection union, since their visibility
+already requires that state. Each wake re-reads and [[screen-updates#When data changes|patches by key]].
 
 The store has many writers — forms, reduces, machine effects, sync, other tabs —
 so no writer knows a region changed; the renderer does, having just applied the

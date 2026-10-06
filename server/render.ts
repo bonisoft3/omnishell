@@ -9,8 +9,9 @@
 // guest's would. That is what makes a document cacheable by anyone: it holds
 // nothing a stranger could not read, whoever asked for it.
 //
-// A document is rendered on its first request and held until a read that drew
-// it changes. The store already knows when that is — it wakes a region when
+// A document with request-only reads is rendered for each request. Others
+// are held until a read that drew them changes. The store already knows when
+// that is — it wakes a region when
 // its read moves — so each read a render makes is listened to from the moment
 // it is made, and the document is dropped on the first wake. A wake that comes
 // before the document is held means it is answered and not held. Nothing
@@ -34,7 +35,7 @@ type Route = { screen: string; path: string; states?: string[] };
 type Found = { route: Route; params: Record<string, unknown>; locale?: string; written?: string };
 type Drawn = { html: string; gone: boolean };
 /** One render's listening: what it heard, and how to stop hearing. */
-type Ticket = { stale: boolean; stops: (() => void)[]; key?: string };
+type Ticket = { stale: boolean; cacheable: boolean; stops: (() => void)[]; key?: string };
 
 export type Renderer = {
   handle(req: Request): Promise<Response>;
@@ -76,6 +77,7 @@ export function createRenderer({
   render,
   capacity,
   queue,
+  cacheableRead = () => true,
 }: {
   store: Store;
   /** What every document's absolute links are spelled against. */
@@ -85,6 +87,8 @@ export function createRenderer({
   render: (found: Found, store: Store, base: URL) => Promise<{ html: string; gone: boolean }>;
   capacity: number;
   queue: number;
+  /** Whether changes to this read can invalidate a retained document. */
+  cacheableRead?: (table: string) => boolean;
 }): Renderer {
   // The render in progress. Each read it makes is listened to at once, beside
   // the region that made it and on the same view: a change landing anywhere
@@ -93,14 +97,22 @@ export function createRenderer({
   let current: Ticket | null = null;
   const watched: Store = new Proxy(store, {
     get(target, name, receiver) {
+      if (name === "query") return (table: string, ...args: unknown[]) => {
+        if (current === null) throw new Error(`a read of ${table} outside any render`);
+        current.cacheable &&= cacheableRead(table);
+        return target.query(table, ...args);
+      };
       if (name !== "subscribe") return Reflect.get(target, name, receiver);
       return (table: string, fn: () => void, opts?: unknown) => {
         const ticket = current;
         if (ticket === null) throw new Error(`a read of ${table} outside any render`);
-        ticket.stops.push(target.subscribe(table, () => {
-          ticket.stale = true;
-          if (ticket.key !== undefined && held.get(ticket.key)?.ticket === ticket) drop(ticket.key);
-        }, opts));
+        if (!cacheableRead(table)) ticket.cacheable = false;
+        else {
+          ticket.stops.push(target.subscribe(table, () => {
+            ticket.stale = true;
+            if (ticket.key !== undefined && held.get(ticket.key)?.ticket === ticket) drop(ticket.key);
+          }, opts));
+        }
         return target.subscribe(table, fn, opts);
       };
     },
@@ -159,7 +171,7 @@ export function createRenderer({
 
   const draw = (found: Found, base: URL, url: URL): Promise<Drawn> =>
     serially(async () => {
-      const ticket: Ticket = { stale: false, stops: [] };
+      const ticket: Ticket = { stale: false, cacheable: true, stops: [] };
       const { found: asked, note } = noting(found);
       current = ticket;
       let html: string, gone: boolean;
@@ -175,7 +187,7 @@ export function createRenderer({
       const key = addressOf(url, found.route.screen).href;
       // A document a read moved under, or one drawn for an address its screen
       // turned out not to read all of, is answered once and not held.
-      if (gone || ticket.stale || key !== base.href) {
+      if (gone || !ticket.cacheable || ticket.stale || key !== base.href) {
         stopAll(ticket);
         return { html, gone };
       }
@@ -317,8 +329,8 @@ export async function serve(env: (name: string) => string | undefined = (name) =
   const { templateHash } = await import("../interpreter/screen.js");
 
   const cfg = await (await read("/shell/shell.json")).json();
-  // A renderer reads whatever any route asks, in any order, so every table is
-  // held whole: a browser's on-demand subsets serve one reader's screens.
+  // Retained collections serve every route in any order, so they are held
+  // whole. Request-only reads bypass them and still execute per query.
   delete cfg.sync;
   // The entry is the one file read off the image rather than through the
   // door: the door answers its own address with a redirect to the app's root,
@@ -346,12 +358,14 @@ export async function serve(env: (name: string) => string | undefined = (name) =
   );
   const appBase = new URL(`${door}/`);
   const store = createStore(door, { ...cfg, appBase });
+  const cacheableRead = (table: string) => cfg.schema?.[table]?.durability !== "server";
 
   const renderer = createRenderer({
     store,
     origin,
     capacity,
     queue,
+    cacheableRead,
     // The door has already chosen the language: an unprefixed address reaching
     // here is the default's, so no preference is consulted.
     route: (pathname, search) => routeAt(cfg, pathname, search, []) as Found | null,
@@ -384,8 +398,7 @@ export async function serve(env: (name: string) => string | undefined = (name) =
     }
     return renderer.handle(req);
   });
-  // Healthy once every table has arrived, so a deploy's first readers are
-  // not each the one who waits for the first sync.
-  await Promise.all((cfg.tables as string[]).map((t) => store.query(t, null, {})));
+  // Request-only rows have no snapshot to warm; each document asks for them.
+  await Promise.all((cfg.tables as string[]).filter(cacheableRead).map((t) => store.query(t, null, {})));
   ready = true;
 }

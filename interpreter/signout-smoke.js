@@ -22,7 +22,13 @@ i18n:
   default: pt-BR
   locales:
     pt-BR: {path: pt-br}
-tables: []
+tables: [app_user]
+schema:
+  app_user:
+    durability: live
+    fields:
+      - {name: id, type: string}
+      - {name: display_name, type: string}
 routes:
   - path: /
     screen: home
@@ -42,7 +48,9 @@ const CATALOGUE = { chrome_signout: "sair", nav_home: "Início", nav_other: "Out
 
 const screenHtml = (name) => `<section class="screen" data-screen="${name}"><h2>${name}</h2></section>`;
 
+let boots = 0;
 function boot(at = "/") {
+  const origin = `http://localhost:${8080 + ++boots}`;
   const { document, Event } = parseHTML(
     "<!doctype html><html><head></head><body><div id=shell></div></body></html>",
   );
@@ -63,7 +71,8 @@ function boot(at = "/") {
   const app = { reloaded: false, intercepted: false };
   Object.defineProperty(globalThis, "location", {
     value: {
-      href: `http://localhost:8080${at}`,
+      href: `${origin}${at}`,
+      origin,
       pathname: at,
       search: "",
       hash: "",
@@ -73,7 +82,17 @@ function boot(at = "/") {
   });
 
   sessionStorage.clear();
-  globalThis.fetch = (url) => {
+  const profile = { id: "u1", display_name: "Ada", txid: "1" };
+  const handle = `profile-${boots}`;
+  let offset = 1;
+  const changes = [];
+  let wake;
+  const message = operation => ({
+    key: '"public"."app_user"/"u1"',
+    value: { ...profile },
+    headers: { operation, relation: ["public", "app_user"] },
+  });
+  globalThis.fetch = async (url, init = {}) => {
     const u = String(url);
     if (u.endsWith("shell.yaml")) return Promise.resolve(new Response(CONFIG_YAML));
     if (u.endsWith("/auth/guest")) {
@@ -83,12 +102,30 @@ function boot(at = "/") {
         }),
       );
     }
-    if (u.includes("/crud/app_user")) {
-      return Promise.resolve(
-        new Response(JSON.stringify([{ id: "u1", display_name: "Ada" }]), {
-          headers: { "Content-Type": "application/json" },
-        }),
-      );
+    if (u.endsWith("/auth/shape")) {
+      return Response.json({ token: "shape-token", where: "id = 'u1'", expires_in: 900 });
+    }
+    if (u.includes("/electric/v1/shape")) {
+      const query = new URL(u).searchParams;
+      let batch;
+      if (query.get("live") === "true") {
+        if (!changes.length) await new Promise((resolve, reject) => {
+          wake = resolve;
+          init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+        });
+        wake = undefined;
+        batch = changes.splice(0);
+      } else {
+        batch = [message("insert")];
+      }
+      return Response.json([...batch, { headers: { control: "up-to-date", global_last_seen_lsn: String(offset) } }], {
+        headers: {
+          "electric-handle": handle,
+          "electric-offset": `0_${offset}`,
+          "electric-cursor": String(offset),
+          "electric-schema": JSON.stringify({ id: { type: "text" }, display_name: { type: "text" }, txid: { type: "int8" } }),
+        },
+      });
     }
     if (u.includes("/messages/")) return Promise.resolve(new Response(JSON.stringify(CATALOGUE)));
     if (u.endsWith("home.html")) return Promise.resolve(new Response(screenHtml("home")));
@@ -100,6 +137,12 @@ function boot(at = "/") {
     document,
     Event,
     mount: document.getElementById("shell"),
+    rename(name) {
+      profile.display_name = name;
+      profile.txid = String(++offset);
+      changes.push(message("update"));
+      wake?.();
+    },
     signIn() {
       const guest = [...this.mount.querySelectorAll(".shell-login button")].find(
         (b) => b.textContent === "Continue as guest",
@@ -115,7 +158,7 @@ function boot(at = "/") {
         downloadRequest: null,
         formData: null,
         navigationType: "reload",
-        destination: { url: "http://localhost:8080/shell/", sameDocument: false },
+        destination: { url: `${origin}/shell/`, sameDocument: false },
         intercept: () => (app.intercepted = true),
       });
     },
@@ -224,6 +267,9 @@ Deno.test({
       who.querySelector(".name").textContent === "Ada",
       `the strip reads ${JSON.stringify(who.querySelector(".name").textContent)}, not the name they set`,
     );
+    app.rename("Augusta");
+    await settle();
+    assert(who.querySelector(".name").textContent === "Augusta", "a remote profile rename reaches the strip");
   },
 });
 

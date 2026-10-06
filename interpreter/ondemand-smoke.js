@@ -4,6 +4,7 @@
 // they are all there, never wake a region on a half-joined row, and refuse
 // require explicit complete demand for a local snapshot.
 
+import "./server-mutation-smoke.js";
 import { FIXTURE_CARRIERS } from "./fixture-types.js";
 import { ProgramError } from "./fragment.js";
 import { assert, tick, until, withBrowser } from "./smoke-browser.js";
@@ -181,10 +182,10 @@ const config = (extra = {}) => ({
   appBase: "http://fake/app/",
   tables: ["player_game", "player", "stat"],
   schema: {
-    player_game: { fields: [{ name: "id", type: "string" }, { name: "game_id", type: "string" }, { name: "player_id", type: "string" }, { name: "round", type: "int32" }] },
+    player_game: { fields: [{ name: "id", type: "string" }, { name: "game_id", type: "string" }, { name: "player_id", type: "string", ref: "player" }, { name: "round", type: "int32" }] },
     player: { fields: [{ name: "id", type: "string" }, { name: "name", type: "string" }] },
     stat: { fields: [
-      { name: "id", type: "string" }, { name: "player_id", type: "string" }, { name: "games", type: "int32" },
+      { name: "id", type: "string" }, { name: "player_id", type: "string", ref: "player" }, { name: "games", type: "int32" },
       { name: "rate", type: "decimal", precision: 10, scale: 2 }, { name: "ref", type: "uuid" }, { name: "at", type: "timestamptz" },
     ] },
   },
@@ -217,9 +218,10 @@ for (const [table, id] of [["stat", "s1"], ["player", "p1"]]) {
           ? Promise.resolve(Response.json(rows.stat.filter(row => rows.player.some(player => player.id === row.player_id))))
           : fake.fetcher(input, init),
       }, async createStore => {
-        // sync.cue's server-read dependencies retain their initial rows:
-        // deleting an unloaded row produces no collection change to watch.
-        const store = createStore(fake.base, config({ sync: { stat: "eager", player: "eager", player_game: "on-demand" } }));
+        const cfg = config({ sync: { stat: "on-demand", player: "on-demand", player_game: "on-demand" } });
+        cfg.schema.stat.durability = "live";
+        cfg.schema.player.durability = "server";
+        const store = createStore(fake.base, cfg);
         const opts = { select: "*,player!inner(name)" };
         const refreshes = [];
         let visible = [];
@@ -229,13 +231,58 @@ for (const [table, id] of [["stat", "s1"], ["player", "p1"]]) {
         try {
           visible = await store.query("stat", null, opts);
           assert(visible.length === 2, "both server rows are initially visible");
-          await until(() => ["stat", "player"].every(name => globalThis.__mechaClient.collections[name].isReady()), "dependency snapshots loaded");
+          await until(() => refreshes.length > 0, "invalidation stream established");
           await tick(30);
+          assert(["stat", "player"].every(name => globalThis.__mechaClient.collections[name].size === 0), "invalidation retains no rows");
           fake.remove(table, id, 20);
           await until(() => visible.length === 1, "external delete refreshes the server result");
           await Promise.all(refreshes);
           assert(visible[0].id === "s2", "the row removed by the server join is no longer rendered");
           assert(fake.subsets.length === 0, "server results do not load local query subsets");
+        } finally {
+          stop();
+        }
+      });
+    },
+  });
+}
+
+for (const mode of ["eager", "on-demand"]) {
+  Deno.test({
+    name: `a registered reverse embed stays server-computed with ${mode} collections`,
+    sanitizeOps: false,
+    sanitizeResources: false,
+    async fn() {
+      const rows = world();
+      const fake = electric(rows, SCHEMA);
+      await withBrowser({ fetch: (input, init) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/crud/player") {
+          assert(url.searchParams.get("id") === "eq.p1", "the server receives the region's predicate");
+          return Promise.resolve(Response.json(rows.player.filter(p => p.id === "p1").map(p => ({
+            ...p, player_game: rows.player_game.filter(g => g.player_id === p.id).map(g => ({ round: g.round })),
+          }))));
+        }
+        return fake.fetcher(input, init);
+      } }, async createStore => {
+        const cfg = config({ sync: { player: mode, player_game: mode, stat: mode } });
+        cfg.schema.player.durability = "live";
+        const store = createStore(fake.base, cfg);
+        const opts = { filter: "id=eq.p1", select: "*,player_game(round)" };
+        let visible = await store.query("player", null, opts);
+        assert(Array.isArray(visible[0].player_game) && visible[0].player_game[0].round === "3", "reverse embeds preserve cardinality and values");
+        const refreshes = [];
+        const stop = store.subscribe("player", () => {
+          refreshes.push(store.query("player", null, opts).then(value => { visible = value; }));
+        }, opts);
+        try {
+          await until(() => refreshes.length > 0, "dependency invalidation established");
+          await Promise.all(refreshes);
+          fake.remove("player_game", "pg1", 20);
+          await until(() => visible[0].player_game.length === 0, "child deletion refreshes the reverse embed");
+          await Promise.all(refreshes);
+          assert(fake.subsets.length === 0, "a reverse join loads no local subsets");
+          assert(["player", "player_game"].every(t => globalThis.__mechaClient.collections[t].size === 0), "invalidation retains no snapshots");
         } finally {
           stop();
         }
@@ -870,3 +917,100 @@ for (const mode of ["eager", "on-demand"]) {
     },
   });
 }
+
+Deno.test({
+  name: "server durability reads filtered joins on request without opening Electric",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const requests = [];
+    let rows = [{ id: "pg1", game_id: "g1", player: { name: "Ana" } }];
+    await withBrowser({ fetch: async (input, init) => {
+      const url = new URL(String(input));
+      if (servers.has(url.origin)) return servers.get(url.origin)(input, init);
+      assert(url.origin === "http://request-only", `unexpected request origin: ${url.origin}`);
+      requests.push(url);
+      assert(url.pathname === "/crud/player_game", "a server read opened neither auth nor Electric");
+      return Response.json(rows);
+    } }, async createStore => {
+      const cfg = config();
+      cfg.schema.player_game.durability = "server";
+      const store = createStore("http://request-only", cfg);
+      const opts = { filter: "game_id=eq.g1&limit=40&offset=0", select: "*,player(name)", order: "round.desc" };
+      let wakes = 0;
+      const stop = store.subscribe("player_game", () => wakes++, opts);
+      try {
+        assert((await store.query("player_game", null, opts))[0].player.name === "Ana", "joined server result");
+        assert(requests.length === 1, "only the requested read");
+        assert(requests[0].searchParams.get("game_id") === "eq.g1", "filter reaches server");
+        assert(requests[0].searchParams.get("order") === "round.desc", "order reaches server");
+        rows = [];
+        await tick(30);
+        assert(wakes === 0 && requests.length === 1, `remote changes do not trigger a request-only read: ${wakes} wakes, ${requests.map(String).join(", ")}`);
+        assert((await store.query("player_game", null, opts)).length === 0, "an explicit read gets current rows");
+        assert(globalThis.__prontoViews.size === 0, "request-only reads create no local views");
+        assert(globalThis.__mechaClient.collections.player_game.size === 0, "request-only reads retain no rows");
+      } finally { stop(); }
+    });
+  },
+});
+
+Deno.test({
+  name: "a completed local command refreshes a server read that began before it",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    let releaseRead;
+    const reading = new Promise(resolve => { releaseRead = resolve; });
+    let calls = 0;
+    let committed = [];
+    await withBrowser({ fetch: async input => {
+      assert(String(input).startsWith("http://settled/crud/player_game?"), "the read opens no remote subscription");
+      const snapshot = [...committed];
+      if (++calls === 1) await reading;
+      return Response.json(snapshot);
+    } }, async createStore => {
+      const cfg = config();
+      cfg.schema.player_game.durability = "server";
+      const store = createStore("http://settled", cfg);
+      let finishWrite;
+      globalThis.__mechaClient.insert = (_table, rows) => new Promise(resolve => {
+        finishWrite = () => { committed = rows; resolve(); };
+      });
+      let refreshed;
+      const stop = store.subscribe("player_game", () => { refreshed = store.query("player_game"); });
+      try {
+        const first = store.query("player_game");
+        const write = store.add("player_game", [{ id: "pg1", game_id: "g1", player_id: "p1", round: 1 }]);
+        await until(() => finishWrite !== undefined, "local command started");
+        assert(calls === 1 && refreshed === undefined, "an unfinished command does not refresh");
+        finishWrite();
+        await write;
+        await until(() => refreshed !== undefined, "command completion requests a new read");
+        assert((await refreshed)[0].id === "pg1", "refresh includes committed result");
+        releaseRead();
+        assert((await first).length === 0, "the overlapping read held the old snapshot");
+        assert(calls === 2, "one initial read and one completion refresh");
+      } finally { releaseRead(); stop(); }
+    });
+  },
+});
+
+Deno.test({
+  name: "server reads of absent optional references are empty without an invalid UUID request",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withBrowser({ fetch: () => { throw new Error("an impossible typed equality reached the network"); } }, async createStore => {
+      const cfg = config();
+      cfg.schema.stat.durability = "server";
+      cfg.carriers = { ...FIXTURE_CARRIERS, types: { ...FIXTURE_CARRIERS.types,
+        uuid: { ...FIXTURE_CARRIERS.types.uuid, pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+      } };
+      const store = createStore("http://optional-reference", cfg);
+      for (const filter of ["ref=eq.", "ref=eq.not-a-uuid", "games=eq.invalid"]) {
+        assert((await store.query("stat", null, { filter })).length === 0, filter);
+      }
+    });
+  },
+});

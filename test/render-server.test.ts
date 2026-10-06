@@ -51,6 +51,7 @@ function harness({
   gone = false,
   reads = [{ table: "game_card", opts: { filter: "id=eq.1" } }],
   queue = 8,
+  cacheableRead = (_table: string): boolean => true,
   // What the render does once it has read and before it lets go, as the
   // region's own pass would.
   during = async (_r: Render) => {},
@@ -66,6 +67,7 @@ function harness({
     origin: ORIGIN,
     capacity: 2,
     queue,
+    cacheableRead,
     route,
     async render(found, store, base) {
       renders++
@@ -98,6 +100,50 @@ function harness({
 }
 
 describe("the server terminal", () => {
+  for (const subscribed of [true, false]) {
+    it(`reads changed server rows on the next request for a ${subscribed ? "region" : "named read"}`, async () => {
+      const fake = fakeStore()
+      let name = "before"
+      let renders = 0
+      const renderer = createRenderer({
+        store: { ...fake.store, query: async () => [{ name }] },
+        origin: ORIGIN,
+        capacity: 2,
+        queue: 8,
+        route,
+        cacheableRead: table => table !== "player",
+        async render(_found, store) {
+          renders++
+          const stop = subscribed ? store.subscribe("player", () => {}) : () => {}
+          try {
+            const rows = await store.query("player", null, { filter: "id=eq.1" })
+            return { html: JSON.stringify(rows), gone: false }
+          } finally { stop() }
+        },
+      })
+      const first = await renderer.handle(new Request(`${ORIGIN}/jogo/1`))
+      expect(await first.text()).toContain("before")
+      name = "after"
+      const second = await renderer.handle(new Request(`${ORIGIN}/jogo/1`, { headers: { "if-none-match": first.headers.get("etag")! } }))
+      expect(second.status).toBe(200)
+      expect(await second.text()).toContain("after")
+      expect(renders).toBe(2)
+      expect(renderer.held).toBe(0)
+      expect(fake.subs.filter(s => s.live)).toHaveLength(0)
+    })
+  }
+
+  it("shares an in-flight request-only document without retaining it afterward", async () => {
+    const h = harness({ cacheableRead: () => false })
+    const pages = await Promise.all([h.get("/jogo/1"), h.get("/jogo/1")].map(async r => (await r).text()))
+    expect(pages[0]).toBe(pages[1])
+    expect(h.renders()).toBe(1)
+    expect(h.renderer.held).toBe(0)
+    await h.get("/jogo/1")
+    expect(h.renders()).toBe(2)
+    expect(h.live()).toHaveLength(0)
+  })
+
   it("holds a document until a read that drew it changes", async () => {
     const h = harness()
     const first = await (await h.get("/jogo/1")).text()

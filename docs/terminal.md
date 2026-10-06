@@ -146,18 +146,25 @@ is refused rather than rendered with a service token. The one file read off its
 image is the entry page, since the door answers the entry's own address with a
 redirect.
 
-Every table is synced whole (a browser's on-demand subsets serve one reader's
-screens, and a renderer serves every screen), and the renderer is healthy once
-every table has arrived; it listens from the start, so a request made while it
-syncs waits for the rows it reads. Its guest is minted again once half the
+Tables with retained reads are synced whole (a browser's on-demand subsets
+serve one reader's screens, and a renderer serves every screen), and the
+renderer is healthy once those tables have arrived. Request-only `server`
+reads go through PostgREST for each document and are not prewarmed: their rows
+would be discarded. A request made while a retained table syncs waits for the
+rows it reads. Its guest is minted again once half the
 token's life is gone (the auth service renews no token, so each is a guest of
 its own), and a mint that fails ends the process: a store whose token the gate
 refuses stops syncing without a word, and its documents would stand frozen
 behind a healthy `/health`. So does a token the door refuses: the store's
 reload, which gates a page's reader again, is the renderer's exit.
 
-A document is rendered on its first request and held until a read that drew
-it changes. Each read the render makes is listened to the moment it is made,
+A document containing a `server` read is rendered for each request, including
+when that read is a named input rather than a region. Existing schema durability
+decides this; it requires no cache declaration. Concurrent requests for the same
+document can share its render, but the result is not retained afterward.
+
+Other documents are rendered on their first request and held until a read that
+drew them changes. Each read the render makes is listened to the moment it is made,
 beside the region that made it and on the same view, and that listener is what
 the held document keeps: the store's own wake — the one that refreshes a
 region — is what drops it, embeds and filters included, and no change landing

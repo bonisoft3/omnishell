@@ -3,16 +3,11 @@
 // one Electric-synced TanStack DB collection per table, and durable offline
 // transactions for every mutation — at-least-once end to end, txid-confirmed.
 //
-// Reads: regions with a translatable filter read the synced collections and
-// re-render reactively — including flat FK embeds ("*,label(name)"), joined
-// locally so a deleted row evicts the instant its optimistic removal lands
-// (a server re-fetch would race the DELETE itself, and in the dev cluster
-// every /crud request can queue tens of seconds behind the shape long-polls
-// hogging the browser's per-host connection pool). Server-computed reads —
-// fts, embed-path filters, hinted/nested embeds — stay ordinary PostgREST
-// queries, re-run when any table in their dependency set changes and when
-// one of this session's own mutations settles (the collections are the
-// change signal, never a clock). Nothing in this file or above it polls.
+// Server-durability queries go directly to PostgREST without remote
+// subscriptions. Live reads use maintained views where possible; server-
+// computed live reads observe authorized dependency changes without retaining
+// snapshots. Own mutation settlement requests another read after its HTTP
+// completes, so a refresh cannot remain stuck on the pre-write result.
 
 import {
   BasicIndex,
@@ -321,6 +316,7 @@ export function createStore(base = "", cfg = {}) {
   // RLS-scoped server-side.
   const access = cfg.access ?? {};
   const keyOf = (t) => cfg.keys?.[t] ?? "id";
+  const requestOnly = (table) => cfg.schema?.[table]?.durability === "server";
 
   // Partial collections are never an authoritative whole outside a query.
   // Queries explicitly lease completeness where their local evaluation needs
@@ -356,11 +352,17 @@ export function createStore(base = "", cfg = {}) {
     return () => { stop(); entry.release(); };
   }
 
+  // Registering a dependency does not prove a to-one relationship. Reverse
+  // embeds and relationships without an emitted FK remain server-computed.
+  const localEmbeds = (table, embeds) => embeds !== null && embeds.every(e =>
+    client.collections[e.table] !== undefined &&
+    cfg.schema?.[table]?.fields?.some(f => f.name === `${e.alias}_id` && f.ref === e.table));
+
   function snapshotTables(table, opts) {
     const spec = parseFilterSpec(opts.filter);
     const embeds = parseSelect(opts.select);
     if (routeOf(spec, embeds, parseLimit(opts.filter)) === "server" || client.collections[table] === undefined) return [];
-    if (embeds.some(e => client.collections[e.table] === undefined)) return [];
+    if (!localEmbeds(table, embeds)) return [];
     return [...new Set([table, ...embeds.map(e => e.table)])];
   }
 
@@ -722,7 +724,7 @@ export function createStore(base = "", cfg = {}) {
     const ordered = (col) => typeOf(col) === undefined || ordersInEngine().has(typeOf(col));
     if (limit !== undefined && (order ?? "").split(",").filter(Boolean).length === 0) return null;
     if (!(order ?? "").split(",").filter(Boolean).every((k) => ordered(k.split(".")[0]))) return null;
-    if (embeds.some((e) => client.collections[e.table] === undefined)) return null;
+    if (!localEmbeds(table, embeds)) return null;
     const profile = (t, col) => {
       const field = col === TXID.name ? TXID : cfg.schema?.[t]?.fields?.find(f => f.name === col);
       return field === undefined ? undefined : cfg.carriers?.types?.[carrier().canonicalType(field.type)];
@@ -1018,8 +1020,17 @@ export function createStore(base = "", cfg = {}) {
   const query = async (table, order, opts = {}) =>
     project(table, await read(table, order, opts));
 
+  async function readServer(table, order, opts) {
+    // A missing optional FK binds an empty UUID. Local views already know
+    // that equality cannot match; sending it to Postgres would be a cast error.
+    const clauses = parseFilterSpec(opts.filter);
+    if (clauses?.some(({ col, op, value }) => op === "eq" && literal(table, col, value) === NOHOLD)) return [];
+    return (await http(`${crud(table)}?${search(order, opts)}`)).json();
+  }
+
   async function read(table, order, opts = {}) {
     order ??= opts.order;
+    if (requestOnly(table)) return readServer(table, order, opts);
     await ensurePrepared(table);
     // A read the engine already maintains needs no re-derivation: the view is
     // the filter and the order, kept current by the deltas that woke us.
@@ -1034,12 +1045,12 @@ export function createStore(base = "", cfg = {}) {
       }
     }
     if (routeOf(parseFilterSpec(opts.filter), parseSelect(opts.select), parseLimit(opts.filter)) === "server") {
-      return (await http(`${crud(table)}?${search(order, opts)}`)).json();
+      return readServer(table, order, opts);
     }
     const preds = queryPredicates(table, opts.filter);
     const embeds = preds !== null ? parseSelect(opts.select) : null;
     const c =
-      embeds !== null && embeds.every((e) => client.collections[e.table] !== undefined)
+      localEmbeds(table, embeds)
         ? client.collections[table]
         : undefined;
     if (c !== undefined) {
@@ -1051,47 +1062,39 @@ export function createStore(base = "", cfg = {}) {
           releases.push(lease(entry));
           return settled(entry);
         }));
-        // The FK column is a convention, not a schema fact the client holds:
-        // probe it on a synced row (synced rows carry every column) and leave
-        // an unresolvable embed to the server.
-        // Enumerated once: every row is enriched on the way out, and a table's
-        // length is what that costs.
         const all = c.toArray;
-        const probe = all.find((r) => r.$synced !== false);
-        if (probe === undefined || embeds.every(({ alias }) => probe[`${alias}_id`] !== undefined)) {
-          // The snapshot is a fresh array, so it is sorted in place, and copied
-          // only where a predicate, a cap or an embed makes a different one.
-          const rows = access[table] === undefined && preds.length === 0
-            ? all
-            : all.filter((r) => visible(table, r) && preds.every((p) => p(r)));
-          if (order) rows.sort(compareBy(order, orderOf(table)));
-          const limit = parseLimit(opts.filter);
-          const capped = limit === undefined ? rows : rows.slice(0, limit);
-          if (embeds.length === 0) return capped;
-          return capped.map((row) => {
-            const out = { ...row };
-            for (const { alias, table: rel, cols } of embeds) {
-              // A collection is keyed by the same column keyOf names, so the
-              // joined row is one lookup; a scan of the related table per row
-              // is the product of the two tables per read.
-              const target = client.collections[rel].get(row[`${alias}_id`]);
-              // null embed mirrors PostgREST under RLS: a joined row this
-              // reader cannot see binds blank, never leaks.
-              out[alias] =
-                target !== undefined && visible(rel, target)
-                  ? Object.fromEntries(cols.map((col) => [col, target[col]]))
-                  : null;
-            }
-            return out;
-          });
-        }
+        // The snapshot is a fresh array, so it is sorted in place, and copied
+        // only where a predicate, a cap or an embed makes a different one.
+        const rows = access[table] === undefined && preds.length === 0
+          ? all
+          : all.filter((r) => visible(table, r) && preds.every((p) => p(r)));
+        if (order) rows.sort(compareBy(order, orderOf(table)));
+        const limit = parseLimit(opts.filter);
+        const capped = limit === undefined ? rows : rows.slice(0, limit);
+        if (embeds.length === 0) return capped;
+        return capped.map((row) => {
+          const out = { ...row };
+          for (const { alias, table: rel, cols } of embeds) {
+            // A collection is keyed by the same column keyOf names, so the
+            // joined row is one lookup; a scan of the related table per row
+            // is the product of the two tables per read.
+            const target = client.collections[rel].get(row[`${alias}_id`]);
+            // null embed mirrors PostgREST under RLS: a joined row this
+            // reader cannot see binds blank, never leaks.
+            out[alias] =
+              target !== undefined && visible(rel, target)
+                ? Object.fromEntries(cols.map((col) => [col, target[col]]))
+                : null;
+          }
+          return out;
+        });
       } finally {
         for (const release of releases) release();
       }
     }
     // Server-computed read: fts, embed-path filter, or untranslatable
     // select/filter.
-    return (await http(`${crud(table)}?${search(order, opts)}`)).json();
+    return readServer(table, order, opts);
   }
 
   // Server-computed regions have one blind spot the collections cannot
@@ -1212,6 +1215,17 @@ export function createStore(base = "", cfg = {}) {
   }
 
   function subscribe(table, fn, opts = {}) {
+    if (requestOnly(table)) {
+      // A completed local command requests a fresh read. It does not open a
+      // remote subscription or react to another session's writes.
+      const wakes = coalesce(fn);
+      const deps = [...new Set([table, ...embedDeps(opts.select, table, cfg.schema)])];
+      for (const t of deps) settleListeners.set(t, (settleListeners.get(t) ?? new Set()).add(wakes.widened));
+      return () => {
+        wakes.stop();
+        for (const t of deps) settleListeners.get(t).delete(wakes.widened);
+      };
+    }
     // A maintained view's own changes ARE this region's input changing —
     // computed by the engine against the actual query rather than guessed
     // from a predicate over one table's raw change set. Nothing else needs
@@ -1261,14 +1275,27 @@ export function createStore(base = "", cfg = {}) {
         view.release();
       };
     }
-    const deps = [
+    const deps = [...new Set([
       table,
       ...embedDeps(opts.select, table, cfg.schema),
       ...accessDeps(table),
       ...foldSourceOf(table),
-    ].filter(
-      (t) => client.collections[t] !== undefined,
-    );
+    ])];
+    // PostgREST can return rows no collection ever held. In particular,
+    // deleting one must invalidate the result without loading its snapshot.
+    if (snapshotTables(table, opts).length === 0) {
+      const stops = deps.map(t => local[t] === undefined
+        ? client.subscribeInvalidation(t, wakes.widened)
+        : watch(client.collections[t], wakes.widened));
+      for (const t of deps) {
+        settleListeners.set(t, (settleListeners.get(t) ?? new Set()).add(wakes.widened));
+      }
+      return () => {
+        wakes.stop();
+        for (const stop of stops) stop();
+        for (const t of deps) settleListeners.get(t).delete(wakes.widened);
+      };
+    }
     // The region's own filter as predicates. A change to a row this region
     // could never show is not this region's input changing, so it must not
     // cost a re-read: without this every comment written anywhere re-queries
@@ -1394,7 +1421,19 @@ export function createStore(base = "", cfg = {}) {
   // until the write has gone out. A row that does not exist stays missing, and
   // the write is the collection's own refusal of it.
   async function holding(table, keys, write) {
-    if (!onDemand(table)) return write();
+    if (!onDemand(table)) {
+      const collection = client.collections[table];
+      if (collection === undefined) throw new Error(`a write by key reads ${table}, which has no collection`);
+      // Request-only reads leave even eager collections idle. Keep their
+      // snapshot subscribed until the mutation has settled.
+      const stop = watch(collection, () => {});
+      try {
+        await wholeCollection(table, "a write by key");
+        return await write();
+      } finally {
+        stop();
+      }
+    }
     const collection = client.collections[table];
     const held = [];
     try {
