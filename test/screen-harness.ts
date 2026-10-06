@@ -14,11 +14,12 @@
 import { parseHTML } from "npm:linkedom@0.18.4";
 import "npm:fake-indexeddb@6.2.5/auto";
 import { load as parseYaml } from "../interpreter/vendor/js-yaml.js";
-import { embedDeps, parseEmbeds, parseFilter, parseLimit, screenEnv } from "../interpreter/fragment.js";
+import { embedDeps, parseFilter, parseLimit, screenEnv } from "../interpreter/fragment.js";
 import { upsertKey as resolveKey } from "../interpreter/data-sync.js";
 import { batched } from "../interpreter/batched-store.js";
 import "../interpreter/vendor/ses.umd.min.js";
 import { ensureSes } from "../interpreter/jessie.js";
+import { seedQuery } from "./seed-query.ts";
 import { controlProperties } from "../server/linkedom-controls.ts";
 import { compileCatalog } from "../src/messages.ts";
 
@@ -156,31 +157,6 @@ export type MemoryStore = {
   pendingWakes: number;
 };
 
-/**
- * The store's ordering, which is not part of the fragment grammar: a
- * comma-separated `col.dir` list, nulls last on asc and first on desc, JS
- * relational comparison. It mirrors data-sync.js's compareBy, so a column of
- * strings compares lexically here exactly as it does in the browser.
- */
-function compareBy(order?: string | null) {
-  const keys = (order ?? "").split(",").filter(Boolean).map((k) => {
-    const [col, dir] = k.split(".");
-    return { col, sign: dir === "desc" ? -1 : 1 };
-  });
-  return (a: Row, b: Row) => {
-    for (const { col, sign } of keys) {
-      const x = a[col] as never;
-      const y = b[col] as never;
-      if (x == null && y == null) continue;
-      if (x == null) return sign;
-      if (y == null) return -sign;
-      if (x < y) return -sign;
-      if (x > y) return sign;
-    }
-    return 0;
-  };
-}
-
 /** What the cluster fills in that the browser never computes. A mount that
  * omits all of it can still read and create; only upsert needs a key to
  * resolve against. */
@@ -226,6 +202,9 @@ export function memoryStore(tables: Record<string, Row[]>, cluster: Cluster = {}
   const data = new Map<string, Row[]>(
     Object.entries(tables).map(([t, rows]) => [t, rows.map((r) => ({ ...r }))]),
   );
+  const queryCluster: Cluster = { ...cluster, schema: Object.fromEntries(Object.entries(tables).map(([table, rows]) => [
+    table, cluster.schema?.[table] ?? { fields: [...new Set([...rows.flatMap((r) => Object.keys(r)), cluster.keys?.[table] ?? "id"])].map((name) => ({ name, type: "unknown" })) },
+  ])) };
   type Sub = { fn: (changes?: Change[]) => void; batch: Change[]; scheduled: boolean };
   const subs = new Map<string, Set<Sub>>();
   const minted = new Map<string, number>();
@@ -276,21 +255,6 @@ export function memoryStore(tables: Record<string, Row[]>, cluster: Cluster = {}
     });
   };
 
-  // PostgREST names an embed by its relation OR by the foreign key column that
-  // reaches it, and the grammar reports whichever the markup wrote. Only the
-  // table set can tell them apart, so resolution happens here, against the
-  // tables this store actually holds.
-  const relationOf = (named: string) => {
-    if (data.has(named)) return named;
-    const stripped = named.replace(/_id$/, "");
-    if (data.has(stripped)) return stripped;
-    throw new Error(
-      `embed "${named}" names neither a table nor a foreign key into one; the store holds ${
-        [...data.keys()].join(", ")
-      }`,
-    );
-  };
-
   const note = (table: string, change: Change) => {
     store.version++;
     for (const sub of subs.get(table) ?? []) {
@@ -312,48 +276,11 @@ export function memoryStore(tables: Record<string, Row[]>, cluster: Cluster = {}
 
   store.query = async (table, order, opts = {}) => {
     store.calls.push({ op: "query", table });
-    const preds = parseFilter(opts.filter);
-    if (preds === null) throw new Error(`filter outside the grammar for ${table}: ${opts.filter}`);
-    // What the shipped store hands to PostgREST, short of a hint, a spread,
-    // a base column list or a column renamed, cast or computed, which no
-    // read here may widen.
-    const tree = parseEmbeds(opts.select);
-    type Embed = { hints: string[]; spread: boolean; cols: string[]; embeds: Embed[] };
-    const plain = (e: Embed): boolean =>
-      e.hints.length === 0 && !e.spread && e.cols.every((c) => /^[a-z_][a-z0-9_]*$/.test(c)) &&
-      e.embeds.every(plain);
-    if (tree === null || tree.cols.some((c: string) => c !== "*") || !tree.embeds.every(plain)) {
-      throw new Error(`select outside the grammar for ${table}: ${opts.select}`);
-    }
-    const embeds = tree.embeds;
-    const sorted = of(table)
-      .filter((r: Row) => visible(table, r) && preds.every((p: (row: Row) => boolean) => p(r)))
-      .sort(compareBy(order ?? (opts.order as string | undefined)));
-    const limit = parseLimit(opts.filter);
-    const capped = limit === undefined ? sorted : sorted.slice(0, limit);
-    return capped.map((row: Row) => embedInto(table, row, { ...row }, embeds));
-  };
-
-  // An embed names either a foreign-key column of the row's table or the table
-  // one points at; without the schema's refs, the column is `<alias>_id`.
-  // deno-lint-ignore no-explicit-any
-  const embedInto = (table: string, row: Row, out: Row, embeds: any[]): Row => {
-    const refs: Record<string, string> = Object.fromEntries(
-      (cluster.schema?.[table]?.fields ?? []).flatMap((f) => f.ref === undefined ? [] : [[f.name, f.ref]]),
-    );
-    for (const { alias, rel, cols, embeds: inner } of embeds) {
-      const named = refs[rel] !== undefined ? [rel] : Object.keys(refs).filter((c) => refs[c] === rel);
-      if (named.length > 1) throw new Error(`embed "${rel}" on ${table} is ambiguous: ${named.join(", ")}`);
-      const col = named[0] ?? `${alias}_id`;
-      const t = named[0] === undefined ? relationOf(rel) : refs[col];
-      const target = of(t).find((r) => String(r[keyOf(t)]) === String(row[col]));
-      // A joined row that does not resolve binds null, never omitted:
-      // PostgREST under RLS answers the same way.
-      out[alias] = target === undefined
-        ? null
-        : embedInto(t, target, Object.fromEntries(cols.map((c: string) => [c, target[c]])), inner);
-    }
-    return out;
+    return seedQuery(Object.fromEntries(data), queryCluster, table, {
+      filter: opts.filter as string | undefined,
+      select: opts.select as string | undefined,
+      order: order ?? opts.order as string | undefined,
+    }, visible);
   };
 
   // Per table, not per read: the shipped store maintains a view over the

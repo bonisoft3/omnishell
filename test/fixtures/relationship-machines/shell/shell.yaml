@@ -1,0 +1,255 @@
+server: false
+local:
+  game_card:
+  - {}
+  game:
+  - {}
+  campaign:
+  - {}
+  team:
+  - {}
+  championship:
+  - {}
+  flat:
+  - {}
+  param_game:
+  - {}
+  empty_game:
+  - {}
+  param_card:
+  - {}
+  param_peer:
+  - {}
+schema:
+  game_card:
+    fields:
+    - name: id
+      type: string
+      ref: game
+    - name: state
+      type: string
+    - name: slug
+      type: string
+  game:
+    fields:
+    - name: id
+      type: string
+    - name: slug
+      type: string
+  campaign:
+    fields:
+    - name: id
+      type: string
+    - name: state
+      type: string
+    - name: team_id
+      type: string
+      ref: team
+    - name: championship_id
+      type: string
+      ref: championship
+  team:
+    fields:
+    - name: id
+      type: string
+    - name: slug
+      type: string
+  championship:
+    fields:
+    - name: id
+      type: string
+    - name: slug
+      type: string
+  flat:
+    fields:
+    - name: id
+      type: string
+    - name: state
+      type: string
+  param_game:
+    fields:
+    - name: id
+      type: string
+    - name: slug
+      type: string
+  empty_game:
+    fields:
+    - name: id
+      type: string
+    - name: slug
+      type: string
+  param_card:
+    fields:
+    - name: id
+      type: string
+    - name: slug
+      type: string
+    - name: season
+      type: string
+    - name: state
+      type: string
+  param_peer:
+    fields:
+    - name: id
+      type: string
+    - name: slug
+      type: string
+    - name: season
+      type: string
+seed:
+  game_card:
+  - id: missing
+    state: nowhere
+  - id: g1
+    state: 'off'
+    slug: base-final
+  game:
+  - id: g1
+    slug: final&2026
+  campaign:
+  - id: missing
+    team_id: t1
+    championship_id: gone
+    state: nowhere
+  - id: joined
+    team_id: t2
+    championship_id: c1
+    state: 'off'
+  team:
+  - id: t1
+    slug: decoy
+  - id: t2
+    slug: joined-team
+  championship:
+  - id: c1
+    slug: joined-season
+  flat:
+  - id: f1
+    state: 'off'
+  param_game:
+  - id: p1
+    slug: selected
+  param_card:
+  - id: c1
+    slug: selected
+    season: '2026'
+    state: 'off'
+  param_peer:
+  - id: r1
+    slug: other
+    season: '2027'
+routes:
+- path: /game/:slug
+  screen: case
+  files:
+    html: shell/screens/game.html
+    css: shell/case.css
+    handlers: []
+- path: /broken/game/:slug
+  screen: case
+  files:
+    html: shell/screens/broken-game.html
+    css: shell/case.css
+    handlers: []
+- path: /game-hidden/:slug
+  screen: case
+  files:
+    html: shell/screens/game-hidden.html
+    css: shell/case.css
+    handlers: []
+- path: /broken/game-hidden/:slug
+  screen: case
+  files:
+    html: shell/screens/broken-game-hidden.html
+    css: shell/case.css
+    handlers: []
+- path: /game-base/:slug
+  screen: case
+  files:
+    html: shell/screens/game-base.html
+    css: shell/case.css
+    handlers: []
+- path: /broken/game-base/:slug
+  screen: case
+  files:
+    html: shell/screens/broken-game-base.html
+    css: shell/case.css
+    handlers: []
+- path: /campaign-hidden/:slug/:season
+  screen: case
+  files:
+    html: shell/screens/campaign-hidden.html
+    css: shell/case.css
+    handlers: []
+- path: /dependency/:slug/:season
+  screen: case
+  files:
+    html: shell/screens/dependency.html
+    css: shell/case.css
+    handlers: []
+- path: /dependency/:season/:slug
+  screen: case
+  files:
+    html: shell/screens/dependency.html
+    css: shell/case.css
+    handlers: []
+- path: /broken-dependency/:slug/:season
+  screen: case
+  files:
+    html: shell/screens/broken-dependency.html
+    css: shell/case.css
+    handlers: []
+- path: /broken-dependency/:season/:slug
+  screen: case
+  files:
+    html: shell/screens/broken-dependency.html
+    css: shell/case.css
+    handlers: []
+- path: /invalid-column/:slug
+  screen: case
+  files:
+    html: shell/screens/invalid-column.html
+    css: shell/case.css
+    handlers: []
+- path: /invalid-relation/:slug
+  screen: case
+  files:
+    html: shell/screens/invalid-relation.html
+    css: shell/case.css
+    handlers: []
+- path: /unsupported-filter/:slug
+  screen: case
+  files:
+    html: shell/screens/unsupported-filter.html
+    css: shell/case.css
+    handlers: []
+- path: /blocked-invalid/:season/:slug
+  screen: case
+  files:
+    html: shell/screens/blocked-invalid.html
+    css: shell/case.css
+    handlers: []
+- path: /cycle/:slug/:season
+  screen: case
+  files:
+    html: shell/screens/cycle.html
+    css: shell/case.css
+    handlers: []
+- path: /cycle/:season/:slug
+  screen: case
+  files:
+    html: shell/screens/cycle.html
+    css: shell/case.css
+    handlers: []
+- path: /unresolved/:slug/:season
+  screen: case
+  files:
+    html: shell/screens/unresolved.html
+    css: shell/case.css
+    handlers: []
+- path: /unresolved/:season/:slug
+  screen: case
+  files:
+    html: shell/screens/unresolved.html
+    css: shell/case.css
+    handlers: []

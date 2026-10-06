@@ -1,0 +1,29 @@
+server: false
+local:
+  game_card:
+  - {}
+  game:
+  - {}
+schema:
+  game_card:
+    fields:
+    - name: id
+      type: string
+      ref: game
+    - name: state
+      type: string
+    - name: slug
+      type: string
+  game:
+    fields:
+    - name: id
+      type: string
+    - name: slug
+      type: string
+routes:
+- path: /empty/:slug
+  screen: case
+  files:
+    html: shell/case.html
+    css: shell/case.css
+    handlers: []

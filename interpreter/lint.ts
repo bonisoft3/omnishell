@@ -285,7 +285,7 @@ const attrsOf = (attrText: string) => ({
 /** A route hole and the region read that fills it; `filter` is the region's whole
  * data-filter, since whether the store answers it locally is decided over all of
  * its clauses. */
-export type ParamPlan = { route: string; param: string; table: string; column: string; op: string; filter: string };
+export type ParamPlan = { route: string; param: string; table: string; column: string; op: string; filter: string; select?: string };
 
 /**
  * Where each `:param` gets a real value, read off the SCREEN MARKUP.
@@ -337,7 +337,7 @@ export function paramPlans(
         if (!m) continue;
         // An `eq` plan is the only one a reader can answer by echoing a row's
         // value, so it wins over one the markup happened to declare first.
-        const found = { route: route.path, param, table, column: m[1], op: m[2], filter };
+        const found = { route: route.path, param, table, column: m[1], op: m[2], filter, ...(attr("data-select") === undefined ? {} : { select: attr("data-select") }) };
         const held = plans.get(key);
         if (held === undefined || (held.op !== "eq" && found.op === "eq")) plans.set(key, found);
         if (found.op === "eq") break;
@@ -366,7 +366,7 @@ export type MachineRegion = {
   enclosing: Enclosing[][];
 };
 
-type Enclosing = { table: string; filter?: string };
+type Enclosing = { table: string; filter?: string; select?: string };
 
 /** Every data-machine region in one screen's markup, with the attributes its
  * validity depends on. Single-quoted values are the norm here — a machine is
@@ -377,14 +377,14 @@ export function machineRegions(html: string): MachineRegion[] {
   const out: MachineRegion[] = [];
   // `named` is a template[data-item][data-name]: a chain stops there and goes
   // on through each region that stamps it, which `referrers` holds.
-  type Open = { tag: string; table?: string; filter?: string; named?: string };
+  type Open = { tag: string; table?: string; filter?: string; select?: string; named?: string };
   // The lexical regions up to the nearest named template, and that template.
   const reach = (stack: Open[]): { chain: Enclosing[]; via?: string } => {
     const chain: Enclosing[] = [];
     for (let i = stack.length - 1; i >= 0; i--) {
-      const { table, filter, named } = stack[i];
+      const { table, filter, select, named } = stack[i];
       if (named !== undefined) return { chain, via: named };
-      if (table !== undefined) chain.push({ table, filter });
+      if (table !== undefined) chain.push({ table, filter, ...(select === undefined ? {} : { select }) });
     }
     return { chain };
   };
@@ -409,13 +409,13 @@ export function machineRegions(html: string): MachineRegion[] {
     const { chain, via } = reach(stack);
     const ref = attr("data-template");
     if (ref !== undefined && attr("data-live") !== undefined) {
-      refer(ref, { chain: [{ table: attr("data-live") as string, filter: attr("data-filter") }, ...chain], via });
+      refer(ref, { chain: [{ table: attr("data-live") as string, filter: attr("data-filter"), ...(attr("data-select") === undefined ? {} : { select: attr("data-select") }) }, ...chain], via });
     }
     const named = tag === "template" && has("data-item") ? attr("data-name") : undefined;
     // hydrateRegion takes every item template whose nearest region it is,
     // named or not, so that region stamps it too.
     if (named !== undefined && lexical(stack)) refer(named, { chain, via });
-    const frame = { tag, table: attr("data-live"), filter: attr("data-filter"), named };
+    const frame = { tag, table: attr("data-live"), filter: attr("data-filter"), select: attr("data-select"), named };
     const machine = attr("data-machine");
     if (machine === undefined) return frame;
     const table = attr("data-live");

@@ -44,6 +44,17 @@ local:
   # A recursive tree with no seed: no root, so no node is ever stamped.
   nodes:
     - {}
+schema:
+  bare:
+    fields:
+      - {name: id, type: string}
+      - {name: tag, type: string}
+      - {name: state, type: string}
+  nodes:
+    fields:
+      - {name: id, type: string}
+      - {name: parent_id, type: string}
+      - {name: state, type: string}
 seed:
   # Stamps through an embedded object's path, which names no seeded row.
   nest:

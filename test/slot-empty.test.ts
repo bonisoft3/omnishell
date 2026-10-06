@@ -35,12 +35,14 @@ const files = (empty: string) => ({
 })
 
 const NOTE = { id: "n1", step_id: "a", body: "the note" }
+const CLUSTER = { schema: { note: { fields: Object.keys(NOTE).map((name) => ({ name, type: "string" })) } } }
 
 const mount = (empty = "", notes: Row[] = [NOTE]) =>
   mountScreen({
     route: ROUTE,
     files: files(empty),
     tables: { step: [{ id: "a", label: "A", pos: 1 }], note: notes },
+    cluster: CLUSTER,
     seed: 1,
   })
 
@@ -164,6 +166,7 @@ describe("the empty note's own element", () => {
       route: NOTE_ROUTE,
       files: NOTE_FILES,
       tables: { step: [{ id: "a", pos: 1 }], note: [] },
+      cluster: CLUSTER,
       seed: 1,
     })
     await m.settle()
@@ -200,6 +203,7 @@ describe("the empty note's own element", () => {
         "nt.css": "",
       },
       tables: { step: [{ id: "a", pos: 1 }], note: [] },
+      cluster: CLUSTER,
       seed: 1,
     })
     await m.settle()

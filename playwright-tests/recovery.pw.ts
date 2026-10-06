@@ -72,8 +72,8 @@ async function refresh(page: Page) {
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")))
 }
 
-async function ready(page: Page, version: string) {
-  await page.waitForFunction(version => (window as any).appReady && (window as any).runtimeRelease === version, version)
+async function ready(page: Page, version: string, timeout = 30_000) {
+  await page.waitForFunction(version => (window as any).appReady && (window as any).runtimeRelease === version, version, { timeout })
 }
 
 describe("release draft recovery", () => {
@@ -138,7 +138,8 @@ describe("release draft recovery", () => {
           if (next === "restart") {
             await server.deploy("C")
             await refresh(page)
-            await ready(page, "C")
+            // An in-flight bootstrap check can defer C to the 30s poll; allow its boot to finish.
+            await ready(page, "C", 60_000)
           } else {
             await server.deploy("C", true)
             await refresh(page)

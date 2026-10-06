@@ -42,7 +42,7 @@ describe("the harness store", () => {
     const store = memoryStore({
       note: [{ id: "n1", label_id: "l1" }, { id: "n2", label_id: "gone" }],
       label: [{ id: "l1", name: "urgent" }],
-    })
+    }, { schema: { note: { fields: [{ name: "id", type: "uuid" }, { name: "label_id", type: "uuid", ref: "label" }] } } })
     const rows = await store.query("note", "id.asc", { select: "*,label(name)" })
     expect(rows[0].label).toEqual({ name: "urgent" })
     // An unresolvable embed binds null and is never omitted: a region reading
@@ -62,13 +62,13 @@ describe("the harness store", () => {
     }, {
       schema: {
         game: { fields: [{ name: "home_id", type: "uuid", ref: "team" }, { name: "phase_id", type: "uuid", ref: "phase" }] },
-        phase: { fields: [{ name: "championship_id", type: "uuid", ref: "championship" }] },
+        phase: { fields: [{ name: "id", type: "uuid" }, { name: "name", type: "string" }, { name: "championship_id", type: "uuid", ref: "championship" }] },
       },
     })
     const [row] = await store.query("game", null, { select: "*,home:home_id(name),phase(name,championship(full_name))" })
     expect(row.home).toEqual({ name: "Bahia-BA" })
     expect(row.phase).toEqual({ name: "Turno", championship: { full_name: "Brasileiro 2026" } })
-    await expect(store.query("game", null, { select: "*,phase!inner(name)" })).rejects.toThrow(/outside the grammar/)
+    expect((await store.query("game", null, { select: "*,phase!inner(name)" }))[0].phase).toEqual({ name: "Turno" })
   })
 
   it("wakes a region whose embed names a foreign-key column when its table moves", async () => {

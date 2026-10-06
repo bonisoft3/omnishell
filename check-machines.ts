@@ -28,7 +28,8 @@
 // exit 1 when any finding is reported.
 
 import { machineRegions, paramPlans } from "./interpreter/lint.ts";
-import { ABSENT, binding, fillFilter, parseFilter, PLACEHOLDER } from "./interpreter/fragment.js";
+import { ABSENT, binding, fillFilter, PLACEHOLDER, PLACEHOLDERS } from "./interpreter/fragment.js";
+import { seedQuery, selectWithFields } from "./test/seed-query.ts";
 import { walkMachine, type WalkHarness } from "./test/walker.ts";
 import type { Machine } from "./test/canonical.ts";
 import {
@@ -98,20 +99,13 @@ export async function walkFindings(
   }
 }
 
-/** The row the region reads, by the filter it pins itself with. */
-function pinnedRow(rows: Row[], filter: string | undefined): Row | undefined {
-  const preds = parseFilter(filter) as ((row: Row) => boolean)[] | null;
-  if (preds === null) throw new Error(`filter outside the grammar: ${filter}`);
-  return rows.find((r) => preds.every((p) => p(r)));
-}
-
 /** What a region reads and writes through, off the element the interpreter
  * mounted: the collection, and the filter that is the whole of an instance's
  * identity where a screen carries siblings on one collection. */
 function readsOf(region: El) {
   const table = region.getAttribute("data-live");
   if (table === null) throw new Error("a machine region with no data-live");
-  return { table, filter: region.getAttribute("data-filter") ?? undefined };
+  return { table, filter: region.getAttribute("data-filter") ?? undefined, select: region.getAttribute("data-select") ?? undefined };
 }
 
 /** A `[data-machine]` match carrying no `data-machine` is the DOM disagreeing
@@ -211,7 +205,7 @@ const CONTROL_FIELDS = new Set(["value", "checked", "valueAsNumber"]);
 /** The walker's harness over one mounted region. The field is read off the
  * store rather than the DOM: the row IS the state, and a binding that had not
  * landed yet would read as an arrow that never fired. */
-function harnessFor(m: Mounted, region: El, machine: Machine, params: Record<string, string>): WalkHarness {
+function harnessFor(m: Mounted, region: El, machine: Machine, params: Record<string, string>, tables: Record<string, Row[]>, cluster: Cluster): WalkHarness {
   const { table } = readsOf(region);
   const filter = filled(readsOf(region).filter, params);
   return {
@@ -244,7 +238,10 @@ function harnessFor(m: Mounted, region: El, machine: Machine, params: Record<str
       m.advance(ms);
       await m.quiet();
     },
-    field: () => (machine.field !== undefined ? pinnedRow(m.rows(table), filter)?.[machine.field] : undefined),
+    field: () => machine.field === undefined ? undefined : seedQuery(
+      Object.fromEntries(Object.keys(tables).map((t) => [t, m.rows(t)])),
+      cluster, table, { filter, select: readsOf(region).select },
+    )[0]?.[machine.field],
   };
 }
 
@@ -261,20 +258,73 @@ function resolveParams(
   route: Route,
   html: string,
   tables: Record<string, Row[]>,
+  cluster: Cluster,
 ): Record<string, string> {
   const { path } = route;
   if (path === undefined) throw new Error(`shell.yaml route "${route.screen}" states no path`);
   const { plans, unplanned } = paramPlans([{ path }], { [path]: html });
   const params: Record<string, string> = {};
   for (const hole of unplanned) params[hole.param] = UNRESOLVED;
+  for (const plan of plans) params[plan.param] = UNRESOLVED;
+  const groups = new Map<string, typeof plans>();
   for (const plan of plans) {
-    // Only `eq` is answerable by echoing a row: `lt`, `gt` and `neq` against a
-    // row's own value exclude that very row, so the chart would bind nothing
-    // and read as one whose arrows never fired.
-    const row = plan.op !== "eq"
-      ? undefined
-      : (tables[plan.table] ?? []).find((r) => r[plan.column] !== undefined && r[plan.column] !== "");
-    params[plan.param] = row === undefined ? UNRESOLVED : String(row[plan.column]);
+    const key = JSON.stringify([plan.table, plan.select, plan.filter]);
+    groups.set(key, [...(groups.get(key) ?? []), plan]);
+  }
+  const reads = [...groups.values()].map((group) => {
+    const plan = group[0];
+    // Validate every complete read, including one blocked by another param.
+    seedQuery(tables, cluster, plan.table, { select: plan.select, filter: filled(plan.filter, params) });
+    const own = new Set(group.map((p) => p.param));
+    const dependencies = [...new Set([...plan.filter.matchAll(PARAM)].map((m) => m[1]))].filter((p) => !own.has(p));
+    const rows = group.some((p) => p.op !== "eq") ? [] : seedQuery(tables, cluster, plan.table, {
+      select: selectWithFields(plan.select, group.map((p) => p.column)),
+      filter: plan.filter.split("&").filter((clause) => !clause.match(PARAM)).join("&"),
+    });
+    const candidates = rows.flatMap((row) => {
+      const values = group.map((p) => [p.param,
+        p.column.split(".").reduce<unknown>((r, col) => (r as Row | null)?.[col], row),
+      ] as const);
+      if (values.some(([, v]) => v === undefined || v === null || v === "")) return [];
+      return [Object.fromEntries(values.map(([p, v]) => [p, String(v)]))];
+    });
+    return { plan, group, dependencies, candidates };
+  });
+  const pending = new Set(reads.map((_read, i) => i));
+  const owners = new Map(reads.flatMap((read, i) => read.group.map((p) => [p.param, i] as const)));
+  const answered = (i: number, bound: Record<string, string>) => {
+    const { plan } = reads[i];
+    return seedQuery(tables, cluster, plan.table, { select: plan.select, filter: filled(plan.filter, bound) }).length > 0;
+  };
+  for (;;) {
+    let progress = false;
+    for (const i of pending) {
+      const read = reads[i];
+      if (read.dependencies.some((p) => params[p] === UNRESOLVED)) continue;
+      const candidate = read.candidates.find((values) => answered(i, { ...params, ...values }));
+      if (candidate === undefined) continue;
+      Object.assign(params, candidate);
+      pending.delete(i);
+      progress = true;
+    }
+    if (progress) continue;
+    // A seeded cycle cannot be ordered. Refuse it rather than reporting its
+    // charts as unreachable merely because this resolver cannot bind them.
+    const checked = new Set<number>();
+    const checkCycle = (i: number, path: number[]) => {
+      if (reads[i].candidates.length === 0 || checked.has(i)) return;
+      if (path.includes(i)) {
+        const names = path.slice(path.indexOf(i)).flatMap((n) => reads[n].group.map((p) => p.param));
+        throw new Error(`unsupported route parameter dependency cycle: ${names.join(", ")}`);
+      }
+      for (const p of reads[i].dependencies) {
+        const owner = owners.get(p);
+        if (params[p] === UNRESOLVED && owner !== undefined && pending.has(owner)) checkCycle(owner, [...path, i]);
+      }
+      checked.add(i);
+    };
+    for (const i of pending) checkCycle(i, []);
+    break;
   }
   return params;
 }
@@ -294,16 +344,18 @@ const rowStamped = (filter: string | undefined) =>
  * Anything that leaves a level's rows unknown leaves the question open, and
  * open is not empty: a placeholder whose row lies outside every enclosing
  * region, a column the seed row does not carry, a param the route does not
- * bind, and a filter only the server answers (an embed path, `in.`, `or=`). */
+ * bind. Unsupported queries fail rather than being mistaken for empty seed. */
 function stampedUnderNothing(
-  enclosing: { table: string; filter?: string }[][],
+  enclosing: { table: string; filter?: string; select?: string }[][],
   tables: Record<string, Row[]>,
   params: Record<string, string>,
+  cluster: Cluster,
 ): boolean {
   if (enclosing.length === 0) return false;
   return enclosing.every((chain) => {
     let parents: (Row | undefined)[] = [undefined];
-    for (const { table, filter } of [...chain].reverse()) {
+    for (const { table, filter, select } of [...chain].reverse()) {
+      seedQuery(tables, cluster, table, { filter: filter?.replace(PLACEHOLDERS, "0"), select });
       const rows: Row[] = [];
       for (const parent of parents) {
         let open = false;
@@ -314,9 +366,8 @@ function stampedUnderNothing(
           if (value === ABSENT) open = true;
           return value;
         });
-        const preds = open ? null : parseFilter(stamped) as ((row: Row) => boolean)[] | null;
-        if (preds === null) return false;
-        rows.push(...(tables[table] ?? []).filter((r) => preds.every((p) => p(r))));
+        if (open) return false;
+        rows.push(...seedQuery(tables, cluster, table, { filter: stamped, select }));
       }
       parents = rows;
     }
@@ -348,7 +399,7 @@ async function walkScreen(
   if (authored.length === 0) return { findings: [], abandoned: false, walked: 0, authored: 0 };
 
   const findings: Finding[] = [];
-  const params = resolveParams(route, markup, tables);
+  const params = resolveParams(route, markup, tables, cluster);
 
   // A chart in an item template is authored once and mounts once per row, so
   // the mounted list is the authority for what runs, and the scan is paired to
@@ -424,7 +475,7 @@ async function walkScreen(
               html,
               `${table}[${filter ?? "*"}].${machine.field}`,
               machine,
-              harnessFor(m, el, machine, params),
+              harnessFor(m, el, machine, params, tables, cluster),
               { owner: el },
             ),
           );
@@ -487,7 +538,7 @@ async function walkScreen(
     // real params arrive from navigation, while this offline walk has only the
     // app's seed to answer them. A genuinely absent chart under a populated
     // parent still reaches the error below.
-    if (stampedUnderNothing(region.enclosing, tables, params)) {
+    if (stampedUnderNothing(region.enclosing, tables, params, cluster)) {
       findings.push({
         severity: "advisory",
         path: html,
@@ -815,11 +866,9 @@ export async function selfTest(): Promise<{ failures: string[] }> {
     // Stamped too, but under a region the seed fills: its not mounting is the
     // markup's, so it is no advisory.
     'stranded.html: the markup states a chart on "stamped" filtered id=eq.{id} that the mounted screen',
-    // Under a region only the server can filter: whether a row reaches the
-    // chart is unknown here, so it stays the markup's error. Reading the
-    // filter as a grammar violation threw instead, and the route's findings
-    // went with it.
-    'served.html: the markup states a chart on "stamped" filtered id=eq.{id} that the mounted screen',
+    // A relationship filter without a selected, declared join is a query
+    // error even when its chart sits in a template the mount never stamps.
+    'served.html: filter relationship "author" is not selected on stamped',
     // Stamped through data-template: the template's own place in the markup
     // is under no region, and reading that as its enclosure turned the empty
     // sink stamping it into an error.
