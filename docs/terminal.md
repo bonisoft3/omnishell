@@ -146,12 +146,12 @@ is refused rather than rendered with a service token. The one file read off its
 image is the entry page, since the door answers the entry's own address with a
 redirect.
 
-Tables with retained reads are synced whole (a browser's on-demand subsets
-serve one reader's screens, and a renderer serves every screen), and the
-renderer is healthy once those tables have arrived. Request-only `server`
-reads go through PostgREST for each document and are not prewarmed: their rows
-would be discarded. A request made while a retained table syncs waits for the
-rows it reads. Its guest is minted again once half the
+The renderer preserves the browser's sync policy. Only eager collections are
+prewarmed before it becomes healthy. On-demand collections load the subsets
+each document reads; retained documents hold those query subscriptions until
+invalidation or eviction. Request-only `server` reads go through PostgREST for
+each document and are not prewarmed: their rows would be discarded. Each render
+waits for the rows it reads. Its guest is minted again once half the
 token's life is gone (the auth service renews no token, so each is a guest of
 its own), and a mint that fails ends the process: a store whose token the gate
 refuses stops syncing without a word, and its documents would stand frozen

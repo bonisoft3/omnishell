@@ -378,6 +378,42 @@ onDemand("a read whose order is only positional joins the view its subscription 
   stop();
 });
 
+for (const [kind, opts, indexedTable, column] of [
+  ["joined", { filter: "game_id=eq.g1", select: "*,player(name)" }, "player", "id"],
+  ["capped", { filter: "game_id=eq.g1&limit=1", order: "round.desc" }, "player_game", "round"],
+]) {
+  onDemand(`a ${kind} demand stays bounded after its source collection is cleaned up`, async ({ fake, store }) => {
+    let stop = store.subscribe("player_game", () => {}, opts);
+    const first = await store.query("player_game", null, opts);
+    const collections = globalThis.__mechaClient.collections;
+    assert(collections[indexedTable].indexes.size === 1, "the first read installs its index");
+    stop();
+    // A renderer's last document can release every source reader. Its next
+    // request reuses the collection after idle GC has discarded the indexes.
+    await Promise.all([collections.player_game.cleanup(), collections.player.cleanup()]);
+    assert(collections[indexedTable].indexes.size === 0, "source cleanup discarded the index");
+    const warnings = [];
+    const warn = console.warn;
+    console.warn = (...args) => warnings.push(args.join(" "));
+    const before = fake.subsets.length;
+    try {
+      stop = store.subscribe("player_game", () => {}, opts);
+      assert(collections[indexedTable].indexes.size === 1, `${column} index is recreated before the next query compiles`);
+      const again = await store.query("player_game", null, opts);
+      assert(JSON.stringify(again) === JSON.stringify(first), "the revisited query returns the same bounded rows");
+      const subsets = fake.subsets.slice(before);
+      assert(subsets.some(s => s.table === "player_game" && s.where === '"game_id" = $1'), "the revisit requests the game's subset");
+      assert(subsets.every(s => s.table === "player_game" ? s.where === '"game_id" = $1' : s.where === '"id" = ANY($1)'), "every reopened source requests only matching rows");
+      assert(collections.player_game.size === 2, "the unrelated game's row stays unloaded");
+      if (kind === "joined") assert(collections.player.size === 2, "unrelated players stay unloaded");
+      assert(warnings.length === 0, `no index fallback: ${warnings.join("; ")}`);
+    } finally {
+      stop();
+      console.warn = warn;
+    }
+  });
+}
+
 onDemand("a literal its column cannot hold is a view of no rows, which Electric can state", async ({ fake, store }) => {
   // What a probe nested under a row with a null foreign key asks for: the
   // placeholder interpolates to the empty string. Regression: sent as the

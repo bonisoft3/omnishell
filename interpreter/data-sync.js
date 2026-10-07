@@ -681,15 +681,17 @@ export function createStore(base = "", cfg = {}) {
   // Not every read qualifies; routeOf and isMaintainable hold the
   // disqualifiers.
   const views = new Map();
-  const indexed = new Set();
+  const indexed = new Map();
   // createIndex refuses to choose a type, and the two questions want different
   // ones: equality for a join's key, ordered for an orderBy the engine should
   // be able to stop scanning early.
   const ensureIndex = (table, column, indexType) => {
     const at = `${table}|${column}`;
-    if (indexed.has(at)) return;
-    indexed.add(at);
-    client.collections[table].createIndex((r) => r[column], { indexType });
+    const collection = client.collections[table];
+    const id = indexed.get(at);
+    // Idle collection cleanup discards its indexes while the store survives.
+    if (id !== undefined && collection.indexes.has(id)) return;
+    indexed.set(at, collection.createIndex((r) => r[column], { indexType }).id);
   };
   // Debug seam, like the client above: which reads entered the graph, and
   // which fell to the snapshot path, is the first question when a region
@@ -760,24 +762,18 @@ export function createStore(base = "", cfg = {}) {
             ? isNull(row[col])
             : not(isNull(row[col]));
     };
-    // Without an index on the joined side's key the engine says so and loads
-    // the whole collection per join. Created before the query is built, never
-    // inside its builder: mutating a collection while its query is compiling
-    // leaves the view unready and the screen never leaves `loading`. And
-    // created here rather than where the collection is, because that would
-    // make the client a subscriber and sync is meant to begin only when a
-    // region actually reads.
-    for (const e of embeds) ensureIndex(e.table, keyOf(e.table), BasicIndex);
-    // An ordered read with a cap can stop early, but only over a sorted index;
-    // without one the engine says so and loads the whole collection to sort it.
-    if (limit !== undefined) {
-      for (const k of (order ?? "").split(",").filter(Boolean)) {
-        ensureIndex(table, k.split(".")[0], BTreeIndex);
-      }
-    }
     // Started as it is built, not on its first listener: a write holding a
     // row's view waits on it with no listener at all.
     const started = () => {
+      // Joins and capped ordering load whole collections without indexes.
+      // Check on rebuild too, before compilation: creating an index inside
+      // the query builder leaves its view unready.
+      for (const e of embeds) ensureIndex(e.table, keyOf(e.table), BasicIndex);
+      if (limit !== undefined) {
+        for (const k of (order ?? "").split(",").filter(Boolean)) {
+          ensureIndex(table, k.split(".")[0], BTreeIndex);
+        }
+      }
       const view = createLiveQueryCollection({
         query: (q) => {
           let built = q.from({ row: collection });

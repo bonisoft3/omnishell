@@ -43,6 +43,16 @@ export type Renderer = {
   readonly held: number;
 };
 
+export async function warmEagerTables(store: Pick<Store, "query">, cfg: {
+  tables: string[];
+  schema?: Record<string, { durability?: string }>;
+  sync?: Record<string, string>;
+}): Promise<void> {
+  await Promise.all(cfg.tables
+    .filter(t => cfg.schema?.[t]?.durability !== "server" && cfg.sync?.[t] !== "on-demand")
+    .map(t => store.query(t, null, {})));
+}
+
 /** The deployment's origin as ORIGIN states it, or the renderer's end: a
  * guess would be written into every document anyone may keep. */
 export function admittedOrigin(value: string | undefined): string {
@@ -329,9 +339,6 @@ export async function serve(env: (name: string) => string | undefined = (name) =
   const { templateHash } = await import("../interpreter/screen.js");
 
   const cfg = await (await read("/shell/shell.json")).json();
-  // Retained collections serve every route in any order, so they are held
-  // whole. Request-only reads bypass them and still execute per query.
-  delete cfg.sync;
   // The entry is the one file read off the image rather than through the
   // door: the door answers its own address with a redirect to the app's root,
   // which is a document already rendered.
@@ -398,7 +405,7 @@ export async function serve(env: (name: string) => string | undefined = (name) =
     }
     return renderer.handle(req);
   });
-  // Request-only rows have no snapshot to warm; each document asks for them.
-  await Promise.all((cfg.tables as string[]).filter(cacheableRead).map((t) => store.query(t, null, {})));
+  // Each retained document's subscriptions hold its on-demand views.
+  await warmEagerTables(store, cfg);
   ready = true;
 }

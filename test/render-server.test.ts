@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@test/harness"
-import { admittedOrigin, createRenderer, inhabit, keepGuest, serve } from "../server/render.ts"
+import { admittedOrigin, createRenderer, inhabit, keepGuest, serve, warmEagerTables } from "../server/render.ts"
 import { createStore } from "../interpreter/data-sync.js"
 import { FIXTURE_CARRIERS } from "../interpreter/fixture-types.js"
 
@@ -100,6 +100,34 @@ function harness({
 }
 
 describe("the server terminal", () => {
+  it("becomes warm without querying archive snapshots or request-only rows", async () => {
+    const queried: string[] = []
+    let finish!: () => void
+    const eager = new Promise<void>(resolve => { finish = resolve })
+    let ready = false
+    const warming = warmEagerTables({ query: async (table) => {
+      queried.push(table as string)
+      await eager
+      return []
+    } }, {
+      tables: ["settings", "team_rating", "player_game"],
+      sync: { team_rating: "on-demand" },
+      schema: { player_game: { durability: "server" } },
+    }).then(() => { ready = true })
+    await Promise.resolve()
+    expect(queried).toEqual(["settings"])
+    expect(ready).toBe(false)
+    finish()
+    await warming
+    expect(ready).toBe(true)
+  })
+
+  it("propagates eager startup failures", async () => {
+    await expect(warmEagerTables({ query: async () => { throw new Error("shape refused") } }, {
+      tables: ["settings"],
+    })).rejects.toThrow("shape refused")
+  })
+
   for (const subscribed of [true, false]) {
     it(`reads changed server rows on the next request for a ${subscribed ? "region" : "named read"}`, async () => {
       const fake = fakeStore()
