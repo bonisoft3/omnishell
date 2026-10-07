@@ -3675,7 +3675,10 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           // that was built cannot arrive here. What can is markup that never
           // went through one — a fixture, a harness, a screen served from
           // somewhere else — and the interpreter's contract is its own.
-          if (top) setState(route.states?.includes("gone") ? "gone" : "empty");
+          if (top) {
+            base = route.states?.includes("gone") ? "gone" : "empty";
+            setState(base);
+          }
           else if (region.dataset.empty === undefined) {
             throw new ProgramError(
               `slot region "${table}" (filter ${
@@ -3691,7 +3694,10 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           return;
         }
         emptyNote(region, undefined);
-        if (top && screen.dataset.state === "gone") setState(base);
+        if (top) {
+          base = "populated";
+          if (["loading", "empty", "populated", "gone"].includes(screen.dataset.state)) setState(base);
+        }
         if (
           !screenOpts.fixtures &&
           row !== fallbackRow &&
