@@ -1,9 +1,7 @@
 // Deno smoke: which module a control's value crosses, and where none does.
 // `data-value-adapter` names a Jessie module with format and parse
 // (REFERENCE.md#adapters); this covers the bind
-// seat and what happens where no module is evaluated. The parse seat rides a
-// form submit, whose validity and requestSubmit plumbing is the harness's:
-// apps/thenote/tests/notes.test.ts drives the round trip through it.
+// seat and what happens where no module is evaluated.
 //
 // Three cases answer differently on purpose: a screen with its modules loaded
 // converts, the fixture host adapter — which evaluates no module — binds the
