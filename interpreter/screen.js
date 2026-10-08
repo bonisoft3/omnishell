@@ -3694,9 +3694,11 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           return;
         }
         emptyNote(region, undefined);
-        if (top) {
+        // A row arriving ends the screen's wait or its absence; a list beside
+        // it still owns `empty`.
+        if (top && ["loading", "gone"].includes(screen.dataset.state)) {
           base = "populated";
-          if (["loading", "empty", "populated", "gone"].includes(screen.dataset.state)) setState(base);
+          setState(base);
         }
         if (
           !screenOpts.fixtures &&
