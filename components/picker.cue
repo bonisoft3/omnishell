@@ -72,6 +72,7 @@ import (
 	// and with no id and no command — a heading is not an option, and the
 	// consumer's [data-opt] observers never see one. readout "text".
 	heads?: [...{name: string, label: string, msgLabel?: string, at: *"" | or([for o in P.options {o.name}])}]
+	readouts?: [...{name: string, label: string, msgLabel?: string}]
 	// Applied to every arrow as its one guarded candidate — the picker-wide
 	// admission (truco: "a sitting exists").
 	guard?: string | {type: string, params?: [string]: string | number | bool}
@@ -188,7 +189,11 @@ import (
 			]), "\n")
 			}],
 		]), "\n")
-		_spans: strings.Join([for o in P.options {
+		_readoutItems: list.Concat([
+			P.options,
+			[if P.readouts != _|_ {P.readouts}, []][0],
+		])
+		_spans: strings.Join([for o in _readoutItems {
 			let _spanText = [if o.msgLabel != _|_ {" data-text=\"{\(o.msgLabel)}\""}, ""][0]
 			"<i data-t=\"\(o.name)\"\(_spanText)>\(o.label)</i>"
 		}], "")
@@ -197,7 +202,7 @@ import (
 		// than a screen's own rule over every span.
 		_show: strings.Join([
 			"[data-picker=\"\(P.key)\"] .pick-label i { display: none; }",
-			for o in P.options {
+			for o in _readoutItems {
 				"[data-picker=\"\(P.key)\"][data-value=\"\(o.name)\"] .pick-label i[data-t=\"\(o.name)\"] { display: inline; }"
 			},
 		], "\n    ")
