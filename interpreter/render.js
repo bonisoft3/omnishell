@@ -17,8 +17,8 @@
 // attribute is dropped and the rest of the document still renders: a reader's
 // own content must never be able to take the screen down.
 
-// Anything else — javascript:, data:, vbscript: — is not a URL the terminal
-// will emit, because those are the schemes a browser executes rather than
+// Anything else — javascript:, data:, vbscript: — is not a navigable URL the
+// terminal will emit, because those are the schemes a browser executes rather than
 // fetches. What passes is what a browser merely fetches or hands to a mail
 // client, plus schemeless forms: "/path" and "#frag" resolve against the app's
 // own origin, and "//host/path" keeps the scheme and changes the host, which
@@ -61,7 +61,7 @@ const TAGS = {
   blockquote: ["cite"], pre: [], code: [],
   em: [], strong: [], del: [], ins: [], mark: [], small: [], sub: [], sup: [], kbd: [], abbr: [],
   figure: [], figcaption: [],
-  a: ["href", "target", "rel"],
+  a: ["href", "target", "rel", "download"],
   img: ["src", "alt", "width", "height", "loading"],
   table: [], thead: [], tbody: [], tfoot: [], tr: [], caption: [],
   th: ["colspan", "rowspan", "scope"], td: ["colspan", "rowspan"],
@@ -89,6 +89,9 @@ const SVG_TAGS = {
 // attribute carrying an unchecked scheme, which is why this set is written
 // beside TAGS rather than inferred from it.
 const URL_ATTRS = new Set(["href", "src", "cite"]);
+// A CSV download carries bytes without granting a navigable document or a
+// second MIME interpretation. Its payload is encodeURIComponent output.
+const CSV_DOWNLOAD = /^data:text\/csv;charset=utf-8,(?:[A-Za-z0-9_.!~*'()-]|%[0-9A-Fa-f]{2})*$/;
 
 function checkAttr(tag, name, svg) {
   // data-* is refused ahead of the allowlist because its reason is different
@@ -139,7 +142,8 @@ function toNode(node, depth = 0, inSvg = false) {
     // "undefined", which for target is a real browsing-context name.
     if (value === undefined || value === null) continue;
     if (URL_ATTRS.has(name)) {
-      const url = safeUrl(value);
+      const csv = !svg && tag === "a" && name === "href" && attrs.download !== undefined && attrs.download !== null && CSV_DOWNLOAD.test(String(value));
+      const url = csv ? String(value) : safeUrl(value);
       if (url === null) continue;
       el.setAttribute(name, url);
       continue;

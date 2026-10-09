@@ -1265,7 +1265,9 @@ function bindElementAttributes(el, ctx) {
       // (plugins/omnishell/REFERENCE.md#adapters).
       const adapter = adapterOf(el, ctx);
       if (adapter !== undefined) {
-        el.value = adapter.format(interpolate(template, ctx), { zone: ctx.timeZone, locale: localeOf(ctx) });
+        const value = adapter.format(interpolate(template, ctx), { zone: ctx.timeZone, locale: localeOf(ctx) });
+        el.value = value;
+        if (el.localName === "select") el._prontoBound = el.value === value ? undefined : value;
         continue;
       }
       // The property, not the attribute: once a reader has typed, the
@@ -1832,6 +1834,16 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // The shell owns validation so the storyboard's validation-error state is
     // observable; native tooltips would swallow the submit instead.
     form.noValidate = true;
+    // Native reset reaches the form, not its descendant state machines.
+    // Forward it after cancellation is decided so drafts reset with controls.
+    form.addEventListener("reset", (event) => {
+      queueMicrotask(() => {
+        if (event.defaultPrevented) return;
+        for (const region of form.querySelectorAll("[data-machine]")) {
+          region.dispatchEvent(new form.ownerDocument.defaultView.Event("reset"));
+        }
+      });
+    });
     // Store resolution can lag the submit (acceptance window); a reset landing
     // then must not wipe input the user has typed since — rapid list entry
     // (add-line, capture) would lose every second entry.
@@ -1853,11 +1865,14 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           // already gated by checkValidity).
           const file = input.files?.[0];
           if (!file) continue;
+          // The key is a URL path segment, and a name's suffix is the
+          // reader's text ("logo.png (1)"): only a short alphanumeric
+          // extension survives into it. The bytes carry their own type.
           const dot = file.name.lastIndexOf(".");
-          const ext = dot > 0 ? file.name.slice(dot) : ".bin";
+          const suffix = dot > 0 ? file.name.slice(dot) : "";
+          const ext = /^\.[A-Za-z0-9]{1,12}$/.test(suffix) ? suffix.toLowerCase() : ".bin";
           const key = `${mintUuid()}${ext}`;
-          const res = await fetch(`/blobs/mecha-objects/${key}`, { method: "PUT", body: file });
-          if (!res.ok) throw new Error(`${res.status} PUT /blobs/mecha-objects/${key}`);
+          await store.upload(key, file);
           out[input.name] = key;
         } else if (input.type === "hidden" && input.dataset.value !== undefined) {
           out[input.name] = resolveHidden(input.dataset.value, ctx);

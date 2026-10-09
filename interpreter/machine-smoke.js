@@ -66,6 +66,39 @@ const assert = (cond, msg) => {
 };
 
 Deno.test({
+  name: "form reset reaches descendant machines only when the native reset is accepted",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const machine = { field: "hue", initial: "warm", states: {
+      warm: { on: { click: "cool" } }, cool: { on: { reset: "warm" } },
+    } };
+    const html = `<section class="screen" data-screen="demo">
+      <form data-form="add" data-entity="tint" data-action="create">
+        <div data-live="tint" data-filter="id=eq.the" data-hue="{hue}"
+          data-machine='${JSON.stringify(machine)}'></div>
+        <button type="submit">Add</button>
+      </form></section>`;
+    const { document, Event, store } = boot(html);
+    const { interpretScreen } = await import("./screen.js");
+    const mount = document.getElementById("shell");
+    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {});
+    const form = mount.querySelector("form");
+    const region = form.querySelector("[data-machine]");
+    region.dispatchEvent(new Event("click"));
+    await tick();
+    assert(region.dataset.hue === "cool", "edited machine state is visible");
+    form.addEventListener("reset", (event) => event.preventDefault(), { once: true });
+    form.dispatchEvent(new Event("reset", { bubbles: true, cancelable: true }));
+    await tick();
+    assert(region.dataset.hue === "cool", "a cancelled reset preserves the draft");
+    form.dispatchEvent(new Event("reset", { bubbles: true, cancelable: true }));
+    await tick();
+    assert(region.dataset.hue === "warm", "accepted reset clears the descendant draft");
+  },
+});
+
+Deno.test({
   name: "the colour-cycling button runs from markup alone",
   sanitizeOps: false,
   sanitizeResources: false,

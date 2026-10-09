@@ -2,8 +2,7 @@ import { describe, expect, it } from "@test/harness"
 import { type Entity, kindedRegions, kindLint } from "../interpreter/lint.ts"
 
 // The per-kind template lint has two halves: collecting each region's
-// data-when list the way the interpreter's querySelectorAll would (a template
-// belongs to every region up to its nearest enclosing template), and judging
+// data-when list for its nearest enclosing region, and judging
 // the list against the entity — declarable values, and exhaustiveness over a
 // discriminant whose value set is closed, unless a default template exists.
 // Which columns have a closed set is the program's statement, not the
@@ -31,6 +30,16 @@ describe("kindedRegions", () => {
       { table: "reply", whens: ["kind=eq.aside"] },
       { table: "entry", whens: [undefined] },
     ])
+  })
+
+  it("a list's conditional templates do not constrain its enclosing singleton", () => {
+    expect(kindedRegions(
+      '<div data-live="draft" data-filter="id=eq.directory" data-empty-row=\'{"id":"directory"}\'>' +
+        '<table><tbody data-live="player">' +
+          '<template data-item data-when="team_id=not.is.null"><tr><td>Club</td></tr></template>' +
+          '<template data-item data-when="team_id=is.null"><tr><td></td></tr></template>' +
+        '</tbody></table></div>',
+    )).toEqual([{ table: "player", whens: ["team_id=not.is.null", "team_id=is.null"] }])
   })
 
   // The interpreter applies a referenced template's data-when at runtime, so

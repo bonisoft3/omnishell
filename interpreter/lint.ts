@@ -8,6 +8,7 @@ import {
   embedDeps,
   machineCandidates,
   machineShape,
+  parseEmbeds,
   parseFilterSpec,
   parseLimit,
   parseOrder,
@@ -558,6 +559,7 @@ function walkTags<F extends { tag: string }>(
 export type Slot = {
   table: string;
   filter?: string;
+  select?: string;
   /** Authored inside an item template, so the interpreter hydrates it from an
    * enclosing region's row — `syncNested` is its only non-top caller — and no
    * screen state stands for it. */
@@ -598,6 +600,8 @@ export function slotRegions(html: string): Slot[] {
         // interpreter reads, so presence is what counts, not a value.
         declares: has("data-empty") || has("data-empty-row") || has("data-machine"),
       };
+      const select = attr("data-select");
+      if (select !== undefined) open.slot.select = select;
       open.list = attr("data-template") !== undefined;
     }
     return open;
@@ -682,9 +686,8 @@ export type KindedRegion = { table: string; whens: (string | undefined)[]; proje
 
 /** Every region's item-template data-when list, in document order — only
  * regions owning at least one item template appear; undefined is a default
- * template. Ownership follows the interpreter's querySelectorAll: a template
- * belongs to every region between it and its nearest enclosing template,
- * because deeper content is invisible to the outer region. */
+ * template. Ownership follows the interpreter's nearest enclosing region,
+ * stopping at template content boundaries. */
 export function kindedRegions(html: string): KindedRegion[] {
   const out: KindedRegion[] = [];
   type Open = { tag: string; region?: KindedRegion };
@@ -715,7 +718,10 @@ export function kindedRegions(html: string): KindedRegion[] {
       const name = attr("data-name");
       if (name !== undefined) named.set(name, when);
       for (let i = stack.length - 1; i >= 0 && stack[i].tag !== "template"; i--) {
-        stack[i].region?.whens.push(when);
+        if (stack[i].region !== undefined) {
+          stack[i].region!.whens.push(when);
+          break;
+        }
       }
     }
     const table = attr("data-live");
@@ -1023,15 +1029,23 @@ export function kindLint(whens: (string | undefined)[], e: Entity, enumOf: EnumO
 }
 
 /** The slot cardinality witness: the reason a slot's read can never see two
- * rows, or the failure to say so. The witness is any pk, unique field, or
- * declared unique whose columns the filter pins with `eq`. A partial unique
+ * rows, or the failure to say so. Ungrouped root aggregates witness a single
+ * result even when their input is empty. Otherwise the witness is any pk,
+ * unique field, or declared unique whose columns the filter pins with `eq`. A partial unique
  * (`where:`) counts only when the slot's filter states every constraint of
  * its predicate — only then is every visible row inside the domain the
  * uniqueness holds over.
  *
  * Returns null when witnessed, else the message naming what the filter pins
  * and what nothing covers. */
-export function unwitnessedSlot(filter: string | undefined, e: Entity): string | null {
+export function unwitnessedSlot(filter: string | undefined, e: Entity, select?: string): string | null {
+  const selection = parseEmbeds(select);
+  // The parser separates root columns from embeds but preserves column text.
+  // A scalar alongside an aggregate groups its input; neither embeds nor
+  // a row limit prove the result's cardinality.
+  const aggregate = /^(?:[A-Za-z_]\w*:)?(?:count\(\)|[A-Za-z_]\w*(?:->>?(?:[A-Za-z_]\w*|-?\d+))*\.(?:count|sum|avg|max|min)\(\))(?:::[A-Za-z_]\w*)?$/;
+  if (selection !== null && selection.embeds.length === 0 && selection.cols.length > 0 &&
+      selection.cols.every((column: string) => aggregate.test(column))) return null;
   const spec: Spec = parseFilterSpec(filter ?? "");
   const pinned = new Set((spec ?? []).filter((p) => p.op === "eq").map((p) => p.col));
   const stated = (p: { col: string; op: string; value?: string }) =>

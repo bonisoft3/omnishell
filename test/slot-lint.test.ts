@@ -22,6 +22,11 @@ describe("slotRegions", () => {
       .toEqual([{ table: "article", filter: "slug=eq.{param.slug}", nested: false, declares: false }])
   })
 
+  it("carries the select separately from a slot's input filter", () => {
+    expect(slotRegions(`<div data-live="stat" data-select='total:minutes.sum(),count()' data-filter="team_id=eq.{id}&amp;limit=1"></div>`))
+      .toEqual([{ table: "stat", select: "total:minutes.sum(),count()", filter: "team_id=eq.{id}&limit=1", nested: false, declares: false }])
+  })
+
   it("an item template marks every region up to its nearest enclosing template", () => {
     // The outer list's template hides the nested region AND the nested
     // region's own template from the outer querySelector; the nested slot
@@ -189,5 +194,37 @@ describe("unwitnessedSlot", () => {
 
   it("extra predicates narrow without unpinning", () => {
     expect(unwitnessedSlot("id=eq.{id}&cover_url=not.is.null", entity())).toBe(null)
+  })
+
+  it("ungrouped root aggregates bind one result without pinning an input row", () => {
+    for (const select of [
+      "count()",
+      "total:current.count()",
+      "total:minutes.sum(),scored:goals.sum(),appearances:count()",
+      " minutes.sum() , minutes.avg(), minutes.min(), minutes.max() ",
+      "total:minutes.sum()::numeric,n:count()::int",
+      "total:payload->season->>0.sum(),payload->-1.count()",
+    ]) {
+      expect(unwitnessedSlot(undefined, entity(), select)).toBe(null)
+      expect(unwitnessedSlot("current=eq.yes&limit=1", entity(), select)).toBe(null)
+    }
+  })
+
+  it("scalar and grouped reads still need a key witness, even with limit=1", () => {
+    for (const select of [undefined, "*", "current", "n:current", "count", "n:count", "current,count()", "current,total:minutes.sum()", "*,minutes.sum()", "count(),payload->>season"]) {
+      expect(unwitnessedSlot("current=eq.yes&limit=1", entity(), select)).toContain("pins current")
+    }
+  })
+
+  it("embedded aggregates do not establish root cardinality", () => {
+    for (const select of ["detail(minutes.sum())", "...detail(minutes.sum())", "count(),detail(minutes.sum())", "count(),d:detail!inner()", "count(),...detail!inner(count())"]) {
+      expect(unwitnessedSlot(undefined, entity(), select)).toContain("pins nothing")
+    }
+  })
+
+  it("unknown or malformed aggregate grammar proves nothing", () => {
+    for (const select of ["", " ", "sum()", "minutes.median()", "minutes.sum(),", "minutes.sum", "count(*)", "count(distinct id)", "n:count()junk", "minutes::numeric.sum()", "count().sum()", "count()->value", "{param.select}"]) {
+      expect(unwitnessedSlot(undefined, entity(), select)).toContain("pins nothing")
+    }
   })
 })

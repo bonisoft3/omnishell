@@ -154,6 +154,30 @@ Deno.test("the scheme check is enforced by the builder, not trusted to the rende
   assert(safeUrl("javascript:alert(1)") === null, "javascript: refused");
 });
 
+Deno.test("CSV data URLs require an HTML download anchor and never widen navigable schemes", async () => {
+  const { buildNodes, safeUrl } = await import("./render.js");
+  const href = "data:text/csv;charset=utf-8,%EF%BB%BFName%2CGoals%0D%0APlayer%2C2%0D%0A";
+  const { target } = dom();
+  buildNodes([{ tag: "a", attrs: { href, download: "players.csv" }, children: ["Export"] }], target);
+  assert(target.querySelector("a").getAttribute("href") === href, "a typed CSV download retains its data URL");
+  assert(target.querySelector("a").getAttribute("download") === "players.csv", "the filename remains attached");
+  assert(safeUrl(href) === null, "CSV is still refused by the general navigation policy");
+  for (const attrs of [{ href }, { href, download: undefined }, { href, download: null },
+    { href: "data:text/html;charset=utf-8,%3Cscript%3Ealert(1)%3C%2Fscript%3E", download: "players.csv" },
+    { href: "data:text/csv;charset=utf-8;base64,YQ==", download: "players.csv" },
+    { href: "data:text/csv;charset=utf-8,%ZZ", download: "players.csv" },
+    { href: "data:text/csv;charset=utf-8,raw\ncontrol", download: "players.csv" },
+    { href: "java\nscript:alert(1)", download: "players.csv" }]) {
+    const { target } = dom();
+    buildNodes([{ tag: "a", attrs }], target);
+    assert(target.querySelector("a").getAttribute("href") === null, `download does not admit ${JSON.stringify(attrs)}`);
+  }
+  const image = dom().target;
+  buildNodes([{ tag: "img", attrs: { src: href, alt: "csv" } }], image);
+  assert(image.querySelector("img").getAttribute("src") === null, "CSV data cannot reach image URLs");
+  await refuses([{ tag: "svg", children: [{ tag: "a", attrs: { href, download: "players.csv" } }] }], "SVG download attributes");
+});
+
 Deno.test("a link opening a new context cannot leak its opener", async () => {
   const { buildNodes } = await import("./render.js");
   const { target } = dom();

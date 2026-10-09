@@ -16,7 +16,7 @@ import { expect } from "@test/harness"
 import { batched } from "../interpreter/batched-store.js"
 
 /** Every call the interpreter makes on a store. */
-const SURFACE = ["query", "add", "write", "patch", "drop", "dropWhere", "upsertBy", "subscribe"]
+const SURFACE = ["query", "add", "write", "patch", "drop", "dropWhere", "upsertBy", "subscribe", "upload"]
 const RUNTIME = ["tabSnapshot", "restoreTabs", "flushNotifications"]
 
 /** The singular writes a test double states for itself, which the adapter
@@ -48,7 +48,7 @@ Deno.test("the store surface is what the adapter answers, over a double that kno
   // The double states only the singular writes; everything the interpreter
   // calls has to come out of the adapter or be passed straight through.
   const double = Object.fromEntries(
-    [...SINGULAR, "query", "subscribe", "dropWhere", "upsertBy"].map((m) => [m, () => {}]),
+    [...SINGULAR, "query", "subscribe", "dropWhere", "upsertBy", "upload"].map((m) => [m, () => {}]),
   )
   const store = batched(double) as Record<string, unknown>
   for (const call of SURFACE) {

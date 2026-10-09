@@ -101,10 +101,8 @@ export function parseViewports(spec?: string): Viewport[] {
   return resolved.length > 0 ? resolved : DEFAULT_VIEWPORTS
 }
 
-// Routes in flight per viewport. The two viewports already run as separate
-// contexts, so the browser holds up to twice this many live pages. Past four
-// the wall clock flattens: what the lint spends is round trips to one
-// browser, not CPU it could spread wider.
+// Cap live pages across the browser; multiplying this by viewport count
+// makes readiness deadlines depend on how many viewport sizes were requested.
 const LANES = 4
 
 // A screen is ready to measure when it stops changing. This long without a
@@ -784,40 +782,35 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
   // service worker's script fetch.
   const browser = await chromium.launch({ args: ["--ignore-certificate-errors"] })
   try {
-    // Never rejects: a board that fails records why and lets its sibling
-    // finish, rather than reaching the browser.close() below while the other
-    // board still has pages open on it.
-    await Promise.all(
-      boards.map(async ({ viewport, failure, jobs }) => {
-        const context = await browser.newContext({
-          viewport: { width: viewport.width, height: viewport.height },
-        })
-        try {
-          // The shell reads its session only behind `auth.required`, which a
-          // browser-only app never declares, so it is written only where minted.
-          if (session !== undefined) {
-            await context.addInitScript((s) => sessionStorage.setItem("pronto-token", JSON.stringify(s)), session)
-          }
-          let next = 0
-          const lane = async () => {
-            for (;;) {
-              const job = jobs[next++]
-              if (!job) return
-              await lintRoute(context, viewport, job.route, job.out)
-            }
-          }
-          await Promise.all(Array.from({ length: Math.min(LANES, jobs.length) }, lane))
-        } catch (err) {
-          failure.push({
-            severity: "critical",
-            path: "shell/shell.yaml",
-            message: `${viewport.name}: the viewport went unlinted — ${err instanceof Error ? err.message : String(err)}`,
-          })
-        } finally {
-          await context.close().catch(() => {})
+    for (const { viewport, failure, jobs } of boards) {
+      const context = await browser.newContext({
+        viewport: { width: viewport.width, height: viewport.height },
+      })
+      try {
+        // The shell reads its session only behind `auth.required`, which a
+        // browser-only app never declares, so it is written only where minted.
+        if (session !== undefined) {
+          await context.addInitScript((s) => sessionStorage.setItem("pronto-token", JSON.stringify(s)), session)
         }
-      }),
-    )
+        let next = 0
+        const lane = async () => {
+          for (;;) {
+            const job = jobs[next++]
+            if (!job) return
+            await lintRoute(context, viewport, job.route, job.out)
+          }
+        }
+        await Promise.all(Array.from({ length: Math.min(LANES, jobs.length) }, lane))
+      } catch (err) {
+        failure.push({
+          severity: "critical",
+          path: "shell/shell.yaml",
+          message: `${viewport.name}: the viewport went unlinted — ${err instanceof Error ? err.message : String(err)}`,
+        })
+      } finally {
+        await context.close().catch(() => {})
+      }
+    }
   } finally {
     await browser.close()
   }

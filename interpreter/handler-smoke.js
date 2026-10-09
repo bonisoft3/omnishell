@@ -83,14 +83,15 @@ function boot() {
       if (i >= 0) rows.splice(i, 1);
       for (const cb of subs) setTimeout(cb, 0);
     },
+    // The store owns the blob PUT, so a file control's bytes reach it here,
+    // under the path the real store addresses.
+    upload: async (key, file) => {
+      calls.puts.push({ url: `http://localhost:8080/blobs/mecha-objects/${key}`, body: file });
+    },
   });
 
   globalThis.fetch = (url, init) => {
     const u = String(url);
-    if (init?.method === "PUT" && u.includes("/blobs/")) {
-      calls.puts.push({ url: u, body: init.body });
-      return Promise.resolve(new Response(null, { status: 200 }));
-    }
     if (u.endsWith(".html")) return Promise.resolve(new Response(SCREEN_HTML));
     if (u.endsWith(".css")) return Promise.resolve(new Response(""));
     if (u.endsWith("reorder-items.js")) return Promise.resolve(new Response(HANDLER_SOURCE));

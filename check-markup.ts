@@ -155,7 +155,7 @@ export function screenFindings(
   for (const slot of read(() => slotRegions(html)) ?? []) {
     const e = declared(slot.table);
     if (e === undefined) continue;
-    const why = unwitnessedSlot(slot.filter, entityOf(slot.table, e));
+    const why = unwitnessedSlot(slot.filter, entityOf(slot.table, e), slot.select);
     if (why !== null) {
       report(
         `slot region "${slot.table}" (filter ${JSON.stringify(slot.filter ?? "")}) may bind more than one row: ${why}`,

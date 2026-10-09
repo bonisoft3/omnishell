@@ -1563,5 +1563,10 @@ export function createStore(base = "", cfg = {}) {
     }
   }
 
-  return { query, add, write, patch, drop, dropWhere, upsertBy, subscribe, flushNotifications, tabSnapshot, restoreTabs };
+  async function upload(key, file) {
+    if (!token()) throw new Error("an upload requires an authenticated session");
+    return http(`${base}/blobs/mecha-objects/${encodeURIComponent(key)}`, { method: "PUT", body: file });
+  }
+
+  return { query, add, write, patch, drop, dropWhere, upsertBy, subscribe, upload, flushNotifications, tabSnapshot, restoreTabs };
 }
