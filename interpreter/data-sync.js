@@ -658,6 +658,35 @@ export function createStore(base = "", cfg = {}) {
       throw err;
     }
   };
+  // A server-computed read's filter as far as the client states it exactly.
+  // Postgres decides the result, and its casts and comparisons are not the
+  // client's: a pattern or a range, a column the schema does not type, or a
+  // literal the client's carrier refuses but Postgres may cast, leaves which
+  // rows the read can hold unknown (null). A row the change does not carry a
+  // filtered column of is unknown too, and passes.
+  function serverPredicates(table, filter) {
+    const spec = parseFilterSpec(filter);
+    if (spec === null) return null;
+    const preds = [];
+    for (const { col, op, value } of spec) {
+      if (op === "offset") continue;
+      const field = col === TXID.name ? TXID : cfg.schema?.[table]?.fields?.find(f => f.name === col);
+      if (field === undefined || cfg.carriers?.aliases?.[field.type] !== undefined) return null;
+      if (cfg.carriers?.types?.[field.type]?.json === "value") return null;
+      let test;
+      if (op === "null") test = (v) => v == null;
+      else if (op === "notnull") test = (v) => v != null;
+      else if (op === "true") test = (v) => v === true;
+      else if (op === "false") test = (v) => v === false;
+      else if (op === "eq" || op === "neq") {
+        const typed = literal(table, col, value);
+        if (typed === undefined || typed === NOHOLD) return null;
+        test = op === "eq" ? (v) => v === typed : (v) => v != null && v !== typed;
+      } else return null;
+      preds.push((row) => !(col in row) || test(row[col]));
+    }
+    return preds;
+  }
   function queryPredicates(table, filter) {
     const predicates = parseFilter(filter, orderOf(table));
     if (predicates === null) return null;
@@ -1271,18 +1300,30 @@ export function createStore(base = "", cfg = {}) {
         view.release();
       };
     }
-    const deps = [...new Set([
-      table,
+    const others = new Set([
       ...embedDeps(opts.select, table, cfg.schema),
       ...accessDeps(table),
       ...foldSourceOf(table),
-    ])];
+    ]);
+    const deps = [...new Set([table, ...others])];
+    // The read's own table is judged by its filter only when the table is
+    // nothing else to it: a self-embed or a folder whose parent is the same
+    // table moves the result through rows outside the filter.
+    const filtered = (t) => t === table && !others.has(table);
     // PostgREST can return rows no collection ever held. In particular,
     // deleting one must invalidate the result without loading its snapshot.
+    // A change to the read's own table wakes it only when a row the change
+    // names could pass its filter, as for a read decided here: the server
+    // computes the result, but which rows it can hold is the filter's.
+    // Another dependency's change, or one naming no rows, wakes it whole.
     if (snapshotTables(table, opts).length === 0) {
+      const preds = serverPredicates(table, opts.filter);
+      const own = (changes) => {
+        if (touches(preds, changes)) wakes.widened();
+      };
       const stops = deps.map(t => local[t] === undefined
-        ? client.subscribeInvalidation(t, wakes.widened)
-        : watch(client.collections[t], wakes.widened));
+        ? client.subscribeInvalidation(t, filtered(t) ? own : wakes.widened)
+        : watch(client.collections[t], filtered(t) ? own : wakes.widened));
       for (const t of deps) {
         settleListeners.set(t, (settleListeners.get(t) ?? new Set()).add(wakes.widened));
       }
@@ -1298,11 +1339,10 @@ export function createStore(base = "", cfg = {}) {
     // every comment region on the page.
     const preds = queryPredicates(table, opts.filter);
     // Whether a change to this table names exactly the rows whose rendering it
-    // can move. That holds when the read is decided here — predicates the
-    // client evaluates, nothing joined — so a row the change did not name is
-    // rendered from a value nothing touched. A server-computed read can move a
-    // row a write never named (a trigger, a computed column), so it keeps
-    // asking for everything to be reconsidered.
+    // can move. That holds when nothing is joined, so a row the change did not
+    // name is rendered from a value nothing touched; a join can move a row a
+    // write never named, so it re-derives every row instead of patching the
+    // named ones.
     const embeds = parseSelect(opts.select);
     const attributable = preds !== null && Array.isArray(embeds) && embeds.length === 0;
     // Anything the read cannot reason about — another dependency's table, an
@@ -1315,7 +1355,7 @@ export function createStore(base = "", cfg = {}) {
     };
     const settle = attributable ? wakes.settled : wakes.widened;
     const stops = deps.map((t) =>
-      watch(client.collections[t], t === table && preds !== null ? wakeMatching : wakes.widened)
+      watch(client.collections[t], filtered(t) && preds !== null ? wakeMatching : wakes.widened)
     );
     for (const t of deps) {
       settleListeners.set(t, (settleListeners.get(t) ?? new Set()).add(t === table ? settle : wakes.widened));

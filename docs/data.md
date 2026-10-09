@@ -24,8 +24,10 @@ and `device` keep their collection behavior.
 Server-computed live reads observe authorized changes independently of retained
 rows. A deletion of a row never loaded locally still invalidates the query.
 The base table, schema-resolved embeds, access dependencies and fold sources
-supply its dependency set. These notifications conservatively refresh the
-whole result and are coalesced; there is no polling. Initial stream catch-up
+supply its dependency set. A change to the base table refreshes the result only
+when a row it names could pass the query's filter, the test a query decided
+locally applies; any other dependency's change, and one whose rows are unknown,
+refreshes it whole. Refreshes are coalesced; there is no polling. Initial stream catch-up
 and a reset request another read, closing the gap before observation began.
 Grant families retain their authorized collection union, since their visibility
 already requires that state. Each wake re-reads and [[screen-updates#When data changes|patches by key]].

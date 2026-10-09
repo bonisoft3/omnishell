@@ -160,6 +160,18 @@ function electric(server, schema) {
       queued.wake?.();
       queued.wake = null;
     },
+    update(table, id, changes, txid) {
+      transaction = Math.max(transaction, txid);
+      const row = server[table].find(r => r.id === id);
+      assert(row !== undefined, `external update finds ${table}/${id}`);
+      const old = Object.fromEntries(Object.keys(changes).map(k => [k, row[k]]));
+      Object.assign(row, changes, { txid: String(txid) });
+      const queued = live.get(table) ?? { changes: [], wake: null };
+      live.set(table, queued);
+      queued.changes.push({ ...message(table, "update", { ...row }, txid), old_value: old });
+      queued.wake?.();
+      queued.wake = null;
+    },
     push(table, row, txid) {
       transaction = Math.max(transaction, txid);
       (server[table] ??= []).push(row);
@@ -246,6 +258,88 @@ for (const [table, id] of [["stat", "s1"], ["player", "p1"]]) {
     },
   });
 }
+
+// A server-computed read re-runs when its own table changes in a row its
+// filter could hold, and not for a write to any other row of that table: a
+// backfill writing every team's matches otherwise re-reads one team's page
+// on each batch. A row leaving the filter, a deleted row, a self-embed and a
+// literal the client cannot state still wake it.
+const serverRead = (name, setup, fn) =>
+  Deno.test({
+    name,
+    sanitizeOps: false,
+    sanitizeResources: false,
+    async fn() {
+      const rows = world();
+      const fake = electric(rows, SCHEMA);
+      await withBrowser({
+        fetch: (input, init) => String(input).includes("/crud/stat?")
+          ? Promise.resolve(Response.json(rows.stat.filter(row => row.player_id === "p1")))
+          : fake.fetcher(input, init),
+      }, async createStore => {
+        const cfg = config({ sync: { stat: "on-demand", player: "on-demand", player_game: "on-demand" } });
+        cfg.schema.stat.durability = "live";
+        cfg.schema.player.durability = "server";
+        const opts = setup(cfg);
+        const store = createStore(fake.base, cfg);
+        const refreshes = [];
+        const stop = store.subscribe("stat", () => {
+          refreshes.push(store.query("stat", null, opts));
+        }, opts);
+        try {
+          await store.query("stat", null, opts);
+          await until(() => refreshes.length > 0, "invalidation stream established");
+          await Promise.all(refreshes);
+          await tick(30);
+          const woke = async (change, expected, what) => {
+            const before = refreshes.length;
+            change();
+            if (expected) await until(() => refreshes.length > before, what);
+            else {
+              await tick(100);
+              assert(refreshes.length === before, `${what}: ${refreshes.length - before}`);
+            }
+            await Promise.all(refreshes);
+          };
+          await fn(fake, woke);
+        } finally {
+          stop();
+        }
+      });
+    },
+  });
+const stat = (id, player_id, txid) =>
+  ({ id, player_id, games: "1", rate: "1", ref: "0c000000-0000-4000-8000-0000000000cc", at: "2026-09-24 10:00:00+00", txid: String(txid) });
+
+serverRead(
+  "a server-computed read ignores its own table's changes outside its filter",
+  () => ({ filter: "player_id=eq.p1", select: "*,player!inner(name)" }),
+  async (fake, woke) => {
+    await woke(() => fake.push("stat", stat("s3", "p2", 21), 21), false, "another player's stat does not re-read this one's");
+    await woke(() => fake.push("stat", stat("s4", "p1", 22), 22), true, "this player's new stat re-reads the region");
+    await woke(() => fake.update("stat", "s1", { player_id: "p2" }, 23), true, "a row leaving the filter re-reads the region");
+    await woke(() => fake.remove("stat", "s4", 24), true, "a deleted row the filter held re-reads the region");
+  },
+);
+
+serverRead(
+  "a server-computed read whose own table is also its embed wakes for every change of it",
+  (cfg) => {
+    cfg.schema.stat.fields.push({ name: "parent_id", type: "string", ref: "stat" });
+    return { filter: "player_id=eq.p1", select: "*,parent:parent_id(games)" };
+  },
+  async (fake, woke) => {
+    await woke(() => fake.push("stat", stat("s3", "p2", 21), 21), true, "a row outside the filter can be an embedded parent");
+  },
+);
+
+serverRead(
+  "a server-computed read with a literal the client refuses wakes for every change",
+  () => ({ filter: "at=eq.2026-09-24 10:00:00", select: "*,player!inner(name)" }),
+  async (fake, woke) => {
+    await woke(() => fake.push("stat", stat("s3", "p2", 21), 21), true, "Postgres may cast what the client refuses");
+  },
+);
 
 for (const mode of ["eager", "on-demand"]) {
   Deno.test({
