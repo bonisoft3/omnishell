@@ -77,12 +77,18 @@ const SVG_TAGS = {
   line: ["x1", "y1", "x2", "y2", "stroke-width", "stroke-dasharray"],
   polyline: ["points", "stroke-width", "stroke-linejoin", "stroke-linecap"],
   polygon: ["points", "stroke-width"],
-  path: ["d", "stroke-width", "stroke-linejoin", "stroke-linecap"],
+  path: ["d", "stroke-width", "stroke-linejoin", "stroke-linecap", "fill"],
   circle: ["cx", "cy", "r", "stroke-width", "tabindex"],
-  rect: ["x", "y", "width", "height", "rx", "stroke-width"],
+  rect: ["x", "y", "width", "height", "rx", "stroke-width", "fill"],
   text: ["x", "y", "text-anchor", "dominant-baseline"],
   a: ["href", "target", "rel", "aria-label", "tabindex"],
 };
+
+// A data-owned colour, such as a zone a source defines, is literal paint: six
+// hex digits and nothing else. Any other paint value can name a url() paint
+// server, which is a reference and a fetch, and colours the design names
+// stay in its tokens, reached through a class.
+const HEX_FILL = /^#[0-9a-fA-F]{6}$/;
 
 // Every allowlisted attribute that HTML treats as a URL. A URL-valued
 // attribute added to TAGS but not here gives the builder an allowlisted
@@ -141,6 +147,9 @@ function toNode(node, depth = 0, inSvg = false) {
     // is written, and setAttribute stringifies: left alone it sets the literal
     // "undefined", which for target is a real browsing-context name.
     if (value === undefined || value === null) continue;
+    if (name === "fill" && !HEX_FILL.test(String(value))) {
+      throw new Error(`renderer fill must be a six-digit hex colour, got ${JSON.stringify(value)}`);
+    }
     if (URL_ATTRS.has(name)) {
       const csv = !svg && tag === "a" && name === "href" && attrs.download !== undefined && attrs.download !== null && CSV_DOWNLOAD.test(String(value));
       const url = csv ? String(value) : safeUrl(value);

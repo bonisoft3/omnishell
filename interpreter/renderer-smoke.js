@@ -90,6 +90,22 @@ Deno.test("chart SVG builds in its namespace while the SVG surface stays narrow"
   assert(hostileTarget.querySelector("svg a").textContent === "match", "unsafe SVG URLs do not erase point labels");
 });
 
+Deno.test("chart fill is literal six-digit hex paint on paths and rects only", async () => {
+  const { buildNodes } = await import("./render.js");
+  const { target } = dom();
+  buildNodes([{ tag: "svg", children: [
+    { tag: "rect", attrs: { x: 0, y: 0, width: 4, height: 4, fill: "#8a2be2" } },
+    { tag: "path", attrs: { d: "M0,0 L4,4", fill: "#8A2BE2" } },
+  ] }], target);
+  assert(target.querySelector("rect").getAttribute("fill") === "#8a2be2", "a lowercase hex fill is kept");
+  assert(target.querySelector("path").getAttribute("fill") === "#8A2BE2", "an uppercase hex fill is kept");
+  for (const fill of ["url(#x)", "url(https://e.example/p.svg#paint)", "red", "#abc", "", "#8a2be2 ", "currentColor"]) {
+    await refuses([{ tag: "svg", children: [{ tag: "rect", attrs: { fill } }] }], `fill ${JSON.stringify(fill)} is not hex paint`);
+    await refuses([{ tag: "svg", children: [{ tag: "path", attrs: { fill } }] }], `fill ${JSON.stringify(fill)} is not hex paint`);
+  }
+  await refuses([{ tag: "svg", children: [{ tag: "circle", attrs: { fill: "#8a2be2" } }] }], "fill is a path and rect attribute");
+});
+
 Deno.test("attributes outside the allowlist are refused, data-* especially", async () => {
   // data-* is the terminal's own binding vocabulary. A renderer that could
   // emit one could forge a live region, a text binding or a hatch mount out
