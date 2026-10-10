@@ -28,7 +28,7 @@ function server() {
       else Object.assign(row, value);
       changes.push(message(operation, value));
       wake?.();
-      return Response.json([value]);
+      return Response.json([value], { headers: { "x-txid": value.txid } });
     }
     if (url.pathname === "/auth/shape") {
       return Response.json({ token: "shape-token", where: "owner_id = 'reader'", expires_in: 900 });

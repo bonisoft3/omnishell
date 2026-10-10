@@ -74,8 +74,9 @@ function electric(server, schema) {
       queued.changes.push(message(table, operation, value, txid));
       queued.wake?.();
       queued.wake = null;
+      // The transaction is named as mecha's pre-request hook names it.
       return new Response(JSON.stringify([value]), {
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "x-txid": String(txid) },
       });
     }
     if (url.pathname.endsWith("/auth/shape")) {
