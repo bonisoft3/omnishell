@@ -1,12 +1,12 @@
 import { batched } from "./batched-store.js";
-// Deno smoke: the terminal's hatch — a vendored unit in a sandboxed
-// iframe, props in and named events out. The frame is driven through a stub
+// Deno smoke: the terminal's hatch — a vendored unit in the realm seat, a
+// sandboxed iframe, props in and named events out. The frame is driven through a stub
 // contentWindow: linkedom has no
 // browsing context, and the bridge reads contentWindow per message precisely
 // so a navigated (or stubbed) frame is the one that gets answered.
 import { parseHTML } from "npm:linkedom@0.18.4";
 
-const UNIT = { isolation: "iframe", capabilities: [], src: "shell/units/embed.html", note: "oEmbed host" };
+const UNIT = { isolation: "realm", capabilities: [], src: "shell/units/embed.html", note: "oEmbed host" };
 
 const SCREEN_HTML = `<section class="screen" data-screen="article">
   <article data-live="article" data-order="created_at.desc" data-on-answer="shadow">

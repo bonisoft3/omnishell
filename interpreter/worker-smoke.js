@@ -1,10 +1,10 @@
-// Deno smoke: the hatch's worker seat — a vendored unit on its own thread,
+// Deno smoke: the hatch's agent seat — a vendored unit on its own thread,
 // props in and named events out. No store, no clock, no screen: what is under
 // test is the boundary itself, and the Worker is a stand-in because deno has no
 // browser worker here and a real one would answer off the test's own timeline.
 import { parseHTML } from "npm:linkedom@0.18.4";
 
-const UNIT = { isolation: "worker", capabilities: [], src: "shell/units/engine/unit.js", note: "an oracle" };
+const UNIT = { isolation: "agent", capabilities: [], src: "shell/units/engine/unit.js", note: "an oracle" };
 const APP_BASE = "https://app.example/";
 const SRC = new URL(UNIT.src, APP_BASE).href;
 

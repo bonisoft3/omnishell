@@ -82,9 +82,11 @@ export function parseDetail(value) {
   return Object.freeze(detail);
 }
 
+// The seats, by the ECMA-262 name of what each gives the unit: a realm is an
+// iframe (its own globals and DOM), an agent a worker (its own thread).
 export function mountHatch(root, { unit, src, onEvent } = {}) {
-  if (unit.isolation === "iframe") return mountFrameUnit(root, { unit, src, onEvent });
-  if (unit.isolation === "worker") return mountWorkerUnit(root, { unit, src, onEvent });
+  if (unit.isolation === "realm") return mountFrameUnit(root, { unit, src, onEvent });
+  if (unit.isolation === "agent") return mountWorkerUnit(root, { unit, src, onEvent });
   // The schema offers three isolation boundaries and the terminal implements
   // two. A unit asking for a boundary that does not exist must not quietly get
   // a different one.

@@ -198,24 +198,24 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 		"os-bridge":    [Name=string]: {yields: string, note: string}
 		"network-peer": [Name=string]: {yields: string, note: string}
 
-		// Boundaries a unit can be given. They are not ordered, and each buys
-		// one thing:
+		// Boundaries a unit can be given, named by ECMA-262's own words for
+		// them. They are not ordered, and each buys one thing:
 		//   compartment  SES, and what generated logic runs in — no ambient
 		//                authority at all, the terminal's own code, this thread.
-		//   iframe       containment, and this thread. An opaque origin, no
-		//                storage, no cookies, no reach through window.parent —
-		//                which is what a unit rendering something audited by
-		//                nobody (a provider's embed, fetched at read time) has
-		//                to sit behind.
-		//   worker       a thread, and containment in no sense whatsoever. Same
-		//                origin, so fetch, IndexedDB and the cache API all
-		//                survive: this is MORE ambient authority than the frame
-		//                seat, not less. What stands behind a worker unit is
-		//                the app's audit of the wrapper and the pinned hash of
-		//                what the wrapper loads — audited and pinned, never
-		//                contained.
+		//   realm        an iframe: its own globals and DOM, containment, and
+		//                this thread. An opaque origin, no storage, no cookies,
+		//                no reach through window.parent — which is what a unit
+		//                rendering something audited by nobody (a provider's
+		//                embed, fetched at read time) has to sit behind.
+		//   agent        a worker: its own thread and event loop, and
+		//                containment in no sense whatsoever. Same origin, so
+		//                fetch, IndexedDB and the cache API all survive: this
+		//                is MORE ambient authority than the realm seat, not
+		//                less. What stands behind an agent unit is the app's
+		//                audit of the wrapper and the pinned hash of what the
+		//                wrapper loads — audited and pinned, never contained.
 		isolation: [...string]
-		isolation: *["compartment", "iframe", "worker"] | [...string]
+		isolation: *["compartment", "realm", "agent"] | [...string]
 
 		// The terminal's measured floors, in device px — what a body can hit,
 		// not what a design would like. WCAG 2.5.8 (AA); 2.5.5's 44px is real
@@ -237,8 +237,8 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 		// names it knows and hands the rest to the screen.
 		// Keyed by boundary, because the two do not share their answers:
 		// `grants: []` is a true statement about an opaque origin and a false
-		// one about a same-origin worker, and `height` names a frame that a
-		// worker seat does not have.
+		// one about a same-origin worker, and `height` names a frame that an
+		// agent seat does not have.
 		hatch: [Boundary=string]: {
 			isolation: Boundary
 			mount:     string
@@ -247,7 +247,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 			grants: [...string]
 			note: string
 		}
-		hatch: iframe: {
+		hatch: realm: {
 			mount: "data-hatch=\"<unit>\", naming an #App.capabilities.vendored entry"
 			props: "data-prop-* attributes, delivered as one current-value object"
 			events: height: {performs: "sets the unit frame's height", note: "the unit measures itself; clamped so a wrong answer cannot blow out the page"}
@@ -260,7 +260,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 			grants: []
 			note: "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox, never allow-same-origin — the unit runs in an opaque origin and cannot reach this one. Props are delivered with targetOrigin \"*\", which an opaque origin leaves no alternative to, so a hatch is never given a secret"
 		}
-		hatch: worker: {
+		hatch: agent: {
 			mount: "data-hatch=\"<unit>\", naming an #App.capabilities.vendored entry — the element renders nothing"
 			props: "data-prop-* attributes, delivered as one current-value object, withheld until the unit says it is ready"
 			events: answer: {

@@ -1,7 +1,7 @@
 ---
 type: concept
 title: The terminal and its units
-description: What the terminal owns and what a unit may do — the surfaces it hands in, the unit ladder, the compartment, iframe and worker seats, and the server terminal that renders documents on request.
+description: What the terminal owns and what a unit may do — the surfaces it hands in, the unit ladder, the compartment, realm and agent seats, and the server terminal that renders documents on request.
 ---
 
 # The terminal and its units
@@ -97,18 +97,19 @@ shares the renderer process and blocks the parent as completely as inline code.
   holds `Intl` without declaring it, whole and its host defaults refused. Whole, because the offset in effect at an
   instant is a tz-database lookup and no member of `Intl` does I/O or takes a
   capability: the worst a hostile argument buys is an exception.
-- **iframe** (`hatch.js`) — opaque origin, no storage or cookies, and
+- **realm** (`hatch.js`) — a sandboxed iframe, ECMA-262's realm: its own
+  globals and DOM, an opaque origin, no storage or cookies, and
   `window.parent` only to post to, never the parent's DOM; same thread. For a
   unit whose untrusted half arrives over the network at read time.
-- **worker** (`hatch-worker.js`) — its own thread, same origin, so it keeps
-  `fetch`, IndexedDB and the cache API: more authority than the frame. For a
-  hash-pinned binary vendored at build time, trusted by the app's audit and the
-  pin.
+- **agent** (`hatch-worker.js`) — a worker, ECMA-262's agent: its own thread
+  and event loop, same origin, so it keeps `fetch`, IndexedDB and the cache
+  API: more authority than the realm. For a hash-pinned binary vendored at
+  build time, trusted by the app's audit and the pin.
 
 `mountHatch` throws for any other isolation rather than substituting a
 boundary. A hatch speaks `pronto:props` in and `pronto:ready`/`pronto:event`
 out over `postMessage`, never handles — Elm's ports — which is what lets one
-unit sit behind a frame or a worker unchanged; the cost is that everything
+unit sit behind a realm or an agent unchanged; the cost is that everything
 crosses async.
 
 **The terminal parses; the app owes the rest.** Whatever the seat, the
