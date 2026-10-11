@@ -176,6 +176,25 @@ Deno.test("an answer the store refuses is a ProgramError naming the unit and its
   hatch.destroy();
 });
 
+Deno.test("a refusal landing after the store's acceptance window is the same ProgramError, not settle's console line", async () => {
+  const store = memoStore();
+  // data-sync's settle resolves a slow write as accepted and hands a refusal
+  // that lands afterwards to onRefused alone; a memo has no form to carry the
+  // words to, so onRefused must throw where the shell listens.
+  store.upsertBy = (_table: string, _values: Row, onRefused?: (err: Error) => void) => {
+    Promise.resolve().then(() => onRefused?.(new Error("uci: this.matches('^[a-h]...') is false")));
+    return Promise.resolve();
+  };
+  const { hatch, worker } = await mount(store);
+  hatch.update({ fen: "e4", nodes: "100" });
+  await settled();
+  const out = await escaped(() => worker.says({ type: "pronto:event", name: "answer", detail: { fen: "e4", nodes: "100", uci: "z9" } }));
+  const late = out.find((e) => e instanceof ProgramError && String((e as Error).message).includes("refused"));
+  assert(late !== undefined, `the late refusal escapes as a program error, got ${out}`);
+  assert(String((late as Error).message).includes(SRC), "naming the unit");
+  hatch.destroy();
+});
+
 Deno.test("an answer missing a key field or a column of the memo is refused, and a question missing a key field too", async () => {
   const store = memoStore();
   const { hatch, worker } = await mount(store);

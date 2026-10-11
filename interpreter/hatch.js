@@ -158,8 +158,12 @@ function memoSeat(seat, root, { unit, src, onEvent, store, declared }) {
         row[c] = event.detail[c];
       }
       // Dispatched once the row is held, so the chart hearing it reads the
-      // answer off the row and never off the detail.
-      store.upsertBy(table, row).then(() => onEvent({ name: answer, detail: detailOf(row) }), attributed("the answer was refused"));
+      // answer off the row and never off the detail. The refusal is handed in
+      // as onRefused too: one landing after the store's acceptance window can
+      // no longer reject the upsert, and a memo has no form to carry the words
+      // back to, so it is the same ProgramError either way.
+      const refused = attributed("the answer was refused");
+      store.upsertBy(table, row, refused).then(() => onEvent({ name: answer, detail: detailOf(row) }), refused);
     },
   });
   // The question the memo last answered or posted, so a re-delivery of the
