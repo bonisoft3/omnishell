@@ -116,6 +116,24 @@ Deno.test("a row held before the mount answers without the unit, and a re-delive
   hatch.destroy();
 });
 
+Deno.test("an event outside the unit's raises is refused before the memo reads it as an answer", async () => {
+  const store = memoStore();
+  const { hatch, worker, events } = mount(store);
+  hatch.update({ fen: "e4", nodes: "100" });
+  await settled();
+  let threw: unknown = null;
+  try {
+    worker.says({ type: "pronto:event", name: "verdict", detail: { fen: "e4", nodes: "100", uci: "e7e5" } });
+  } catch (e) {
+    threw = e;
+  }
+  assert(String(threw).includes('raised "verdict"'), `the undeclared name is refused by the raises port, got ${threw}`);
+  await settled();
+  assertEquals(store.calls, ["query answer"], "and the memo wrote nothing");
+  assertEquals(events, [], "and the chart heard nothing");
+  hatch.destroy();
+});
+
 Deno.test("an answer missing a key field or a column of the memo is refused, and a question missing a key field too", async () => {
   const store = memoStore();
   const { hatch, worker } = mount(store);

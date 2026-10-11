@@ -98,16 +98,18 @@ export function mountHatch(root, { unit, src, onEvent, store } = {}) {
   // a different one.
   if (seat === undefined) throw new Error(`hatch isolation "${unit.isolation}" is not implemented`);
   if (unit.ports === undefined) throw new Error(`hatch "${unit.src}" declares no ports`);
-  const raised = (event) => {
+  // The raises port, applied to every event the seat delivers — before the
+  // memo reads one as an answer, and before a DOM event is dispatched.
+  const declared = (event) => {
     if (!unit.ports.raises.includes(event.name)) {
       throw new Error(
         `hatch "${unit.src}" raised "${event.name}", which its ports do not declare (raises: ${unit.ports.raises.join(", ") || "nothing"})`,
       );
     }
-    onEvent?.(event);
+    return event;
   };
-  if (unit.memo === undefined) return seat(root, { unit, src, onEvent: raised });
-  return memoSeat(seat, root, { unit, src, onEvent: raised, store });
+  if (unit.memo === undefined) return seat(root, { unit, src, onEvent: (event) => onEvent?.(declared(event)) });
+  return memoSeat(seat, root, { unit, src, onEvent, store, declared });
 }
 
 // The memo (Michie 1968), performed by the terminal around an agent's seat.
@@ -120,7 +122,7 @@ export function mountHatch(root, { unit, src, onEvent, store } = {}) {
 // column; it is upserted on the key, then dispatched the same way. The chart
 // hearing the event reads the answer off the row, so a hit and a fresh answer
 // are one path, and the same question asked twice runs the unit once.
-function memoSeat(seat, root, { unit, src, onEvent, store }) {
+function memoSeat(seat, root, { unit, src, onEvent, store, declared }) {
   const { table, key, columns } = unit.memo;
   const [answer] = unit.ports.raises;
   const at = (row, k) => String(row[k]);
@@ -129,6 +131,7 @@ function memoSeat(seat, root, { unit, src, onEvent, store }) {
     unit,
     src,
     onEvent: (event) => {
+      declared(event);
       for (const k of key) {
         if (event.detail[k] === undefined) throw new Error(`hatch "${src}" answered without "${k}", a key of its memo`);
       }
