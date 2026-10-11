@@ -219,6 +219,9 @@ function boot({
     online: () => (listeners.online ?? []).splice(0).forEach((fn) => fn()),
     // A rejection nobody awaited, delivered as the browser would.
     stray: (reason) => (listeners.unhandledrejection ?? []).forEach((fn) => fn({reason, preventDefault() {}})),
+    // A throw nobody caught — a listener's, a timer's — delivered as the
+    // browser's error event.
+    errored: (error) => (listeners.error ?? []).forEach((fn) => fn({error, preventDefault() {}})),
     // Answers every catalogue held back so far.
     releaseCatalogues: () => held.splice(0).forEach((answer) => answer()),
     // The service worker telling every window a screen's template changed.
@@ -984,6 +987,25 @@ Deno.test({
     app.stray(new ProgramError(`hatch "u" memo on "answer": the answer was refused`));
     const banner = app.mount.querySelector("pre")?.textContent ?? "";
     assert(banner.includes(`memo on "answer"`), `the banner says ${JSON.stringify(banner)}`);
+  },
+});
+
+Deno.test({
+  name: "a program error thrown from a listener dies on the banner too",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    // An agent seat refusing a message throws inside the worker's message
+    // listener, which the browser reports as the window's error event and
+    // never as a rejection: heard only on unhandledrejection, the refusal
+    // was a console line and the question stood forever.
+    const {ProgramError} = await import("./fragment.js");
+    const app = await start({at: "/regras"});
+    app.errored(new TypeError("x is not a function"));
+    assert(app.mount.querySelector("pre") === null, `a stray throw bannered: ${app.mount.querySelector("pre")?.textContent}`);
+    app.errored(new ProgramError(`hatch "u" posted "answer" with a detail outside the seat's grammar`));
+    const banner = app.mount.querySelector("pre")?.textContent ?? "";
+    assert(banner.includes("outside the seat's grammar"), `the banner says ${JSON.stringify(banner)}`);
   },
 });
 

@@ -655,6 +655,12 @@ export async function createShell({ config, mount, liveUpdates = false }) {
     // Only the screen on show: the stack holds the others hidden beside it.
     mount.querySelector(":scope > :not([hidden]) .screen")?.setAttribute("data-state", "network-error");
   });
+  // A program error thrown from a listener — a hatch's port refusing a
+  // message, a timer — is the window's error event, not a rejection, and
+  // lands on the same banner. Anything else there is the browser's to report.
+  addEventListener("error", (e) => {
+    if (e.error instanceof ProgramError) banner(e.error);
+  });
 
   try {
     // The newest screen files the service worker has announced, by path. It
