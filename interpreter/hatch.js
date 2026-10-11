@@ -55,15 +55,13 @@ const OPAQUE_ORIGIN = "null";
 const MAX_HEIGHT = 10000;
 
 // The shape a unit's event detail may take, the offer terminal.cue publishes
-// as `hatch.<seat>.detail`. The reduce that receives it is a compartment with
-// nothing endowed and cannot defend itself, so the parse sits here, on the
-// trusted side, exactly as `height`'s number check does. What the grammar
-// means is the app's: the terminal cannot know what a move looks like, only
-// that a megabyte, a control character, a getter or a nested object must not
-// reach a screen.
-const DETAIL_KEYS = 8;
-const DETAIL_KEY = /^[a-z][a-z0-9_]{0,23}$/;
-const DETAIL_VALUE_LENGTH = 128;
+// as `hatch.<seat>.detail` (pronto's vendored-unit test holds the two equal).
+// The reduce that receives it is a compartment with nothing endowed and
+// cannot defend itself, so the parse sits here, on the trusted side, exactly
+// as `height`'s number check does. What the grammar means is the app's: the
+// terminal cannot know what a move looks like, only that a megabyte, a
+// control character, a getter or a nested object must not reach a screen.
+export const DETAIL = Object.freeze({ keys: 8, key: /^[a-z][a-z0-9_]{0,23}$/, value: 128 });
 const DETAIL_VALUE = /^[\x20-\x7e]*$/;
 
 /** A frozen string→string record built key by key from `value`, or undefined
@@ -73,13 +71,13 @@ const DETAIL_VALUE = /^[\x20-\x7e]*$/;
 export function parseDetail(value) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
   const keys = Object.keys(value);
-  if (keys.length > DETAIL_KEYS) return undefined;
+  if (keys.length > DETAIL.keys) return undefined;
   const detail = {};
   for (const key of keys) {
-    if (!DETAIL_KEY.test(key)) return undefined;
+    if (!DETAIL.key.test(key)) return undefined;
     const held = value[key];
     if (typeof held !== "string") return undefined;
-    if (held.length > DETAIL_VALUE_LENGTH || !DETAIL_VALUE.test(held)) return undefined;
+    if (held.length > DETAIL.value || !DETAIL_VALUE.test(held)) return undefined;
     detail[key] = held;
   }
   return Object.freeze(detail);

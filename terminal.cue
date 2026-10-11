@@ -245,10 +245,12 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 			props:     string
 			events: [Name=string]: {performs: string, note: string}
 			// What an event's detail may carry across either seat: at most
-			// `keys` string fields, each at most `value` printable-ASCII
-			// characters (hatch.js parseDetail). A memo's columns ride in one
-			// answer, so pronto's #emit holds a memo to `keys`.
-			detail: {keys: 8, value: 128}
+			// `keys` string fields, each named by `key`, each at most `value`
+			// printable-ASCII characters — hatch.js's DETAIL, which pronto's
+			// vendored-unit test holds equal to this. A memo's columns ride in
+			// one answer, so pronto's #emit holds a memo's count, names and
+			// declared size bounds to it.
+			detail: {keys: 8, key: "^[a-z][a-z0-9_]{0,23}$", value: 128}
 			grants: [...string]
 			note: string
 		}

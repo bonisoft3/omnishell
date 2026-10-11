@@ -143,8 +143,12 @@ write and so no `refused` event has anywhere to go.
 **The terminal parses; the app owes the rest.** Whatever the seat, the
 boundary is a parser: `parseDetail` admits at most 8 keys matching
 `^[a-z][a-z0-9_]{0,23}$`, each a printable-ASCII string of at most 128
-characters, into a frozen record (the offer `terminal.cue` publishes as
-`hatch.<seat>.detail`, which pronto holds a memo's column count to). A detail
+characters, into a frozen record — the offer `terminal.cue` publishes as
+`hatch.<seat>.detail`, which pronto's `vendored-unit.test.ts` holds the parser
+equal to, and which pronto's `#emit` holds a memo's columns to as far as the
+program states them: their count, their names, and the size bound a column
+declares; the alphabet, and the length of a column left unbounded, are the
+seat's refusal at runtime. A detail
 that fails is dropped with its event by the realm seat, whose sender is a
 provider's page, and refused by the agent seat, whose sender is the app's own
 wrapper — a memo answer lost in silence would be a question standing forever.
