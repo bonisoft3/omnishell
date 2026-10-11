@@ -217,6 +217,8 @@ function boot({
     minted,
     // The browser telling the page it is back online.
     online: () => (listeners.online ?? []).splice(0).forEach((fn) => fn()),
+    // A rejection nobody awaited, delivered as the browser would.
+    stray: (reason) => (listeners.unhandledrejection ?? []).forEach((fn) => fn({reason, preventDefault() {}})),
     // Answers every catalogue held back so far.
     releaseCatalogues: () => held.splice(0).forEach((answer) => answer()),
     // The service worker telling every window a screen's template changed.
@@ -962,6 +964,26 @@ Deno.test({
     await settle();
     const banner = app.mount.querySelector("pre")?.textContent ?? "";
     assert(banner.includes(`no vendored unit for data-hatch="undeclared"`), `the banner says ${JSON.stringify(banner)}`);
+  },
+});
+
+Deno.test({
+  name: "a program error after boot dies on the banner, not as a dropped connection",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    // A memo's refused write, a template's arity: the app's own bug, landing
+    // as a rejection nobody awaits once a screen is up. Dressed as
+    // network-error it was logged and misdiagnosed; a ProgramError is
+    // bannered wherever it lands, and only an outage degrades the screen.
+    const {ProgramError} = await import("./fragment.js");
+    const app = await start({at: "/regras"});
+    app.stray(new TypeError("Failed to fetch"));
+    assert(app.mount.querySelector("pre") === null, `an outage bannered: ${app.mount.querySelector("pre")?.textContent}`);
+    assert(shown(app)[0]?.dataset.state === "network-error", `an outage degrades the screen, which is ${shown(app)[0]?.dataset.state}`);
+    app.stray(new ProgramError(`hatch "u" memo on "answer": the answer was refused`));
+    const banner = app.mount.querySelector("pre")?.textContent ?? "";
+    assert(banner.includes(`memo on "answer"`), `the banner says ${JSON.stringify(banner)}`);
   },
 });
 

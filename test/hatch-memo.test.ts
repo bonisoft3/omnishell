@@ -134,6 +134,35 @@ Deno.test("an event outside the unit's raises is refused before the memo reads i
   hatch.destroy();
 });
 
+Deno.test("an answer the store refuses is a ProgramError naming the unit and its memo, never a dropped connection", async () => {
+  const { ProgramError } = await import("../interpreter/fragment.js");
+  const store = memoStore();
+  store.upsertBy = () => Promise.reject(new Error("uci: this.matches('^[a-h]...') is false"));
+  const { hatch, worker, events } = mount(store);
+  hatch.update({ fen: "e4", nodes: "100" });
+  await settled();
+  // The seat's chain has nobody to await it, so the refusal lands where the
+  // shell listens; the shell banners a ProgramError wherever it lands.
+  const escaped: unknown[] = [];
+  const onEscape = (e: Event) => {
+    e.preventDefault();
+    escaped.push((e as PromiseRejectionEvent).reason);
+  };
+  globalThis.addEventListener("unhandledrejection", onEscape);
+  try {
+    worker.says({ type: "pronto:event", name: "answer", detail: { fen: "e4", nodes: "100", uci: "z9" } });
+    await settled();
+  } finally {
+    globalThis.removeEventListener("unhandledrejection", onEscape);
+  }
+  assertEquals(escaped.length, 1);
+  assert(escaped[0] instanceof ProgramError, `a program error, got ${escaped[0]}`);
+  const said = String((escaped[0] as Error).message);
+  for (const word of [SRC, '"answer"', "refused", "this.matches"]) assert(said.includes(word), `${word} in ${said}`);
+  assertEquals(events, [], "and the chart heard nothing");
+  hatch.destroy();
+});
+
 Deno.test("an answer missing a key field or a column of the memo is refused, and a question missing a key field too", async () => {
   const store = memoStore();
   const { hatch, worker } = mount(store);

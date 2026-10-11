@@ -14,7 +14,7 @@
 // service exists to sign against.
 
 import { chromeText, describe, drawStrip, guestBox, hasStrip, localizeStrip } from "./chrome.js";
-import { localeByPath, localeTable, resolveLocale, routeHref, routePattern, screenEnv, Unanswered } from "./fragment.js";
+import { localeByPath, localeTable, ProgramError, resolveLocale, routeHref, routePattern, screenEnv, Unanswered } from "./fragment.js";
 import { fetchText, interpretScreen, prefetchScreen, templateHash, submitsOnChange } from "./screen.js";
 import { compileCatalog } from "./vendor/messages.js";
 import { planRelease } from "./release-plan.js";
@@ -637,14 +637,16 @@ export async function createShell({ config, mount, liveUpdates = false }) {
     pre.textContent = String(err?.stack ?? err);
     mount.append(pre);
   };
-  // The banner is a boot-failure surface, and a deploy's (`unheard` below).
-  // Once a screen is mounted, a stray rejection (a severed gateway killing an
-  // in-flight fetch anywhere in the data plane) must never replace live DOM —
-  // the screen's own state machine degrades to network-error and its forms
-  // keep working.
+  // The banner is a boot-failure surface, a deploy's (`unheard` below), and a
+  // program error's whenever it lands: the app's own bug, which no retry and
+  // no reader recovers, so it dies attributed rather than logged. Once a
+  // screen is mounted, any other stray rejection (a severed gateway killing
+  // an in-flight fetch anywhere in the data plane) must never replace live
+  // DOM — the screen's own state machine degrades to network-error and its
+  // forms keep working.
   let booted = false;
   addEventListener("unhandledrejection", (e) => {
-    if (!booted) {
+    if (!booted || e.reason instanceof ProgramError) {
       banner(e.reason);
       return;
     }

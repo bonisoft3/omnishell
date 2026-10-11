@@ -14,6 +14,7 @@
 // request-shaped: the unit describes, the terminal performs. `height` is the
 // one name the terminal performs itself; everything else is handed to onEvent,
 // its detail parsed here first.
+import { ProgramError } from "./fragment.js";
 import { mountWorkerUnit } from "./hatch-worker.js";
 
 export const PROPS = "pronto:props";
@@ -124,11 +125,19 @@ export function mountHatch(root, { unit, src, onEvent, store } = {}) {
 // column; it is upserted on the key, then dispatched the same way. The chart
 // hearing the event reads the answer off the row, so a hit and a fresh answer
 // are one path, and the same question asked twice runs the unit once.
+//
+// The store refusing the answer — a column outside the entity's cel — or the
+// lookup failing is the unit disagreeing with the entity it was declared to
+// land in: a ProgramError naming both, which the shell banners. No reduce
+// authored the write, so there is no `refused` event to hand one.
 function memoSeat(seat, root, { unit, src, onEvent, store, declared }) {
   const { table, key, columns } = unit.memo;
   const [answer] = unit.ports.raises;
   const at = (row, k) => String(row[k]);
   const detailOf = (row) => Object.freeze(Object.fromEntries(key.map((k) => [k, at(row, k)])));
+  const attributed = (what) => (err) => {
+    throw new ProgramError(`hatch "${src}" memo on "${table}": ${what} — ${err.message}`);
+  };
   const inner = seat(root, {
     unit,
     src,
@@ -144,7 +153,7 @@ function memoSeat(seat, root, { unit, src, onEvent, store, declared }) {
       }
       // Dispatched once the row is held, so the chart hearing it reads the
       // answer off the row and never off the detail.
-      store.upsertBy(table, row).then(() => onEvent({ name: answer, detail: detailOf(row) }));
+      store.upsertBy(table, row).then(() => onEvent({ name: answer, detail: detailOf(row) }), attributed("the answer was refused"));
     },
   });
   // The question the memo last answered or posted, so a re-delivery of the
@@ -170,7 +179,7 @@ function memoSeat(seat, root, { unit, src, onEvent, store, declared }) {
         const held = rows.find((r) => key.every((k) => at(r, k) === props[k]));
         if (held !== undefined) onEvent({ name: answer, detail: detailOf(held) });
         else inner.update(props);
-      });
+      }, attributed("the question could not be looked up"));
     },
   };
 }

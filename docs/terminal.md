@@ -129,7 +129,11 @@ answer off the row — one path for a hit and a fresh answer — so the same
 question asked twice runs the unit once (`test/hatch-memo.test.ts`). A props
 object with a key field empty is the mount withdrawing its question and passes
 through; a question or an answer missing a key field, or an answer missing a
-column, is refused.
+column, is refused. An answer the store refuses — a column outside the
+entity's cel — or a lookup that fails is the unit disagreeing with the entity
+it was declared to land in: a `ProgramError` naming the unit and the table,
+which the shell banners wherever it lands, since no reduce authored the write
+and so no `refused` event has anywhere to go.
 
 **The terminal parses; the app owes the rest.** Whatever the seat, the
 boundary is a parser: `parseDetail` admits at most 8 keys matching
