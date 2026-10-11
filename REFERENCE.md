@@ -187,6 +187,10 @@ included:
 | `delete` | the enclosing item's row, or every row `data-filter` names |
 | `navigate` | nothing: with `data-route`, the form's named inputs fill the route's `:params` at submit |
 
+Each is a word of `#Machine.#MutationOp` ([`machine.cue`](machine.cue)), the
+one mutation vocabulary; `create` mints its key, which is what makes a retried
+create a refusal and not a duplicate.
+
 A file input carrying `data-upload` sends its blob to the store's object
 bucket first, and the row carries only the resulting key. Validation is the
 platform's: the native constraint attributes the compiler derived from the same
@@ -254,7 +258,11 @@ A chart's grammar is `#Machine` in [`machine.cue`](machine.cue), vetted by
 
 An arrow's `effect` is `{op: create | update | delete | upsert, entity?,
 token?, filter?, values?}`, its `values` literals, `{now}`, the event
-leaf or a module, interpolated against the post-assign row. The terminal
+leaf or a module, interpolated against the post-assign row. `op` is the four
+words of `#Machine.#MutationOp` ([`machine.cue`](machine.cue)) the store
+performs; the whole vocabulary — a form's actions, `reduce`, and the ops a
+cluster-side interpreter runs — is defined there once, each word classified by
+what happens if the write happens twice, and every consumer narrows it. The terminal
 performs it through the store and answers the region's charts with `sync_ack`
 (carrying `token`) when the store settles it, and with `refused` if the write is
 withdrawn, possibly after. An immediate store error also delivers `refused`:

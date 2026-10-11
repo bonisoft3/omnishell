@@ -139,10 +139,22 @@ package terminal
 		live:    "compensable"
 		server:  "replicated"
 	}
+	// Every op a declaration may write with, named as GraphQL names a
+	// mutation, and classified by what happens if it happens twice (a join
+	// is `x ⊔ x = x`: CRDTs, Shapiro et al. 2011). `ensure`, `upsert`,
+	// `delete` and an absolute `update` are joins — twice is once. `create`
+	// is a duplicate unless the client mints the id, where the second is a
+	// conflict and the refusal makes it idempotent; the terminal mints ids.
+	// `accumulate` adds twice, and is exactly-once only as a fold over a
+	// keyed event set. `reduce` has the delivery of the ops it returns.
+	// `navigate` is an upsert on the route row. A consumer narrows this to
+	// the ops its performer runs; none extends it.
+	#MutationOp: "create" | "ensure" | "upsert" | "update" | "accumulate" | "delete" | "reduce" | "navigate"
 	// Declarative mutation effect executed by the terminal runtime into store.
-	// Closed and pure: never arbitrary code, never touches DOM directly.
+	// Closed and pure: never arbitrary code, never touches DOM directly. The
+	// four ops the store performs.
 	#Effect: close({
-		op:      "create" | "update" | "delete" | "upsert"
+		op:      M.#MutationOp & ("create" | "update" | "delete" | "upsert")
 		entity?: string
 		token?:  string
 		filter?: string
