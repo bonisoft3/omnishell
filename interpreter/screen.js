@@ -1694,12 +1694,23 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       if (el._prontoHatch === undefined) {
         const name = el.dataset.hatch;
         const unit = resolveUnit(name);
-        // The read port, held at the mount: the props are the nearest region's
-        // row, so that table is what the unit is handed, and only a table its
-        // ports read may be. A mount outside every region is fed no row.
+        // The ports, held at the mount, as ProgramErrors so the refresh's
+        // outage guard rethrows them rather than retrying the markup. The
+        // read port: the props are the nearest region's row, so that table is
+        // what the unit is handed, and only a table its ports read may be; a
+        // mount outside every region is fed no row. The raises port: a
+        // data-on-* on the host is the chart listening for the unit's event,
+        // and a name the unit does not raise would be listened for forever.
         const fed = el.closest("[data-live]")?.dataset.live;
         if (fed !== undefined && !unit.ports.reads.includes(fed)) {
-          throw new Error(`data-hatch="${name}" is fed the row of "${fed}", which its ports do not read`);
+          throw new ProgramError(`data-hatch="${name}" is fed the row of "${fed}", which its ports do not read`);
+        }
+        for (const key of Object.keys(el.dataset)) {
+          if (!/^on[A-Z]/.test(key)) continue;
+          const handled = key.slice(2).replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`).slice(1);
+          if (!unit.ports.raises.includes(handled)) {
+            throw new ProgramError(`data-hatch="${name}" handles "${handled}", which its ports do not raise`);
+          }
         }
         el._prontoHatch = mountHatch(el, {
           unit,

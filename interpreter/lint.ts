@@ -1012,8 +1012,10 @@ export type UnitPorts = { ports: { reads: string[]; raises: string[] }; memo?: {
  * mount handling an event the unit does not raise; and with a memo, a mount
  * binding no `data-prop-` for a key field, or sitting in a region that does
  * not read the memo's table, so the chart hearing the answer could not see
- * the row. The interpreter refuses each of these at the mount; this says so
- * before one. */
+ * the row. The interpreter refuses the unit, the read and the raise at the
+ * mount (screen.js bindHatches) and a question missing a key at the seat; the
+ * memo's region is this lint's alone, since a mount knows its region's table
+ * and not what else the region reads. */
 export function hatchLint(sites: HatchSite[], units: Record<string, UnitPorts>): string[] {
   const out: string[] = [];
   for (const s of sites) {

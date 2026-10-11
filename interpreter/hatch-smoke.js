@@ -286,5 +286,25 @@ Deno.test({
       .catch((e) => (threw = e));
     assert(threw !== null, "an undeclared unit is refused");
     assert(String(threw.message).includes('data-hatch="embed"'), `the error names the unit, got ${threw?.message}`);
+
+    // The ports, held at the mount: the mount sits in the article region and
+    // handles `answer`, so a unit reading another table, or raising another
+    // name, is refused there — as a ProgramError, since the mount runs inside
+    // the region's refresh, where anything else is dressed as a dead gateway
+    // and retried.
+    const refusedWith = async (units, phrase) => {
+      const fresh = parseHTML("<!doctype html><html><body><div id=shell></div></body></html>");
+      globalThis.document = fresh.document;
+      let err = null;
+      try {
+        await interpretScreen(fresh.document.getElementById("shell"), base, ROUTE, store, {}, { units });
+        await tick();
+      } catch (e) {
+        err = e;
+      }
+      assert(err !== null && String(err.message).includes(phrase), `refused with ${phrase}, got ${err?.message}`);
+    };
+    await refusedWith({ embed: { ...UNIT, ports: { reads: ["comment"], raises: UNIT.ports.raises } } }, 'is fed the row of "article"');
+    await refusedWith({ embed: { ...UNIT, ports: { reads: ["article"], raises: ["select"] } } }, 'handles "answer"');
   },
 });
