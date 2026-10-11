@@ -149,7 +149,9 @@ Deno.test({
         <template data-item><li class="other" data-hatch="embed"></li></template>
       </ul>
     </section>`;
-    const UNIT = { isolation: "iframe", capabilities: [], src: "shell/units/embed.html" };
+    // The mount sits in the entry region, so `reads` names it or the feed is
+    // refused before the sweeps under test are reached.
+    const UNIT = { isolation: "realm", ports: { reads: ["entry"], raises: [] }, src: "shell/units/embed.html" };
     const rows = [{ id: "1", kind: "note" }];
     const { document, store, poke } = boot(HATCHED, rows);
     const { interpretScreen } = await import("./screen.js");
