@@ -142,7 +142,7 @@ export async function checkApp(appDir: URL): Promise<Loaded> {
   const endowmentsMap = shell.endowments ?? {};
   const findings: Finding[] = [];
   for (const job of jobs) {
-    const granted = endowmentsMap[job.path] ?? endowmentsMap[job.path.split("/").pop() ?? ""] ?? [];
+    const granted = endowmentsMap[job.path] ?? [];
     findings.push(...await loadFinding(appDir, job, granted));
   }
   // An app declaring none is a true answer and not a silent one: apps whose
@@ -210,8 +210,8 @@ export async function selfTest(): Promise<{ failures: string[] }> {
     failures.push(`the fixture app declares 9 modules, loaded ${run.checked}`);
   }
 
-  // A fold is the role pronto's static scan does not know: its `export`
-  // keywords are stripped and its completion value is four functions, so a
+  // A fold's shape is the one pronto's static scan leaves to the loader: its
+  // `export` keywords are stripped and its completion value is four functions, so a
   // sound one must load and a fold judged as a handler must not. Both
   // spellings of the four, because the contract names the functions and not
   // the keyword that declares them.

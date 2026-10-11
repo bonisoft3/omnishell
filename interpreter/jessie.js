@@ -71,7 +71,8 @@ export function ensureSes() {
 // What roles are endowed with: pure, deterministic platform primitives
 // granted via manifest endowments or requestedEndowments (SAFE_ENDOWMENTS: tamed Intl,
 // TextEncoder, TextDecoder, URL, URLSearchParams). An adapter is endowed with
-// Intl by default; other roles receive no endowments unless granted.
+// Intl by default; other roles receive no endowments unless granted, and one
+// reached undeclared throws, naming itself.
 // Intl has the host's defaults refused — a module states its locale, its zone
 // and its instant, or it throws. Why it is admitted is
 // plugins/omnishell/docs/terminal.md#the-seats; the rule about what an adapter
@@ -261,7 +262,7 @@ const ROLES = {
  * an app's module — the battery's fuel harness — which answers to no role and
  * still may not run with more authority than the module it wraps.
  */
-export async function evaluateCaged(source, endowments = {}) {
+export async function evaluateCaged(source, endowments = {}, undeclared = {}) {
   await ensureSes();
   const cage = new Compartment(endowments);
   // An endowment is authority the platform hands INTO the cage, and source
@@ -274,6 +275,17 @@ export async function evaluateCaged(source, endowments = {}) {
     Object.defineProperty(cage.globalThis, name, {
       value,
       writable: false,
+      enumerable: false,
+      configurable: false,
+    });
+  }
+  // A name the platform could endow and this module did not declare throws
+  // where it is reached, saying so, as mecha's cages do.
+  for (const [name, why] of Object.entries(undeclared)) {
+    Object.defineProperty(cage.globalThis, name, {
+      get: () => {
+        throw new TypeError(why);
+      },
       enumerable: false,
       configurable: false,
     });
@@ -291,7 +303,11 @@ export async function evaluateRole(source, role = "handler", requestedEndowments
     // would otherwise build its endowment before the realm was sealed.
     await ensureSes();
     const combined = [...new Set([...(spec.defaultEndowments ?? []), ...requestedEndowments])];
-    value = await evaluateCaged(spec.wrap(source), spec.endow(combined));
+    const undeclared = Object.fromEntries(Object.keys(SAFE_ENDOWMENTS).filter((n) => !combined.includes(n)).map((n) => [
+      n,
+      `${role}: ${n} is not endowed; declare it among the module's endowments`,
+    ]));
+    value = await evaluateCaged(spec.wrap(source), spec.endow(combined), undeclared);
   } catch (err) {
     // What the compartment is handed is the role's adaptation of the file, not
     // the file: a parse failure is a statement about the shape the role asked

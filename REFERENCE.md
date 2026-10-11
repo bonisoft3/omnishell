@@ -49,9 +49,9 @@ and compiled at build time into JSON ASTs; screens bind them with `{msg.key}`,
 evaluating arguments, plurals, and selects dynamically with zero runtime
 dependencies in pure SES via endowed `Intl.PluralRules` and `Intl.NumberFormat`.
 An arm is text and may interpolate `{col}`, never another `{msg.…}`. `Intl`
-is the interpreter's alone — no handler, renderer or validation can reach it,
-and only an adapter is endowed with a guarded one — which is why plural selection
-and the value formats below resolve here.
+is the interpreter's unless a module declares it — an adapter holds a guarded one
+undeclared, and a handler, renderer or validation only by its `endowments` grant —
+which is why plural selection and the value formats below resolve here.
 
 The active locale is the most explicit thing the arrival carries: the
 address's locale prefix, then `?lang=`, then a bound row's own `locale`
@@ -158,7 +158,7 @@ instant. `data-value-adapter="<module>"` names a Jessie module whose value is
 `{format, parse}` — `format(value, {zone})` fills the control at bind,
 `parse(text, {zone})` makes the column at serialize — one module for both
 directions, because two halves that can drift are two bugs. The reader's zone
-arrives as data. The adapter role alone is endowed with `Intl`, every host
+arrives as data. The adapter role is endowed with `Intl` undeclared, every host
 default refused: a service names its locale, its `timeZone` and the instant it
 formats, a locale the host lacks throws, and services are constructed with
 `new` (the guard is a subclass that stops a module reading its machine by
@@ -268,7 +268,7 @@ retry should handle `refused` in every state where a pending write can fail.
 | 1 | `ephemeral` | a write to a browser-owned row; settles | `tab`, `device` |
 | 2 | `compensable` | optimistic; on `refused` the speculative row is withdrawn, never undone by arithmetic | `offline`, `live` |
 | 3 | `replicated` | a join-semilattice write; out-of-order CDC converges | `server` |
-| 4 | `exterior` | at-least-once delivery, exactly once by token; compensation is explicit | outside the cluster |
+| 4 | `external` | at-least-once delivery, exactly once by token; compensation is explicit | outside the cluster |
 
 The durability column is `#DurabilityEffectLevel`, defined in
 [`machine.cue`](machine.cue) and in `plugins/pronto/schema.cue`, and nothing

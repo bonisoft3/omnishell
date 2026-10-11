@@ -91,8 +91,10 @@ Worker. A hatch's `src` resolves against the app, so the frame is same-site,
 shares the renderer process and blocks the parent as completely as inline code.
 
 - **compartment** (`jessie.js`) — no ambient authority, same thread. Every
-  app-authored role runs here; only the adapter is endowed, with `Intl` whole
-  and its host defaults refused. Whole, because the offset in effect at an
+  app-authored role runs here, endowed with what shell.yaml's `endowments`
+  grants it by its path, from `Intl`, `TextEncoder`, `TextDecoder`, `URL` and
+  `URLSearchParams`; one it did not declare throws, naming itself. The adapter
+  holds `Intl` without declaring it, whole and its host defaults refused. Whole, because the offset in effect at an
   instant is a tz-database lookup and no member of `Intl` does I/O or takes a
   capability: the worst a hostile argument buys is an exception.
 - **iframe** (`hatch.js`) — opaque origin, no storage or cookies, and

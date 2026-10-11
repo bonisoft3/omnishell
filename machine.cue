@@ -127,7 +127,7 @@ package terminal
 		type: "event"
 		params: close({field: "value" | "checked" | "valueAsNumber" | "key" | "pointerX" | "pointerY"})
 	})
-	#EffectLevel: "projection" | "ephemeral" | "compensable" | "replicated" | "exterior" | 0 | 1 | 2 | 3 | 4
+	#EffectLevel: "projection" | "ephemeral" | "compensable" | "replicated" | "external" | 0 | 1 | 2 | 3 | 4
 	#Durability:  "server" | "live" | "offline" | "tab" | "device"
 	#DurabilityEffectLevel: {
 		tab:     "ephemeral"

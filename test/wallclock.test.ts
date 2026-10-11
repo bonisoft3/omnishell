@@ -15,6 +15,8 @@ const wallclock = await evaluateRole(SOURCE, "adapter") as {
 const SP = { zone: "America/Sao_Paulo" };
 const BERLIN = { zone: "Europe/Berlin" };
 
+const undeclared = (role: string, name: string) => `${role}: ${name} is not endowed; declare it among the module's endowments`;
+
 Deno.test("an instant becomes the reader's wall time, seconds kept", () => {
   assertEquals(wallclock.format("2026-09-22T13:38:10.983076Z", SP), "2026-09-22T10:38:10");
   assertEquals(wallclock.format("2026-09-22T13:38:10.000000Z", BERLIN), "2026-09-22T15:38:10");
@@ -118,21 +120,22 @@ Deno.test("the cage holds Intl, and what Intl does not give it", async () => {
   // Without opt-in, roles get no platform endowments (principle of least privilege).
   for (const role of ["handler", "renderer", "validation"]) {
     const module = await evaluateRole(
-      `() => JSON.stringify({
-        intl: typeof Intl,
-        url: typeof URL,
-        encoder: typeof TextEncoder,
+      `const reach = (f) => { try { return typeof f(); } catch (e) { return e.message; } };
+      () => JSON.stringify({
+        intl: reach(() => Intl),
+        url: reach(() => URL),
+        encoder: reach(() => TextEncoder),
       })`,
       role,
     ) as () => string;
     assertEquals(
       JSON.parse(module()),
       {
-        intl: "undefined",
-        url: "undefined",
-        encoder: "undefined",
+        intl: undeclared(role, "Intl"),
+        url: undeclared(role, "URL"),
+        encoder: undeclared(role, "TextEncoder"),
       },
-      `${role} without opt-in has no platform endowments`,
+      `${role} without opt-in has no platform endowments, and reaching one says so`,
     );
   }
 });
@@ -257,19 +260,21 @@ Deno.test("a locale the host lacks is refused, not answered with the host's", as
 Deno.test("a fold cannot reach platform primitives without opt-in", async () => {
   const fold = await evaluateRole(
     `export const empty = () => ({});
-     export const step = () => JSON.stringify({ intl: typeof Intl, url: typeof URL });
+     const reach = (f) => { try { return typeof f(); } catch (e) { return e.message; } };
+     export const step = () => JSON.stringify({ intl: reach(() => Intl), url: reach(() => URL) });
      export const combine = (a) => a;
      export const result = (a) => a;`,
     "fold",
   ) as { step: () => string };
-  assertEquals(JSON.parse(fold.step()), { intl: "undefined", url: "undefined" });
+  assertEquals(JSON.parse(fold.step()), { intl: undeclared("fold", "Intl"), url: undeclared("fold", "URL") });
 });
 
 Deno.test("opting in to specific endowments grants only the requested ones", async () => {
   for (const role of ["handler", "renderer", "validation"]) {
     // When opting into ["Intl"] only: Intl is present and properly tamed, while URL is undefined.
     const moduleWithIntl = await evaluateRole(
-      `() => {
+      `const reach = (f) => { try { return typeof f(); } catch (e) { return e.message; } };
+      () => {
         let noLocale = "reached";
         try { new Intl.NumberFormat(); } catch (e) { noLocale = "refused"; }
         let noZone = "reached";
@@ -278,7 +283,7 @@ Deno.test("opting in to specific endowments grants only the requested ones", asy
         try { Date.now(); } catch (e) { clock = "refused"; }
         return JSON.stringify({
           intl: typeof Intl,
-          url: typeof URL,
+          url: reach(() => URL),
           noLocale,
           noZone,
           clock,
@@ -291,7 +296,7 @@ Deno.test("opting in to specific endowments grants only the requested ones", asy
       JSON.parse(moduleWithIntl()),
       {
         intl: "object",
-        url: "undefined",
+        url: undeclared(role, "URL"),
         noLocale: "refused",
         noZone: "refused",
         clock: "refused",
@@ -301,11 +306,12 @@ Deno.test("opting in to specific endowments grants only the requested ones", asy
 
     // Explicitly requesting URL, URLSearchParams: URL is present; Intl is undefined.
     const moduleWithUrl = await evaluateRole(
-      `() => JSON.stringify({
-         intl: typeof Intl,
+      `const reach = (f) => { try { return typeof f(); } catch (e) { return e.message; } };
+       () => JSON.stringify({
+         intl: reach(() => Intl),
          url: typeof URL,
          params: typeof URLSearchParams,
-         encoder: typeof TextEncoder,
+         encoder: reach(() => TextEncoder),
        })`,
       role,
       ["URL", "URLSearchParams"],
@@ -313,10 +319,10 @@ Deno.test("opting in to specific endowments grants only the requested ones", asy
     assertEquals(
       JSON.parse(moduleWithUrl()),
       {
-        intl: "undefined",
+        intl: undeclared(role, "Intl"),
         url: "function",
         params: "function",
-        encoder: "undefined",
+        encoder: undeclared(role, "TextEncoder"),
       },
       `${role} requesting URL gets URL while Intl remains undefined`,
     );

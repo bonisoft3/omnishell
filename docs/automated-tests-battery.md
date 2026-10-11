@@ -68,7 +68,7 @@ to catch spends it in milliseconds.
 linkedom). `FuelMeter.spend` charges by category, defaulting to `fire` 10,
 `transition` 50, `mutation` 50, `wait` 1 per ms and `jessie` 1; `spendEffect`
 charges by [effect level](../REFERENCE.md#effects):
-`projection` 1, `ephemeral` 10, `compensable` 50, `replicated` 100, `exterior`
+`projection` 1, `ephemeral` 10, `compensable` 50, `replicated` 100, `external`
 250, and an unknown level costs a mutation. Over budget throws
 `FuelLimitExceededError` naming the last three actions. Posing
 (`test/storybook-battery.ts`) spends one `fire` per query and one `transition`

@@ -261,7 +261,7 @@ async function loadRole(screen, appBase, route, attr, role, listed = "handlers",
     if (loaded.has(name)) continue;
     const path = (route.files[listed] ?? []).find((p) => p.split("/").pop() === `${name}.js`);
     if (!path) throw new Error(`no Jessie module for ${attr}="${name}"`);
-    const granted = endowmentsMap[path] ?? endowmentsMap[name] ?? endowmentsMap[`${name}.js`] ?? [];
+    const granted = endowmentsMap[path] ?? [];
     loaded.set(name, await evaluateRole(await read(new URL(path, appBase)), role, granted));
   }
   return loaded;
@@ -302,7 +302,7 @@ async function loadAdapters(screen, appBase, route, endowmentsMap = {}, read = f
       if (loaded.has(name)) continue;
       const path = (route.files.adapters ?? []).find((p) => p.split("/").pop() === `${name}.js`);
       if (!path) throw new Error(`no Jessie module for data-value-adapter="${name}"`);
-      const granted = endowmentsMap[path] ?? endowmentsMap[name] ?? endowmentsMap[`${name}.js`] ?? [];
+      const granted = endowmentsMap[path] ?? [];
       loaded.set(name, await evaluateRole(await read(new URL(path, appBase)), "adapter", granted));
     }
   }
@@ -319,7 +319,7 @@ async function loadHandlers(screen, appBase, route, endowmentsMap = {}, read = f
         if (loaded.has(name)) continue;
         const path = route.files.handlers.find((f) => f.split("/").pop() === `${name}.js`);
         if (!path) throw new Error(`no Jessie module for data-on-* handler "${name}"`);
-        const granted = endowmentsMap[path] ?? endowmentsMap[name] ?? endowmentsMap[`${name}.js`] ?? [];
+        const granted = endowmentsMap[path] ?? [];
         loaded.set(name, await evaluateRole(await read(new URL(path, appBase)), "handler", granted));
       }
     }
@@ -338,14 +338,14 @@ async function loadHandlers(screen, appBase, route, endowmentsMap = {}, read = f
           if (loaded.has(name)) continue;
           const path = route.files.handlers.find((f) => f.split("/").pop() === `${name}.js`);
           if (!path) throw new Error(`no Jessie module for machine reference "${name}"`);
-          const granted = endowmentsMap[path] ?? endowmentsMap[name] ?? endowmentsMap[`${name}.js`] ?? [];
+          const granted = endowmentsMap[path] ?? [];
           loaded.set(name, await evaluateRole(await read(new URL(path, appBase)), "handler", granted));
         }
         for (const name of shape.assignStrings) {
           if (loaded.has(name)) continue;
           const path = route.files.handlers.find((f) => f.split("/").pop() === `${name}.js`);
           if (path) {
-            const granted = endowmentsMap[path] ?? endowmentsMap[name] ?? endowmentsMap[`${name}.js`] ?? [];
+            const granted = endowmentsMap[path] ?? [];
             loaded.set(name, await evaluateRole(await read(new URL(path, appBase)), "handler", granted));
           }
         }
@@ -393,7 +393,7 @@ async function loadRenderers(screen, appBase, route, endowmentsMap = {}, read = 
       if (TEXT_FORMATS.has(name) || Object.hasOwn(loaded, name)) continue;
       const path = declared.find((p) => p.split("/").pop() === `${name}.js`);
       if (!path) throw new Error(`no renderer module for data-text-format="${name}"`);
-      const granted = endowmentsMap[path] ?? endowmentsMap[name] ?? endowmentsMap[`${name}.js`] ?? [];
+      const granted = endowmentsMap[path] ?? [];
       loaded[name] = await evaluateRole(await read(new URL(path, appBase)), "renderer", granted);
     }
   }
@@ -1611,12 +1611,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     localize(screen);
   }
 
-  const endowmentsMap = {
-    ...(cfg?.endowments ?? {}),
-    ...(opts.endowments ?? {}),
-    ...(route.files?.endowments ?? {}),
-    ...(route.endowments ?? {}),
-  };
+  // Keyed by the module's app-relative path, the one spelling every loader
+  // and pronto's lint read.
+  const endowmentsMap = cfg.endowments ?? {};
   const handlers = opts.handlers === false ? new Map() : await loadHandlers(markup, appBase, route, endowmentsMap, read);
   adapters = opts.handlers === false ? null : await loadAdapters(markup, appBase, route, endowmentsMap, read);
   const renderers = opts.handlers === false

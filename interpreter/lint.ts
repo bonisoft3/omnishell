@@ -1076,7 +1076,7 @@ const EFFECT_KEYS = new Set(["level", "op", "entity", "token", "filter", "values
 const EFFECT_OPS = new Set(["create", "update", "delete", "upsert"]);
 const EFFECT_LEVELS = new Set([
   0, 1, 2, 3, 4,
-  "projection", "ephemeral", "compensable", "replicated", "exterior",
+  "projection", "ephemeral", "compensable", "replicated", "external",
 ]);
 
 /** The reason an object in a value position is not a well-formed {type,

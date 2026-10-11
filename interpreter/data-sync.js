@@ -402,7 +402,7 @@ export function createStore(base = "", cfg = {}) {
           if (!res.ok) throw new Error(`validation ${table}.${name}: ${v.src} ${res.status}`);
           source = await res.text();
         }
-        const granted = cfg.endowments?.[v.src] ?? cfg.endowments?.[v.src.split("/").pop()] ?? [];
+        const granted = cfg.endowments?.[v.src] ?? [];
         return { name, edges: v.edges ?? [], test: await evaluateRole(source, "validation", granted) };
       })).catch((e) => {
         predicates.delete(table);

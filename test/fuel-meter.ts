@@ -6,7 +6,7 @@ export type EffectLevel =
   | "ephemeral"
   | "compensable"
   | "replicated"
-  | "exterior"
+  | "external"
   | 0
   | 1
   | 2
@@ -22,7 +22,7 @@ export const LEVEL_FUEL_COST: Record<string | number, number> = {
   2: 50,
   replicated: 100,
   3: 100,
-  exterior: 250,
+  external: 250,
   4: 250,
 };
 
