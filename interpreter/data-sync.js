@@ -281,6 +281,10 @@ export function createStore(base = "", cfg = {}) {
   const ordersInEngine = () => (orders ??= carrier().engineOrders());
   const compareTxid = (a, b) => carrier().compareCarrier(TXID, a, b);
   const orderOf = (table) => columnOrder(carrier().compareCarrier, cfg.schema?.[table]?.fields);
+  // shell.yaml `read:` names the tables pronto derived as lazy: their shapes
+  // open from now and each view loads its rows as a subset. Every other
+  // table is read whole.
+  const lazy = (table) => cfg.read?.[table] === "lazy";
   const client = createMechaClient({
     carriers: cfg.carriers,
     // cfg.keys names the pk of every table whose pk is not "id" (pipeline
@@ -298,7 +302,8 @@ export function createStore(base = "", cfg = {}) {
       fields: cfg.schema?.[t]?.fields,
       durability: local[t],
       access: cfg.access?.[t],
-      sync: cfg.sync?.[t],
+      // mecha's client names the two modes in Electric's words.
+      sync: lazy(t) ? "on-demand" : "eager",
     })),
     electricUrl: `${base}/electric`,
     crudUrl: `${base}/crud`,
@@ -321,10 +326,9 @@ export function createStore(base = "", cfg = {}) {
   // Partial collections are never an authoritative whole outside a query.
   // Queries explicitly lease completeness where their local evaluation needs
   // it; validation, visibility and fold reads still require an eager table.
-  const onDemand = (table) => cfg.sync?.[table] === "on-demand";
   const whole = (table, site) => {
-    if (onDemand(table)) {
-      throw new ProgramError(`${site} reads ${table} whole, and ${table} syncs on demand: its collection holds only the rows its views loaded`);
+    if (lazy(table)) {
+      throw new ProgramError(`${site} reads ${table} whole, and ${table} reads lazily: its collection holds only the rows its views loaded`);
     }
   };
   // A collection read as the table, once it holds the first snapshot: an
@@ -371,7 +375,7 @@ export function createStore(base = "", cfg = {}) {
   // keep the complete optimistic view, including rows no screen displays.
   const mutationDemands = new Map();
   async function mutationCollection(table, site) {
-    if (!onDemand(table)) return wholeCollection(table, site);
+    if (!lazy(table)) return wholeCollection(table, site);
     const c = client.collections[table];
     if (c === undefined) throw new Error(`${site} reads ${table}, which has no collection`);
     let entry = mutationDemands.get(table);
@@ -763,12 +767,12 @@ export function createStore(base = "", cfg = {}) {
     const comparable = (t, col) => profile(t, col)?.subset !== false;
     // These restrictions belong to this query, not every use of its table.
     // Null tests bind no typed value, including the PK test for completeness.
-    if (onDemand(table) && spec.some(s => ["eq", "neq"].includes(s.op) && !comparable(table, s.col))) return null;
-    if (onDemand(table) && limit !== undefined && (order ?? "").split(",").some(k => {
+    if (lazy(table) && spec.some(s => ["eq", "neq"].includes(s.op) && !comparable(table, s.col))) return null;
+    if (lazy(table) && limit !== undefined && (order ?? "").split(",").some(k => {
       const p = profile(table, k.split(".")[0]);
       return p?.subset === false || (p?.order === "text" && p.pattern === undefined);
     })) return null;
-    if (embeds.some(e => onDemand(e.table) && !comparable(e.table, keyOf(e.table)))) return null;
+    if (embeds.some(e => lazy(e.table) && !comparable(e.table, keyOf(e.table)))) return null;
     const clause = (row, { col, op, value }) => {
       const num = Number(value);
       const isNum = value !== "" && !Number.isNaN(num) && String(num) === value;
@@ -921,7 +925,7 @@ export function createStore(base = "", cfg = {}) {
         return true;
       },
     };
-    const offs = sources.filter(([t]) => onDemand(t)).map(([t, c]) =>
+    const offs = sources.filter(([t]) => lazy(t)).map(([t, c]) =>
       c.utils.onSubsetFailure((error) => {
         if (!entry.view.isLoadingSubset || entry.failure !== undefined) return;
         entry.failure = { table: t, error, refused: refusal(error) };
@@ -938,7 +942,7 @@ export function createStore(base = "", cfg = {}) {
    * collection's public readiness and its `loadingSubset:change` event alone.
    *
    * Not toArrayWhenReady: it answers as soon as the view holds any row, and an
-   * on-demand view holds rows while its subset is still arriving — the first
+   * lazy view holds rows while its subset is still arriving — the first
    * read would render a partial list as if it were the whole one.
    *
    * A view that failed rejects, and so does one whose subset was refused: the
@@ -1059,7 +1063,7 @@ export function createStore(base = "", cfg = {}) {
     await ensurePrepared(table);
     // A read the engine already maintains needs no re-derivation: the view is
     // the filter and the order, kept current by the deltas that woke us.
-    const held = maintainedView(table, { ...opts, order }, onDemand(table));
+    const held = maintainedView(table, { ...opts, order }, lazy(table));
     if (held !== null) {
       const release = lease(held);
       try {
@@ -1082,7 +1086,7 @@ export function createStore(base = "", cfg = {}) {
       const releases = [];
       try {
         await Promise.all(snapshotTables(table, opts).map(t => {
-          if (!onDemand(t)) return wholeCollection(t, `a read of ${table}`);
+          if (!lazy(t)) return wholeCollection(t, `a read of ${table}`);
           const entry = completeDemand(t);
           releases.push(lease(entry));
           return settled(entry);
@@ -1257,7 +1261,7 @@ export function createStore(base = "", cfg = {}) {
     // watching: a row leaving the filter, a row entering it, and a row moving
     // in the order all arrive here and nowhere else.
     const view = maintainedView(table, opts, true)?.acquire() ?? null;
-    const demands = view === null ? snapshotTables(table, opts).filter(onDemand).map(completeDemand) : [];
+    const demands = view === null ? snapshotTables(table, opts).filter(lazy).map(completeDemand) : [];
     const releaseDemands = demands.map(lease);
     // While the view loads a subset — its own rows, or the lazy side of a join
     // fetching a row a change named — what it holds is partial: a row whose
@@ -1451,13 +1455,13 @@ export function createStore(base = "", cfg = {}) {
     );
   }
 
-  // A write by key names its row, and a table synced on demand holds only the
+  // A write by key names its row, and a table read lazily holds only the
   // rows some view loaded; the key a form or an effect carries need not be one
   // of them. Each row the collection lacks is loaded as a view of its key, held
   // until the write has gone out. A row that does not exist stays missing, and
   // the write is the collection's own refusal of it.
   async function holding(table, keys, write) {
-    if (!onDemand(table)) {
+    if (!lazy(table)) {
       const collection = client.collections[table];
       if (collection === undefined) throw new Error(`a write by key reads ${table}, which has no collection`);
       // Request-only reads leave even eager collections idle. Keep their
@@ -1475,7 +1479,7 @@ export function createStore(base = "", cfg = {}) {
     try {
       for (const k of new Set(keys.filter((k) => !collection.has(k)))) {
         const entry = maintainedView(table, { filter: `${keyOf(table)}=eq.${k}` }, true);
-        if (entry === null) throw new ProgramError(`${table} syncs on demand, and a view of one row of it by ${keyOf(table)} is not one the engine maintains`);
+        if (entry === null) throw new ProgramError(`${table} reads lazily, and a view of one row of it by ${keyOf(table)} is not one the engine maintains`);
         held.push(entry.acquire());
       }
       await Promise.all(held.map(settled));

@@ -111,7 +111,7 @@ describe("the server terminal", () => {
       return []
     } }, {
       tables: ["settings", "team_rating", "player_game"],
-      sync: { team_rating: "on-demand" },
+      read: { team_rating: "lazy" },
       schema: { player_game: { durability: "server" } },
     }).then(() => { ready = true })
     await Promise.resolve()

@@ -12,7 +12,7 @@ async function serve(authenticated = false, automaticGuest = false, promoteTo?: 
       navigator.serviceWorker.register("/offline-first-sw.js");
       createShell({config:"./shell.json",mount:document.getElementById("app"),liveUpdates:true})
         .then(app => { window.appReady = !!app.store; window.navigate = app.navigate; });`],
-    ["shell/shell.json", JSON.stringify({ app: "release", tables: automaticGuest ? ["unused"] : [], sync: { unused: "on-demand" }, ...(authenticated ? { auth: { required: true, service: "/auth", promote: !!promoteTo } } : {}), local: { probe: "tab" }, carriers: FIXTURE_CARRIERS, routes: [
+    ["shell/shell.json", JSON.stringify({ app: "release", tables: automaticGuest ? ["unused"] : [], read: { unused: "lazy" }, ...(authenticated ? { auth: { required: true, service: "/auth", promote: !!promoteTo } } : {}), local: { probe: "tab" }, carriers: FIXTURE_CARRIERS, routes: [
       { path: "/", screen: "home", nav: { label: "Home" }, files: { html: "shell/screens/home.html", css: "shell/screens/home.css", handlers: [] } },
       { path: "/other", screen: "other", nav: { label: "Other" }, files: { html: "shell/screens/other.html", css: "shell/screens/other.css", handlers: [] } },
     ] })],

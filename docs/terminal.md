@@ -148,8 +148,8 @@ is refused rather than rendered with a service token. The one file read off its
 image is the entry page, since the door answers the entry's own address with a
 redirect.
 
-The renderer preserves the browser's sync policy. Only eager collections are
-prewarmed before it becomes healthy. On-demand collections load the subsets
+The renderer preserves the browser's read modes. Only eager collections are
+prewarmed before it becomes healthy. Lazy collections load the subsets
 each document reads; retained documents hold those query subscriptions until
 invalidation or eviction. Request-only `server` reads go through PostgREST for
 each document and are not prewarmed: their rows would be discarded. Each render

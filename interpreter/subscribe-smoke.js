@@ -99,7 +99,7 @@ Deno.test("a wake carrying no change set is always relevant", () => {
   assert(touches(preds, null), "no batch");
 });
 
-// pronto's derive decides which tables a browser loads on demand from the
+// pronto's derive decides which tables the terminal reads lazily from the
 // markup's routing; the store serves reads by the same function, so the two
 // cannot disagree about which reads are views.
 Deno.test("the store routes a read by the markup's own routeOf", () => {
