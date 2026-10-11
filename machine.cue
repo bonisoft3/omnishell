@@ -147,12 +147,11 @@ package terminal
 	// does: a retry carries the same key and is a join on the wire (the
 	// gateway's `resolution=ignore-duplicates`, mecha docs/proxy.md);
 	// data-sync.js `add` runs the entity's validations as an insert, nothing
-	// more. `accumulate`
-	// adds twice, and is exactly-once only as a fold over a keyed event set.
-	// `reduce` has the delivery of the ops it returns. `navigate` writes no
-	// row: it fills the route's params, and a second hash change lands on
-	// the same route. A consumer narrows this to the ops its performer runs;
-	// none extends it.
+	// more. `accumulate` adds twice, and is exactly-once only as a fold over
+	// a keyed event set. `reduce` has the delivery of the ops it returns.
+	// `navigate` writes no row: it fills the route's params, and a second
+	// hash change lands on the same route. A consumer narrows this to the
+	// ops its performer runs; none extends it.
 	#MutationOp: "create" | "ensure" | "upsert" | "update" | "accumulate" | "delete" | "reduce" | "navigate"
 	// Declarative mutation effect executed by the terminal runtime into store.
 	// Closed and pure: never arbitrary code, never touches DOM directly. The
