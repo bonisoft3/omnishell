@@ -90,8 +90,8 @@ const SEATS = { realm: mountFrameUnit, agent: mountWorkerUnit };
 // `reads`, the tables whose row the mount feeds it, which the screen holds the
 // mount to, and `raises`, the events it may post, held here at the seat so an
 // undeclared name never becomes a DOM event. The terminal grants nothing
-// else at either boundary.
-export function mountHatch(root, { unit, src, onEvent } = {}) {
+// else at either boundary. `store` is the terminal's, for a unit with a memo.
+export function mountHatch(root, { unit, src, onEvent, store } = {}) {
   const seat = SEATS[unit.isolation];
   // The schema offers three isolation boundaries and the terminal implements
   // two. A unit asking for a boundary that does not exist must not quietly get
@@ -106,7 +106,68 @@ export function mountHatch(root, { unit, src, onEvent } = {}) {
     }
     onEvent?.(event);
   };
-  return seat(root, { unit, src, onEvent: raised });
+  if (unit.memo === undefined) return seat(root, { unit, src, onEvent: raised });
+  return memoSeat(seat, root, { unit, src, onEvent: raised, store });
+}
+
+// The memo (Michie 1968), performed by the terminal around an agent's seat.
+// A question is a props object carrying every key field non-empty; one with a
+// key field empty is the mount withdrawing its question and passes through.
+// Before a question is posted, the memo table is looked up by the key: a row
+// found answers the question — the one event the unit raises is dispatched
+// with the key as its detail, and the unit is never asked. An answer the unit
+// posts carries the key fields of the question it answered and every memo
+// column; it is upserted on the key, then dispatched the same way. The chart
+// hearing the event reads the answer off the row, so a hit and a fresh answer
+// are one path, and the same question asked twice runs the unit once.
+function memoSeat(seat, root, { unit, src, onEvent, store }) {
+  const { table, key, columns } = unit.memo;
+  const [answer] = unit.ports.raises;
+  const at = (row, k) => String(row[k]);
+  const detailOf = (row) => Object.freeze(Object.fromEntries(key.map((k) => [k, at(row, k)])));
+  const inner = seat(root, {
+    unit,
+    src,
+    onEvent: (event) => {
+      for (const k of key) {
+        if (event.detail[k] === undefined) throw new Error(`hatch "${src}" answered without "${k}", a key of its memo`);
+      }
+      const row = {};
+      for (const c of columns) {
+        if (event.detail[c] === undefined) throw new Error(`hatch "${src}" answered without "${c}", a column of its memo`);
+        row[c] = event.detail[c];
+      }
+      // Dispatched once the row is held, so the chart hearing it reads the
+      // answer off the row and never off the detail.
+      store.upsertBy(table, row).then(() => onEvent({ name: answer, detail: detailOf(row) }));
+    },
+  });
+  // The question the memo last answered or posted, so a re-delivery of the
+  // same props is silence here as it is in a unit.
+  let asked = "";
+  return {
+    ...inner,
+    update(props) {
+      for (const k of key) {
+        if (props[k] === undefined) throw new Error(`hatch "${src}" is asked without "${k}", a key of its memo`);
+      }
+      if (key.some((k) => props[k] === "")) {
+        asked = "";
+        inner.update(props);
+        return;
+      }
+      const stamp = JSON.stringify(key.map((k) => props[k]));
+      if (stamp === asked) return;
+      asked = stamp;
+      store.query(table, null, {}).then((rows) => {
+        // A newer question arrived while the memo was read; this one is moot.
+        if (asked !== stamp) return;
+        const held = rows.find((r) => key.every((k) => at(r, k) === props[k]));
+        if (held !== undefined) onEvent({ name: answer, detail: detailOf(held) });
+        else inner.update(props);
+      });
+    },
+  };
 }
 
 function mountFrameUnit(root, { unit, src, onEvent }) {

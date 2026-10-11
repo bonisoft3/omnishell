@@ -974,7 +974,7 @@ export function unwitnessedControls(html: string): string[] {
  * handed — the tables that region reads, and the events its own `data-on-*`
  * handle. The mount is read where it stands; a mount in an item template is
  * one mount per row of the same region. */
-export type HatchSite = { unit: string; table?: string; reads: string[]; handles: string[] };
+export type HatchSite = { unit: string; table?: string; reads: string[]; handles: string[]; props: string[] };
 
 export function hatchSites(html: string): HatchSite[] {
   const out: HatchSite[] = [];
@@ -996,6 +996,7 @@ export function hatchSites(html: string): HatchSite[] {
         table: region?.table,
         reads: region?.reads ?? [],
         handles: [...attrs.keys()].filter((k) => k.startsWith("data-on-")).map((k) => k.slice("data-on-".length)),
+        props: [...attrs.keys()].filter((k) => k.startsWith("data-prop-")).map((k) => k.slice("data-prop-".length)),
       });
     }
     return frame;
@@ -1004,12 +1005,15 @@ export function hatchSites(html: string): HatchSite[] {
 }
 
 /** A vendored unit as shell.yaml `units:` declares it to the terminal. */
-export type UnitPorts = { ports: { reads: string[]; raises: string[] } };
+export type UnitPorts = { ports: { reads: string[]; raises: string[] }; memo?: { table: string; key: string[]; columns: string[] } };
 
 /** The reasons one screen's mounts disagree with their units' ports: a unit
  * nobody declared, a mount fed a region's row the unit does not read, a
- * mount handling an event the unit does not raise. The interpreter refuses
- * each of these at the mount; this says so before one. */
+ * mount handling an event the unit does not raise; and with a memo, a mount
+ * binding no `data-prop-` for a key field, or sitting in a region that does
+ * not read the memo's table, so the chart hearing the answer could not see
+ * the row. The interpreter refuses each of these at the mount; this says so
+ * before one. */
 export function hatchLint(sites: HatchSite[], units: Record<string, UnitPorts>): string[] {
   const out: string[] = [];
   for (const s of sites) {
@@ -1023,6 +1027,13 @@ export function hatchLint(sites: HatchSite[], units: Record<string, UnitPorts>):
     }
     for (const ev of s.handles) {
       if (!unit.ports.raises.includes(ev)) out.push(`data-hatch="${s.unit}" handles "${ev}", which its ports do not raise (raises: ${unit.ports.raises.join(", ") || "nothing"})`);
+    }
+    if (unit.memo === undefined) continue;
+    for (const k of unit.memo.key) {
+      if (!s.props.includes(k)) out.push(`data-hatch="${s.unit}" binds no data-prop-${k}, a key of its memo`);
+    }
+    if (!s.reads.includes(unit.memo.table)) {
+      out.push(`data-hatch="${s.unit}" sits in a region that does not read "${unit.memo.table}", its memo (reads: ${s.reads.join(", ") || "nothing"})`);
     }
   }
   return out;

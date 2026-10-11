@@ -349,6 +349,8 @@ export async function selfTest(): Promise<{ failures: string[] }> {
     'hatch.html: data-hatch="ghost" names no unit in shell.yaml',
     'hatch.html: data-hatch="oracle" is fed the row of "note", which its ports do not read (reads: detail)',
     'hatch.html: data-hatch="oracle" handles "echo", which its ports do not raise (raises: answer, verdict)',
+    'hatch.html: data-hatch="oracle" binds no data-prop-body, a key of its memo',
+    'hatch.html: data-hatch="oracle" sits in a region that does not read "detail", its memo (reads: note)',
     'kinds.html: region "note": data-when="kind=eq.quote": "quote" is not a declarable kind (note, link)',
     'link.html: <a href="/note/um"> writes an internal path by hand',
     'link.html: <a href="#/note/um"> writes an internal path by hand',

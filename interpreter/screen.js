@@ -1704,6 +1704,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         el._prontoHatch = mountHatch(el, {
           unit,
           src: new URL(unit.src, appBase).href,
+          store,
           // A unit's named event becomes a real DOM event on the mount, so the
           // ordinary data-on-* path carries it the rest of the way: bind
           // attaches the listener, bind builds the event, step runs the reduce

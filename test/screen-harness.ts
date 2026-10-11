@@ -484,7 +484,14 @@ export type El = {
 
 /** A vendored unit, as shell.yaml declares it and as the interpreter resolves
  * a `data-hatch` name against. */
-export type Unit = { isolation: string; ports: { reads: string[]; raises: string[] }; src: string };
+export type Unit = {
+  isolation: string;
+  ports: { reads: string[]; raises: string[] };
+  /** An agent's memo as the terminal performs it: the table, the key and the
+   * columns an answer fills. */
+  memo?: { table: string; key: string[]; columns: string[] };
+  src: string;
+};
 
 type Interpreter = {
   interpretScreen(

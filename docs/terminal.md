@@ -116,6 +116,21 @@ out over `postMessage`, never handles — Elm's ports — which is what lets one
 unit sit behind a realm or an agent unchanged; the cost is that everything
 crosses async.
 
+**An agent is a question, and its memo is the terminal's to perform.** A unit
+seated as an `agent` declares a `memo` (shell.yaml `units.<name>.memo`: the
+table, the key fields and the columns an answer fills — Michie's memo table,
+answers addressed by what was asked). The mount's `data-prop-*` of the key's
+names are the question; before it is posted, `hatch.js` looks the table up by
+the key and, finding a row, dispatches the unit's one raised event with the key
+as its detail and never asks. An answer the unit posts carries the key and
+every column; it is upserted on the key through the store's natural-key
+upsert, then dispatched the same way. The reduce hearing the event reads the
+answer off the row — one path for a hit and a fresh answer — so the same
+question asked twice runs the unit once (`test/hatch-memo.test.ts`). A props
+object with a key field empty is the mount withdrawing its question and passes
+through; a question or an answer missing a key field, or an answer missing a
+column, is refused.
+
 **The terminal parses; the app owes the rest.** Whatever the seat, the
 boundary is a parser: `parseDetail` admits at most 8 keys matching
 `^[a-z][a-z0-9_]{0,23}$`, each a printable-ASCII string of at most 128

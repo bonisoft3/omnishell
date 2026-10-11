@@ -311,7 +311,11 @@ request-shaped, and crosses as a parsed, frozen event (`parseDetail`). Both
 are the unit's ports (shell.yaml `units.<name>.ports`): the region a mount
 sits in must be a table the unit `reads`, and a `data-on-<event>` on the mount
 must be one it `raises` — the mount refuses the rest, and `check markup`
-reports it first, with any raise no mount handles. This is
+reports it first, with any raise no mount handles. An `agent` unit also
+carries a `memo`: the terminal answers a question whose row the memo table
+holds without posting it, and writes the unit's answer as a row on the
+question's key before the mount's `data-on-*` hears it
+([the terminal](docs/terminal.md#the-seats)). This is
 the only rung where code the terminal did not emit runs on a reader's device.
 A unit declares its seat by its `isolation`, a `realm` (an iframe) or an
 `agent` (a worker); what each seat grants and performs is `terminal.cue`'s
