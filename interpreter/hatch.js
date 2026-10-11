@@ -53,20 +53,22 @@ const OPAQUE_ORIGIN = "null";
 // A unit that lies about its height must not be able to blow out the document.
 const MAX_HEIGHT = 10000;
 
-// The shape a unit's event detail may take. The reduce that receives it is a
-// compartment with nothing endowed and cannot defend itself, so the parse sits
-// here, on the trusted side, exactly as `height`'s number check does. What the
-// grammar means is the app's: the terminal cannot know what a move looks like,
-// only that a megabyte, a control character, a getter or a nested object must
-// not reach a screen.
+// The shape a unit's event detail may take, the offer terminal.cue publishes
+// as `hatch.<seat>.detail`. The reduce that receives it is a compartment with
+// nothing endowed and cannot defend itself, so the parse sits here, on the
+// trusted side, exactly as `height`'s number check does. What the grammar
+// means is the app's: the terminal cannot know what a move looks like, only
+// that a megabyte, a control character, a getter or a nested object must not
+// reach a screen.
 const DETAIL_KEYS = 8;
 const DETAIL_KEY = /^[a-z][a-z0-9_]{0,23}$/;
 const DETAIL_VALUE_LENGTH = 128;
 const DETAIL_VALUE = /^[\x20-\x7e]*$/;
 
 /** A frozen string→string record built key by key from `value`, or undefined
- * when `value` is not one — and undefined drops the event that carried it.
- * Nothing is passed through: the unit's own object never crosses. */
+ * when `value` is not one — which the realm seat drops with the event and the
+ * agent seat refuses. Nothing is passed through: the unit's own object never
+ * crosses. */
 export function parseDetail(value) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
   const keys = Object.keys(value);

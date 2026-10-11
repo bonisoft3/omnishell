@@ -244,6 +244,11 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 			mount:     string
 			props:     string
 			events: [Name=string]: {performs: string, note: string}
+			// What an event's detail may carry across either seat: at most
+			// `keys` string fields, each at most `value` printable-ASCII
+			// characters (hatch.js parseDetail). A memo's columns ride in one
+			// answer, so pronto's #emit holds a memo to `keys`.
+			detail: {keys: 8, value: 128}
 			grants: [...string]
 			note: string
 		}

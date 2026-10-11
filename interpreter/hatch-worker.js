@@ -39,18 +39,26 @@ export function mountWorkerUnit(root, { src, onEvent } = {}) {
   // the whole page shares, so nothing in the message identifies its sender.
   // A port identifies one. This listener is on the worker and not on
   // globalThis, so no other sender can reach the bridge at all.
+  //
+  // A message the seat cannot rebuild is refused, where the frame seat drops
+  // it: what posts there is a provider's page, and what posts here is the
+  // app's own wrapper, so a shape outside the protocol is the app's bug and
+  // a memo answer that failed in silence would stand as a question forever.
+  const refuse = (what) => {
+    throw new Error(`hatch "${src}" posted ${what}`);
+  };
   const onMessage = (e) => {
     const message = e.data;
-    if (message === null || typeof message !== "object") return;
+    if (message === null || typeof message !== "object") refuse("a message that is not an object");
     if (message.type === READY) {
       ready = true;
       deliver();
       return;
     }
-    if (message.type !== EVENT) return;
-    if (typeof message.name !== "string" || message.name === "") return;
+    if (message.type !== EVENT) refuse(`a message of type ${JSON.stringify(message.type)}, which the seat does not speak`);
+    if (typeof message.name !== "string" || message.name === "") refuse("an event with no name");
     const detail = parseDetail(message.detail);
-    if (detail === undefined) return;
+    if (detail === undefined) refuse(`"${message.name}" with a detail outside the seat's grammar`);
     onEvent?.({ name: message.name, detail });
   };
   worker.addEventListener("message", onMessage);

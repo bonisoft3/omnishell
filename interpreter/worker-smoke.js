@@ -117,7 +117,7 @@ Deno.test("props wait for ready and coalesce to the latest", async () => {
   hatch.destroy();
 });
 
-Deno.test("only a message the boundary can rebuild reaches the screen", async () => {
+Deno.test("only a message the boundary can rebuild reaches the screen, and the rest is refused, not dropped", async () => {
   const { mountHatch } = await import("./hatch.js");
   const made = fakeWorkers();
   const events = [];
@@ -125,11 +125,15 @@ Deno.test("only a message the boundary can rebuild reaches the screen", async ()
   const worker = made[0];
 
   // The reduce that receives an answer is a compartment with nothing endowed
-  // and cannot defend itself, so every one of these is refused here.
+  // and cannot defend itself, so every one of these stops here — thrown,
+  // naming the unit, since what posted it is the app's own wrapper and a memo
+  // answer lost in silence is a question that stands forever.
   for (const shape of [
     null,
     42,
     "answer",
+    { type: "pronto:ask" },
+    { type: "pronto:event", name: "" },
     { type: "pronto:event", name: "answer" },
     { type: "pronto:event", name: "answer", detail: ["e2e4"] },
     { type: "pronto:event", name: "answer", detail: { a: "1", b: "2", c: "3", d: "4", e: "5", f: "6", g: "7", h: "8", i: "9" } },
@@ -138,8 +142,14 @@ Deno.test("only a message the boundary can rebuild reaches the screen", async ()
     { type: "pronto:event", name: "answer", detail: { uci: "e2e4\n" } },
     { type: "pronto:event", name: "answer", detail: { uci: 7 } },
   ]) {
-    worker.says(shape);
-    assert(events.length === 0, `dropped: ${JSON.stringify(shape)}`);
+    let threw = null;
+    try {
+      worker.says(shape);
+    } catch (e) {
+      threw = e;
+    }
+    assert(threw !== null && String(threw.message).includes(SRC), `refused, naming the unit: ${JSON.stringify(shape)}, got ${threw}`);
+    assert(events.length === 0, `and nothing reached the screen: ${JSON.stringify(shape)}`);
   }
 
   // And the channel is real, which is the half a seat that drops everything

@@ -134,7 +134,11 @@ column, is refused.
 **The terminal parses; the app owes the rest.** Whatever the seat, the
 boundary is a parser: `parseDetail` admits at most 8 keys matching
 `^[a-z][a-z0-9_]{0,23}$`, each a printable-ASCII string of at most 128
-characters, into a frozen record, and a detail that fails drops the event.
+characters, into a frozen record (the offer `terminal.cue` publishes as
+`hatch.<seat>.detail`, which pronto holds a memo's column count to). A detail
+that fails is dropped with its event by the realm seat, whose sender is a
+provider's page, and refused by the agent seat, whose sender is the app's own
+wrapper — a memo answer lost in silence would be a question standing forever.
 What the answer means is the app's to guard, three ways: look it up against
 the app's own rows rather than interpret it, so an engine is trusted for
 preference and not possibility when no row exists for an illegal move; carry
