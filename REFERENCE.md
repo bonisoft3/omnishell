@@ -188,10 +188,10 @@ included:
 | `navigate` | nothing: with `data-route`, the form's named inputs fill the route's `:params` at submit |
 
 Each is a word of `#Machine.#MutationOp` ([`machine.cue`](machine.cue)), the
-one mutation vocabulary; `create` mints its key, so a retried create is a join
-on the wire (the gateway's `resolution=ignore-duplicates`, mecha
-`docs/proxy.md`) and a refusal before it (`data-sync.js` `add` validates the
-row as new), never a duplicate.
+one mutation vocabulary; `create` mints its key, so a retried create carries
+the same key and is a join on the wire (the gateway's
+`resolution=ignore-duplicates`, mecha `docs/proxy.md`), never a duplicate;
+`data-sync.js` `add` runs the entity's validations as an insert, nothing more.
 
 A file input carrying `data-upload` sends its blob to the store's object
 bucket first, and the row carries only the resulting key. Validation is the

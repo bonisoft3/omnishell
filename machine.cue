@@ -144,9 +144,10 @@ package terminal
 	// is `x ⊔ x = x`: CRDTs, Shapiro et al. 2011). `ensure`, `upsert`,
 	// `delete` and an absolute `update` are joins — twice is once. `create`
 	// is a duplicate unless the client mints the key, which the terminal
-	// does: then a retry is a join on the wire (the gateway's
-	// `resolution=ignore-duplicates`, mecha docs/proxy.md) and a refusal
-	// before it (data-sync.js `add` validates the row as new). `accumulate`
+	// does: a retry carries the same key and is a join on the wire (the
+	// gateway's `resolution=ignore-duplicates`, mecha docs/proxy.md);
+	// data-sync.js `add` runs the entity's validations as an insert, nothing
+	// more. `accumulate`
 	// adds twice, and is exactly-once only as a fold over a keyed event set.
 	// `reduce` has the delivery of the ops it returns. `navigate` writes no
 	// row: it fills the route's params, and a second hash change lands on
