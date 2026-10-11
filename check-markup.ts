@@ -190,7 +190,7 @@ export function screenFindings(
   for (const region of read(() => machineRegions(html)) ?? []) {
     // machineRegions refuses what is not JSON, so a chart reaching here parses.
     const chart = JSON.parse(region.machine);
-    const why = machineLint(chart, available);
+    const why = machineLint(chart, available, { table: region.table, durabilityOf: (t) => schema[t]?.durability });
     if (why !== null) report(`data-machine: ${why}`);
     writes.set(region.table, [...(writes.get(region.table) ?? []), ...machineWrites(chart, region.emptyRow)]);
     // The group's own rule, run once per group rather than once per chart.

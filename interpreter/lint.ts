@@ -1072,12 +1072,20 @@ export function unwitnessedSlot(filter: string | undefined, e: Entity, select?: 
 const TRANSITION_KEYS = new Set(["guard", "target", "assign", "effect", "raise", "actions"]);
 const ACTION_KEYS = new Set(["assign", "effect", "raise"]);
 const REF_KEYS = new Set(["type", "params"]);
-const EFFECT_KEYS = new Set(["level", "op", "entity", "token", "filter", "values"]);
+const EFFECT_KEYS = new Set(["op", "entity", "token", "filter", "values"]);
 const EFFECT_OPS = new Set(["create", "update", "delete", "upsert"]);
-const EFFECT_LEVELS = new Set([
-  0, 1, 2, 3, 4,
-  "projection", "ephemeral", "compensable", "replicated", "external",
-]);
+/** What can be claimed of a write is the durability of the row it lands on
+ * (machine.cue #DurabilityEffectLevel): a chart states no level of its own. */
+export const DURABILITY_EFFECT_LEVEL: Record<string, string> = {
+  tab: "ephemeral",
+  device: "ephemeral",
+  offline: "compensable",
+  live: "compensable",
+  server: "replicated",
+};
+/** Where a chart's writes land: the region's table for an effect naming no
+ * entity, and the durability of any table the emitted schema declares. */
+export type Reach = { table: string; durabilityOf: (table: string) => string | undefined };
 
 /** The reason an object in a value position is not a well-formed {type,
  * params} reference (XState's spelling), or null. Strings and literals are not this rule's —
@@ -1119,12 +1127,9 @@ const lintActions = (actions: unknown): string | null => {
         if (effUnknown.length > 0) {
           return `effect carries ${effUnknown.map((k) => `"${k}"`).join(", ")} — outside the #Effect subset`;
         }
-        const e = eff as { op?: unknown; level?: unknown; values?: Record<string, unknown> };
+        const e = eff as { op?: unknown; values?: Record<string, unknown> };
         if (typeof e.op !== "string" || !EFFECT_OPS.has(e.op)) {
           return `effect op ${JSON.stringify(e.op)} is not in ${[...EFFECT_OPS].join(" | ")}`;
-        }
-        if (e.level !== undefined && !EFFECT_LEVELS.has(e.level as any)) {
-          return `effect level ${JSON.stringify(e.level)} is not in ${[...EFFECT_LEVELS].join(" | ")}`;
         }
         for (const r of Object.values(e.values ?? {})) {
           const why = badRef(r);
@@ -1194,8 +1199,11 @@ function collectStateActions(state: StateNode): unknown[] {
  * or null. References (guards, non-numeric after keys) must name modules in
  * `available`; every raised type must be handled by some state or root `on:`
  * (the cascade stays drawable); context never carries the machine's own
- * field — one fact, one writer. */
-export function machineLint(machine: Machine, available: Set<string>): string | null {
+ * field — one fact, one writer; and a write whose row the server may refuse
+ * (a compensable effect, read off the entity's durability through `reach`)
+ * is drawn in a chart that hears `refused`, since one deaf to the no has a
+ * zombie state by construction. */
+export function machineLint(machine: Machine, available: Set<string>, reach: Reach): string | null {
   const values: unknown[] = [
     ...Object.values(machine.on ?? {}),
     ...Object.values(machine.states ?? {}).flatMap(collectValues),
@@ -1225,12 +1233,9 @@ export function machineLint(machine: Machine, available: Set<string>): string | 
           if (effUnknown.length > 0) {
             return `effect carries ${effUnknown.map((k) => `"${k}"`).join(", ")} — outside the #Effect subset`;
           }
-          const e = eff as { op?: unknown; level?: unknown; values?: Record<string, unknown> };
+          const e = eff as { op?: unknown; values?: Record<string, unknown> };
           if (typeof e.op !== "string" || !EFFECT_OPS.has(e.op)) {
             return `effect op ${JSON.stringify(e.op)} is not in ${[...EFFECT_OPS].join(" | ")}`;
-          }
-          if (e.level !== undefined && !EFFECT_LEVELS.has(e.level as any)) {
-            return `effect level ${JSON.stringify(e.level)} is not in ${[...EFFECT_LEVELS].join(" | ")}`;
           }
           for (const r of Object.values(e.values ?? {})) {
             const why = badRef(r);
@@ -1244,12 +1249,13 @@ export function machineLint(machine: Machine, available: Set<string>): string | 
     const why = lintActions(act);
     if (why !== null) return why;
   }
-  const shape = machineShape(machine) as ReturnType<typeof machineShape> & { effects?: { level?: unknown; entity?: string }[] };
+  const shape = machineShape(machine) as ReturnType<typeof machineShape> & { effects?: { entity?: string }[] };
   for (const eff of shape.effects ?? []) {
-    if (eff.level === 2 || eff.level === "compensable") {
-      if (!shape.handled.includes("refused")) {
-        return `compensable effect on "${eff.entity ?? "entity"}" requires "refused" transition in machine to handle server conflict/rollback`;
-      }
+    const table = eff.entity ?? reach.table;
+    const durability = reach.durabilityOf(table);
+    if (durability === undefined) return `effect on "${table}", which the emitted schema does not declare`;
+    if (DURABILITY_EFFECT_LEVEL[durability] === "compensable" && !shape.handled.includes("refused")) {
+      return `effect on "${table}" is compensable (${durability}) and the chart draws no "refused" arrow: a chart deaf to the no has a zombie state`;
     }
   }
   const dangling = shape.refs.filter((r) => !available.has(r));

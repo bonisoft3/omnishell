@@ -252,8 +252,8 @@ A chart's grammar is `#Machine` in [`machine.cue`](machine.cue), vetted by
 
 ### Effects
 
-An arrow's `effect` is `{level?, op: create | update | delete | upsert,
-entity?, token?, filter?, values?}`, its `values` literals, `{now}`, the event
+An arrow's `effect` is `{op: create | update | delete | upsert, entity?,
+token?, filter?, values?}`, its `values` literals, `{now}`, the event
 leaf or a module, interpolated against the post-assign row. The terminal
 performs it through the store and answers the region's charts with `sync_ack`
 (carrying `token`) when the store settles it, and with `refused` if the write is
@@ -270,11 +270,12 @@ retry should handle `refused` in every state where a pending write can fail.
 | 3 | `replicated` | a join-semilattice write; out-of-order CDC converges | `server` |
 | 4 | `external` | at-least-once delivery, exactly once by token; compensation is explicit | outside the cluster |
 
-The durability column is `#DurabilityEffectLevel`, defined in
-[`machine.cue`](machine.cue) and in `plugins/pronto/schema.cue`, and nothing
-compares an effect against it. `machineLint` refuses an effect stating
-`level: 2` or `"compensable"` in a chart with no `refused` arrow; an effect
-naming no level escapes it ([machines](docs/machines.md#effects)).
+The level is the entity's, never the chart's: `#DurabilityEffectLevel` in
+[`machine.cue`](machine.cue) maps the durability `shell.yaml` carries to it, a
+chart states none, and `machineLint` reads it off the row an effect writes —
+the named entity, or the region's. A compensable write in a chart with no
+`refused` arrow is refused, as is a write to a row the emitted schema does not
+declare ([machines](docs/machines.md#effects)).
 
 ## What the terminal stamps
 

@@ -127,7 +127,10 @@ package terminal
 		type: "event"
 		params: close({field: "value" | "checked" | "valueAsNumber" | "key" | "pointerX" | "pointerY"})
 	})
-	#EffectLevel: "projection" | "ephemeral" | "compensable" | "replicated" | "external" | 0 | 1 | 2 | 3 | 4
+	// What can be claimed of a write is the durability of the row it lands on
+	// (REFERENCE.md, "Effects"): a chart states no level, the lint reads it off
+	// the entity, and a compensable write wants a `refused` arrow.
+	#EffectLevel: "projection" | "ephemeral" | "compensable" | "replicated" | "external"
 	#Durability:  "server" | "live" | "offline" | "tab" | "device"
 	#DurabilityEffectLevel: {
 		tab:     "ephemeral"
@@ -139,7 +142,6 @@ package terminal
 	// Declarative mutation effect executed by the terminal runtime into store.
 	// Closed and pure: never arbitrary code, never touches DOM directly.
 	#Effect: close({
-		level?:  M.#EffectLevel
 		op:      "create" | "update" | "delete" | "upsert"
 		entity?: string
 		token?:  string

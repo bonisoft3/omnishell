@@ -64,11 +64,10 @@ descriptor whose level says what can be claimed of it
   store methods remain program errors.
 - **A compensable effect draws `refused`**
   ([the lint](../REFERENCE.md#effects)), since a chart deaf to the no has a
-  zombie state by construction. The rule is partial: the interpreter defaults
-  an unlabelled effect to 2 and reads it nowhere, so an unlabelled upsert onto
-  an `offline` or `live` entity ships a chart deaf to the server's no. Reading
-  the level off the effect's entity, whose durability `shell.yaml` carries,
-  would make the rule total.
+  zombie state by construction. The level is read off the effect's entity,
+  whose durability `shell.yaml` carries, so the rule is total: an upsert onto
+  an `offline` or `live` row owes the arrow whatever the chart says of
+  itself, and a chart can say nothing — `effect.level` is not in the grammar.
 
 ## Gestures and cancels
 
