@@ -11,11 +11,12 @@
 // A unit driving some other protocol — UCI, an RPC, a codec — is the app's
 // wrapper script, which is also the half an engineer can read: this dispatcher
 // never learns what a unit is.
+import { ProgramError } from "./fragment.js";
 import { EVENT, parseDetail, PROPS, READY, SRC_SCHEMES } from "./hatch.js";
 
 export function mountWorkerUnit(root, { src, onEvent } = {}) {
   const url = new URL(src);
-  if (!SRC_SCHEMES.has(url.protocol)) throw new Error(`hatch src scheme "${url.protocol}" is not allowed`);
+  if (!SRC_SCHEMES.has(url.protocol)) throw new ProgramError(`hatch src scheme "${url.protocol}" is not allowed`);
 
   // Classic, never a module worker: importScripts is how a unit reaches the
   // code it wraps, and a module worker does not have it. Glue that derives its
@@ -44,8 +45,10 @@ export function mountWorkerUnit(root, { src, onEvent } = {}) {
   // it: what posts there is a provider's page, and what posts here is the
   // app's own wrapper, so a shape outside the protocol is the app's bug and
   // a memo answer that failed in silence would stand as a question forever.
+  // Thrown from the port's listener, it is the window's `error` event, which
+  // the shell banners for a ProgramError.
   const refuse = (what) => {
-    throw new Error(`hatch "${src}" posted ${what}`);
+    throw new ProgramError(`hatch "${src}" posted ${what}`);
   };
   const onMessage = (e) => {
     const message = e.data;

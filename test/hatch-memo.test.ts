@@ -6,6 +6,7 @@
 // terminal's own performance of the memo and nothing a unit or a store does.
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
 import { mountHatch } from "../interpreter/hatch.js";
+import { ProgramError } from "../interpreter/fragment.js";
 
 type Row = Record<string, string>;
 type Posted = { type: string; props?: Row; detail?: Row };
@@ -32,8 +33,12 @@ class FakeWorker {
     this.listeners.push(fn);
   }
   terminate() {}
+  /** What the unit says, delivered as the port does: a task of its own, so a
+   * listener's throw is the window's `error` event and never the caller's. */
   says(data: unknown) {
-    for (const fn of this.listeners) fn({ data });
+    setTimeout(() => {
+      for (const fn of this.listeners) fn({ data });
+    }, 0);
   }
 }
 // deno-lint-ignore no-explicit-any
@@ -49,7 +54,7 @@ function memoStore(rows: Row[] = []) {
       calls.push(`query ${table}`);
       return Promise.resolve(rows);
     },
-    upsertBy: (table: string, values: Row) => {
+    upsertBy: (table: string, values: Row, _onRefused?: (err: Error) => void) => {
       calls.push(`upsert ${table} ${values.fen}`);
       const at = rows.findIndex((r) => r.fen === values.fen && r.nodes === values.nodes);
       if (at < 0) rows.push({ id: String(rows.length + 1), ...values });
@@ -59,14 +64,39 @@ function memoStore(rows: Row[] = []) {
   };
 }
 
-const settled = () => new Promise((r) => setTimeout(r, 0));
+const settled = () => new Promise((r) => setTimeout(r, 1));
 
-const mount = (store: ReturnType<typeof memoStore>) => {
+/** What `act` let escape to where the shell listens: uncaught throws (the
+ * `error` event) and rejections nobody awaited, in order. */
+async function escaped(act: () => void): Promise<unknown[]> {
+  const out: unknown[] = [];
+  const onError = (e: ErrorEvent) => {
+    e.preventDefault();
+    out.push(e.error);
+  };
+  const onRejection = (e: PromiseRejectionEvent) => {
+    e.preventDefault();
+    out.push(e.reason);
+  };
+  globalThis.addEventListener("error", onError);
+  globalThis.addEventListener("unhandledrejection", onRejection);
+  try {
+    act();
+    await settled();
+  } finally {
+    globalThis.removeEventListener("error", onError);
+    globalThis.removeEventListener("unhandledrejection", onRejection);
+  }
+  return out;
+}
+
+const mount = async (store: ReturnType<typeof memoStore>) => {
   FakeWorker.made.length = 0;
   const events: { name: string; detail: Row }[] = [];
   const hatch = mountHatch(null, { unit: UNIT, src: SRC, onEvent: (e: { name: string; detail: Row }) => events.push(e), store });
   const worker = FakeWorker.made[0];
   worker.says({ type: "pronto:ready" });
+  await settled();
   // The seat delivers its current-value feed the moment the unit is ready,
   // empty here; the questions are what follows it.
   const asked = () => worker.posted.slice(1).map((p) => p.props);
@@ -75,7 +105,7 @@ const mount = (store: ReturnType<typeof memoStore>) => {
 
 Deno.test("asked twice with the same key, the agent runs once: the second ask is answered from the row", async () => {
   const store = memoStore();
-  const { hatch, worker, events, asked } = mount(store);
+  const { hatch, worker, events, asked } = await mount(store);
 
   hatch.update({ fen: "e4", nodes: "100" });
   await settled();
@@ -106,7 +136,7 @@ Deno.test("asked twice with the same key, the agent runs once: the second ask is
 
 Deno.test("a row held before the mount answers without the unit, and a re-delivery of the same props is silence", async () => {
   const store = memoStore([{ id: "1", fen: "d4", nodes: "100", uci: "d7d5" }]);
-  const { hatch, events, asked } = mount(store);
+  const { hatch, events, asked } = await mount(store);
   hatch.update({ fen: "d4", nodes: "100" });
   hatch.update({ fen: "d4", nodes: "100" });
   await settled();
@@ -118,46 +148,29 @@ Deno.test("a row held before the mount answers without the unit, and a re-delive
 
 Deno.test("an event outside the unit's raises is refused before the memo reads it as an answer", async () => {
   const store = memoStore();
-  const { hatch, worker, events } = mount(store);
+  const { hatch, worker, events } = await mount(store);
   hatch.update({ fen: "e4", nodes: "100" });
   await settled();
-  let threw: unknown = null;
-  try {
-    worker.says({ type: "pronto:event", name: "verdict", detail: { fen: "e4", nodes: "100", uci: "e7e5" } });
-  } catch (e) {
-    threw = e;
-  }
-  assert(String(threw).includes('raised "verdict"'), `the undeclared name is refused by the raises port, got ${threw}`);
-  await settled();
+  const [threw] = await escaped(() => worker.says({ type: "pronto:event", name: "verdict", detail: { fen: "e4", nodes: "100", uci: "e7e5" } }));
+  assert(threw instanceof ProgramError, `the undeclared name is the app's bug, got ${threw}`);
+  assert(String(threw).includes('raised "verdict"'), `refused by the raises port, got ${threw}`);
   assertEquals(store.calls, ["query answer"], "and the memo wrote nothing");
   assertEquals(events, [], "and the chart heard nothing");
   hatch.destroy();
 });
 
 Deno.test("an answer the store refuses is a ProgramError naming the unit and its memo, never a dropped connection", async () => {
-  const { ProgramError } = await import("../interpreter/fragment.js");
   const store = memoStore();
   store.upsertBy = () => Promise.reject(new Error("uci: this.matches('^[a-h]...') is false"));
-  const { hatch, worker, events } = mount(store);
+  const { hatch, worker, events } = await mount(store);
   hatch.update({ fen: "e4", nodes: "100" });
   await settled();
   // The seat's chain has nobody to await it, so the refusal lands where the
   // shell listens; the shell banners a ProgramError wherever it lands.
-  const escaped: unknown[] = [];
-  const onEscape = (e: Event) => {
-    e.preventDefault();
-    escaped.push((e as PromiseRejectionEvent).reason);
-  };
-  globalThis.addEventListener("unhandledrejection", onEscape);
-  try {
-    worker.says({ type: "pronto:event", name: "answer", detail: { fen: "e4", nodes: "100", uci: "z9" } });
-    await settled();
-  } finally {
-    globalThis.removeEventListener("unhandledrejection", onEscape);
-  }
-  assertEquals(escaped.length, 1);
-  assert(escaped[0] instanceof ProgramError, `a program error, got ${escaped[0]}`);
-  const said = String((escaped[0] as Error).message);
+  const out = await escaped(() => worker.says({ type: "pronto:event", name: "answer", detail: { fen: "e4", nodes: "100", uci: "z9" } }));
+  assertEquals(out.length, 1);
+  assert(out[0] instanceof ProgramError, `a program error, got ${out[0]}`);
+  const said = String((out[0] as Error).message);
   for (const word of [SRC, '"answer"', "refused", "this.matches"]) assert(said.includes(word), `${word} in ${said}`);
   assertEquals(events, [], "and the chart heard nothing");
   hatch.destroy();
@@ -165,24 +178,20 @@ Deno.test("an answer the store refuses is a ProgramError naming the unit and its
 
 Deno.test("an answer missing a key field or a column of the memo is refused, and a question missing a key field too", async () => {
   const store = memoStore();
-  const { hatch, worker } = mount(store);
+  const { hatch, worker } = await mount(store);
   hatch.update({ fen: "e4", nodes: "100" });
   await settled();
-  let threw: unknown = null;
-  try {
-    worker.says({ type: "pronto:event", name: "answer", detail: { fen: "e4", uci: "e7e5" } });
-  } catch (e) {
-    threw = e;
-  }
-  assert(String(threw).includes('"nodes"'), `a key field the answer lacks is named, got ${threw}`);
-  threw = null;
-  try {
-    worker.says({ type: "pronto:event", name: "answer", detail: { fen: "e4", nodes: "100" } });
-  } catch (e) {
-    threw = e;
-  }
-  assert(String(threw).includes('"uci"'), `a column the answer lacks is named, got ${threw}`);
+  // Thrown from the port's listener, each is the window's `error` event — a
+  // ProgramError, so the shell banners it rather than leaving a console line
+  // and a question that stands forever.
+  let [threw] = await escaped(() => worker.says({ type: "pronto:event", name: "answer", detail: { fen: "e4", uci: "e7e5" } }));
+  assert(threw instanceof ProgramError && String(threw).includes('"nodes"'), `a key field the answer lacks is named, got ${threw}`);
+  [threw] = await escaped(() => worker.says({ type: "pronto:event", name: "answer", detail: { fen: "e4", nodes: "100" } }));
+  assert(threw instanceof ProgramError && String(threw).includes('"uci"'), `a column the answer lacks is named, got ${threw}`);
   assertEquals(store.rows, [], "and nothing was written");
-  await assertRejects(() => Promise.resolve().then(() => hatch.update({ nodes: "100" })), Error, '"fen"');
+  // A question is put inside the region's refresh, whose outage guard retries
+  // anything but a ProgramError as a dead gateway; worker-smoke.js drives this
+  // one through interpretScreen.
+  await assertRejects(() => Promise.resolve().then(() => hatch.update({ nodes: "100" })), ProgramError, '"fen"');
   hatch.destroy();
 });

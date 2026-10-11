@@ -94,18 +94,24 @@ const SEATS = { realm: mountFrameUnit, agent: mountWorkerUnit };
 // mount to, and `raises`, the events it may post, held here at the seat so an
 // undeclared name never becomes a DOM event. The terminal grants nothing
 // else at either boundary. `store` is the terminal's, for a unit with a memo.
+//
+// Every refusal here and in the seats is a ProgramError: the app's own bug,
+// which the shell banners wherever it lands. The mount and a question run
+// inside the region's refresh, whose outage guard retries anything else as a
+// dead gateway; an answer runs inside the port's message listener, where
+// anything else is a console line and the question stands forever.
 export function mountHatch(root, { unit, src, onEvent, store } = {}) {
   const seat = SEATS[unit.isolation];
   // The schema offers three isolation boundaries and the terminal implements
   // two. A unit asking for a boundary that does not exist must not quietly get
   // a different one.
-  if (seat === undefined) throw new Error(`hatch isolation "${unit.isolation}" is not implemented`);
-  if (unit.ports === undefined) throw new Error(`hatch "${unit.src}" declares no ports`);
+  if (seat === undefined) throw new ProgramError(`hatch isolation "${unit.isolation}" is not implemented`);
+  if (unit.ports === undefined) throw new ProgramError(`hatch "${unit.src}" declares no ports`);
   // The raises port, applied to every event the seat delivers — before the
   // memo reads one as an answer, and before a DOM event is dispatched.
   const declared = (event) => {
     if (!unit.ports.raises.includes(event.name)) {
-      throw new Error(
+      throw new ProgramError(
         `hatch "${unit.src}" raised "${event.name}", which its ports do not declare (raises: ${unit.ports.raises.join(", ") || "nothing"})`,
       );
     }
@@ -144,11 +150,11 @@ function memoSeat(seat, root, { unit, src, onEvent, store, declared }) {
     onEvent: (event) => {
       declared(event);
       for (const k of key) {
-        if (event.detail[k] === undefined) throw new Error(`hatch "${src}" answered without "${k}", a key of its memo`);
+        if (event.detail[k] === undefined) throw new ProgramError(`hatch "${src}" answered without "${k}", a key of its memo`);
       }
       const row = {};
       for (const c of columns) {
-        if (event.detail[c] === undefined) throw new Error(`hatch "${src}" answered without "${c}", a column of its memo`);
+        if (event.detail[c] === undefined) throw new ProgramError(`hatch "${src}" answered without "${c}", a column of its memo`);
         row[c] = event.detail[c];
       }
       // Dispatched once the row is held, so the chart hearing it reads the
@@ -163,7 +169,7 @@ function memoSeat(seat, root, { unit, src, onEvent, store, declared }) {
     ...inner,
     update(props) {
       for (const k of key) {
-        if (props[k] === undefined) throw new Error(`hatch "${src}" is asked without "${k}", a key of its memo`);
+        if (props[k] === undefined) throw new ProgramError(`hatch "${src}" is asked without "${k}", a key of its memo`);
       }
       if (key.some((k) => props[k] === "")) {
         asked = "";
@@ -186,7 +192,7 @@ function memoSeat(seat, root, { unit, src, onEvent, store, declared }) {
 
 function mountFrameUnit(root, { unit, src, onEvent }) {
   const url = new URL(src);
-  if (!SRC_SCHEMES.has(url.protocol)) throw new Error(`hatch src scheme "${url.protocol}" is not allowed`);
+  if (!SRC_SCHEMES.has(url.protocol)) throw new ProgramError(`hatch src scheme "${url.protocol}" is not allowed`);
 
   const frame = document.createElement("iframe");
   frame.setAttribute("sandbox", SANDBOX);

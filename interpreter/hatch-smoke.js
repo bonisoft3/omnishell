@@ -1,4 +1,5 @@
 import { batched } from "./batched-store.js";
+import { ProgramError } from "./fragment.js";
 // Deno smoke: the terminal's hatch — a vendored unit in the realm seat, a
 // sandboxed iframe, props in and named events out. The frame is driven through a stub
 // contentWindow: linkedom has no
@@ -189,11 +190,14 @@ Deno.test("props wait for ready, coalesce, and re-deliver idempotently", async (
 
 Deno.test("a unit the terminal cannot honour fails loudly", async () => {
   const { mountHatch } = await import("./hatch.js");
+  // As a ProgramError: the mount runs inside the region's refresh, whose
+  // outage guard retries anything else as a dead gateway.
   const refuses = (unit, src, why) => {
     const { target } = dom();
     try {
       mountHatch(target, { unit, src });
-    } catch {
+    } catch (e) {
+      assert(e instanceof ProgramError, `${why}: refused as the app's bug, got ${e}`);
       return;
     }
     throw new Error(`smoke failed: mounted anyway — ${why}`);
