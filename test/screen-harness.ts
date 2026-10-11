@@ -484,7 +484,7 @@ export type El = {
 
 /** A vendored unit, as shell.yaml declares it and as the interpreter resolves
  * a `data-hatch` name against. */
-export type Unit = { isolation: string; capabilities: string[]; src: string };
+export type Unit = { isolation: string; ports: { reads: string[]; raises: string[] }; src: string };
 
 type Interpreter = {
   interpretScreen(

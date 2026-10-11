@@ -4,7 +4,7 @@
 // browser worker here and a real one would answer off the test's own timeline.
 import { parseHTML } from "npm:linkedom@0.18.4";
 
-const UNIT = { isolation: "agent", capabilities: [], src: "shell/units/engine/unit.js", note: "an oracle" };
+const UNIT = { isolation: "agent", ports: { reads: ["game"], raises: ["answer"] }, src: "shell/units/engine/unit.js", note: "an oracle" };
 const APP_BASE = "https://app.example/";
 const SRC = new URL(UNIT.src, APP_BASE).href;
 
@@ -65,16 +65,27 @@ Deno.test("the unit gets a thread, and the terminal grants it nothing else", asy
   hatch.destroy();
   assert(made[0].terminated === 1, `destroy terminates the thread, got ${made[0].terminated}`);
 
-  // Silence would hand the app a unit that cannot do what it declared, at the
-  // boundary where a grant would be least defensible.
+  // A unit touches the app through its ports alone, and an event outside
+  // its raises is refused at the seat rather than dispatched.
   let threw = null;
   try {
-    mountHatch(root(), { unit: { ...UNIT, capabilities: ["sensors.camera"] }, src: SRC });
+    mountHatch(root(), { unit: { ...UNIT, ports: undefined }, src: SRC });
   } catch (e) {
     threw = e;
   }
-  assert(threw !== null, "a capability request is refused rather than ignored");
+  assert(threw !== null, "a unit declaring no ports is refused");
   assert(made.length === 1, "and no thread was started for it");
+  const events = [];
+  const held = mountHatch(root(), { unit: UNIT, src: SRC, onEvent: (e) => events.push(e) });
+  threw = null;
+  try {
+    made[1].says({ type: "pronto:event", name: "verdict", detail: { uci: "e2e4" } });
+  } catch (e) {
+    threw = e;
+  }
+  assert(threw !== null && String(threw.message).includes('"verdict"'), "an undeclared raise is refused by name");
+  assert(events.length === 0, "and reaches no listener");
+  held.destroy();
 
   threw = null;
   try {

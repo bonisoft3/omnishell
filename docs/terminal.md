@@ -20,9 +20,13 @@ included, read-only where a unit should not write; the one data interface
 every unit receives. *Markup* — slots; the element carrying `data-hatch` is the
 slot. *Returned requests* — a unit describes and the host performs: a reduce
 returns `{updates, then}`, a machine transition effects and a `raise`, a hatch
-posts named events. *A capability object* — hatches only, and both hatch seats
-are granted nothing: a unit declaring `capabilities` is refused at mount
-(`hatch.js`, `hatch-worker.js`).
+posts named events. *Ports* — hatches only (ports and adapters, Cockburn
+2005): `reads`, the tables whose row a mount's `data-prop-*` are read off,
+and `raises`, the events a mount's `data-on-*` may hear. The terminal is the
+adapter on both and grants nothing else at either seat: a mount fed a region
+outside `reads` is refused (`screen.js`), an event outside `raises` is refused
+where it would become a DOM event (`hatch.js`), and `check markup` says both
+before any mount and that every raise is handled somewhere.
 
 **What cannot be handed to a unit.** The durable outbox is leader-elected per
 origin through Web Locks, so two of them means one wins and the other's writes
@@ -40,7 +44,7 @@ Electric collections.
 | handler | its arguments, nothing else | no |
 | region | collections, its filter | no |
 | screen | collections, params | no |
-| hatch | props, a channel | yes |
+| hatch | props off the row of a table its ports read, a channel for the events its ports raise | yes |
 
 CUE declares what exists — entities, screens, routes, access, design. Jessie
 maps between vocabularies, one role per shape of answer (`interpreter/jessie.js`):

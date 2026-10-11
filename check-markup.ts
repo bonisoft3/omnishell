@@ -35,6 +35,9 @@ import {
   type Entity,
   formatBindings,
   formatLint,
+  hatchLint,
+  type HatchSite,
+  hatchSites,
   kindedRegions,
   kindLint,
   linkLint,
@@ -47,6 +50,8 @@ import {
   slotRegions,
   templateArity,
   undeclaredSlot,
+  unhandledRaises,
+  type UnitPorts,
   unknownColumns,
   unwitnessedControls,
   unwitnessedSlot,
@@ -84,7 +89,7 @@ type SchemaEntity = {
   fields: SchemaField[];
   uniques?: { name: string; cols: string[]; where?: string }[];
 };
-type Shell = { schema?: Record<string, SchemaEntity>; routes?: LinkRoute[] };
+type Shell = { schema?: Record<string, SchemaEntity>; routes?: LinkRoute[]; units?: Record<string, UnitPorts> };
 
 /** The schema entry as the rules take it: they are written against a whole
  * entity, whose table is the key it is filed under. */
@@ -104,8 +109,9 @@ const enumsOf = (e: SchemaEntity) => (col: string): string[] | null =>
 /**
  * One screen's findings, in the order the rules are stated: what a region
  * reads, what a slot binds, what a format resolves, what a template admits,
- * what a chart names and writes, where a caret may follow, and what a control
- * reaches.
+ * what a chart names and writes, where a caret may follow, what a control
+ * reaches, and what a hatch is fed and may raise. `sites` collects the
+ * screen's mounts for the app-wide rule over every unit's raises.
  *
  * A reader that refuses the markup outright — a data-machine off a region, a
  * data-filter anchored to no table — is itself a finding: every rule after it
@@ -117,6 +123,8 @@ export function screenFindings(
   schema: Record<string, SchemaEntity>,
   available: Set<string>,
   routes: LinkRoute[],
+  units: Record<string, UnitPorts> = {},
+  sites: HatchSite[] = [],
 ): Finding[] {
   const out: Finding[] = [];
   const report = (message: string) => out.push({ severity: "error", path, message });
@@ -213,6 +221,9 @@ export function screenFindings(
   for (const why of read(() => templateArity(html)) ?? []) report(why);
   for (const why of read(() => unwitnessedControls(html)) ?? []) report(why);
   for (const why of read(() => linkLint(html, routes)) ?? []) report(why);
+  const mounts = read(() => hatchSites(html)) ?? [];
+  sites.push(...mounts);
+  for (const why of hatchLint(mounts, units)) report(why);
   return out;
 }
 
@@ -290,6 +301,8 @@ export async function checkApp(appDir: URL): Promise<Checked> {
       checked: 0,
     };
   }
+  const units = shell.units ?? {};
+  const sites: HatchSite[] = [];
   for (const name of names.sort()) {
     findings.push(
       ...screenFindings(
@@ -298,9 +311,12 @@ export async function checkApp(appDir: URL): Promise<Checked> {
         schema,
         available,
         routes,
+        units,
+        sites,
       ),
     );
   }
+  for (const why of unhandledRaises(sites, units)) findings.push({ severity: "error", path: "shell/shell.yaml", message: why });
   return { findings, checked: names.length };
 }
 
@@ -330,6 +346,9 @@ export async function selfTest(): Promise<{ failures: string[] }> {
     'format.html: data-text-format="money" reads {step}, which declares no money: on "note"',
     'format.html: data-text-format="money" reads {category.budget}, which is not a column of "note"',
     'format.html: data-text-format="money" reads {amount}, which is not a column of "detail"',
+    'hatch.html: data-hatch="ghost" names no unit in shell.yaml',
+    'hatch.html: data-hatch="oracle" is fed the row of "note", which its ports do not read (reads: detail)',
+    'hatch.html: data-hatch="oracle" handles "echo", which its ports do not raise (raises: answer, verdict)',
     'kinds.html: region "note": data-when="kind=eq.quote": "quote" is not a declarable kind (note, link)',
     'link.html: <a href="/note/um"> writes an internal path by hand',
     'link.html: <a href="#/note/um"> writes an internal path by hand',
@@ -343,6 +362,7 @@ export async function selfTest(): Promise<{ failures: string[] }> {
     'slot.html: slot region "note" (filter "kind=eq.note") may bind more than one row',
     'unknown.html: reads "ghost", which the emitted schema does not declare',
     'writes.html: region "note": "step" is written in 2 spellings',
+    'shell.yaml: unit "oracle" raises "verdict", which no data-hatch mount handles',
   ];
   const orchestrated = got.length === want.length && want.every((w, i) => got[i].startsWith(w));
   if (!orchestrated) {
@@ -351,8 +371,8 @@ export async function selfTest(): Promise<{ failures: string[] }> {
   // The sound screen is the half that would go dark if a reader's refusal
   // stopped the walk: a count, so a fixture that grows is not silently
   // half-read.
-  if (run.checked !== 14) {
-    failures.push(`the fixture app carries 14 screens, read ${run.checked}`);
+  if (run.checked !== 15) {
+    failures.push(`the fixture app carries 15 screens, read ${run.checked}`);
   }
 
   // An app whose shell.yaml carries no schema is not an app with no rules to

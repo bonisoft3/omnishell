@@ -255,8 +255,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 				performs: "dispatches a non-bubbling CustomEvent of the same name on the mount element, where data-on-answer names the reduce that receives it"
 				note:     "the detail is rebuilt from validated strings and frozen; the unit's own object never crosses"
 			}
-			// An opaque origin is granted nothing, and the terminal refuses a
-			// unit that asks for a capability rather than granting silence.
+			// An opaque origin is granted nothing beyond its ports.
 			grants: []
 			note: "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox, never allow-same-origin — the unit runs in an opaque origin and cannot reach this one. Props are delivered with targetOrigin \"*\", which an opaque origin leaves no alternative to, so a hatch is never given a secret"
 		}

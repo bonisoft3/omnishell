@@ -13,13 +13,7 @@
 // never learns what a unit is.
 import { EVENT, parseDetail, PROPS, READY, SRC_SCHEMES } from "./hatch.js";
 
-export function mountWorkerUnit(root, { unit, src, onEvent } = {}) {
-  // A worker seat performs no capability either — the terminal grants a unit
-  // nothing at either boundary, and answering a request for one with silence
-  // would hand the app a unit that cannot do what it declared.
-  if (unit.capabilities?.length) {
-    throw new Error(`hatch capabilities ${unit.capabilities} are not grantable to a worker unit`);
-  }
+export function mountWorkerUnit(root, { src, onEvent } = {}) {
   const url = new URL(src);
   if (!SRC_SCHEMES.has(url.protocol)) throw new Error(`hatch src scheme "${url.protocol}" is not allowed`);
 

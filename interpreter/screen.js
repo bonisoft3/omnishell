@@ -1624,6 +1624,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   const resolveUnit = (name) => {
     const unit = units[name];
     if (unit === undefined) throw new Error(`no vendored unit for data-hatch="${name}"`);
+    if (unit.ports === undefined) throw new Error(`vendored unit "${name}" declares no ports`);
     return unit;
   };
   // Every hatch name resolves before a region hydrates, item templates
@@ -1693,6 +1694,13 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       if (el._prontoHatch === undefined) {
         const name = el.dataset.hatch;
         const unit = resolveUnit(name);
+        // The read port, held at the mount: the props are the nearest region's
+        // row, so that table is what the unit is handed, and only a table its
+        // ports read may be. A mount outside every region is fed no row.
+        const fed = el.closest("[data-live]")?.dataset.live;
+        if (fed !== undefined && !unit.ports.reads.includes(fed)) {
+          throw new Error(`data-hatch="${name}" is fed the row of "${fed}", which its ports do not read`);
+        }
         el._prontoHatch = mountHatch(el, {
           unit,
           src: new URL(unit.src, appBase).href,

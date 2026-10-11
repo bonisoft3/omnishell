@@ -6,7 +6,7 @@ import { batched } from "./batched-store.js";
 // so a navigated (or stubbed) frame is the one that gets answered.
 import { parseHTML } from "npm:linkedom@0.18.4";
 
-const UNIT = { isolation: "realm", capabilities: [], src: "shell/units/embed.html", note: "oEmbed host" };
+const UNIT = { isolation: "realm", ports: { reads: ["article"], raises: ["answer", "select"] }, src: "shell/units/embed.html", note: "oEmbed host" };
 
 const SCREEN_HTML = `<section class="screen" data-screen="article">
   <article data-live="article" data-order="created_at.desc" data-on-answer="shadow">
@@ -201,10 +201,12 @@ Deno.test("a unit the terminal cannot honour fails loudly", async () => {
   // The schema offers three isolation boundaries; the terminal implements two.
   // Quietly substituting a different boundary is the failure worth refusing.
   refuses({ ...UNIT, isolation: "compartment" }, "https://a.example/u.html", "compartment isolation");
-  // An opaque-origin frame is granted nothing, so answering a capability
-  // request with silence would hand the app a unit that cannot do its job.
-  refuses({ ...UNIT, capabilities: ["sensors.camera"] }, "https://a.example/u.html", "camera capability");
+  // A unit touches the app through its ports alone; one declaring none has
+  // no channel the terminal could hold it to.
+  refuses({ ...UNIT, ports: undefined }, "https://a.example/u.html", "no ports");
   refuses(UNIT, "javascript:alert(1)", "javascript: src");
+  // An event outside the unit's raises is refused at the seat both boundaries
+  // share; worker-smoke.js holds it, where the port delivers synchronously.
 });
 
 Deno.test({

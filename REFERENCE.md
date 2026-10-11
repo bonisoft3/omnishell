@@ -307,7 +307,11 @@ Hooks a stylesheet or a test observes and never writes:
 resolved against the row by the same binder as every other attribute and
 resynchronised on every refresh, so a hatch sees a current-value feed rather
 than a message it has to keep up with. What comes back out is named and
-request-shaped, and crosses as a parsed, frozen event (`parseDetail`). This is
+request-shaped, and crosses as a parsed, frozen event (`parseDetail`). Both
+are the unit's ports (shell.yaml `units.<name>.ports`): the region a mount
+sits in must be a table the unit `reads`, and a `data-on-<event>` on the mount
+must be one it `raises` — the mount refuses the rest, and `check markup`
+reports it first, with any raise no mount handles. This is
 the only rung where code the terminal did not emit runs on a reader's device.
 A unit declares its seat by its `isolation`, a `realm` (an iframe) or an
 `agent` (a worker); what each seat grants and performs is `terminal.cue`'s

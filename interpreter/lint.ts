@@ -969,6 +969,79 @@ export function unwitnessedControls(html: string): string[] {
   return out;
 }
 
+/** One `data-hatch` mount: the unit it names, the table of the nearest
+ * region — whose row its `data-prop-*` are read off, and so what the unit is
+ * handed — the tables that region reads, and the events its own `data-on-*`
+ * handle. The mount is read where it stands; a mount in an item template is
+ * one mount per row of the same region. */
+export type HatchSite = { unit: string; table?: string; reads: string[]; handles: string[] };
+
+export function hatchSites(html: string): HatchSite[] {
+  const out: HatchSite[] = [];
+  type Open = { tag: string; table?: string; reads?: string[] };
+  walkTags<Open>(html, (tag, attrText, stack) => {
+    const attrs = attrMap(attrText);
+    const live = attrs.get("data-live");
+    const frame: Open = { tag, table: live };
+    if (live !== undefined) {
+      const reads = [live, ...(attrs.get("data-reads") ?? "").split(",").map((t) => t.trim()).filter(Boolean)];
+      for (const [name, value] of attrs) if (name.startsWith("data-read-")) reads.push(parseReadSpec(value).table);
+      frame.reads = [...new Set(reads)];
+    }
+    const unit = attrs.get("data-hatch");
+    if (unit !== undefined) {
+      const region = live !== undefined ? frame : stack.findLast((f) => f.table !== undefined);
+      out.push({
+        unit,
+        table: region?.table,
+        reads: region?.reads ?? [],
+        handles: [...attrs.keys()].filter((k) => k.startsWith("data-on-")).map((k) => k.slice("data-on-".length)),
+      });
+    }
+    return frame;
+  });
+  return out;
+}
+
+/** A vendored unit as shell.yaml `units:` declares it to the terminal. */
+export type UnitPorts = { ports: { reads: string[]; raises: string[] } };
+
+/** The reasons one screen's mounts disagree with their units' ports: a unit
+ * nobody declared, a mount fed a region's row the unit does not read, a
+ * mount handling an event the unit does not raise. The interpreter refuses
+ * each of these at the mount; this says so before one. */
+export function hatchLint(sites: HatchSite[], units: Record<string, UnitPorts>): string[] {
+  const out: string[] = [];
+  for (const s of sites) {
+    const unit = units[s.unit];
+    if (unit === undefined) {
+      out.push(`data-hatch="${s.unit}" names no unit in shell.yaml`);
+      continue;
+    }
+    if (s.table !== undefined && !unit.ports.reads.includes(s.table)) {
+      out.push(`data-hatch="${s.unit}" is fed the row of "${s.table}", which its ports do not read (reads: ${unit.ports.reads.join(", ") || "nothing"})`);
+    }
+    for (const ev of s.handles) {
+      if (!unit.ports.raises.includes(ev)) out.push(`data-hatch="${s.unit}" handles "${ev}", which its ports do not raise (raises: ${unit.ports.raises.join(", ") || "nothing"})`);
+    }
+  }
+  return out;
+}
+
+/** Over every screen's mounts: a raise no mount handles is an event the app
+ * declared and nothing hears — a port wired to nothing. */
+export function unhandledRaises(sites: HatchSite[], units: Record<string, UnitPorts>): string[] {
+  const out: string[] = [];
+  for (const [name, unit] of Object.entries(units)) {
+    for (const ev of unit.ports.raises) {
+      if (!sites.some((s) => s.unit === name && s.handles.includes(ev))) {
+        out.push(`unit "${name}" raises "${ev}", which no data-hatch mount handles`);
+      }
+    }
+  }
+  return out;
+}
+
 /** The value set a column admits, or null where it admits an open set. The
  * constraint language it is read out of is the program's, not the markup's,
  * so the reader is handed in: pronto derives it from the parsed cel, the

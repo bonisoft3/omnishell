@@ -84,22 +84,32 @@ export function parseDetail(value) {
 
 // The seats, by the ECMA-262 name of what each gives the unit: a realm is an
 // iframe (its own globals and DOM), an agent a worker (its own thread).
+const SEATS = { realm: mountFrameUnit, agent: mountWorkerUnit };
+
+// A unit touches the app through its ports alone (shell.yaml `units`):
+// `reads`, the tables whose row the mount feeds it, which the screen holds the
+// mount to, and `raises`, the events it may post, held here at the seat so an
+// undeclared name never becomes a DOM event. The terminal grants nothing
+// else at either boundary.
 export function mountHatch(root, { unit, src, onEvent } = {}) {
-  if (unit.isolation === "realm") return mountFrameUnit(root, { unit, src, onEvent });
-  if (unit.isolation === "agent") return mountWorkerUnit(root, { unit, src, onEvent });
+  const seat = SEATS[unit.isolation];
   // The schema offers three isolation boundaries and the terminal implements
   // two. A unit asking for a boundary that does not exist must not quietly get
   // a different one.
-  throw new Error(`hatch isolation "${unit.isolation}" is not implemented`);
+  if (seat === undefined) throw new Error(`hatch isolation "${unit.isolation}" is not implemented`);
+  if (unit.ports === undefined) throw new Error(`hatch "${unit.src}" declares no ports`);
+  const raised = (event) => {
+    if (!unit.ports.raises.includes(event.name)) {
+      throw new Error(
+        `hatch "${unit.src}" raised "${event.name}", which its ports do not declare (raises: ${unit.ports.raises.join(", ") || "nothing"})`,
+      );
+    }
+    onEvent?.(event);
+  };
+  return seat(root, { unit, src, onEvent: raised });
 }
 
 function mountFrameUnit(root, { unit, src, onEvent }) {
-  // An opaque-origin frame is granted no terminal capabilities at all.
-  // Answering a request for one with silence would hand the app a unit that
-  // cannot do what it declared.
-  if (unit.capabilities?.length) {
-    throw new Error(`hatch capabilities ${unit.capabilities} are not grantable to an iframe unit`);
-  }
   const url = new URL(src);
   if (!SRC_SCHEMES.has(url.protocol)) throw new Error(`hatch src scheme "${url.protocol}" is not allowed`);
 
