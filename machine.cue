@@ -143,12 +143,15 @@ package terminal
 	// mutation, and classified by what happens if it happens twice (a join
 	// is `x ⊔ x = x`: CRDTs, Shapiro et al. 2011). `ensure`, `upsert`,
 	// `delete` and an absolute `update` are joins — twice is once. `create`
-	// is a duplicate unless the client mints the id, where the second is a
-	// conflict and the refusal makes it idempotent; the terminal mints ids.
-	// `accumulate` adds twice, and is exactly-once only as a fold over a
-	// keyed event set. `reduce` has the delivery of the ops it returns.
-	// `navigate` is an upsert on the route row. A consumer narrows this to
-	// the ops its performer runs; none extends it.
+	// is a duplicate unless the client mints the key, which the terminal
+	// does: then a retry is a join on the wire (the gateway's
+	// `resolution=ignore-duplicates`, mecha docs/proxy.md) and a refusal
+	// before it (data-sync.js `add` validates the row as new). `accumulate`
+	// adds twice, and is exactly-once only as a fold over a keyed event set.
+	// `reduce` has the delivery of the ops it returns. `navigate` writes no
+	// row: it fills the route's params, and a second hash change lands on
+	// the same route. A consumer narrows this to the ops its performer runs;
+	// none extends it.
 	#MutationOp: "create" | "ensure" | "upsert" | "update" | "accumulate" | "delete" | "reduce" | "navigate"
 	// Declarative mutation effect executed by the terminal runtime into store.
 	// Closed and pure: never arbitrary code, never touches DOM directly. The
