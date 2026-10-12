@@ -69,7 +69,14 @@ Deno.test({
     const workerListeners = new Map<string, (event?: unknown) => void>()
     let releaseRequests = 0
     let intervals = 0
-    let releaseTick: () => void = () => { throw new Error("release timer not installed") }
+    let releaseTick: () => Promise<void> = () => { throw new Error("release timer not installed") }
+    const until = async (test: () => boolean, evidence: string) => {
+      const deadline = Date.now() + 10000
+      while (!test()) {
+        assert.ok(Date.now() < deadline, evidence)
+        await new Promise(resolve => setTimeout(resolve, 0))
+      }
+    }
     try {
       globalThis.document = document
       Object.defineProperty(globalThis, "window", { value: globalThis, configurable: true })
@@ -89,10 +96,10 @@ Deno.test({
         addEventListener: (type: string, listener: (event?: unknown) => void) => workerListeners.set(type, listener),
       } }, configurable: true })
       globalThis.addEventListener = () => {}
-      Object.defineProperty(globalThis, "setInterval", { configurable: true, value: (fn: () => void) => {
+      Object.defineProperty(globalThis, "setInterval", { configurable: true, value: (fn: () => Promise<void>) => {
         if (typeof fn !== "function") throw new Error("release timer is not a callback")
         intervals += 1
-        releaseTick = () => { void fn() }
+        releaseTick = fn
         return 1
       } })
       globalThis.scrollTo = () => {}
@@ -115,6 +122,7 @@ Deno.test({
       const { store, navigate } = await createShell({ config: "./shell.json", mount: document.getElementById("app"), liveUpdates: true })
       if (!navigate) throw new Error("shell did not provide navigation")
       assert.equal(intervals, 1)
+      await releaseTick()
       assert.equal(document.getElementById("screen-css-home")?.textContent, files.get("shell/screens/home.css"))
       const draft = document.querySelector<HTMLInputElement>('[data-screen="home"] [data-id="a"] input')
       if (!draft) throw new Error("draft missing")
@@ -139,8 +147,7 @@ Deno.test({
       assert.equal(releaseRequests, beforeChange)
       files.set("shell/screens/home.html", screen("home", '<p id="added">new section</p>', true))
       manifest = await releaseManifest("runtime@one", files)
-      releaseTick()
-      await new Promise((resolve) => setTimeout(resolve, 180))
+      await releaseTick()
       await navigate("/")
       assert.equal(document.querySelector("#added")?.textContent, "new section", document.getElementById("app")?.innerHTML)
       assert.equal(document.querySelector<HTMLInputElement>('[data-screen="home"] [data-id="a"] input')?.value, "kept")
@@ -167,14 +174,14 @@ Deno.test({
       files.set("shell/screens/home.html", screen("home", '<p id="added">new section</p><div data-live="probe"><template data-item><p data-text="{id}"></p></template></div>', true)
         .replace(/<div data-id=("[^"]+")>(.*?)<\/div>/g, '<article data-id=$1>$2</article>'))
       manifest = await releaseManifest("runtime@one", files)
-      releaseTick()
+      const releaseUpdate = releaseTick()
       await reading
       const during = document.querySelector<HTMLInputElement>('[data-screen="home"] [data-id="a"] input')!
       assert.equal(during.value, "kept")
       during.value += "!"
       during.dispatchEvent(new Event("input", { bubbles: true }))
       releaseRead()
-      await new Promise(resolve => setTimeout(resolve, 180))
+      await releaseUpdate
       store.query = query
       assert.equal(document.querySelector<HTMLInputElement>('[data-screen="home"] [data-id="a"] input')?.value, "kept!")
 
@@ -183,19 +190,23 @@ Deno.test({
       password.value = "editing"
       files.set("shell/screens/home.css", '@import "./shared/common.css"; .next{display:block}')
       manifest = await releaseManifest("runtime@one", files)
+      const beforeVisibility = releaseRequests
       document.dispatchEvent(new Event("visibilitychange"))
-      await new Promise((resolve) => setTimeout(resolve, 80))
+      await until(() => releaseRequests > beforeVisibility, "visibilitychange did not check the release")
+      await releaseTick()
       assert.equal(document.querySelector<HTMLInputElement>('[data-screen="home"] input[type="password"]')?.value, "editing")
       assert.doesNotMatch(document.getElementById("screen-css-home")?.textContent ?? "", /\.next/)
       password.value = ""
+      const beforeDeferred = releaseRequests
       password.dispatchEvent(new Event("change", { bubbles: true }))
-      await new Promise((resolve) => setTimeout(resolve, 180))
+      await until(() => releaseRequests > beforeDeferred, "change did not retry the deferred release")
+      await releaseTick()
       assert.match(document.getElementById("screen-css-home")?.textContent ?? "", /\.next/)
 
       files.set("shell/handlers/change.js", "export default 2")
       manifest = await releaseManifest("runtime@one", files)
       workerListeners.get("message")?.({ data: { type: "PRONTO_ASSET_UPDATED", pathname: "/shell/handlers/change.js" } })
-      await new Promise((resolve) => setTimeout(resolve, 80))
+      await until(() => location.reloads === 1, "the worker update did not restart the shell")
       assert.equal(location.reloads, 1)
       assert.equal(new URL(location.href).searchParams.get("pronto-release"), manifest.id)
       assert.equal(JSON.parse(sessionStorage.getItem("pronto-live-update-recovery") ?? "{}").expected, manifest.id)
