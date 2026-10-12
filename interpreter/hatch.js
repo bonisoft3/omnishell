@@ -142,6 +142,7 @@ function memoSeat(seat, root, { unit, src, onEvent, store, declared }) {
   const attributed = (what) => (err) => {
     throw new ProgramError(`hatch "${src}" memo on "${table}": ${what} — ${err.message}`);
   };
+  let alive = true;
   const inner = seat(root, {
     unit,
     src,
@@ -161,7 +162,9 @@ function memoSeat(seat, root, { unit, src, onEvent, store, declared }) {
       // no longer reject the upsert, and a memo has no form to carry the words
       // back to, so it is the same ProgramError either way.
       const refused = attributed("the answer was refused");
-      store.upsertBy(table, row, refused).then(() => onEvent({ name: answer, detail: detailOf(row) }), refused);
+      store.upsertBy(table, row, refused).then(() => {
+        if (alive) onEvent({ name: answer, detail: detailOf(row) });
+      }, refused);
     },
   });
   // The question the memo last answered or posted, so a re-delivery of the
@@ -183,12 +186,16 @@ function memoSeat(seat, root, { unit, src, onEvent, store, declared }) {
       asked = stamp;
       const filter = key.map((k) => `${k}=eq.${encodeURIComponent(props[k])}`).join("&");
       store.query(table, null, { filter }).then((rows) => {
-        // A newer question arrived while the memo was read; this one is moot.
-        if (asked !== stamp) return;
+        // A newer question or a dead seat makes this lookup moot.
+        if (!alive || asked !== stamp) return;
         const [held] = rows;
         if (held !== undefined) onEvent({ name: answer, detail: detailOf(held) });
         else inner.update(props);
       }, attributed("the question could not be looked up"));
+    },
+    destroy() {
+      alive = false;
+      inner.destroy();
     },
   };
 }

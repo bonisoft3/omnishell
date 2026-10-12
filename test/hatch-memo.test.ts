@@ -68,6 +68,12 @@ function memoStore(rows: Row[] = []) {
 
 const settled = () => new Promise((r) => setTimeout(r, 1));
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((accept) => resolve = accept);
+  return { promise, resolve };
+}
+
 /** What `act` let escape to where the shell listens: uncaught throws (the
  * `error` event) and rejections nobody awaited, in order. */
 async function escaped(act: () => void): Promise<unknown[]> {
@@ -146,6 +152,45 @@ Deno.test("a row held before the mount answers without the unit, and a re-delive
   assertEquals(events, [{ name: "answer", detail: { fen: "d4", nodes: "100" } }], "one answer for one question, however often the props are re-delivered");
   assertEquals(store.calls, ["query answer"]);
   hatch.destroy();
+});
+
+Deno.test("a memo lookup settling after destroy neither answers a hit nor posts a miss", async () => {
+  for (const rows of [[{ id: "1", fen: "d4", nodes: "100", uci: "d7d5" }], []]) {
+    const lookup = deferred<Row[]>();
+    const store = memoStore();
+    store.query = () => lookup.promise;
+    const { hatch, events, asked } = await mount(store);
+
+    hatch.update({ fen: "d4", nodes: "100" });
+    hatch.destroy();
+    lookup.resolve(rows);
+    await settled();
+
+    assertEquals(events, [], "a destroyed memo cannot answer a held row");
+    assertEquals(asked(), [], "or turn a late miss into work for its dead unit");
+  }
+});
+
+Deno.test("a memo upsert settling after destroy does not dispatch its answer", async () => {
+  const write = deferred<void>();
+  const store = memoStore();
+  let writing = false;
+  store.upsertBy = () => {
+    writing = true;
+    return write.promise;
+  };
+  const { hatch, worker, events } = await mount(store);
+  hatch.update({ fen: "e4", nodes: "100" });
+  await settled();
+
+  worker.says({ type: "pronto:event", name: "answer", detail: { fen: "e4", nodes: "100", uci: "e7e5" } });
+  await settled();
+  assert(writing, "the answer is waiting for the memo row to be held");
+  hatch.destroy();
+  write.resolve();
+  await settled();
+
+  assertEquals(events, [], "a write cannot complete into a chart whose hatch is gone");
 });
 
 Deno.test("an event outside the unit's raises is refused before the memo reads it as an answer", async () => {
