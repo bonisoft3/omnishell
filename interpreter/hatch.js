@@ -181,10 +181,11 @@ function memoSeat(seat, root, { unit, src, onEvent, store, declared }) {
       const stamp = JSON.stringify(key.map((k) => props[k]));
       if (stamp === asked) return;
       asked = stamp;
-      store.query(table, null, {}).then((rows) => {
+      const filter = key.map((k) => `${k}=eq.${encodeURIComponent(props[k])}`).join("&");
+      store.query(table, null, { filter }).then((rows) => {
         // A newer question arrived while the memo was read; this one is moot.
         if (asked !== stamp) return;
-        const held = rows.find((r) => key.every((k) => at(r, k) === props[k]));
+        const [held] = rows;
         if (held !== undefined) onEvent({ name: answer, detail: detailOf(held) });
         else inner.update(props);
       }, attributed("the question could not be looked up"));

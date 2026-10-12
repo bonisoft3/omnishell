@@ -6,7 +6,7 @@
 // terminal's own performance of the memo and nothing a unit or a store does.
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
 import { mountHatch } from "../interpreter/hatch.js";
-import { ProgramError } from "../interpreter/fragment.js";
+import { parseFilterSpec, ProgramError } from "../interpreter/fragment.js";
 
 type Row = Record<string, string>;
 type Posted = { type: string; props?: Row; detail?: Row };
@@ -50,9 +50,11 @@ function memoStore(rows: Row[] = []) {
   return {
     rows,
     calls,
-    query: (table: string) => {
+    query: (table: string, _order: unknown, opts: {filter: string}) => {
       calls.push(`query ${table}`);
-      return Promise.resolve(rows);
+      const clauses = parseFilterSpec(opts.filter);
+      assert(clauses?.length === UNIT.memo.key.length, "a memo lookup bounds every key field");
+      return Promise.resolve(rows.filter(row => clauses.every(c => String(row[c.col]) === c.value)));
     },
     upsertBy: (table: string, values: Row, _onRefused?: (err: Error) => void) => {
       calls.push(`upsert ${table} ${values.fen}`);
@@ -212,5 +214,16 @@ Deno.test("an answer missing a key field or a column of the memo is refused, and
   // anything but a ProgramError as a dead gateway; worker-smoke.js drives this
   // one through interpretScreen.
   await assertRejects(() => Promise.resolve().then(() => hatch.update({ nodes: "100" })), ProgramError, '"fen"');
+  hatch.destroy();
+});
+
+Deno.test("memo lookup addresses the complete key and escapes filter delimiters", async () => {
+  const fen = "a&nodes=eq.200 /?%";
+  const store = memoStore([{ id: "1", fen, nodes: "100", uci: "e2e4" }, { id: "2", fen, nodes: "200", uci: "d2d4" }]);
+  const { hatch, events, asked } = await mount(store);
+  hatch.update({ fen, nodes: "100" });
+  await settled();
+  assertEquals(asked(), []);
+  assertEquals(events, [{ name: "answer", detail: { fen, nodes: "100" } }]);
   hatch.destroy();
 });
