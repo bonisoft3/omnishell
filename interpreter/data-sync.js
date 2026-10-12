@@ -151,7 +151,8 @@ async function http(url, init) {
   }
   if (!res.ok) {
     const method = init?.method ?? "GET";
-    const err = new Error(`${method} ${url} failed: ${res.status} ${await res.text()}`);
+    const detail = await res.text();
+    const err = new Error(`${res.status} ${method} ${url}${detail === "" ? "" : `: ${detail}`}`);
     if (method !== "GET" && res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) {
       err.name = "NonRetriableError";
     }

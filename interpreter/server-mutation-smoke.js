@@ -264,7 +264,7 @@ for (const operation of ["patch", "drop"]) {
           try {
             const error = await (operation === "patch" ? store.patch("note", [{ key: "n1", changes: { title: "after" } }]) : store.drop("note", ["n1"]))
               .then(() => null, error => error);
-            assert(error?.name === (status === 403 ? "NonRetriableError" : "Error") && error.message.includes(`${status} command refused`), "HTTP refusal and transport failure remain distinct");
+            assert(error?.name === (status === 403 ? "NonRetriableError" : "Error") && error.message === `${status} ${operation === "patch" ? "PATCH" : "DELETE"} http://failed-command/crud/note?id=eq.n1: command refused`, "HTTP refusal and transport failure retain the status, method, address and response detail");
             store.flushNotifications();
             assert(wakes === 0, "a failed update or delete does not wake a successful refresh");
           } finally { stop(); await globalThis.__mechaClient.collections.note.cleanup(); }
