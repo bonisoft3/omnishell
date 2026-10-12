@@ -68,7 +68,75 @@ function userId() {
   return session ? (JSON.parse(session).user?.id ?? null) : null;
 }
 
+/** Whether the reader is a guest: no session yet, or a guest's. */
+function guest() {
+  const session = sessionStorage.getItem("pronto-token");
+  return session === null || JSON.parse(session).user?.guest === true;
+}
+
+// The request-only reads a server-rendered document was drawn from, carried in
+// it: the server terminal records each /crud GET it made as a guest, and the
+// shell taking the document over answers the same address from it once, so
+// its first paint asks the door again only for what it never had. A
+// request-only read has no live sync to resume: its body is its whole state.
+//
+// The document is current while it carries them. The server terminal draws a
+// document with request-only reads for each request, and one without is
+// dropped when a read that drew it moves (server/render.ts); the service
+// worker keeps its copy of a document without them (offline-first-sw.js), so a
+// document it paints asks the network as before. What is carried is what a
+// fresh guest reads: only a store whose page minted its guest (createStore's
+// `mintedGuest`) answers from them, while that guest is the reader. A guest
+// from before may own rows; a reader signed in may read more.
+
+/** The element's id. offline-first-sw.js, a classic worker, spells it too. */
+export const SERVED_READS = "pronto-reads";
+
+/** The script element carrying `reads`, each body under the path and query it
+ * answered. JSON in a script ends at the first `</`, and U+2028/2029 end a
+ * line in older parsers: each is escaped, which JSON reads back unchanged. */
+export function servedReadsScript(reads) {
+  const json = JSON.stringify(Object.fromEntries(reads))
+    .replace(/</g, "\\u003c")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+  return `<script type="application/json" id="${SERVED_READS}">${json}</script>`;
+}
+
+/** The reads `doc` carries, taken out of it: each answers once. */
+export function takeServedReads(doc) {
+  const el = doc?.getElementById?.(SERVED_READS);
+  if (!el) return new Map();
+  el.remove();
+  return new Map(Object.entries(JSON.parse(el.textContent)));
+}
+
+/** The address a read is recorded and answered under: its path and query. */
+export function readKey(url, base) {
+  const u = new URL(url, base);
+  return u.pathname + u.search;
+}
+
+// What the document was served with, taken out of it by the first request
+// after it arrived, and the address it was served at. They are its first
+// screen's: a write, or the shell moving to another address, may move a read
+// they answer, so either drops them.
+let served = new Map();
+let servedAt = null;
+let servedToReader = false;
+
 async function http(url, init) {
+  if ((init?.method ?? "GET") === "GET") {
+    const taken = takeServedReads(globalThis.document);
+    if (taken.size > 0) [served, servedAt] = [taken, globalThis.location.href];
+    if (globalThis.location?.href !== servedAt) served.clear();
+    const key = readKey(url, globalThis.location?.href);
+    const body = served.get(key);
+    if (body !== undefined && servedToReader && guest()) {
+      served.delete(key);
+      return new Response(body, { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+  }
   const headers = { ...init?.headers };
   const t = token();
   if (t) headers.Authorization = `Bearer ${t}`;
@@ -131,6 +199,8 @@ const isRestricted = (a) => a !== undefined && a.scope !== "public";
 const TXID = { name: "txid", type: "int64" };
 /** A filter literal its column cannot hold: equal to no row of it. */
 const NOHOLD = Symbol("a literal its column cannot hold");
+// The filter clauses a maintained view states (snapshotDemands).
+const STATED = /^(eq|neq)\.|^is\.null$|^not\.is\.null$/;
 /** The pause before a view whose subset failed in transit is rebuilt, and the
  * most it doubles to. Electric's own fetch already waits out a 5xx and a
  * dropped connection; what reaches a view is a 4xx a retry answers, so the
@@ -264,6 +334,7 @@ export function othersFor(p, sinkRow, mine, pair, compareTxid) {
 }
 
 export function createStore(base = "", cfg = {}) {
+  servedToReader = cfg.mintedGuest === true;
   const readCode = cfg.release ? releaseReader() : null;
   // cfg.local names the browser-owned tables (shell.yaml `local:`), which are
   // collections like any other here — read by a region, mutated by a form —
@@ -347,6 +418,25 @@ export function createStore(base = "", cfg = {}) {
     return entry;
   }
 
+  // A snapshot read of a lazy table needs every row its filter could
+  // admit, not the table: the clauses a view states (eq, neq, null tests)
+  // bound that superset, and the predicates it cannot state (a boolean, a
+  // cursor, a pattern, a cap a view cannot keep) run locally over it. Its
+  // embeds come in with it, by the join's own lazy load. A read stating no
+  // clause the engine can bind, or a join it cannot keep, is bounded only by
+  // its tables.
+  function snapshotDemands(table, opts) {
+    const tables = snapshotTables(table, opts).filter(lazy);
+    const stated = (opts.filter ?? "").split("&").filter(part => {
+      const at = part.indexOf("=");
+      return !["limit", "offset"].includes(part.slice(0, at)) && STATED.test(part.slice(at + 1));
+    }).join("&");
+    const bound = tables.includes(table) && stated !== ""
+      ? maintainedView(table, { filter: stated, select: opts.select }, true)
+      : null;
+    return bound === null ? tables.map(completeDemand) : [bound];
+  }
+
   // Adapter references alone do not prevent TanStack's five-second GC after
   // a screen's last subscriber leaves. Reads and writes need a real listener
   // across the wait too, reattached if a failed subset rebuilds the view.
@@ -373,16 +463,16 @@ export function createStore(base = "", cfg = {}) {
   // Opaque reducers can request a whole-table mutation without making every
   // collection eager at startup. Its demand stays subscribed so later writes
   // keep the complete optimistic view, including rows no screen displays.
-  const mutationDemands = new Map();
+  const mutatilazys = new Map();
   async function mutationCollection(table, site) {
     if (!lazy(table)) return wholeCollection(table, site);
     const c = client.collections[table];
     if (c === undefined) throw new Error(`${site} reads ${table}, which has no collection`);
-    let entry = mutationDemands.get(table);
+    let entry = mutatilazys.get(table);
     if (entry === undefined) {
       entry = completeDemand(table);
       lease(entry);
-      mutationDemands.set(table, entry);
+      mutatilazys.set(table, entry);
     }
     await settled(entry);
     return c;
@@ -1085,12 +1175,13 @@ export function createStore(base = "", cfg = {}) {
     if (c !== undefined) {
       const releases = [];
       try {
-        await Promise.all(snapshotTables(table, opts).map(t => {
-          if (!lazy(t)) return wholeCollection(t, `a read of ${table}`);
-          const entry = completeDemand(t);
-          releases.push(lease(entry));
-          return settled(entry);
-        }));
+        await Promise.all([
+          ...snapshotTables(table, opts).filter(t => !lazy(t)).map(t => wholeCollection(t, `a read of ${table}`)),
+          ...snapshotDemands(table, opts).map(entry => {
+            releases.push(lease(entry));
+            return settled(entry);
+          }),
+        ]);
         const all = c.toArray;
         // The snapshot is a fresh array, so it is sorted in place, and copied
         // only where a predicate, a cap or an embed makes a different one.
@@ -1261,7 +1352,7 @@ export function createStore(base = "", cfg = {}) {
     // watching: a row leaving the filter, a row entering it, and a row moving
     // in the order all arrive here and nowhere else.
     const view = maintainedView(table, opts, true)?.acquire() ?? null;
-    const demands = view === null ? snapshotTables(table, opts).filter(lazy).map(completeDemand) : [];
+    const demands = view === null ? snapshotDemands(table, opts) : [];
     const releaseDemands = demands.map(lease);
     // While the view loads a subset — its own rows, or the lazy side of a join
     // fetching a row a change named — what it holds is partial: a row whose
@@ -1325,9 +1416,12 @@ export function createStore(base = "", cfg = {}) {
       const own = (changes) => {
         if (touches(preds, changes)) wakes.widened();
       };
+      // Which tables a served read not yet asked for depends on is not known
+      // here, so a change that would wake any server read drops them all.
+      const moved = (wake) => (changes) => (served.clear(), wake(changes));
       const stops = deps.map(t => local[t] === undefined
-        ? client.subscribeInvalidation(t, filtered(t) ? own : wakes.widened)
-        : watch(client.collections[t], filtered(t) ? own : wakes.widened));
+        ? client.subscribeInvalidation(t, moved(filtered(t) ? own : wakes.widened))
+        : watch(client.collections[t], moved(filtered(t) ? own : wakes.widened)));
       for (const t of deps) {
         settleListeners.set(t, (settleListeners.get(t) ?? new Set()).add(wakes.widened));
       }
@@ -1612,5 +1706,19 @@ export function createStore(base = "", cfg = {}) {
     return http(`${base}/blobs/mecha-objects/${encodeURIComponent(key)}`, { method: "PUT", body: file });
   }
 
-  return { query, add, write, patch, drop, dropWhere, upsertBy, subscribe, upload, flushNotifications, tabSnapshot, restoreTabs };
+  const writing = (fn) => (...args) => (served.clear(), fn(...args));
+  return {
+    query,
+    add: writing(add),
+    write: writing(write),
+    patch: writing(patch),
+    drop: writing(drop),
+    dropWhere: writing(dropWhere),
+    upsertBy: writing(upsertBy),
+    subscribe,
+    upload: writing(upload),
+    flushNotifications,
+    tabSnapshot,
+    restoreTabs,
+  };
 }

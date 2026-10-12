@@ -274,6 +274,47 @@ export async function keepGuest(
   await renew();
 }
 
+/**
+ * The request-only reads a render makes, recorded as the store makes them: the
+ * body of each GET the door's /crud answers with success, under its path and
+ * query, and nothing of how it was asked. The renderer reads as a guest, so a
+ * body is what any guest reads (interpreter/data-sync.js).
+ */
+export function recordReads(door: string, fetch: typeof globalThis.fetch, readKey: (url: string) => string) {
+  const crud = `${door}/crud/`;
+  let made: Promise<[string, string]>[] | null = null;
+  const recorded: typeof globalThis.fetch = async (input, init) => {
+    const res = await fetch(input, init);
+    const url = input instanceof Request ? input.url : String(input);
+    const method = init?.method ?? (input instanceof Request ? input.method : "GET");
+    if (made !== null && method === "GET" && url.startsWith(crud) && res.status === 200) {
+      made.push(res.clone().text().then((body): [string, string] => [readKey(url), body]));
+    }
+    return res;
+  };
+  return {
+    fetch: recorded,
+    start() {
+      made = [];
+    },
+    /** What the render read, in the order it read it. */
+    async stop(): Promise<Map<string, string>> {
+      const reads = await Promise.all(made ?? []);
+      made = null;
+      return new Map(reads);
+    },
+  };
+}
+
+/** `html` carrying `reads` at the end of its body, where the shell takes them,
+ * in the element `script` draws. */
+export function carryReads(html: string, reads: Map<string, string>, script: (reads: Map<string, string>) => string): string {
+  if (reads.size === 0) return html;
+  const at = html.lastIndexOf("</body>");
+  if (at < 0) throw new Error("a document without a body cannot carry its reads");
+  return html.slice(0, at) + script(reads) + html.slice(at);
+}
+
 const parse = (html: string) => (parseHTML(html) as unknown as { document: unknown }).document;
 
 /**
@@ -334,7 +375,7 @@ export async function serve(env: (name: string) => string | undefined = (name) =
   await ensureSes();
   const { renderDocument } = await import("../interpreter/document.js");
   const { routeAt } = await import("../interpreter/shell.js");
-  const { createStore } = await import("../interpreter/data-sync.js");
+  const { createStore, readKey, servedReadsScript } = await import("../interpreter/data-sync.js");
   const { compileCatalog } = await import("../interpreter/vendor/messages.js");
   const { templateHash } = await import("../interpreter/screen.js");
 
@@ -363,6 +404,9 @@ export async function serve(env: (name: string) => string | undefined = (name) =
     (guest) => sessionStorage.setItem("pronto-token", JSON.stringify(guest)),
     die,
   );
+  // What a render reads through the door's /crud, carried in its document.
+  const reads = recordReads(door, globalThis.fetch, (url) => readKey(url));
+  globalThis.fetch = reads.fetch;
   const appBase = new URL(`${door}/`);
   const store = createStore(door, { ...cfg, appBase });
   const cacheableRead = (table: string) => cfg.schema?.[table]?.durability !== "server";
@@ -377,24 +421,30 @@ export async function serve(env: (name: string) => string | undefined = (name) =
     // here is the default's, so no preference is consulted.
     route: (pathname, search) => routeAt(cfg, pathname, search, []) as Found | null,
     async render(found, watched, base) {
-      const { html, handle, gone } = await renderDocument({
-        entry,
-        parse,
-        cfg,
-        appBase,
-        route: found.route,
-        params: found.params,
-        locale: found.locale,
-        written: found.written,
-        store: watched,
-        messages,
-        words,
-        rows: true,
-        origin: base.origin,
-        here: base.pathname,
-      });
-      handle.stop();
-      return { html, gone };
+      reads.start();
+      let drawn;
+      try {
+        drawn = await renderDocument({
+          entry,
+          parse,
+          cfg,
+          appBase,
+          route: found.route,
+          params: found.params,
+          locale: found.locale,
+          written: found.written,
+          store: watched,
+          messages,
+          words,
+          rows: true,
+          origin: base.origin,
+          here: base.pathname,
+        });
+      } finally {
+        drawn?.handle.stop();
+      }
+      const made = await reads.stop();
+      return { html: drawn.gone ? drawn.html : carryReads(drawn.html, made, servedReadsScript), gone: drawn.gone };
     },
   });
 

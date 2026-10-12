@@ -40,7 +40,11 @@
       "dir": "libraries/mecha",
       "outs": {
         "globs": [
-          "packages/**"
+          "packages/**",
+          "[m]ise.toml",
+          "[.]mise.toml",
+          "[m]ise.lock",
+          "[.]tool-versions"
         ],
         "exclude": []
       }
@@ -60,7 +64,8 @@
         "globs": [
           "interpreter/vendor/mecha-client.js",
           "interpreter/vendor/morphlex.js",
-          "interpreter/vendor/js-yaml.js"
+          "interpreter/vendor/js-yaml.js",
+          "interpreter/vendor/messages.js"
         ],
         "exclude": []
       }

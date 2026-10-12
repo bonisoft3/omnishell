@@ -142,7 +142,11 @@
           "server/**/*",
           "runtime/**/*",
           "package.json",
-          "tsconfig.json"
+          "tsconfig.json",
+          "[m]ise.toml",
+          "[.]mise.toml",
+          "[m]ise.lock",
+          "[.]tool-versions"
         ],
         "exclude": []
       },
@@ -152,7 +156,22 @@
       "transitiveDeps": [
         "setup_srcs"
       ],
-      "transitiveCrossDeps": [],
+      "transitiveCrossDeps": [
+        {
+          "project": "plugins_omnishell",
+          "name": "setup_srcs",
+          "dir": "plugins/omnishell",
+          "outs": {
+            "globs": [
+              "[m]ise.toml",
+              "[.]mise.toml",
+              "[m]ise.lock",
+              "[.]tool-versions"
+            ],
+            "exclude": []
+          }
+        }
+      ],
       "chainedDeps": [],
       "cmds": [],
       "cache": {
@@ -221,7 +240,7 @@
         "defaultGlobs": null,
         "defaultExclude": null
       },
-      "do": "deno check --config test/deno.json src/ test/ check-visual.ts runtime/cli.ts",
+      "do": "pnpm run check",
       "name": "builtin",
       "shell": "exec",
       "stop": false

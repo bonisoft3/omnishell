@@ -13,6 +13,20 @@ const PRECACHE_ASSETS = [
 
 const BYPASS_PREFIXES = ["/electric/", "/crud/", "/auth/", "/events/"];
 
+// A document's request-only reads are current only as it arrives
+// (interpreter/data-sync.js), so the copy kept for a later paint goes
+// without them, and a shell taking that copy over asks the network.
+const SERVED_READS = /<script type="application\/json" id="pronto-reads">[\s\S]*?<\/script>/;
+
+async function keptCopy(response) {
+  const html = await response.text();
+  return new Response(html.replace(SERVED_READS, ""), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(STATIC_CACHE).then((cache) => cache.addAll(PRECACHE_ASSETS)),
@@ -267,7 +281,7 @@ self.addEventListener("fetch", (event) => {
         }
         const cc = fresh.headers.get("Cache-Control") || "";
         const keepable = !cc.includes("no-store") && !cc.includes("private");
-        if (fresh.ok && keepable) event.waitUntil(cache.put(req, fresh.clone()));
+        if (fresh.ok && keepable) event.waitUntil(keptCopy(fresh.clone()).then((copy) => cache.put(req, copy)));
         else if (fresh.status === 404 || fresh.status === 410 || (fresh.ok && !keepable)) event.waitUntil(cache.delete(req));
         return fresh;
       })();

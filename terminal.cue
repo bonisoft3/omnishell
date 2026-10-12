@@ -12,22 +12,15 @@ import (
 	"strings"
 )
 
-// The running cluster's compose project, as a nushell expression: the
-// COMPOSE_PROJECT_NAME the app's mise env publishes, else the app's own name.
-// Everything that joins that cluster names it this way, or brings up a second.
-#ComposeProject: {
-	app: string
-	out: "(^mise exec -- printenv COMPOSE_PROJECT_NAME | complete | get stdout | str trim | str replace -r '^$' '\(app)')"
-}
-
-// A target's closure up as a verdict: its `bayt` service's exit code, with its
-// dependencies' output attached, so a runtime that fails to come up says why.
-// -p, not --project-directory: the closure's own directory is where its
-// includes and extends resolve, so only the project NAME may move.
-#ClosureUp: {
-	project: string
-	target:  string
-	out: "mise exec -- docker compose -p \(project) --profile '*' -f .bayt/compose.\(target).closure.yaml up bayt --abort-on-container-failure --exit-code-from bayt --build --remove-orphans --attach-dependencies"
+// A check as a verdict: its bkid runner (sayt.ci) baked as the envelope, so
+// the bake's exit code is the check's. The runner brings the check's closure up
+// inside the build, on the host daemon, as a stack named after the caller's
+// compose project and the check, apart from the launch stack, and tears it
+// down; bake skips a runner whose inputs already passed. Run through sayt's
+// integrate engine, not the verb, which would re-enter this rule.
+#BkidCheck: {
+	runner: string
+	out:    "use integrate.nu; integrate --bake --no-up --with-buildx --target \(runner)"
 }
 
 #Path:   string
@@ -477,27 +470,12 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 		verbs: [Name=string]: {verb: "setup" | "generate" | "build" | "launch" | "release", cmds: [...string], note: string}
 		checks: [Name=string]: {verb: "lint" | "test" | "integrate", cmds: [...string], note: string}
 		checks: visual: {
-			let composeProject = (#ComposeProject & {app: T.app}).out
 			// A laid-out page over real content, so the cluster has to be up
-			// however cheap `lint` would look.
+			// however cheap `lint` would look. The runtime comes up fresh in
+			// the runner's own stack, seeded by the app's state, never the
+			// launch stack a person is using.
 			verb: "integrate"
-			cmds: [
-				// --build, because compose reuses any image it already has: a
-				// lint that photographed the previous build reports green for
-				// markup nobody is serving. Under mise exec, because the compose
-				// project name is published in the app's .mise.toml [env], and
-				// the tool-stub sayt runs rules through applies no [env].
-				"mise exec -- docker compose -p \(composeProject) up -d --wait --build launch",
-				// No --force-recreate: it recreates the DEPENDENCIES too, so a
-				// data-backed app starts every run with an empty database and its
-				// rows-first screens never settle. --build is the part that
-				// matters, and it rebuilds without discarding state.
-				// The runtime's own project: under the closure's default, named
-				// after .bayt, a second caddy comes up and collides with the first
-				// on its port — and the runtime the line above started would not
-				// be the one the lint talks to.
-				(#ClosureUp & {project: composeProject, target: "integrate"}).out,
-			]
+			cmds: [(#BkidCheck & {runner: "ci-visual"}).out]
 			note: "DOM checks over every route at two viewports, run in a container beside the app; only critical findings fail"
 		}
 		// The four checks below are COMMANDS: which interpreter runs a

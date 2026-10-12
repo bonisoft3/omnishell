@@ -28,7 +28,10 @@
       "interpreter/vendor/entry.ts",
       "interpreter/vendor/entry-morphlex.ts",
       "interpreter/vendor/bundle-morphlex.ts",
-      "interpreter/vendor/entry-js-yaml.ts"
+      "interpreter/vendor/entry-js-yaml.ts",
+      "interpreter/deno.json",
+      "src/messages.ts",
+      "package.json"
     ],
     "exclude": []
   },
@@ -36,7 +39,8 @@
     "globs": [
       "interpreter/vendor/mecha-client.js",
       "interpreter/vendor/morphlex.js",
-      "interpreter/vendor/js-yaml.js"
+      "interpreter/vendor/js-yaml.js",
+      "interpreter/vendor/messages.js"
     ],
     "exclude": []
   },
@@ -95,7 +99,8 @@
         "globs": [
           "interpreter/vendor/mecha-client.js",
           "interpreter/vendor/morphlex.js",
-          "interpreter/vendor/js-yaml.js"
+          "interpreter/vendor/js-yaml.js",
+          "interpreter/vendor/messages.js"
         ],
         "exclude": []
       },
@@ -130,7 +135,14 @@
           "interpreter/vendor/entry.ts",
           "interpreter/vendor/entry-morphlex.ts",
           "interpreter/vendor/bundle-morphlex.ts",
-          "interpreter/vendor/entry-js-yaml.ts"
+          "interpreter/vendor/entry-js-yaml.ts",
+          "interpreter/deno.json",
+          "src/messages.ts",
+          "package.json",
+          "[m]ise.toml",
+          "[.]mise.toml",
+          "[m]ise.lock",
+          "[.]tool-versions"
         ],
         "exclude": []
       },
@@ -147,7 +159,25 @@
           "dir": "libraries/mecha",
           "outs": {
             "globs": [
-              "packages/**"
+              "packages/**",
+              "[m]ise.toml",
+              "[.]mise.toml",
+              "[m]ise.lock",
+              "[.]tool-versions"
+            ],
+            "exclude": []
+          }
+        },
+        {
+          "project": "plugins_omnishell",
+          "name": "setup_srcs",
+          "dir": "plugins/omnishell",
+          "outs": {
+            "globs": [
+              "[m]ise.toml",
+              "[.]mise.toml",
+              "[m]ise.lock",
+              "[.]tool-versions"
             ],
             "exclude": []
           }
@@ -190,7 +220,11 @@
       "dir": "libraries/mecha",
       "outs": {
         "globs": [
-          "packages/**"
+          "packages/**",
+          "[m]ise.toml",
+          "[.]mise.toml",
+          "[m]ise.lock",
+          "[.]tool-versions"
         ],
         "exclude": []
       }
@@ -217,7 +251,11 @@
       "dir": "libraries/mecha",
       "outs": {
         "globs": [
-          "packages/**"
+          "packages/**",
+          "[m]ise.toml",
+          "[.]mise.toml",
+          "[m]ise.lock",
+          "[.]tool-versions"
         ],
         "exclude": []
       }
@@ -230,14 +268,17 @@
           "interpreter/vendor/entry.ts",
           "interpreter/vendor/entry-morphlex.ts",
           "interpreter/vendor/bundle-morphlex.ts",
-          "interpreter/vendor/entry-js-yaml.ts"
+          "interpreter/vendor/entry-js-yaml.ts",
+          "interpreter/deno.json",
+          "src/messages.ts",
+          "package.json"
         ],
         "exclude": [],
         "defaultGlobs": null,
         "defaultExclude": null
       },
       "shell": "sh",
-      "do": "sh -c 'deno bundle --node-modules-dir=none --no-lock --config ../../libraries/mecha/packages/client/deno.json --platform browser --format esm --minify interpreter/vendor/entry.ts -o interpreter/vendor/mecha-client.js && deno run --allow-run=deno --allow-read --allow-write interpreter/vendor/bundle-morphlex.ts && deno bundle --config interpreter/deno.json --platform browser --format esm --minify interpreter/vendor/entry-js-yaml.ts -o interpreter/vendor/js-yaml.js && deno bundle --node-modules-dir=none --no-lock --platform browser --format esm --minify src/messages.ts -o interpreter/vendor/messages.js'",
+      "do": "sh -c 'pnpm run bundle:mecha-client && pnpm run bundle:morphlex && pnpm run bundle:js-yaml && pnpm run bundle:messages'",
       "name": "builtin",
       "stop": false
     }

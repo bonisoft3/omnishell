@@ -39,8 +39,8 @@ Deno.test("an installed terminal is named from its own root, a checkout's from t
 
 Deno.test("the runtime image's tree holds everything its entry points import", async () => {
   // The image's tree as bayt builds it: the runtime-image target's srcs.
-  const project = JSON.parse(await Deno.readTextFile(join(terminal, "bayt.json")));
-  const globs: string[] = project.targets["runtime-image"].srcs.globs;
+  const target = JSON.parse(await Deno.readTextFile(join(terminal, ".bayt/bayt.runtime-image.json")));
+  const globs: string[] = target.srcs.globs;
   const image = await Deno.makeTempDir({ prefix: "omnishell image " });
   try {
     for (const glob of globs) {

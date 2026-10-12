@@ -149,7 +149,11 @@
           "instrument.ts",
           "runtime/**/*",
           "package.json",
-          "tsconfig.json"
+          "tsconfig.json",
+          "[m]ise.toml",
+          "[.]mise.toml",
+          "[m]ise.lock",
+          "[.]tool-versions"
         ],
         "exclude": []
       },
@@ -182,6 +186,20 @@
               "runtime/**/*",
               "package.json",
               "tsconfig.json"
+            ],
+            "exclude": []
+          }
+        },
+        {
+          "project": "plugins_omnishell",
+          "name": "setup_srcs",
+          "dir": "plugins/omnishell",
+          "outs": {
+            "globs": [
+              "[m]ise.toml",
+              "[.]mise.toml",
+              "[m]ise.lock",
+              "[.]tool-versions"
             ],
             "exclude": []
           }

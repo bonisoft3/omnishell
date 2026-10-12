@@ -186,7 +186,7 @@ function electric(server, schema) {
 }
 
 const SCHEMA = {
-  player_game: { id: { type: "text" }, game_id: { type: "text" }, player_id: { type: "text" }, round: { type: "int4" }, txid: { type: "int8" } },
+  player_game: { id: { type: "text" }, game_id: { type: "text" }, player_id: { type: "text" }, round: { type: "int4" }, done: { type: "bool" }, txid: { type: "int8" } },
   player: { id: { type: "text" }, name: { type: "text" }, txid: { type: "int8" } },
   stat: { id: { type: "text" }, player_id: { type: "text" }, games: { type: "int4" }, rate: { type: "numeric" }, ref: { type: "uuid" }, at: { type: "timestamptz" }, txid: { type: "int8" } },
 };
@@ -207,9 +207,9 @@ const config = (extra = {}) => ({
 });
 const world = () => ({
   player_game: [
-    { id: "pg1", game_id: "g1", player_id: "p1", round: "3", txid: "1" },
-    { id: "pg2", game_id: "g1", player_id: "p2", round: "4", txid: "1" },
-    { id: "pg3", game_id: "g2", player_id: "p3", round: "3", txid: "1" },
+    { id: "pg1", game_id: "g1", player_id: "p1", round: "3", done: "true", txid: "1" },
+    { id: "pg2", game_id: "g1", player_id: "p2", round: "4", done: "false", txid: "1" },
+    { id: "pg3", game_id: "g2", player_id: "p3", round: "3", done: "true", txid: "1" },
   ],
   player: [{ id: "p1", name: "Ana", txid: "1" }, { id: "p2", name: "Bia", txid: "1" }, { id: "p3", name: "Cris", txid: "1" }, { id: "p9", name: "Duda", txid: "1" }],
   stat: [
@@ -341,6 +341,67 @@ serverRead(
     await woke(() => fake.push("stat", stat("s3", "p2", 21), 21), true, "Postgres may cast what the client refuses");
   },
 );
+
+// A guest's document carries the reads it was drawn from, one region's asked
+// and another's not yet; a player renamed meanwhile wakes the first region,
+// and the second, asked after, must read the rename rather than what the
+// document was drawn from.
+Deno.test({
+  name: "a server read's invalidation drops the reads the document carries",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const rows = world();
+    const fake = electric(rows, SCHEMA);
+    const asked = [];
+    const named = (player_id) => rows.stat.filter((row) => row.player_id === player_id)
+      .map((row) => ({ ...row, player: { name: rows.player.find((p) => p.id === row.player_id).name } }));
+    await withBrowser({
+      fetch: (input, init) => {
+        const url = new URL(String(input));
+        if (url.pathname !== "/crud/stat") return fake.fetcher(input, init);
+        asked.push(url.pathname + url.search);
+        return Promise.resolve(Response.json(named(url.searchParams.get("player_id").slice(3))));
+      },
+    }, async (createStore) => {
+      const cfg = config({ read: { stat: "lazy", player: "lazy", player_game: "lazy" } });
+      cfg.schema.stat.durability = "live";
+      cfg.schema.player.durability = "server";
+      const first = { filter: "player_id=eq.p1", select: "*,player!inner(name)" };
+      const second = { filter: "player_id=eq.p2", select: "*,player!inner(name)" };
+      const probe = createStore(fake.base, cfg);
+      await probe.query("stat", null, first);
+      await probe.query("stat", null, second);
+      const [firstKey, secondKey] = asked.splice(0);
+      let inDocument = true;
+      const textContent = JSON.stringify({ [firstKey]: JSON.stringify(named("p1")), [secondKey]: JSON.stringify(named("p2")) });
+      const element = { textContent, remove: () => (inDocument = false) };
+      globalThis.document.getElementById = (id) => id === "pronto-reads" && inDocument ? element : null;
+      globalThis.location = new URL("http://localhost/jogador/p1");
+      sessionStorage.setItem("pronto-token", JSON.stringify({ token: "t", user: { id: "g1", guest: true } }));
+      const store = createStore(fake.base, { ...cfg, mintedGuest: true });
+      const refreshes = [];
+      const stop = store.subscribe("stat", () => refreshes.push(store.query("stat", null, first)), first);
+      try {
+        await store.query("stat", null, first);
+        assert(asked.length === 0, "the first region is answered from the document");
+        await until(() => refreshes.length > 0, "invalidation stream established");
+        await Promise.all(refreshes);
+        await tick(30);
+        const before = refreshes.length;
+        fake.update("player", "p2", { name: "Bia Renomeada" }, 20);
+        await until(() => refreshes.length > before, "the rename wakes the first region");
+        await Promise.all(refreshes);
+        const read = await store.query("stat", null, second);
+        assert(read[0].player.name === "Bia Renomeada", `the second region reads the rename: ${read[0].player.name}`);
+      } finally {
+        stop();
+        sessionStorage.removeItem("pronto-token");
+        delete globalThis.location;
+      }
+    });
+  },
+});
 
 for (const mode of ["eager", "lazy"]) {
   Deno.test({
@@ -904,6 +965,22 @@ for (const filter of ["game_id=eq.g1", "game_id=ilike.g1"]) {
   });
 }
 
+// A boolean filter reads through the snapshot path, and a snapshot read of an
+// lazy table once demanded the whole table: GolAberto's chances screen,
+// filtered by group and current=is.true, pulled every position_chance row.
+for (const filter of ["game_id=eq.g1&done=is.true", "done=is.true&game_id=eq.g1&limit=5"]) {
+  lazy(`a boolean-filtered read ${filter} demands only the rows its stated clauses bound`, async ({ fake, store }) => {
+    let wakes = 0;
+    const stop = store.subscribe("player_game", () => wakes++, { filter });
+    const rows = await store.query("player_game", null, { filter });
+    assert(rows.length === 1 && rows[0].id === "pg1", `boolean predicate applied locally: ${JSON.stringify(rows)}`);
+    assert(fake.subsets.length > 0 && fake.subsets.every(s => s.table === "player_game" && s.where.trim() === '"game_id" = $1'),
+      `only the group's subset demanded: ${JSON.stringify(fake.subsets)}`);
+    assert(globalThis.__mechaClient.collections.player_game.size === 2, "the other game's rows never loaded");
+    stop();
+  });
+}
+
 lazy("a snapshot subscription holds notifications until all embedded demand is complete", async ({ fake, store }) => {
   const release = fake.hold("player");
   const opts = { filter: "game_id=eq.g1&limit=1", select: "*,player(name)" };
@@ -911,14 +988,17 @@ lazy("a snapshot subscription holds notifications until all embedded demand is c
   const stop = store.subscribe("player_game", () => wakes++, opts);
   let answered;
   const pending = store.query("player_game", null, opts).then(rows => answered = rows);
-  await until(() => globalThis.__mechaClient.collections.player_game.size === 3, "complete base loaded");
+  await until(() => globalThis.__mechaClient.collections.player_game.size === 2, "the base's stated subset loaded");
   await tick(30);
   assert(wakes === 0 && answered === undefined, "no half-joined wake or answer");
   release();
   await pending;
   await until(() => wakes > 0, "complete snapshot wake released");
   assert(answered.length === 1 && answered[0].player.name === "Ana", "unordered cap keeps its joined row");
-  assert(new Set(fake.subsets.map(s => s.table)).size === 2 && fake.subsets.every(s => s.where.includes("IS NOT NULL")), `both tables demanded complete snapshots: ${JSON.stringify(fake.subsets)}`);
+  // An unordered cap is a snapshot read, which once demanded both tables whole.
+  assert(fake.subsets.every(s => s.table === "player" ? s.where.trim() === '"id" = ANY($1)' : s.where.trim() === '"game_id" = $1'),
+    `the base demanded its stated subset and the embed only its joined rows: ${JSON.stringify(fake.subsets)}`);
+  assert(globalThis.__mechaClient.collections.player.size === 2, "the unjoined players never loaded");
   stop();
 });
 
@@ -948,7 +1028,8 @@ Deno.test({
       assert(selected.length === 1 && selected[0].player.name === "Ana", "domain predicate uses carrier comparison");
       const joined = await store.query("stat", null, { filter: "id=eq.s2", select: "*,player(name)" });
       assert(joined.length === 1 && joined[0].player.name === "Bia", "unsupported joined key uses complete embed");
-      assert(fake.subsets.every(s => s.where.includes("IS NOT NULL")), "no unsafe equality sent to Electric");
+      assert(fake.subsets.every(s => s.table === "stat" || s.where.includes("IS NOT NULL")), "no unsafe equality sent to Electric");
+      assert(fake.subsets.every(s => !s.where.includes('"rate" =')), "no decimal equality sent to Electric");
       assert(globalThis.__prontoViews.size === 0, "snapshot demands released");
     });
   },

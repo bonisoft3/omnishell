@@ -148,6 +148,16 @@ describe("the offline service worker", () => {
     expect(await sw.get("/jogo/1", "navigate")).toBe("<p>2-1</p>")
   })
 
+  // The reads a server-rendered document carries are current as it arrives
+  // (interpreter/data-sync.js): a copy painted later answering its regions from them
+  // would draw rows any number of changes old.
+  it("keeps its copy of a document without the reads it was served with", async () => {
+    const reads = `<script type="application/json" id="pronto-reads">{"/crud/team":"[]"}</script>`
+    const sw = worker(`<body><main>2-1</main>${reads}</body>`)
+    expect(await sw.get("/jogo/1", "navigate")).toBe(`<body><main>2-1</main>${reads}</body>`)
+    expect(await sw.get("/jogo/1", "navigate")).toBe("<body><main>2-1</main></body>")
+  })
+
   it("answers a navigation from the copy it keeps when the network is gone, and fails one it never kept", async () => {
     const sw = worker("<p>0-0</p>")
     await sw.get("/jogo/1", "navigate")

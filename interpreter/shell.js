@@ -777,6 +777,7 @@ export async function createShell({ config, mount, liveUpdates = false }) {
     const dataPlane = import("./data-sync.js");
 
     let session = null;
+    let mintedGuest = false;
     if (cfg.auth?.required) {
       const stored = sessionStorage.getItem("pronto-token");
       // A stored token is not a session. The account it names can be gone —
@@ -822,6 +823,7 @@ export async function createShell({ config, mount, liveUpdates = false }) {
         session = JSON.parse(stored);
       } else {
         session = await mintGuest(cfg, served !== null);
+        mintedGuest = true;
         if (initialDraftOwner === null) initialDraftOwner = sessionOwner(session);
         sessionStorage.setItem("pronto-token", JSON.stringify(session));
       }
@@ -830,7 +832,7 @@ export async function createShell({ config, mount, liveUpdates = false }) {
     await catalogued;
     if (served !== null) await words.settle(servedWords);
     const { createStore } = await dataPlane;
-    const store = createStore("", { ...cfg, appBase, release: liveUpdates });
+    const store = createStore("", { ...cfg, appBase, release: liveUpdates, mintedGuest });
     let recovery = liveUpdates ? JSON.parse(sessionStorage.getItem(recoveryKey) ?? "null") : null;
     const owner = liveUpdates ? (session === null ? storedSessionOwner() : sessionOwner(session)) : null;
     if (initialDraftOwner !== owner) initialFields = null;

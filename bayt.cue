@@ -10,7 +10,6 @@
 //
 // release / launch / verify stay in .say.yaml as direct invocations
 // (omnishell publishes via npm, not a release image).
-@extern(embed)
 package omnishell
 
 import (
@@ -129,9 +128,7 @@ _omnishell: bayt.#project & {
 			// Typecheck-only build, no artifact. Cross-project consumers
 			// of the omnishell source tree (e.g. iris's pnpm workspace
 			// symlink) use `plugins_omnishell:build:srcs` instead.
-			// package.json's `check`, spelled again: bayt scans this file
-			// outside the CUE module, where @embed cannot read a sibling.
-			cmd: "builtin": do: "deno check --config test/deno.json src/ test/ check-visual.ts runtime/cli.ts"
+			cmd: "builtin": do: "pnpm run check"
 			dockerfile: from: ref: ":setup"
 		}
 
@@ -145,7 +142,7 @@ _omnishell: bayt.#project & {
 
 		// CI's bake plugins_omnishell builds the integrate stage and never
 		// :test, so this is what gates landing changes — install + check
-		// (from the build chain) + the same unit tests. No dind.sh wrap
+		// (from the build chain) + the same unit tests. No docker-bridge.sh wrap
 		// (no docker socket needed).
 		"integrate": sayt.integrate & mise.exec & {
 			srcs: globs: ["test/**/*", "interpreter/**/*", "components/**/*", "check-*.ts", "base-url.ts", "terminal.cue", "read-markup.ts", "render-documents.ts", "server/**/*", "offline-first-sw.js"]
@@ -175,20 +172,23 @@ _omnishell: bayt.#project & {
 				"interpreter/vendor/entry-morphlex.ts",
 				"interpreter/vendor/bundle-morphlex.ts",
 				"interpreter/vendor/entry-js-yaml.ts",
+				"interpreter/deno.json",
+				"src/messages.ts",
+				"package.json",
 			]
 			outs: globs: [
 				"interpreter/vendor/mecha-client.js",
 				"interpreter/vendor/morphlex.js",
 				"interpreter/vendor/js-yaml.js",
+				"interpreter/vendor/messages.js",
 			]
-			// The mecha-client leg is the script package.json states, rather
-			// than a second spelling of it: test/vendor-bundle.test.ts runs
-			// that same script to decide whether the checked-in bundle is
-			// stale, and a bundle built two ways is one of them can be wrong
-			// about.
+			// Each leg runs package.json's script by name, rather than a second
+			// spelling of it: test/vendor-bundle.test.ts runs those scripts to
+			// decide whether the checked-in bundle is stale, and a bundle built
+			// two ways is one of them can be wrong about.
 			cmd: "builtin": {
 				shell: "sh"
-				do:    "sh -c '" + _packageJson.scripts["bundle:mecha-client"] + " && deno run --allow-run=deno --allow-read --allow-write interpreter/vendor/bundle-morphlex.ts && deno bundle --config interpreter/deno.json --platform browser --format esm --minify interpreter/vendor/entry-js-yaml.ts -o interpreter/vendor/js-yaml.js && " + _packageJson.scripts["bundle:messages"] + "'"
+				do:    "sh -c 'pnpm run bundle:mecha-client && pnpm run bundle:morphlex && pnpm run bundle:js-yaml && pnpm run bundle:messages'"
 			}
 			dockerfile: from: ref: ":setup"
 		}
@@ -230,7 +230,5 @@ _runtimeTree: [
 	"server/**",
 	"machine.cue",
 ]
-
-_packageJson: _ @embed(file="package.json")
 
 project: _omnishell

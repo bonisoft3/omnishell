@@ -68,11 +68,22 @@ asked for:
   service that mints nothing, a gate that refuses what it minted. It fails the
   reads waiting on the view, so the screen says network-error and the region's
   backoff takes over, and the next read starts the rebuilds over.
+- **The subsets asked for together are one snapshot.** A region per row asks
+  the same shape for one subset per row, all at once, and each snapshot pauses
+  the shape's stream until its rows arrive: golaberto's chances page asked for
+  forty, and under load the last held the stream past 30 s. mecha's client
+  loads the subsets one turn of the event loop asks for, each without a limit,
+  as one snapshot of their union.
 - **A view holds its wakes while it loads a subset**, so no region binds a row
   whose embed has not arrived yet.
-- **Whole and snapshot queries demand completeness explicitly.** Each acquires
-  full-table subset views for its base and local embeds, waits for all of them,
-  then evaluates with the local carrier comparisons and optimistic state.
+- **Whole and snapshot queries demand completeness explicitly.** A snapshot
+  query acquires one view over the clauses a view can state (eq, neq, null
+  tests) with its embeds joined, which loads every row its filter could admit
+  and the rows they join; a whole query, or a snapshot query stating no such
+  clause or a join no view keeps, acquires full-table subset views for its base
+  and local embeds. Each waits for all of them, then evaluates with the local
+  carrier comparisons and optimistic state, so a boolean, a cursor, a pattern
+  or an unkept cap filters the bounded set locally.
   Predicate, cap, ordering and join eligibility are checked per query against
   carrier metadata. An unsupported query elsewhere does not widen this query.
   Subscriptions retain these demands while mounted; named reads use temporary
