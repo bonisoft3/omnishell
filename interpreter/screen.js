@@ -1,6 +1,7 @@
 // Screen interpreter: hydrates one emitted screen (HTML + CSS) against the
 // store. The binding vocabulary is the pronto SPEC's; the shell owns every
 // effect and the whole state machine — screens only style states.
+import { parseMarkup } from "./markup.js";
 import { renderInto } from "./render.js";
 import { mountHatch } from "./hatch.js";
 import {
@@ -1468,9 +1469,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // resolved: what a mount connects, and what a served screen is read against
   // and brought to when it is adopted.
   const prepare = (text) => {
-    const holder = document.createElement("template");
-    holder.innerHTML = text;
-    const root = holder.content.firstElementChild;
+    const root = parseMarkup(document, text).firstElementChild;
     localize(root);
     // A URL still carrying its placeholder is a URL the document would fetch
     // the instant this tree is connected — `src="{image_url}"` is a relative
@@ -1597,11 +1596,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // state-scoped rule inert — every region visible at once, links wearing
     // the user-agent underline — for as long as the awaited loads below take.
     mount.replaceChildren(screen);
-    for (const s of screen.querySelectorAll("script")) {
-      const fresh = document.createElement("script");
-      fresh.textContent = s.textContent;
-      s.replaceWith(fresh);
-    }
+
   } else {
     // The witness: the template the document was rendered from, which this
     // one is or is not. One it is not is morphed to this one first, and each
@@ -1609,7 +1604,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // template's as its region adopts it.
     const current = served.cas === cas;
     if (!current) await morphScreen(screen, markup, { slots: true });
-    adoptTree(markup, screen, { rows: current, scripts: true });
+    adoptTree(markup, screen, { rows: current });
     // The words are this catalogue's, whichever the document was drawn with.
     localize(screen);
   }
@@ -3429,7 +3424,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       if (node) {
         const item = tmpl.content.firstElementChild.cloneNode(true);
         if (region._prontoStale) morphTree(node, item.cloneNode(true), { slots: true });
-        adoptTree(item, node, { rows: !region._prontoStale, scripts: false });
+        adoptTree(item, node, { rows: !region._prontoStale });
       } else {
         node = tmpl.content.firstElementChild.cloneNode(true);
         node.dataset.id = entry.ctx.row.id;
@@ -3950,7 +3945,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         if (templates.length === 0) {
           await morphScreen(region, from);
           const pairs = new Map();
-          adoptTree(from, region, { rows: true, scripts: false, live: true, pairs, enter: true });
+          adoptTree(from, region, { rows: true, live: true, pairs, enter: true });
           retemplateNested(live.get(SLOT)?.nested ?? new Map(), pairs, ready);
           wireSlotForms();
           preserveMorph?.();
@@ -3968,7 +3963,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           const node = entry.node;
           morphTree(node, item.cloneNode(true), { slots: false });
           const pairs = new Map();
-          adoptTree(item, node, { rows: true, scripts: false, live: true, pairs });
+          adoptTree(item, node, { rows: true, live: true, pairs });
           entry.tmpl = tmpl;
           entry.ctx.chain = chainInto(tmpl, entry.ctx.row);
           retemplateNested(entry.nested, pairs, ready);
@@ -4082,7 +4077,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     await morphScreen(screen, next);
     if (held === "stopped") return;
     const pairs = new Map();
-    adoptTree(next, screen, { rows: true, scripts: false, live: true, pairs });
+    adoptTree(next, screen, { rows: true, live: true, pairs });
     localize(screen);
     // Every list re-binds its rows, and a top region's pass names the
     // screen's state after its own rows: the region settling last would
@@ -4184,21 +4179,20 @@ function listRegion(el) {
 /**
  * Takes `to` over as the render of `from`, the same template prepared
  * (interpretScreen's prepare). A served screen is its template's tree with
- * every binding resolved, every list's rows where its item templates stood and
- * its scripts taken out (document.js), so what a render holds only in memory —
+ * every binding resolved and every list's rows where its item templates stood.
+ * What a render holds only in memory —
  * a placeholder attribute's template, a list's item templates — is read off
  * the template and set on the node it became. A served tree that is not that
  * render is refused, not half adopted.
  *
  * `rows`: whether the rows a list holds were stamped from this template's
- * items, or must be morphed to them as they are adopted. `scripts`: whether the template's
- * scripts run, which they do once, on the screen's first mount. `live`: `to`
+ * items, or must be morphed to them as they are adopted. `live`: `to`
  * is a screen already running, whose regions own everything under them; each
  * region met is set in `pairs` against its counterpart in `from`. `enter`:
  * `to` is a region taking its own markup over, which it owns down to the
  * regions under it.
  */
-function adoptTree(from, to, { rows, scripts, live = false, pairs, enter = false }) {
+function adoptTree(from, to, { rows, live = false, pairs, enter = false }) {
   if (from.localName !== to.localName) {
     throw new ProgramError(`the served screen has <${to.localName}> where its template has <${from.localName}>`);
   }
@@ -4235,18 +4229,11 @@ function adoptTree(from, to, { rows, scripts, live = false, pairs, enter = false
   const theirs = [...to.children];
   let at = 0;
   for (const child of [...from.children]) {
-    if (child.localName === "script") {
-      if (!scripts) continue;
-      const run = document.createElement("script");
-      run.textContent = child.textContent;
-      to.insertBefore(run, theirs[at] ?? null);
-      continue;
-    }
     const counterpart = theirs[at++];
     if (counterpart === undefined) {
       throw new ProgramError(`the served screen lacks the <${child.localName}> its template states under <${from.localName}>`);
     }
-    adoptTree(child, counterpart, { rows, scripts, live, pairs });
+    adoptTree(child, counterpart, { rows, live, pairs });
   }
   if (at === theirs.length) return;
   // A slot whose row is gone draws its note after its markup (emptyNote), and
@@ -4295,9 +4282,6 @@ let morphlex = null;
 
 /** morphScreen's walk over a target it may consume. */
 function morphTree(live, target, { slots }) {
-  // A screen's scripts run once, where it is first mounted (adoptTree), and
-  // never again for a morph.
-  for (const script of [...target.querySelectorAll("script")]) script.remove();
   // The state is the screen's and the key the row's, never the template's.
   const own = (name) => name === "data-state" || name === "data-id";
   // A region's attributes are its read, which no binding writes over, so they

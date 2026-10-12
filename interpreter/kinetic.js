@@ -1,3 +1,4 @@
+import { parseMarkup } from "./markup.js";
 // Kinetic Host: Fixed-step deterministic tick engine, snapshot history,
 // and time-travel controller for Omnishell.
 // Decouples kinetic simulation ticks from display rendering refresh rates.
@@ -340,7 +341,7 @@ export function createKineticHost(options) {
 
     mountControls(container) {
       if (!container) throw new Error("mountControls: container element is required");
-      container.innerHTML = `
+      container.replaceChildren(parseMarkup(container.ownerDocument, `
         <div class="kinetic-controls">
           <div class="kc-playback">
             <button type="button" class="kc-btn kc-play">PAUSE</button>
@@ -359,7 +360,7 @@ export function createKineticHost(options) {
             <span class="kc-rate-badge">${currentRateHz} Hz</span>
           </div>
         </div>
-      `;
+      `));
 
       const btnPlay = container.querySelector(".kc-play");
       const btnPrev = container.querySelector(".kc-prev");
@@ -426,7 +427,7 @@ export function createKineticHost(options) {
 
       return () => {
         controlsSyncFn = null;
-        container.innerHTML = "";
+        container.replaceChildren();
       };
     }
   };

@@ -37,6 +37,22 @@ per origin. Everything else is handed in.
 collections, *local* over PGlite collections in the page, and *synced* over
 Electric collections.
 
+## The markup boundary
+
+Screen HTML is parsed in an inert template and checked before its nodes are
+mounted. Scripts, inline handlers, executable URLs, `srcdoc` and embedded
+objects are refused, including inside nested templates. The compiler's markup
+check uses the same refusal. The terminal never executes a screen's scripts.
+
+Pronto emits the terminal's CSP at the door and in the entry page; verified
+release caching retains it. The only Trusted Types policies are the inert
+parser, same-origin script URLs, and SES's eval/Function crossing while the
+platform evaluates a compartment. The eval policy never accepts HTML or
+script elements. These are the reviewed sinks in the
+[Trusted Types model](https://www.w3.org/TR/trusted-types/#dom-xss-injection-sinks).
+Remote presentation resources require the app's explicit declaration
+([[../../pronto/SPEC|artifact spec]]); scripts cannot be added that way.
+
 ## Units
 
 | unit | receives | brings its own build |

@@ -1,3 +1,4 @@
+import { scriptURL } from "./script-url.js";
 // The hatch's second boundary: a vendored unit on its own thread.
 //
 // A thread is what this buys and it is all it buys. The worker is same-origin,
@@ -22,7 +23,7 @@ export function mountWorkerUnit(root, { src, onEvent } = {}) {
   // code it wraps, and a module worker does not have it. Glue that derives its
   // .wasm URL from its own script URL then requires the unit's files to be
   // siblings in one served directory.
-  const worker = new Worker(url.href);
+  const worker = new Worker(scriptURL(url.href));
   // A worker renders nothing. `root` carries data-hatch, data-prop-* and the
   // data-on-* that names the reduce; its children are the screen author's and
   // are left alone.

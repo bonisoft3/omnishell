@@ -30,6 +30,8 @@
 // Findings print as {severity, path, message} JSON (SPEC.md lint format);
 // exit 1 when any finding is reported.
 
+import { DOMParser } from "npm:linkedom@0.18.4";
+import { parseMarkup } from "./interpreter/markup.js";
 import { load as parseYaml } from "./interpreter/vendor/js-yaml.js";
 import {
   type Entity,
@@ -153,6 +155,7 @@ export function screenFindings(
     }
   };
 
+  read(() => parseMarkup(new DOMParser().parseFromString("<html></html>", "text/html"), html));
   const scanned = read(() => scanScreen(html));
   for (const { table, filter } of scanned?.filters ?? []) {
     const e = declared(table);

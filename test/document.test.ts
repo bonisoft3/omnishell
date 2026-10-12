@@ -114,12 +114,12 @@ describe("a prerendered document", () => {
       // the first contentful paint, and nothing the shell boots from is
       // fetched ahead of it.
       expect(d.querySelectorAll('link[rel="modulepreload"], link[rel="preload"]').length).toBe(0)
-      expect(d.querySelectorAll("script[src]").length).toBe(0)
+      expect(d.querySelectorAll("script[src]").length).toBe(1)
       const scripts = [...d.querySelectorAll("script")].filter((s) => s.getAttribute("type") !== "speculationrules")
       expect(scripts.length).toBe(1)
-      expect(scripts[0].textContent).toContain("first-contentful-paint")
-      expect(scripts[0].textContent).toContain('"./boot.js"')
-      expect(scripts[0].textContent).toContain("/omnishell/interpreter/vendor/mecha-client.js")
+      expect(scripts[0].getAttribute("src")).toBe("/omnishell/interpreter/deferred-boot.js")
+      expect(scripts[0].getAttribute("data-pronto-boot")).toBe("./boot.js")
+      expect(scripts[0].getAttribute("data-pronto-preloads")).toContain("/omnishell/interpreter/vendor/mecha-client.js")
     })
   }
 

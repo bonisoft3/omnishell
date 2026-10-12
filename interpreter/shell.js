@@ -1,3 +1,4 @@
+import { parseMarkup } from "./markup.js";
 // createShell: the omnishell entry for pronto-emitted apps. Reads the file
 // map (shell.yaml), boots the store, mounts the route matching the location
 // path, and hands the screen to the interpreter. No build step exists on
@@ -217,13 +218,13 @@ function renderLogin(mount, cfg, chrome) {
   // Every word is written in after the template rather than interpolated into
   // it: a catalogue is app data, and data spliced into markup is an injection
   // seam where a literal was none.
-  wrap.innerHTML = `<form>
+  wrap.append(parseMarkup(document, `<form>
     <h1></h1>
     <p class="login-hint"></p>
     <p class="login-error" hidden></p>
     <button type="submit"></button>
     <button type="button" class="login-guest"></button>
-  </form>`;
+  </form>`));
   wrap.querySelector("h1").textContent = cfg.app;
   wrap.querySelector(".login-hint").textContent = chrome("chrome_signin_hint");
   wrap.querySelector("button[type=submit]").textContent = chrome("chrome_signin");
@@ -570,7 +571,10 @@ export async function createShell({ config, mount, liveUpdates = false, preload 
           ![prior.kind, kind].every(value => value === "text" || value === "rich"))) continue;
       if (field.isContentEditable) {
         const property = prior.kind === "rich" ? "innerHTML" : "textContent";
-        if (field[property] !== prior.value) field[property] = prior.value;
+        if (field[property] !== prior.value) {
+          if (prior.kind === "rich") field.replaceChildren(parseMarkup(document, prior.value));
+          else field.textContent = prior.value;
+        }
       }
       else if (field.type === "checkbox" || field.type === "radio") {
         if (field.checked !== prior.checked) field.checked = prior.checked;

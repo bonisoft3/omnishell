@@ -45,6 +45,7 @@ _shellHtmlAsset: _ @embed(file="shell.html", type=text)
 _shellCssAsset:  _ @embed(file="shell.css", type=text)
 _bootJsAsset:    _ @embed(file="boot.js", type=text)
 _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
+_cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 
 // The server terminal (server/render.ts): a route's document rendered on
 // request, with its rows, by a process that reads the app through the door it
@@ -377,6 +378,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 		// floating to a new release would change them with no change here.
 		documentConfig: #Path
 		documentConfig: *"../../plugins/omnishell/server/deno.json" | string
+		contentSecurityPolicy: strings.TrimSpace(_cspAsset)
 		machineSchema: #Path
 		machineSchema: *"../../plugins/omnishell/machine.cue" | string
 
@@ -389,6 +391,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 		// js-yaml for a shell.yaml config, morphlex when a template changes
 		// under a mounted screen, kinetic, prng and game-inputs for a kinetic unit.
 		_preloadSkip: {
+			"deferred-boot.js":       true
 			"storybook.js":          true
 			"vendor/ses.umd.min.js": true
 			"vendor/js-yaml.js":     true
@@ -404,7 +407,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 		modules: [...#Path]
 		modules: [
 			"shell.js", "chrome.js", "screen.js", "fragment.js", "data-sync.js", "validate.js", "render.js",
-			"release-plan.js", "release-assets.js", "preloads.js",
+			"release-plan.js", "release-assets.js", "preloads.js", "markup.js", "script-url.js", "deferred-boot.js",
 			"hatch.js", "hatch-worker.js", "storybook.js", "jessie.js", "kinetic.js", "prng.js",
 			"vendor/mecha-client.js", "vendor/js-yaml.js", "vendor/ses.umd.min.js", "vendor/morphlex.js",
 			"vendor/messages.js", "vendor/game-inputs.js",

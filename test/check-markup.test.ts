@@ -26,3 +26,16 @@ Deno.test("check-markup distinguishes aggregate result cardinality from grouped 
   assertEquals(grouped.length, 1);
   assertStringIncludes(grouped[0].message, "may bind more than one row");
 });
+
+Deno.test("markup refuses executable content after parsing attributes and nested templates", () => {
+  for (const html of [
+    '<script src="/code.js"></script>', '<svg><script>run()</script></svg>',
+    '<img ONERROR=run()>', '<template><button onclick="run()">run</button></template>',
+    '<a href="java&#x73;cript:run()">run</a>', '<a href="java&#10;script:run()">run</a>',
+    '<iframe srcdoc="&lt;script>run()&lt;/script>"></iframe>', '<object data="/code"></object>',
+  ]) {
+    const findings = screenFindings("code.html", html, {}, new Set(), []);
+    assertEquals(findings.some((f) => f.message.startsWith("markup refused:")), true, html);
+  }
+  assertEquals(screenFindings("prose.html", '<p>&lt;script&gt; is text</p><!-- <script>run()</script> --><span data-on-click="save">Save</span>', {}, new Set(["save"]), []), []);
+});
