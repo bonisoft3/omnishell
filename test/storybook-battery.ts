@@ -2,6 +2,7 @@ import { parseHTML } from "npm:linkedom@0.18.4";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FuelMeter } from "./fuel-meter.ts";
+import { controlProperties } from "../server/linkedom-controls.ts";
 import {
   extractRegions,
   generateIsolatedFrames,
@@ -313,6 +314,7 @@ export async function runStorybookBatteryForApp(
       const { document: frameDoc } = parseHTML(
         "<!doctype html><html><head></head><body><div id=shell></div></body></html>",
       );
+      controlProperties(frameDoc);
       topLayer(frameDoc, (frameDoc.defaultView as unknown as { Event: new (t: string, i: object) => object }).Event);
 
       const prevDoc = (globalThis as Record<string, unknown>).document;
