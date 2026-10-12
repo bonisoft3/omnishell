@@ -1481,8 +1481,12 @@ export function createStore(base = "", cfg = {}) {
   // A server entity has no replicated snapshot or offline intent. Its command
   // completes when CRUD accepts it; a refusal must never be reported as queued.
   async function serverCommand(table, method, values, filter) {
-    const clean = row => Object.fromEntries(Object.entries(row)
-      .filter(([key]) => !key.startsWith("$") && key !== "txid" && key !== "scope_id" && (method !== "PATCH" || key !== keyOf(table))));
+    const fields = cfg.schema[table].fields ?? [];
+    const clean = row => {
+      const command = Object.fromEntries(Object.entries(row)
+        .filter(([key]) => !key.startsWith("$") && key !== "txid" && key !== "scope_id" && (method !== "PATCH" || key !== keyOf(table))));
+      return fields.length === 0 ? command : carrier().normalizeRow(fields, command);
+    };
     const body = values === undefined ? undefined : JSON.stringify(Array.isArray(values)
       ? values.map(clean) : clean(values));
     const res = await http(`${crud(table)}${filter === undefined ? "" : `?${filter}`}`, {

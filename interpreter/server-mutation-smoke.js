@@ -293,3 +293,39 @@ Deno.test({
     });
   },
 });
+
+Deno.test({
+  name: "request-only creates and patches canonicalize typed fields while preserving nulls and database defaults",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const fake = server();
+    await withBrowser({ fetch: fake.fetch }, async createStore => {
+      const store = createStore(fake.base, {
+        tables: ["note"], carriers: FIXTURE_CARRIERS,
+        schema: { note: { durability: "server", fields: [
+          { name: "id", type: "string" },
+          { name: "kickoff", type: "timestamp" },
+          { name: "optional_kickoff", type: "timestamp", required: false },
+          { name: "created_at", type: "timestamp", defaulted: true },
+          { name: "actor_id", type: "uuid" },
+          { name: "amount", type: "decimal", precision: 4, scale: 2 },
+        ] } },
+      });
+      try {
+        await store.add("note", [{ id: "fresh", kickoff: "2026-02-04T20:30:00Z", optional_kickoff: null,
+          actor_id: "0C000000-0000-4000-8000-0000000000AA", amount: "1.2300" }]);
+        const created = JSON.parse(fake.requests[0].body)[0];
+        assert(created.kickoff === "2026-02-04T20:30:00.000000Z", "a timestamp adapter's seconds reach SQL as canonical microseconds");
+        assert(created.actor_id === "0c000000-0000-4000-8000-0000000000aa" && created.amount === "1.23", "every typed field crosses the shared carrier boundary");
+        assert(created.optional_kickoff === null && !Object.hasOwn(created, "created_at"), "null stays null and an omitted default belongs to the database");
+        await store.patch("note", [{ key: "fresh", changes: { kickoff: "2026-02-04T17:30:00.123456-03:00", optional_kickoff: null } }]);
+        const patched = JSON.parse(fake.requests[1].body);
+        assert(patched.kickoff === "2026-02-04T20:30:00.123456Z", "patches convert offsets without losing microseconds");
+        assert(patched.optional_kickoff === null && !Object.hasOwn(patched, "created_at") && !Object.hasOwn(patched, "id"), "patch normalization adds no absent or immutable fields");
+        assert(fake.requests.length === 2 && globalThis.__mechaClient.collections.note.size === 0 && globalThis.__prontoViews.size === 0,
+          "canonical writes use CRUD without acquiring an Electric snapshot");
+      } finally { await globalThis.__mechaClient.collections.note.cleanup(); }
+    });
+  },
+});
