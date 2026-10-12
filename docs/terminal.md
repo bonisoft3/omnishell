@@ -120,9 +120,9 @@ crosses async.
 seated as an `agent` declares a `memo` (shell.yaml `units.<name>.memo`: the
 table, the key fields and the columns an answer fills — Michie's memo table,
 answers addressed by what was asked). The mount's `data-prop-*` of the key's
-names are the question; before it is posted, `hatch.js` looks the table up by
-the key and, finding a row, dispatches the unit's one raised event with the key
-as its detail and never asks. An answer the unit posts carries the key and
+names are the question; before it is posted, `hatch.js` queries the table by
+those key fields and, finding a row, dispatches the unit's one raised event
+with the key as its detail and never asks. An answer the unit posts carries the key and
 every column; it is upserted on the key through the store's natural-key
 upsert, then dispatched the same way. The reduce hearing the event reads the
 answer off the row — one path for a hit and a fresh answer — so the same

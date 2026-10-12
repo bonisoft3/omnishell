@@ -103,7 +103,7 @@ Three exceptions, each because the empty string is not "absent":
 | `data-when` | the same filter grammar, literals only, matched against the row itself. A template with no `data-when` admits every row |
 | `data-exit-motion="none"` | rows leave at once, removed in the pass that loses them — for a list whose filter selects one row, where a leaving row beside its replacement is a layout jump. `none` is the only value, and a slot has no rows to leave; either mistake is refused |
 | `data-empty` | the empty-state copy, shown when the query returns none, as an element of class `empty` the region admits: an `li` in a list, a `span` in phrasing, a `tr` whose one cell spans the table's columns in a `thead`, `tbody` or `tfoot`, a `p` elsewhere. A slot nested in another region's item has no screen state to fall back on, so it owes a declaration: copy, `data-empty=""` for a probe whose output is its presence, or `data-empty-row`; one that states none is refused at generate and by the interpreter |
-| `data-empty-row` | the row a region binds when it has none, resolved against the enclosing row as `data-filter` is — a whole `{col}` keeps its type and null, so a draft nested in the row it edits starts from it. A machine region synthesizes one from `{...context, field: initial}`; where both are present they must agree, vetted at generate and never arbitrated at runtime |
+| `data-empty-row` | the row a region binds when it has none, resolved against the enclosing row as `data-filter` is — a whole `{col}` keeps its type and null, so a draft nested in the row it edits starts from it. A singleton machine region without this attribute requires a filter pinning `id` and synthesizes a row from the entity's literal field defaults, its filter's equalities and `{[field]: initial}`, in that order. This attribute supplies the whole explicit row |
 | `data-project` | [derived columns](#derived-columns) a region states about its own rows |
 | `data-text` | text interpolation from the bound row or singleton |
 | `data-reads="a,b"` | the foreign tables a reduce this region wakes receives as `state.rows`, read at each step and never subscribed: a change to one does not wake the region |
@@ -234,9 +234,16 @@ A chart's grammar is `#Machine` in [`machine.cue`](machine.cue), vetted by
 - **Closed over one row.** Its state is its `field` on a row, which belongs to a
   `tab` or `device` table ([machines](docs/machines.md#the-chart)); leaves see
   `{items: [row]}` and the event and nothing else; every transition lands as
-  one stated row. A region with no `data-empty-row` binds
-  `{...context, [field]: initial}` plus its filter's equalities.
-- **Data, and value positions.** Targets, state names, `initial`, `context` and
+  one stated row. A singleton region with no `data-empty-row` requires a
+  filter pinning `id` and binds
+  the entity's literal field defaults, then its filter's equalities, then
+  `{[field]: initial}`. An explicit `data-empty-row` supplies the whole row.
+  `shell.yaml` carries literal defaults on each field's `default` under
+  `schema.<table>.fields[]`. `defaulted: true` records a SQL default even
+  when it is an expression, so markup lint accounts for pending rows whose
+  defaulted columns have not arrived. SQL expressions supply no literal
+  value, and `context` is refused.
+- **Data, and value positions.** Targets, state names, `initial` and
   raised types are data. A `guard`, an `assign` value or an `after` delay is a
   literal or a Jessie module called `(state, event, params?)` with literal
   `params`; an assign string is a module reference exactly when it names a
