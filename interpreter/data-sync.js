@@ -1,7 +1,7 @@
 // Cluster store adapter: the shell as virtual terminal against the real
 // virtual cluster, riding mecha's published data plane (vendor/mecha-client):
-// one Electric-synced TanStack DB collection per table, and durable offline
-// transactions for every mutation — at-least-once end to end, txid-confirmed.
+// live/offline rows use Electric-synced collections and durable transactions;
+// server rows use authenticated requests whose HTTP result settles the command.
 //
 // Server-durability queries go directly to PostgREST without remote
 // subscriptions. Live reads use maintained views where possible; server-
@@ -149,7 +149,14 @@ async function http(url, init) {
     location.reload();
     return new Promise(() => {});
   }
-  if (!res.ok) throw new Error(`${res.status} ${init?.method ?? "GET"} ${url}`);
+  if (!res.ok) {
+    const method = init?.method ?? "GET";
+    const err = new Error(`${method} ${url} failed: ${res.status} ${await res.text()}`);
+    if (method !== "GET" && res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) {
+      err.name = "NonRetriableError";
+    }
+    throw err;
+  }
   return res;
 }
 
@@ -519,20 +526,23 @@ export function createStore(base = "", cfg = {}) {
   async function validate(table, type, row, current, edgeIndex) {
     const list = await predicatesFor(table);
     if (list.length === 0) return;
-    const collection = await wholeCollection(table, `validation of ${table}`);
     const key = keyOf(table);
-    const held = type !== "update"
-      ? undefined
-      : current ?? collection.toArray.find((r) => String(r[key]) === String(row[key]));
+    const collection = requestOnly(table) ? undefined : await wholeCollection(table, `validation of ${table}`);
+    const held = type !== "update" ? undefined : current ?? (requestOnly(table)
+      ? (await readServer(table, null, { filter: `${key}=eq.${encodeURIComponent(row[key])}` }))[0]
+      : collection.toArray.find((r) => String(r[key]) === String(row[key])));
     // An update states the fields that change, so judging it without the row
     // it changes would judge a fragment as if it were the whole row.
     if (type === "update" && held === undefined) {
       throw new Error(`validation ${table}: update of a row the store does not hold: ${String(row[key])}`);
     }
     const rowsFor = async (edge, produced, name) => {
+      const want = String(produced[edge.from]);
+      if (requestOnly(table) || requestOnly(edge.table)) {
+        return readServer(edge.table, null, { filter: `${edge.key}=eq.${encodeURIComponent(want)}` });
+      }
       await ensurePrepared(edge.table);
       const c = await wholeCollection(edge.table, `validation ${table}.${name}`);
-      const want = String(produced[edge.from]);
       const at = `${edge.table} ${edge.key}`;
       let index = edgeIndex.get(at);
       if (index === undefined) {
@@ -1467,6 +1477,44 @@ export function createStore(base = "", cfg = {}) {
     };
   }
 
+  // A server entity has no replicated snapshot or offline intent. Its command
+  // completes when CRUD accepts it; a refusal must never be reported as queued.
+  async function serverCommand(table, method, values, filter) {
+    const clean = row => Object.fromEntries(Object.entries(row)
+      .filter(([key]) => !key.startsWith("$") && key !== "txid" && key !== "scope_id" && (method !== "PATCH" || key !== keyOf(table))));
+    const body = values === undefined ? undefined : JSON.stringify(Array.isArray(values)
+      ? values.map(clean) : clean(values));
+    const res = await http(`${crud(table)}${filter === undefined ? "" : `?${filter}`}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+        ...(method === "POST" ? { "Idempotency-Key": crypto.randomUUID() } : {}),
+      },
+      body,
+    });
+    const rows = await res.json();
+    if (!Array.isArray(rows)) throw new ProgramError(`${method} ${table}: CRUD returned no row array`);
+    const identity = key => String(literal(table, keyOf(table), String(key)) ?? key);
+    const keys = rows.map(row => {
+      if (row?.[keyOf(table)] === undefined) throw new ProgramError(`${method} ${table}: CRUD returned a row without its key`);
+      return identity(row[keyOf(table)]);
+    });
+    if (keys.length > 0) notifySettled(table, keys);
+    const submitted = method === "POST" ? (Array.isArray(values) ? values : [values]) : [];
+    const expected = method === "POST" ? submitted.length : 1;
+    const wanted = method === "POST"
+      ? submitted.map(row => row[keyOf(table)]).filter(key => key !== undefined).map(identity)
+      : [identity(new URLSearchParams(filter).get(keyOf(table)).slice(3))];
+    const accepted = new Set(keys);
+    if (rows.length !== expected || wanted.some(key => !accepted.has(key))) {
+      const changed = rows.length === 0 ? "no rows" : `${rows.length} of ${expected} rows`;
+      const err = new Error(`${method} ${table} changed ${changed}: the server refused the command`);
+      err.name = "NonRetriableError";
+      throw err;
+    }
+  }
+
   /* Every mutation below takes a batch, because the collection does its work
    * per CALL and not per row: it maintains the live queries each region reads
    * a table through, and that is what a write costs. A caller with a hundred
@@ -1489,6 +1537,18 @@ export function createStore(base = "", cfg = {}) {
       if (e?.key === undefined) throw new Error(`write ${table}: an edit names no ${key}`);
       return { ...e.row, [key]: e.key };
     });
+    if (requestOnly(table)) {
+      const commands = [];
+      const edgeIndex = new Map();
+      for (const row of rows) {
+        const filter = `${key}=eq.${encodeURIComponent(row[key])}`;
+        const have = (await readServer(table, null, { filter }))[0];
+        await validate(table, have === undefined ? "insert" : "update", row, have, edgeIndex);
+        commands.push({ row, method: have === undefined ? "POST" : "PATCH", filter: have === undefined ? undefined : filter });
+      }
+      for (const command of commands) await serverCommand(table, command.method, command.row, command.filter);
+      return;
+    }
     const collection = await mutationCollection(table, "a write by key");
     // Asked once for the batch. Asked per row it is a scan of the table per
     // row, which is the quadratic term this whole shape exists to remove — and
@@ -1542,6 +1602,7 @@ export function createStore(base = "", cfg = {}) {
     const filled = rows.map((r) => blank(table, r));
     const edgeIndex = new Map();
     for (const row of filled) await validate(table, "insert", row, undefined, edgeIndex);
+    if (requestOnly(table)) return serverCommand(table, "POST", filled);
     await settle(
       onSettled(client.insert(table, filled), table, filled.map((r) => String(r[key]))),
       ACCEPT_MS,
@@ -1588,6 +1649,15 @@ export function createStore(base = "", cfg = {}) {
     if (edits.length === 0) return;
     await ensurePrepared(table);
     const key = keyOf(table);
+    if (requestOnly(table)) {
+      const edgeIndex = new Map();
+      for (const e of edits) {
+        if (e?.key === undefined) throw new Error(`patch ${table}: an edit names no ${key}`);
+        await validate(table, "update", { ...e.changes, [key]: e.key }, undefined, edgeIndex);
+      }
+      for (const e of edits) await serverCommand(table, "PATCH", e.changes, `${key}=eq.${encodeURIComponent(e.key)}`);
+      return;
+    }
     await holding(table, edits.map((e) => e.key), async () => {
       // The key last: a `changes` naming the key cannot redirect the judgement
       // onto a row other than the one this edit identifies.
@@ -1620,9 +1690,16 @@ export function createStore(base = "", cfg = {}) {
     if (keys === null) {
       throw new Error(`upsert ${table}: no natural key covers ${Object.keys(values).join(",")}`);
     }
-    const collection = await mutationCollection(table, "an upsert by natural key");
     const at = (r, c) => String(r[c] ?? (c === owner ? userId() : ""));
     const wanted = keys.map((c) => at(values, c));
+    if (requestOnly(table)) {
+      const filter = keys.map((col, i) => values[col] === null ? `${col}=is.null` : `${col}=eq.${encodeURIComponent(wanted[i])}`).join("&");
+      const rows = await readServer(table, null, { filter });
+      if (rows.length > 1) throw new ProgramError(`upsert ${table}: its natural key identifies ${rows.length} rows`);
+      if (rows.length === 1) return patch(table, [{ key: rows[0][keyOf(table)], changes: values }], onRefused);
+      return add(table, [{ [keyOf(table)]: crypto.randomUUID(), ...values }], onRefused);
+    }
+    const collection = await mutationCollection(table, "an upsert by natural key");
     const existing = collection.toArray.find(
       (r) => visible(table, r) && keys.every((c, i) => at(r, c) === wanted[i]),
     );
@@ -1637,6 +1714,13 @@ export function createStore(base = "", cfg = {}) {
 
   async function drop(table, keys, onRefused) {
     if (keys.length === 0) return;
+    if (requestOnly(table)) {
+      for (const key of keys) {
+        if (key === undefined) throw new Error(`drop ${table}: a key is undefined`);
+        await serverCommand(table, "DELETE", undefined, `${keyOf(table)}=eq.${encodeURIComponent(key)}`);
+      }
+      return;
+    }
     await holding(table, keys, () =>
       settle(
         onSettled(client.remove(table, keys), table, keys.map((k) => String(k))),
@@ -1662,6 +1746,10 @@ export function createStore(base = "", cfg = {}) {
     // DELETE has no ordering to cap against — honoring the rest of the filter
     // would silently widen the deletion's scope.
     if (parseLimit(filter) !== undefined) throw new Error(`delete filter carries a limit: ${filter}`);
+    if (requestOnly(table)) {
+      const rows = await readServer(table, null, { filter });
+      return drop(table, rows.map(row => row[keyOf(table)]), onRefused);
+    }
     await ensurePrepared(table);
     const preds = parseFilter(filter, orderOf(table));
     // A precondition, not a branch: resolving these keys anywhere but the

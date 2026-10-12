@@ -549,8 +549,8 @@ for (const [kind, opts, indexedTable, column] of [
     await Promise.all([collections.player_game.cleanup(), collections.player.cleanup()]);
     assert(collections[indexedTable].indexes.size === 0, "source cleanup discarded the index");
     const warnings = [];
-    const warn = console.warn;
-    console.warn = (...args) => warnings.push(args.join(" "));
+    const savedConsole = globalThis.console;
+    globalThis.console = { ...savedConsole, warn: (...args) => warnings.push(args.join(" ")) };
     const before = fake.subsets.length;
     try {
       stop = store.subscribe("player_game", () => {}, opts);
@@ -565,7 +565,7 @@ for (const [kind, opts, indexedTable, column] of [
       assert(warnings.length === 0, `no index fallback: ${warnings.join("; ")}`);
     } finally {
       stop();
-      console.warn = warn;
+      globalThis.console = savedConsole;
     }
   });
 }
@@ -1176,8 +1176,14 @@ Deno.test({
     const reading = new Promise(resolve => { releaseRead = resolve; });
     let calls = 0;
     let committed = [];
-    await withBrowser({ fetch: async input => {
-      assert(String(input).startsWith("http://settled/crud/player_game?"), "the read opens no remote subscription");
+    let finishWrite;
+    await withBrowser({ fetch: async (input, init) => {
+      assert(String(input).startsWith("http://settled/crud/player_game"), "server commands open no remote subscription");
+      if (init?.method === "POST") {
+        await new Promise(resolve => { finishWrite = resolve; });
+        committed = JSON.parse(init.body);
+        return Response.json(committed);
+      }
       const snapshot = [...committed];
       if (++calls === 1) await reading;
       return Response.json(snapshot);
@@ -1185,10 +1191,7 @@ Deno.test({
       const cfg = config();
       cfg.schema.player_game.durability = "server";
       const store = createStore("http://settled", cfg);
-      let finishWrite;
-      globalThis.__mechaClient.insert = (_table, rows) => new Promise(resolve => {
-        finishWrite = () => { committed = rows; resolve(); };
-      });
+
       let refreshed;
       const stop = store.subscribe("player_game", () => { refreshed = store.query("player_game"); });
       try {
