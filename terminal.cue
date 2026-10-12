@@ -332,7 +332,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 		// rather than PATH, where a shim is no promise (mise makes none for a
 		// `path:` version). Neither asks the rule which OS it woke up on.
 		_command: {
-			for leaf in ["check markup", "check handlers", "check machines", "check battery", "check i18n"] {
+			for leaf in ["check markup", "check handlers", "check machines", "check battery", "check i18n", "check kinetic"] {
 				(leaf): [
 					if T.surface.runtime != "" {"mise run omnishell -- \(leaf) ."},
 					"use tools.nu [run-mise]; run-mise exec -- omnishell \(leaf) .",
@@ -387,7 +387,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 		// What stays off loads only on a path a first paint does not take:
 		// storybook.js under ?storybook, ses when a handler first runs,
 		// js-yaml for a shell.yaml config, morphlex when a template changes
-		// under a mounted screen, kinetic and prng for a kinetic unit.
+		// under a mounted screen, kinetic, prng and game-inputs for a kinetic unit.
 		_preloadSkip: {
 			"storybook.js":          true
 			"vendor/ses.umd.min.js": true
@@ -395,6 +395,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 			"vendor/morphlex.js":    true
 			"kinetic.js":            true
 			"prng.js":               true
+			"vendor/game-inputs.js": true
 		}
 		_preloadHtml: strings.Join([for m in modules if _preloadSkip[m] == _|_ {
 			"<link rel=\"modulepreload\" href=\"/omnishell/interpreter/\(m)\">"
@@ -406,7 +407,7 @@ _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 			"release-plan.js", "release-assets.js", "preloads.js",
 			"hatch.js", "hatch-worker.js", "storybook.js", "jessie.js", "kinetic.js", "prng.js",
 			"vendor/mecha-client.js", "vendor/js-yaml.js", "vendor/ses.umd.min.js", "vendor/morphlex.js",
-			"vendor/messages.js",
+			"vendor/messages.js", "vendor/game-inputs.js",
 		]
 
 		screens: [...{name: string, html: #Path, css: #Path, shared: *[] | [...#Path]}]

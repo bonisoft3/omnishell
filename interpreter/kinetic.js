@@ -3,6 +3,8 @@
 // Decouples kinetic simulation ticks from display rendering refresh rates.
 
 export { prngStep, createPrng } from "./prng.js";
+import { GameInputs } from "./vendor/game-inputs.js";
+export { GameInputs };
 
 const MAX_FRAME_MS = 250.0;
 
@@ -427,5 +429,64 @@ export function createKineticHost(options) {
         container.innerHTML = "";
       };
     }
+  };
+}
+
+/**
+ * Creates a unified kinetic input manager with virtual action bindings,
+ * edge latching, blur clearing, macOS meta key handling, and Gamepad API support.
+ * @param {object} options
+ * @param {HTMLElement|Document} [options.element]
+ * @param {Record<string, string[]>} [options.bindings]
+ * @param {boolean} [options.preventDefaults=true]
+ * @param {boolean} [options.gamepad=true]
+ */
+export function createKineticInput(options = {}) {
+  const inputs = new GameInputs(options.element, {
+    preventDefaults: options.preventDefaults ?? true,
+    gamepad: options.gamepad !== false,
+  });
+
+  const bindings = options.bindings || {};
+  const latched = new Set();
+
+  function registerBinding(action, ...keys) {
+    inputs.bind(action, ...keys);
+    inputs.down.on(action, () => {
+      latched.add(action);
+    });
+  }
+
+  for (const [action, keys] of Object.entries(bindings)) {
+    registerBinding(action, ...(Array.isArray(keys) ? keys : [keys]));
+  }
+
+  return {
+    inputs,
+    bind: registerBinding,
+    unbind: (action) => inputs.unbind(action),
+    getBindings: () => inputs.getBindings(),
+    isDown: (action) => !!inputs.state[action],
+    wasPressed: (action) => (inputs.pressCount[action] || 0) > 0 || latched.has(action),
+    poll: () => {
+      /** @type {Record<string, boolean>} */
+      const state = {};
+      for (const action in inputs.state) {
+        state[action] = !!inputs.state[action] || latched.has(action);
+      }
+      latched.clear();
+      inputs.tick();
+      return state;
+    },
+    clear: () => {
+      latched.clear();
+      for (const action in inputs.state) {
+        inputs.state[action] = false;
+      }
+      for (const action in inputs.pressCount) {
+        inputs.pressCount[action] = 0;
+      }
+    },
+    destroy: () => inputs.destroy(),
   };
 }

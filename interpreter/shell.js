@@ -505,7 +505,10 @@ function catalogues(appBase, i18n, release = false) {
   };
 }
 
-export async function createShell({ config, mount, liveUpdates = false }) {
+// `preload: false` for a page that serves the app's files itself (pronto's
+// single-file bundle): a preload goes to the network past the page's own
+// answer, and fetches what nothing reads.
+export async function createShell({ config, mount, liveUpdates = false, preload = true }) {
   let initialDraftOwner = liveUpdates ? storedSessionOwner() : null;
   const editedFields = new WeakSet();
   const morphDrafts = new Map();
@@ -746,7 +749,7 @@ export async function createShell({ config, mount, liveUpdates = false }) {
     const { messages, ensure: ensureMessages, answered, all: allMessages } = words;
     const storybook = search.has("storybook");
     if (arriving !== null && !storybook && !liveUpdates) {
-      preloadScreen(document, appBase, arriving.route, { template: false });
+      if (preload) preloadScreen(document, appBase, arriving.route, { template: false });
       prefetchScreen(appBase, arriving.route);
     }
     // Ahead of the gate, not beside the screens: the terminal's own chrome is

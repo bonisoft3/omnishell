@@ -28,7 +28,7 @@ function toolDir(name: string): string {
 }
 
 const usage = [
-  "usage: omnishell check markup|handlers|machines|battery|parity|i18n <appDir> | --self-test",
+  "usage: omnishell check markup|handlers|machines|battery|parity|i18n|kinetic <appDir> | --self-test",
   "       omnishell read markup <appDir> | --self-test",
   "       omnishell render documents <appDir> <outDir> <origin>",
   "       omnishell mode <appDir> [--local]",
@@ -150,6 +150,12 @@ if (verb === "mode") {
     }
     case "check i18n": {
       const { run } = await import("../check-i18n.ts");
+      await narrow(true);
+      await run(args);
+      break;
+    }
+    case "check kinetic": {
+      const { run } = await import("../check-kinetic.ts");
       await narrow(true);
       await run(args);
       break;
