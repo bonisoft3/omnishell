@@ -599,7 +599,7 @@ Deno.test({
       const store = createStore(fake.base, config({
         uniques: { player_game: [["game_id", "player_id"]] },
         pipelines: [fold],
-        validations: { stat: { "counted": { src: "v.js", edges: [{ table: "player_game", key: "player_id", from: "player_id" }] } } },
+        validations: { stat: { "counted": { src: "v.js", on: ["insert", "update"], order: {insert: [0, 0], update: [0, 0]}, edges: [{ table: "player_game", key: "player_id", from: "player_id" }] } } },
       }));
       const refused = async (site, run) => {
         try {

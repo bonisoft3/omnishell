@@ -72,7 +72,7 @@ async function fixture(run: (app: any) => Promise<void>) {
     const store = createStore("", {
       carriers: FIXTURE_CARRIERS, local: { note: "tab" }, appBase: base.href, release: true,
       seed: { note: [{id:"n",title:"start"}] },
-      validations: { note: { title: { src: "shell/validations/title.js" } } },
+      validations: { note: { title: { src: "shell/validations/title.js", on: ["insert", "update"], order: {insert: [0, 0], update: [0, 0]} } } },
     })
     const offline = () => { globalThis.fetch = async () => { throw new TypeError("offline") } }
     offline()

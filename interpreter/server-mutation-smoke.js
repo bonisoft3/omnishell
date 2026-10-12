@@ -188,7 +188,7 @@ Deno.test({
       const store = createStore(fake.base, {
         appBase: `${fake.base}/`, tables: ["note", "owner"], carriers: FIXTURE_CARRIERS,
         read: { note: "lazy", owner: "lazy" },
-        validations: { note: { editable: { src: "validation.js", edges: [{ table: "owner", key: "id", from: "owner_id" }] } } },
+        validations: { note: { editable: { src: "validation.js", on: ["insert", "update"], order: {insert: [0, 0], update: [0, 0]}, edges: [{ table: "owner", key: "id", from: "owner_id" }] } } },
         schema: {
           note: { durability: "server", fields: [{ name: "id", type: "string" }, { name: "owner_id", type: "string" }, { name: "title", type: "string" }] },
           owner: { durability: "server", fields: [{ name: "id", type: "string" }] },

@@ -496,6 +496,15 @@ export function createStore(base = "", cfg = {}) {
       // Dropped on rejection: a fetch that failed once would otherwise refuse
       // the table for the rest of the session.
       p = Promise.all(Object.entries(validations[table] ?? {}).map(async ([name, v]) => {
+        if (!Array.isArray(v.on) || v.on.length === 0 || v.on.some(op => !["insert", "update", "delete"].includes(op))) {
+          throw new Error(`validation ${table}.${name}: missing or invalid lifecycle events`);
+        }
+        for (const op of v.on) {
+          const order = v.order?.[op];
+          if (!Array.isArray(order) || order.length !== 2 || order.some(n => !Number.isInteger(n) || n < 0)) {
+            throw new Error(`validation ${table}.${name}: missing lifecycle order for ${op}`);
+          }
+        }
         const url = new URL(v.src, cfg.appBase);
         let source;
         if (readCode) source = await readCode(url);
@@ -505,7 +514,7 @@ export function createStore(base = "", cfg = {}) {
           source = await res.text();
         }
         const granted = cfg.endowments?.[v.src] ?? [];
-        return { name, edges: v.edges ?? [], test: await evaluateRole(source, "validation", granted) };
+        return { name, on: v.on, order: v.order, edges: v.edges ?? [], test: await evaluateRole(source, "validation", granted) };
       })).catch((e) => {
         predicates.delete(table);
         throw e;
@@ -525,11 +534,12 @@ export function createStore(base = "", cfg = {}) {
   // than one per row. It is keyed by table AND join column: two validations of
   // one entity may walk to one table on different columns.
   async function validate(table, type, row, current, edgeIndex) {
-    const list = await predicatesFor(table);
+    const list = (await predicatesFor(table)).filter(v => v.on.includes(type))
+      .sort((a, b) => a.order[type][0] - b.order[type][0] || a.order[type][1] - b.order[type][1]);
     if (list.length === 0) return;
     const key = keyOf(table);
     const collection = requestOnly(table) ? undefined : await wholeCollection(table, `validation of ${table}`);
-    const held = type !== "update" ? undefined : current ?? (requestOnly(table)
+    const held = type === "insert" ? undefined : current ?? (requestOnly(table)
       ? (await readServer(table, null, { filter: `${key}=eq.${encodeURIComponent(row[key])}` }))[0]
       : collection.toArray.find((r) => String(r[key]) === String(row[key])));
     // An update states the fields that change, so judging it without the row
@@ -537,6 +547,7 @@ export function createStore(base = "", cfg = {}) {
     if (type === "update" && held === undefined) {
       throw new Error(`validation ${table}: update of a row the store does not hold: ${String(row[key])}`);
     }
+    if (type === "delete" && held === undefined) return;
     const rowsFor = async (edge, produced, name) => {
       const want = String(produced[edge.from]);
       if (requestOnly(table) || requestOnly(edge.table)) {
@@ -559,7 +570,7 @@ export function createStore(base = "", cfg = {}) {
       }
       return index.get(want) ?? [];
     };
-    await judge(list, { table, type, row, held, rowsFor, owner: access[table]?.owner, me: userId });
+    await judge(list, { table, type, row: type === "delete" ? held : row, held, rowsFor, owner: access[table]?.owner, me: userId });
   }
 
   // A local collection is made ready for use once per boot, before the first
@@ -1719,9 +1730,14 @@ export function createStore(base = "", cfg = {}) {
 
   async function drop(table, keys, onRefused) {
     if (keys.length === 0) return;
+    await ensurePrepared(table);
+    const edgeIndex = new Map();
+    for (const key of keys) {
+      if (key === undefined) throw new Error(`drop ${table}: a key is undefined`);
+      await validate(table, "delete", { [keyOf(table)]: key }, undefined, edgeIndex);
+    }
     if (requestOnly(table)) {
       for (const key of keys) {
-        if (key === undefined) throw new Error(`drop ${table}: a key is undefined`);
         await serverCommand(table, "DELETE", undefined, `${keyOf(table)}=eq.${encodeURIComponent(key)}`);
       }
       return;
