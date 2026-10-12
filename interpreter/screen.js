@@ -1,7 +1,6 @@
 // Screen interpreter: hydrates one emitted screen (HTML + CSS) against the
 // store. The binding vocabulary is the pronto SPEC's; the shell owns every
 // effect and the whole state machine — screens only style states.
-import { parseMarkup } from "./markup.js";
 import { renderInto } from "./render.js";
 import { mountHatch } from "./hatch.js";
 import {
@@ -24,7 +23,6 @@ import {
   Unanswered,
 } from "./fragment.js";
 import { evaluateRole } from "./jessie.js";
-import { hostDomScreen } from "./host-dom.js";
 import { releaseReader } from "./release-assets.js";
 
 export async function fetchText(url, init) {
@@ -858,15 +856,12 @@ function declaredCharts(spec, table) {
     if (chart === null || typeof chart !== "object" || Array.isArray(chart)) {
       throw new ProgramError(`region "${table}": data-machine holds ${JSON.stringify(chart)}, which is not a chart`);
     }
-    const contextIn = (node) => "context" in node || Object.values(node.states ?? {}).some(contextIn);
-    if (contextIn(chart)) {
-      throw new ProgramError(`region "${table}": chart context is not supported; declare the entity's field defaults`);
-    }
     if (chart.type === "parallel") {
       for (const [regionName, regionNode] of Object.entries(chart.states ?? {})) {
         charts.push({
           field: regionNode.field ?? regionName,
           initial: regionNode.initial,
+          context: regionNode.context ?? (regionNode.field ? chart.context : undefined),
           on: { ...chart.on, ...regionNode.on },
           states: regionNode.states ?? {},
           after: regionNode.after,
@@ -1370,7 +1365,6 @@ function staticOrParam(template, ctx) {
 // opts.navigate is how a navigate form reaches the terminal's stack.
 export async function interpretScreen(mount, appBase, route, store, params = {}, opts = {}) {
   const screenOpts = opts;
-  const hostDom = await hostDomScreen(route, appBase, opts.hostDom ?? {}, opts);
   const read = opts.release ? releaseReader() : fetchText;
   const files = [new URL(route.files.html, appBase), new URL(route.files.css, appBase)];
   let [html, css] = await Promise.all(files.map(opts.release ? read : screenFile));
@@ -1402,7 +1396,6 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   for (const stop of mount._prontoStops ?? []) stop();
   const cleanups = [];
   mount._prontoStops = cleanups;
-  cleanups.push(hostDom.stop);
   // One seat per data-on-mutation handler, screen-wide (see wireEvents).
   const folds = new Map();
   const work = new Set();
@@ -1472,7 +1465,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // resolved: what a mount connects, and what a served screen is read against
   // and brought to when it is adopted.
   const prepare = (text) => {
-    const root = parseMarkup(document, text).firstElementChild;
+    const holder = document.createElement("template");
+    holder.innerHTML = text;
+    const root = holder.content.firstElementChild;
     localize(root);
     // A URL still carrying its placeholder is a URL the document would fetch
     // the instant this tree is connected — `src="{image_url}"` is a relative
@@ -1491,6 +1486,10 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   };
 
   let currentLocale = opts.locale ?? params.locale ?? opts.i18n?.default;
+  // A screen's own script says things the markup cannot bind — chrome that
+  // outlives the row it speaks for. It reads the catalogue the bindings read,
+  // so one app never keeps the same sentence in two places.
+  globalThis.__prontoMessages = opts.messages;
   // What a binding reads off the app rather than off its row: the route table
   // and the locales every link's address is composed from (routeHref).
   const cfg = { routes: opts.routes, i18n: opts.i18n, schema: opts.schema, prefix: opts.prefix, endowments: opts.endowments };
@@ -1595,7 +1594,11 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // state-scoped rule inert — every region visible at once, links wearing
     // the user-agent underline — for as long as the awaited loads below take.
     mount.replaceChildren(screen);
-
+    for (const s of screen.querySelectorAll("script")) {
+      const fresh = document.createElement("script");
+      fresh.textContent = s.textContent;
+      s.replaceWith(fresh);
+    }
   } else {
     // The witness: the template the document was rendered from, which this
     // one is or is not. One it is not is morphed to this one first, and each
@@ -1603,7 +1606,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // template's as its region adopts it.
     const current = served.cas === cas;
     if (!current) await morphScreen(screen, markup, { slots: true });
-    adoptTree(markup, screen, { rows: current });
+    adoptTree(markup, screen, { rows: current, scripts: true });
     // The words are this catalogue's, whichever the document was drawn with.
     localize(screen);
   }
@@ -1621,7 +1624,6 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   const resolveUnit = (name) => {
     const unit = units[name];
     if (unit === undefined) throw new Error(`no vendored unit for data-hatch="${name}"`);
-    if (unit.ports === undefined) throw new Error(`vendored unit "${name}" declares no ports`);
     return unit;
   };
   // Every hatch name resolves before a region hydrates, item templates
@@ -1691,28 +1693,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       if (el._prontoHatch === undefined) {
         const name = el.dataset.hatch;
         const unit = resolveUnit(name);
-        // The ports, held at the mount, as ProgramErrors so the refresh's
-        // outage guard rethrows them rather than retrying the markup. The
-        // read port: the props are the nearest region's row, so that table is
-        // what the unit is handed, and only a table its ports read may be; a
-        // mount outside every region is fed no row. The raises port: a
-        // data-on-* on the host is the chart listening for the unit's event,
-        // and a name the unit does not raise would be listened for forever.
-        const fed = el.closest("[data-live]")?.dataset.live;
-        if (fed !== undefined && !unit.ports.reads.includes(fed)) {
-          throw new ProgramError(`data-hatch="${name}" is fed the row of "${fed}", which its ports do not read`);
-        }
-        for (const key of Object.keys(el.dataset)) {
-          if (!/^on[A-Z]/.test(key)) continue;
-          const handled = key.slice(2).replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`).slice(1);
-          if (!unit.ports.raises.includes(handled)) {
-            throw new ProgramError(`data-hatch="${name}" handles "${handled}", which its ports do not raise`);
-          }
-        }
         el._prontoHatch = mountHatch(el, {
           unit,
           src: new URL(unit.src, appBase).href,
-          store,
           // A unit's named event becomes a real DOM event on the mount, so the
           // ordinary data-on-* path carries it the rest of the way: bind
           // attaches the listener, bind builds the event, step runs the reduce
@@ -3158,14 +3141,13 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           `machine region "${table}" has no data-empty-row and its filter pins no id=eq.; the machine's first write would have no key`,
         );
       }
-      // Schema defaults are literal values; expression defaults are performed
-      // by the store. Filter facts and each chart's initial state own their
-      // columns over the defaults, including parallel charts' disjoint fields.
-      fallbackRow = {
-        ...Object.fromEntries((cfg.schema?.[table]?.fields ?? [])
-          .filter((f) => Object.hasOwn(f, "default")).map((f) => [f.name, f.default])),
-        ...eqs,
-      };
+      // {...context, ...eqs, field: initial}: each chart states the initial
+      // world, the filter's equalities add the facts any visible row carries,
+      // and the field is the chart's own — a filter pinning it would herd rows
+      // out of its own read and earns no override. Parallel charts hold
+      // disjoint columns, so the merge cannot lose one of them: the row is the
+      // union of what they each said, which is the row they all then write to.
+      fallbackRow = { ...eqs };
       for (const chart of mounted) {
         let initialVal = chart.initial;
         let node = chart.states?.[initialVal];
@@ -3173,7 +3155,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           initialVal = `${initialVal}.${node.initial}`;
           node = node.states[node.initial];
         }
-        fallbackRow[chart.field] = initialVal;
+        fallbackRow = { ...(chart.context ?? {}), ...fallbackRow, [chart.field]: initialVal };
       }
     }
     // Read back by the machine reduce (wired per refresh, outside this scope):
@@ -3423,7 +3405,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       if (node) {
         const item = tmpl.content.firstElementChild.cloneNode(true);
         if (region._prontoStale) morphTree(node, item.cloneNode(true), { slots: true });
-        adoptTree(item, node, { rows: !region._prontoStale });
+        adoptTree(item, node, { rows: !region._prontoStale, scripts: false });
       } else {
         node = tmpl.content.firstElementChild.cloneNode(true);
         node.dataset.id = entry.ctx.row.id;
@@ -3944,7 +3926,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         if (templates.length === 0) {
           await morphScreen(region, from);
           const pairs = new Map();
-          adoptTree(from, region, { rows: true, live: true, pairs, enter: true });
+          adoptTree(from, region, { rows: true, scripts: false, live: true, pairs, enter: true });
           retemplateNested(live.get(SLOT)?.nested ?? new Map(), pairs, ready);
           wireSlotForms();
           preserveMorph?.();
@@ -3962,7 +3944,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           const node = entry.node;
           morphTree(node, item.cloneNode(true), { slots: false });
           const pairs = new Map();
-          adoptTree(item, node, { rows: true, live: true, pairs });
+          adoptTree(item, node, { rows: true, scripts: false, live: true, pairs });
           entry.tmpl = tmpl;
           entry.ctx.chain = chainInto(tmpl, entry.ctx.row);
           retemplateNested(entry.nested, pairs, ready);
@@ -4048,22 +4030,6 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // a screen it is holding for a back press is paused, not stopped. A morph
   // waiting on the newer template's modules meets either when it resumes.
   let held = "shown";
-  const stopScreen = () => {
-    held = "stopped";
-    const errors = [];
-    for (const stop of [...regions.map(r => () => r.stop()), ...cleanups.splice(0)]) {
-      try { stop(); } catch (error) { errors.push(error); }
-    }
-    if (errors.length) throw new AggregateError(errors, "screen cleanup failed");
-  };
-  const mountHostDom = () => {
-    try { hostDom.start(screen, { messages: opts.messages, params }); }
-    catch (error) {
-      try { stopScreen(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], "screen mount failed"); }
-      throw error;
-    }
-  };
-  mountHostDom();
   // A newer template for the screen on show (the service worker's
   // revalidation): its skeleton is brought to it in place, then each region
   // (retemplate). A region it adds, or whose read it changes, is hydrated
@@ -4089,11 +4055,10 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       adapters = modules.adapters;
       Object.assign(renderers, modules.renderers);
     }
-    hostDom.stop();
     await morphScreen(screen, next);
     if (held === "stopped") return;
     const pairs = new Map();
-    adoptTree(next, screen, { rows: true, live: true, pairs });
+    adoptTree(next, screen, { rows: true, scripts: false, live: true, pairs });
     localize(screen);
     // Every list re-binds its rows, and a top region's pass names the
     // screen's state after its own rows: the region settling last would
@@ -4125,7 +4090,6 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     setState(state);
     // What it hydrated subscribed as it did, held or not.
     if (held === "paused") for (const r of regions) r.pause();
-    if (held === "shown") mountHostDom();
   };
   // One at a time, in the order they arrive: each waits on the modules its
   // template names, and a later one landing first would be morphed back.
@@ -4142,18 +4106,18 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // Which template this screen was drawn from (templateHash).
     cas,
     pause: () => {
-      if (held !== "shown") return;
       held = "paused";
-      hostDom.stop();
       for (const r of regions) r.pause();
     },
-    resume: async () => {
-      if (held !== "paused") return;
+    resume: () => {
       held = "shown";
-      await Promise.all(regions.map((r) => r.resume()));
-      if (held === "shown") mountHostDom();
+      return Promise.all(regions.map((r) => r.resume()));
     },
-    stop: stopScreen,
+    stop: () => {
+      held = "stopped";
+      for (const r of regions) r.stop();
+      for (const cleanup of cleanups.splice(0)) cleanup();
+    },
     // Its words written again, in the catalogues as they now stand.
     localize: () => localize(screen),
     morph: (newHtml, { preserve } = {}) => {
@@ -4196,20 +4160,21 @@ function listRegion(el) {
 /**
  * Takes `to` over as the render of `from`, the same template prepared
  * (interpretScreen's prepare). A served screen is its template's tree with
- * every binding resolved and every list's rows where its item templates stood.
- * What a render holds only in memory —
+ * every binding resolved, every list's rows where its item templates stood and
+ * its scripts taken out (document.js), so what a render holds only in memory —
  * a placeholder attribute's template, a list's item templates — is read off
  * the template and set on the node it became. A served tree that is not that
  * render is refused, not half adopted.
  *
  * `rows`: whether the rows a list holds were stamped from this template's
- * items, or must be morphed to them as they are adopted. `live`: `to`
+ * items, or must be morphed to them as they are adopted. `scripts`: whether the template's
+ * scripts run, which they do once, on the screen's first mount. `live`: `to`
  * is a screen already running, whose regions own everything under them; each
  * region met is set in `pairs` against its counterpart in `from`. `enter`:
  * `to` is a region taking its own markup over, which it owns down to the
  * regions under it.
  */
-function adoptTree(from, to, { rows, live = false, pairs, enter = false }) {
+function adoptTree(from, to, { rows, scripts, live = false, pairs, enter = false }) {
   if (from.localName !== to.localName) {
     throw new ProgramError(`the served screen has <${to.localName}> where its template has <${from.localName}>`);
   }
@@ -4246,11 +4211,18 @@ function adoptTree(from, to, { rows, live = false, pairs, enter = false }) {
   const theirs = [...to.children];
   let at = 0;
   for (const child of [...from.children]) {
+    if (child.localName === "script") {
+      if (!scripts) continue;
+      const run = document.createElement("script");
+      run.textContent = child.textContent;
+      to.insertBefore(run, theirs[at] ?? null);
+      continue;
+    }
     const counterpart = theirs[at++];
     if (counterpart === undefined) {
       throw new ProgramError(`the served screen lacks the <${child.localName}> its template states under <${from.localName}>`);
     }
-    adoptTree(child, counterpart, { rows, live, pairs });
+    adoptTree(child, counterpart, { rows, scripts, live, pairs });
   }
   if (at === theirs.length) return;
   // A slot whose row is gone draws its note after its markup (emptyNote), and
@@ -4299,6 +4271,9 @@ let morphlex = null;
 
 /** morphScreen's walk over a target it may consume. */
 function morphTree(live, target, { slots }) {
+  // A screen's scripts run once, where it is first mounted (adoptTree), and
+  // never again for a morph.
+  for (const script of [...target.querySelectorAll("script")]) script.remove();
   // The state is the screen's and the key the row's, never the template's.
   const own = (name) => name === "data-state" || name === "data-id";
   // A region's attributes are its read, which no binding writes over, so they

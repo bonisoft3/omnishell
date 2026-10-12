@@ -9,6 +9,7 @@ import { walkMachine } from "../test/walker.ts";
 const MACHINE = {
   field: "phase",
   initial: "counting",
+  context: { current: 1, previous: 0 },
   on: { refused: { target: "counting" } },
   states: {
     counting: {
@@ -104,10 +105,7 @@ Deno.test({
     };
     const mount = document.getElementById("shell");
     const { interpretScreen } = await import("./screen.js");
-    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {}, { schema: { fib: { fields: [
-      { name: "current", type: "double", default: 1 },
-      { name: "previous", type: "double", default: 0 },
-    ] } } });
+    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {});
     const region = mount.querySelector("#fib");
 
     const walk = await walkMachine(MACHINE, {

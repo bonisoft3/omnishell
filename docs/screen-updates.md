@@ -81,9 +81,10 @@ does not itself migrate already-open old tabs. Offline navigation and a
 restart across an incompatible schema remain bounded by the assets and draft
 state the browser actually has.
 
-On a table read lazily a view is a subset still loading until its rows and its
-embeds' have arrived; the store holds its wakes until then, so the keyed loop
-never binds a row whose embed is missing ([data](data.md#a-table-read-lazily)).
+On a table synced on demand a view is a subset still loading until its rows
+and its embeds' have arrived; the store holds its wakes until then, so the
+keyed loop never binds a row whose embed is missing
+([data](data.md#a-table-synced-on-demand)).
 
 A row is painted once the regions nested in it have made their first
 attempt, and the screen says `populated` once its top regions' rows are and no
@@ -220,7 +221,7 @@ live screen own markup it did not render
   screen to `interpretScreen`, which prepares the screen's template as a mount
   would and reads the served tree against it (`adoptTree`): what a render holds
   only in memory — a placeholder attribute's template, a list's item templates
-  — is set on the served node it became, the route's declared host-DOM hatches mount in place,
+  — is set on the served node it became, the template's scripts run in place,
   and the words are rewritten only where the catalogue says otherwise. The
   document and the worker's copies of its template and stylesheet are each any
   deploy old, and a hash says only that two differ, not which is newer: where
@@ -296,9 +297,7 @@ the order they arrive: each waits on its own modules, and a later one landing
 first would be morphed back to the earlier. A screen
 the reader leaves while those load is stopped and morphs no further; one held
 for a back press takes the newer template and listens again as it resumes. Its
-ordinary markup never runs scripts. Declared host-DOM hatches stop before a
-morph and mount again after its regions are ready; a paused screen waits until
-resume.
+scripts do not run: a screen's scripts run once, where it is first mounted.
 
 The document names no position in the change log to resume its rows from:
 they become current through the regions' first reads and the live stream, and

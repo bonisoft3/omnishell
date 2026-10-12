@@ -43,7 +43,7 @@ async function serve(delayStyles = false) {
   for (const path of ["img/top.svg", "img/escaped.svg", "img/quoted.svg", "img/set.svg", "img/set2.svg", "img/root.svg", "shared/img/shared.svg", "shared/nested/img/nested.svg"]) {
     files.set(`shell/${path}`, '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2" fill="red"/></svg>')
   }
-  for (const module of ["shell.js", "screen.js", "host-dom.js", "markup.js", "script-url.js", "render.js", "fragment.js", "hatch.js", "hatch-worker.js", "jessie.js", "release-assets.js"]) {
+  for (const module of ["shell.js", "screen.js", "render.js", "fragment.js", "hatch.js", "hatch-worker.js", "jessie.js", "release-assets.js"]) {
     files.set(`omnishell/interpreter/${module}`, await Deno.readTextFile(new URL(`../interpreter/${module}`, import.meta.url)))
   }
   const worker = (delayStyles ? `const originalMatch = Cache.prototype.match;
@@ -99,7 +99,7 @@ async function prepare(page: Page, base: string) {
 }
 
 async function ready(page: Page) {
-  await page.waitForFunction(() => (window as any).probeReady, undefined, { timeout: 10000 })
+  await page.waitForFunction(() => (window as any).probeReady)
   await page.evaluate(() => document.fonts.ready)
   await page.waitForLoadState("networkidle")
 }

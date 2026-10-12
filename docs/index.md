@@ -10,7 +10,7 @@
 
 # Subsystems
 
-* [The terminal and its units](terminal.md) - concept: What the terminal owns and what a unit may do — the surfaces it hands in, the unit ladder, the compartment, realm and agent seats, and the server terminal that renders documents on request.
+* [The terminal and its units](terminal.md) - concept: What the terminal owns and what a unit may do — the surfaces it hands in, the unit ladder, the compartment, iframe and worker seats, and the server terminal that renders documents on request.
 * [Rows, reduces and writes](data.md) - concept: How a region's rows reach a reduce, what it writes back, why a refusal returns as an event, and how stored rows meet a newer program.
 * [Machines](machines.md) - concept: A chart over one browser-owned row whose transitions assign columns and emit typed effects the terminal performs, times and answers.
 * [Focus and ARIA](accessibility.md) - concept: ARIA state is derived columns a region projects over its own rows, and the terminal owns the tab order, moving focus only when a column moves.

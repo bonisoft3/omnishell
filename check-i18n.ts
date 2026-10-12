@@ -55,7 +55,6 @@ type Route = {
   nav?: { label: string; key?: string; strip?: boolean };
   files: { html: string; css: string; handlers?: string[]; shared?: string[] };
   states?: string[];
-  hatches?: string[];
 };
 
 type I18n = { default: string; locales: Record<string, { path: string }> };
@@ -71,7 +70,6 @@ type ShellConfig = {
   tables?: string[];
   routes?: Route[];
   units?: Record<string, unknown>;
-  hostDom?: Record<string, { src: string; note: string }>;
   // Passed through to every mount rather than read here: a value format
   // resolves a column's declaration in it.
   schema?: Record<string, unknown>;
@@ -604,6 +602,20 @@ export async function checkMemoryApp(
 
   const defaultLocale = shell.i18n?.default ?? locales[0];
   const secondaryLocales = locales.filter((l) => l !== defaultLocale);
+  const leakPatterns = Object.fromEntries(locales.map((locale) => {
+    const patterns = Object.entries(messages[defaultLocale] ?? {}).flatMap(([key, value]) => {
+      const localized = messages[locale]?.[key];
+      if (typeof value !== "string" || typeof localized !== "string") return [];
+      const d = value.trim();
+      const l = localized.trim();
+      if (d.length < 4 || d.toLowerCase() === l.toLowerCase() || l.toLowerCase().includes(d.toLowerCase())) return [];
+      return [{ d, l, regex: new RegExp(`(?:^|\\W)${escapeRegex(d)}(?:$|\\W)`, "i") }];
+    });
+    const any = patterns.length === 0 ? null : new RegExp(
+      `(?:^|\\W)(?:${patterns.map(({ d }) => escapeRegex(d)).join("|")})(?:$|\\W)`, "i",
+    );
+    return [locale, { patterns, any }];
+  }));
 
   const document = mountDocument();
   const global = globalThis as unknown as Record<string, unknown>;
@@ -639,7 +651,6 @@ export async function checkMemoryApp(
           // A money binding resolves its currency and its scale off the bound
           // column, so a screen carrying one renders only where the schema does.
           schema: shell.schema,
-          hostDom: shell.hostDom,
         });
       } catch (err) {
         findings.push({
@@ -650,7 +661,6 @@ export async function checkMemoryApp(
         continue;
       }
 
-      const defCat = messages[defaultLocale] ?? {};
       const locCat = messages[locale] ?? {};
 
       for (const fig of mount.querySelectorAll("figure")) {
@@ -699,26 +709,14 @@ export async function checkMemoryApp(
                 });
               }
 
-              if (locale !== defaultLocale && !dt && !val.startsWith("Sample ")) {
-                for (const [key, defVal] of Object.entries(defCat)) {
-                  const locVal = locCat[key];
-                  if (typeof defVal === "string" && typeof locVal === "string") {
-                    const d = defVal.trim();
-                    const l = locVal.trim();
-                    if (
-                      d.length >= 4 &&
-                      d.toLowerCase() !== l.toLowerCase() &&
-                      !l.toLowerCase().includes(d.toLowerCase())
-                    ) {
-                      const regex = new RegExp(`(?:^|\\W)${escapeRegex(d)}(?:$|\\W)`, "i");
-                      if (regex.test(val)) {
-                        findings.push({
-                          severity: "error",
-                          path: route.files.html,
-                          message: `state '${state}' [${locale}]: '${defaultLocale}' text leak '${d}' (expected '${l}') in <${el.tagName.toLowerCase()}> text: "${val}"`,
-                        });
-                      }
-                    }
+              if (locale !== defaultLocale && !dt && !val.startsWith("Sample ") && leakPatterns[locale].any?.test(val)) {
+                for (const { d, l, regex } of leakPatterns[locale].patterns) {
+                  if (regex.test(val)) {
+                    findings.push({
+                      severity: "error",
+                      path: route.files.html,
+                      message: `state '${state}' [${locale}]: '${defaultLocale}' text leak '${d}' (expected '${l}') in <${el.tagName.toLowerCase()}> text: "${val}"`,
+                    });
                   }
                 }
               }
@@ -741,26 +739,14 @@ export async function checkMemoryApp(
               });
             }
 
-            if (locale !== defaultLocale) {
-              for (const [key, defVal] of Object.entries(defCat)) {
-                const locVal = locCat[key];
-                if (typeof defVal === "string" && typeof locVal === "string") {
-                  const d = defVal.trim();
-                  const l = locVal.trim();
-                  if (
-                    d.length >= 4 &&
-                    d.toLowerCase() !== l.toLowerCase() &&
-                    !l.toLowerCase().includes(d.toLowerCase())
-                  ) {
-                    const regex = new RegExp(`(?:^|\\W)${escapeRegex(d)}(?:$|\\W)`, "i");
-                    if (regex.test(val)) {
-                      findings.push({
-                        severity: "error",
-                        path: route.files.html,
-                        message: `state '${state}' [${locale}]: '${defaultLocale}' text leak in ${name}="${val}" (expected '${l}')`,
-                      });
-                    }
-                  }
+            if (locale !== defaultLocale && leakPatterns[locale].any?.test(val)) {
+              for (const { l, regex } of leakPatterns[locale].patterns) {
+                if (regex.test(val)) {
+                  findings.push({
+                    severity: "error",
+                    path: route.files.html,
+                    message: `state '${state}' [${locale}]: '${defaultLocale}' text leak in ${name}="${val}" (expected '${l}')`,
+                  });
                 }
               }
             }
@@ -976,7 +962,6 @@ export async function checkPseudoLocale(
           routes,
           i18n: view,
           schema: shell.schema,
-          hostDom: shell.hostDom,
         });
       } catch (err) {
         findings.push({
@@ -1075,21 +1060,6 @@ export async function selfTest(): Promise<{ failures: string[] }> {
   const cleanFindings = await checkMemoryApp(baseShell, baseMessages, cleanFiles);
   if (cleanFindings.length !== 0) {
     failures.push(`clean app expected 0 findings, got ${JSON.stringify(cleanFindings)}`);
-  }
-
-  const hostShell: ShellConfig = {
-    ...baseShell,
-    hostDom: { trusted: { src: "shell/hatches/trusted.js", note: "host-owned presenter" } },
-    routes: baseShell.routes!.map(route => ({ ...route, hatches: ["trusted"] })),
-  };
-  // Fixtures must resolve the declaration without importing its module.
-  for (const check of [checkMemoryApp, checkPseudoLocale]) {
-    const findings = await check(hostShell, baseMessages, cleanFiles);
-    if (findings.length) failures.push(`declared inert host-DOM hatch: ${JSON.stringify(findings)}`);
-    const missing = await check({ ...hostShell, hostDom: {} }, baseMessages, cleanFiles);
-    if (!missing.some(f => f.message.includes("undeclared host-DOM hatch"))) {
-      failures.push("fixture accepted an undeclared host-DOM hatch");
-    }
   }
 
   // Case 2: Catches un-interpolated placeholder in text node

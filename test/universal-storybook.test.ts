@@ -3,12 +3,11 @@
 
 import { describe, expect, it } from "@test/harness";
 import { runStorybookBatteryForApp } from "./storybook-battery.ts";
-import { withStorybookCorpus } from "./storybook-corpus.ts";
 
 const appsDir = new URL("../../../apps", import.meta.url);
 const discoveredApps: string[] = [];
 for await (const entry of Deno.readDir(appsDir)) {
-  if (entry.isDirectory && !entry.name.startsWith(".")) {
+  if (entry.isDirectory) {
     try {
       const stat = await Deno.stat(new URL(`../../../apps/${entry.name}/shell/screens`, import.meta.url));
       if (stat.isDirectory) discoveredApps.push(entry.name);
@@ -27,10 +26,10 @@ describe("Universal Statechart-to-Storybook Battery & DuckDB Synthetic Seeds", (
       if (!stat.isDirectory) {
         throw new Error(`Expected ${appUrl} to be a directory`);
       }
-      const report = await withStorybookCorpus(appUrl, runStorybookBatteryForApp);
+      const report = await runStorybookBatteryForApp(appUrl);
 
-      expect(report.errors).toEqual([]);
       expect(report.success).toBe(true);
+      expect(report.errors).toEqual([]);
       expect(report.mutationsDispatched).toBe(0);
       expect(report.screensChecked).toBeGreaterThan(0);
       expect(report.totalFrames).toBeGreaterThan(0);

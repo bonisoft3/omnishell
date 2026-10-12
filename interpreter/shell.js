@@ -1,4 +1,3 @@
-import { parseMarkup } from "./markup.js";
 // createShell: the omnishell entry for pronto-emitted apps. Reads the file
 // map (shell.yaml), boots the store, mounts the route matching the location
 // path, and hands the screen to the interpreter. No build step exists on
@@ -15,7 +14,7 @@ import { parseMarkup } from "./markup.js";
 // service exists to sign against.
 
 import { chromeText, describe, drawStrip, guestBox, hasStrip, localizeStrip } from "./chrome.js";
-import { localeByPath, localeTable, ProgramError, resolveLocale, routeHref, routePattern, screenEnv, Unanswered } from "./fragment.js";
+import { localeByPath, localeTable, resolveLocale, routeHref, routePattern, screenEnv, Unanswered } from "./fragment.js";
 import { fetchText, interpretScreen, prefetchScreen, templateHash, submitsOnChange } from "./screen.js";
 import { compileCatalog } from "./vendor/messages.js";
 import { planRelease } from "./release-plan.js";
@@ -218,13 +217,13 @@ function renderLogin(mount, cfg, chrome) {
   // Every word is written in after the template rather than interpolated into
   // it: a catalogue is app data, and data spliced into markup is an injection
   // seam where a literal was none.
-  wrap.append(parseMarkup(document, `<form>
+  wrap.innerHTML = `<form>
     <h1></h1>
     <p class="login-hint"></p>
     <p class="login-error" hidden></p>
     <button type="submit"></button>
     <button type="button" class="login-guest"></button>
-  </form>`));
+  </form>`;
   wrap.querySelector("h1").textContent = cfg.app;
   wrap.querySelector(".login-hint").textContent = chrome("chrome_signin_hint");
   wrap.querySelector("button[type=submit]").textContent = chrome("chrome_signin");
@@ -571,10 +570,7 @@ export async function createShell({ config, mount, liveUpdates = false, preload 
           ![prior.kind, kind].every(value => value === "text" || value === "rich"))) continue;
       if (field.isContentEditable) {
         const property = prior.kind === "rich" ? "innerHTML" : "textContent";
-        if (field[property] !== prior.value) {
-          if (prior.kind === "rich") field.replaceChildren(parseMarkup(document, prior.value));
-          else field.textContent = prior.value;
-        }
+        if (field[property] !== prior.value) field[property] = prior.value;
       }
       else if (field.type === "checkbox" || field.type === "radio") {
         if (field.checked !== prior.checked) field.checked = prior.checked;
@@ -644,16 +640,14 @@ export async function createShell({ config, mount, liveUpdates = false, preload 
     pre.textContent = String(err?.stack ?? err);
     mount.append(pre);
   };
-  // The banner is a boot-failure surface, a deploy's (`unheard` below), and a
-  // program error's whenever it lands: the app's own bug, which no retry and
-  // no reader recovers, so it dies attributed rather than logged. Once a
-  // screen is mounted, any other stray rejection (a severed gateway killing
-  // an in-flight fetch anywhere in the data plane) must never replace live
-  // DOM — the screen's own state machine degrades to network-error and its
-  // forms keep working.
+  // The banner is a boot-failure surface, and a deploy's (`unheard` below).
+  // Once a screen is mounted, a stray rejection (a severed gateway killing an
+  // in-flight fetch anywhere in the data plane) must never replace live DOM —
+  // the screen's own state machine degrades to network-error and its forms
+  // keep working.
   let booted = false;
   addEventListener("unhandledrejection", (e) => {
-    if (!booted || e.reason instanceof ProgramError) {
+    if (!booted) {
       banner(e.reason);
       return;
     }
@@ -661,12 +655,6 @@ export async function createShell({ config, mount, liveUpdates = false, preload 
     console.error(e.reason);
     // Only the screen on show: the stack holds the others hidden beside it.
     mount.querySelector(":scope > :not([hidden]) .screen")?.setAttribute("data-state", "network-error");
-  });
-  // A program error thrown from a listener — a hatch's port refusing a
-  // message, a timer — is the window's error event, not a rejection, and
-  // lands on the same banner. Anything else there is the browser's to report.
-  addEventListener("error", (e) => {
-    if (e.error instanceof ProgramError) banner(e.error);
   });
 
   try {
@@ -773,7 +761,6 @@ export async function createShell({ config, mount, liveUpdates = false, preload 
       const { renderStorybook } = await import("./storybook.js");
       const { route, params, locale } = currentRoute();
       await renderStorybook(mount, appBase, route, params, cfg.units ?? {}, {
-        hostDom: cfg.hostDom ?? {},
         messages,
         locale,
         routes: cfg.routes,

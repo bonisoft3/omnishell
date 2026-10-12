@@ -1,7 +1,7 @@
 ---
 type: concept
 title: The terminal and its units
-description: What the terminal owns and what a unit may do — the surfaces it hands in, the unit ladder, the compartment, realm and agent seats, and the server terminal that renders documents on request.
+description: What the terminal owns and what a unit may do — the surfaces it hands in, the unit ladder, the compartment, iframe and worker seats, and the server terminal that renders documents on request.
 ---
 
 # The terminal and its units
@@ -20,13 +20,9 @@ included, read-only where a unit should not write; the one data interface
 every unit receives. *Markup* — slots; the element carrying `data-hatch` is the
 slot. *Returned requests* — a unit describes and the host performs: a reduce
 returns `{updates, then}`, a machine transition effects and a `raise`, a hatch
-posts named events. *Ports* — hatches only (ports and adapters, Cockburn
-2005): `reads`, the tables whose row a mount's `data-prop-*` are read off,
-and `raises`, the events a mount's `data-on-*` may hear. The terminal is the
-adapter on both and grants nothing else at either seat: a mount fed a region
-outside `reads` is refused (`screen.js`), an event outside `raises` is refused
-where it would become a DOM event (`hatch.js`), and `check markup` says both
-before any mount and that every raise is handled somewhere.
+posts named events. *A capability object* — hatches only, and both hatch seats
+are granted nothing: a unit declaring `capabilities` is refused at mount
+(`hatch.js`, `hatch-worker.js`).
 
 **What cannot be handed to a unit.** The durable outbox is leader-elected per
 origin through Web Locks, so two of them means one wins and the other's writes
@@ -37,27 +33,6 @@ per origin. Everything else is handed in.
 collections, *local* over PGlite collections in the page, and *synced* over
 Electric collections.
 
-## The markup boundary
-
-Screen HTML is parsed in an inert template and checked before its nodes are
-mounted. Scripts, inline handlers, executable URLs, `srcdoc` and embedded
-objects are refused, including inside nested templates. The compiler's markup
-check uses the same refusal. The terminal never executes a screen's scripts. A route may explicitly name a
-`host-dom` hatch in its manifest: trusted ES modules with ambient host access,
-served and versioned with the release. Their mount receives the screen,
-messages, params and an abort signal and returns cleanup. Pause, stop and morph
-abort and clean up; resume and a visible morph mount again. See the
-[[../../pronto/SPEC|artifact contract]] for declarations and obligations.
-
-Pronto emits the terminal's CSP at the door and in the entry page; verified
-release caching retains it. The only Trusted Types policies are the inert
-parser, same-origin script URLs, and SES's eval/Function crossing while the
-platform evaluates a compartment. The eval policy never accepts HTML or
-script elements. These are the reviewed sinks in the
-[Trusted Types model](https://www.w3.org/TR/trusted-types/#dom-xss-injection-sinks).
-Remote presentation resources require the app's explicit declaration
-([[../../pronto/SPEC|artifact spec]]); scripts cannot be added that way.
-
 ## Units
 
 | unit | receives | brings its own build |
@@ -65,7 +40,7 @@ Remote presentation resources require the app's explicit declaration
 | handler | its arguments, nothing else | no |
 | region | collections, its filter | no |
 | screen | collections, params | no |
-| hatch | props off the row of a table its ports read, a channel for the events its ports raise | yes |
+| hatch | props, a channel | yes |
 
 CUE declares what exists — entities, screens, routes, access, design. Jessie
 maps between vocabularies, one role per shape of answer (`interpreter/jessie.js`):
@@ -122,57 +97,24 @@ shares the renderer process and blocks the parent as completely as inline code.
   holds `Intl` without declaring it, whole and its host defaults refused. Whole, because the offset in effect at an
   instant is a tz-database lookup and no member of `Intl` does I/O or takes a
   capability: the worst a hostile argument buys is an exception.
-- **realm** (`hatch.js`) — a sandboxed iframe, ECMA-262's realm: its own
-  globals and DOM, an opaque origin, no storage or cookies, and
+- **iframe** (`hatch.js`) — opaque origin, no storage or cookies, and
   `window.parent` only to post to, never the parent's DOM; same thread. For a
   unit whose untrusted half arrives over the network at read time.
-- **agent** (`hatch-worker.js`) — a worker, ECMA-262's agent: its own thread
-  and event loop, same origin, so it keeps `fetch`, IndexedDB and the cache
-  API: more authority than the realm. For a hash-pinned binary vendored at
-  build time, trusted by the app's audit and the pin.
+- **worker** (`hatch-worker.js`) — its own thread, same origin, so it keeps
+  `fetch`, IndexedDB and the cache API: more authority than the frame. For a
+  hash-pinned binary vendored at build time, trusted by the app's audit and the
+  pin.
 
 `mountHatch` throws for any other isolation rather than substituting a
 boundary. A hatch speaks `pronto:props` in and `pronto:ready`/`pronto:event`
 out over `postMessage`, never handles — Elm's ports — which is what lets one
-unit sit behind a realm or an agent unchanged; the cost is that everything
+unit sit behind a frame or a worker unchanged; the cost is that everything
 crosses async.
-
-**An agent is a question, and its memo is the terminal's to perform.** A unit
-seated as an `agent` declares a `memo` (shell.yaml `units.<name>.memo`: the
-table, the key fields and the columns an answer fills — Michie's memo table,
-answers addressed by what was asked). The mount's `data-prop-*` of the key's
-names are the question; before it is posted, `hatch.js` queries the table by
-those key fields and, finding a row, dispatches the unit's one raised event
-with the key as its detail and never asks. An answer the unit posts carries the key and
-every column; it is upserted on the key through the store's natural-key
-upsert, then dispatched the same way. The reduce hearing the event reads the
-answer off the row — one path for a hit and a fresh answer — so the same
-question asked twice runs the unit once (`test/hatch-memo.test.ts`). A props
-object with a key field empty is the mount withdrawing its question and passes
-through; a question or an answer missing a key field, or an answer missing a
-column, is refused. Every refusal of the mount and the seats is a
-`ProgramError`: a mount and a question run inside the region's refresh, whose
-outage guard retries anything else as a dead gateway, and an answer inside the
-port's listener, where a throw is the window's `error` event — the shell
-banners a `ProgramError` from there as it does one arriving as a rejection,
-and leaves anything else to the browser. An answer the store refuses — a
-column outside the entity's cel — or a lookup that fails is the unit
-disagreeing with the entity it was declared to land in: the same
-`ProgramError`, naming the unit and the table, since no reduce authored the
-write and so no `refused` event has anywhere to go.
 
 **The terminal parses; the app owes the rest.** Whatever the seat, the
 boundary is a parser: `parseDetail` admits at most 8 keys matching
 `^[a-z][a-z0-9_]{0,23}$`, each a printable-ASCII string of at most 128
-characters, into a frozen record — the offer `terminal.cue` publishes as
-`hatch.<seat>.detail`, which pronto's `vendored-unit.test.ts` holds the parser
-equal to, and which pronto's `#emit` holds a memo's columns to as far as the
-program states them: their count, their names, and the size bound a column
-declares; the alphabet, and the length of a column left unbounded, are the
-seat's refusal at runtime. A detail
-that fails is dropped with its event by the realm seat, whose sender is a
-provider's page, and refused by the agent seat, whose sender is the app's own
-wrapper — a memo answer lost in silence would be a question standing forever.
+characters, into a frozen record, and a detail that fails drops the event.
 What the answer means is the app's to guard, three ways: look it up against
 the app's own rows rather than interpret it, so an engine is trusted for
 preference and not possibility when no row exists for an illegal move; carry
@@ -206,8 +148,8 @@ is refused rather than rendered with a service token. The one file read off its
 image is the entry page, since the door answers the entry's own address with a
 redirect.
 
-The renderer preserves the browser's read modes. Only eager collections are
-prewarmed before it becomes healthy. Lazy collections load the subsets
+The renderer preserves the browser's sync policy. Only eager collections are
+prewarmed before it becomes healthy. On-demand collections load the subsets
 each document reads; retained documents hold those query subscriptions until
 invalidation or eviction. Request-only `server` reads go through PostgREST for
 each document and are not prewarmed: their rows would be discarded. Each render

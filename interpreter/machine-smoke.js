@@ -223,10 +223,7 @@ Deno.test({
     const { interpretScreen } = await import("./screen.js");
 
     const mount = document.getElementById("shell");
-    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {}, { schema: { tint: { fields: [
-      { name: "label", type: "string", default: "schema label" },
-      { name: "schema_only", type: "bool", default: true },
-    ] } } });
+    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {});
     const region = mount.querySelector("[data-live]");
     region.dispatchEvent(new Event("click"));
     await tick(30);

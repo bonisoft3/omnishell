@@ -16,6 +16,13 @@ function fixture(field, i, state, counted, fields = []) {
   const declared = fields.find((candidate) => candidate.name === leaf);
   if (Array.isArray(declared?.enum) && declared.enum.length > 0) {
     if (declared.enum.includes(declared.default)) return declared.default;
+    if (
+      typeof declared.default === "string" &&
+      /^'(?:[^']|'')*'$/.test(declared.default)
+    ) {
+      const unquoted = declared.default.slice(1, -1).replaceAll("''", "'");
+      if (declared.enum.includes(unquoted)) return unquoted;
+    }
     return declared.enum[0];
   }
   // A field named like the frame's state answers true, so state frames whose

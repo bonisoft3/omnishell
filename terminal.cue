@@ -45,7 +45,6 @@ _shellHtmlAsset: _ @embed(file="shell.html", type=text)
 _shellCssAsset:  _ @embed(file="shell.css", type=text)
 _bootJsAsset:    _ @embed(file="boot.js", type=text)
 _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
-_cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 
 // The server terminal (server/render.ts): a route's document rendered on
 // request, with its rows, by a process that reads the app through the door it
@@ -104,8 +103,6 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 	}
 
 	capabilities: {
-		hostDom: true
-
 		// Platform doctrine, published as data. Pronto reads this at compile
 		// time: the prelude describes it to hop 1, and #emit refuses an app auth
 		// mode the terminal does not offer. Users never type identifiers — a
@@ -194,24 +191,24 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 		"os-bridge":    [Name=string]: {yields: string, note: string}
 		"network-peer": [Name=string]: {yields: string, note: string}
 
-		// Boundaries a unit can be given, named by ECMA-262's own words for
-		// them. They are not ordered, and each buys one thing:
+		// Boundaries a unit can be given. They are not ordered, and each buys
+		// one thing:
 		//   compartment  SES, and what generated logic runs in — no ambient
 		//                authority at all, the terminal's own code, this thread.
-		//   realm        an iframe: its own globals and DOM, containment, and
-		//                this thread. An opaque origin, no storage, no cookies,
-		//                no reach through window.parent — which is what a unit
-		//                rendering something audited by nobody (a provider's
-		//                embed, fetched at read time) has to sit behind.
-		//   agent        a worker: its own thread and event loop, and
-		//                containment in no sense whatsoever. Same origin, so
-		//                fetch, IndexedDB and the cache API all survive: this
-		//                is MORE ambient authority than the realm seat, not
-		//                less. What stands behind an agent unit is the app's
-		//                audit of the wrapper and the pinned hash of what the
-		//                wrapper loads — audited and pinned, never contained.
+		//   iframe       containment, and this thread. An opaque origin, no
+		//                storage, no cookies, no reach through window.parent —
+		//                which is what a unit rendering something audited by
+		//                nobody (a provider's embed, fetched at read time) has
+		//                to sit behind.
+		//   worker       a thread, and containment in no sense whatsoever. Same
+		//                origin, so fetch, IndexedDB and the cache API all
+		//                survive: this is MORE ambient authority than the frame
+		//                seat, not less. What stands behind a worker unit is
+		//                the app's audit of the wrapper and the pinned hash of
+		//                what the wrapper loads — audited and pinned, never
+		//                contained.
 		isolation: [...string]
-		isolation: *["compartment", "realm", "agent"] | [...string]
+		isolation: *["compartment", "iframe", "worker"] | [...string]
 
 		// The terminal's measured floors, in device px — what a body can hit,
 		// not what a design would like. WCAG 2.5.8 (AA); 2.5.5's 44px is real
@@ -233,24 +230,17 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 		// names it knows and hands the rest to the screen.
 		// Keyed by boundary, because the two do not share their answers:
 		// `grants: []` is a true statement about an opaque origin and a false
-		// one about a same-origin worker, and `height` names a frame that an
-		// agent seat does not have.
+		// one about a same-origin worker, and `height` names a frame that a
+		// worker seat does not have.
 		hatch: [Boundary=string]: {
 			isolation: Boundary
 			mount:     string
 			props:     string
 			events: [Name=string]: {performs: string, note: string}
-			// What an event's detail may carry across either seat: at most
-			// `keys` string fields, each named by `key`, each at most `value`
-			// printable-ASCII characters — hatch.js's DETAIL, which pronto's
-			// vendored-unit test holds equal to this. A memo's columns ride in
-			// one answer, so pronto's #emit holds a memo's count, names and
-			// declared size bounds to it.
-			detail: {keys: 8, key: "^[a-z][a-z0-9_]{0,23}$", value: 128}
 			grants: [...string]
 			note: string
 		}
-		hatch: realm: {
+		hatch: iframe: {
 			mount: "data-hatch=\"<unit>\", naming an #App.capabilities.vendored entry"
 			props: "data-prop-* attributes, delivered as one current-value object"
 			events: height: {performs: "sets the unit frame's height", note: "the unit measures itself; clamped so a wrong answer cannot blow out the page"}
@@ -258,11 +248,12 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 				performs: "dispatches a non-bubbling CustomEvent of the same name on the mount element, where data-on-answer names the reduce that receives it"
 				note:     "the detail is rebuilt from validated strings and frozen; the unit's own object never crosses"
 			}
-			// An opaque origin is granted nothing beyond its ports.
+			// An opaque origin is granted nothing, and the terminal refuses a
+			// unit that asks for a capability rather than granting silence.
 			grants: []
 			note: "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox, never allow-same-origin — the unit runs in an opaque origin and cannot reach this one. Props are delivered with targetOrigin \"*\", which an opaque origin leaves no alternative to, so a hatch is never given a secret"
 		}
-		hatch: agent: {
+		hatch: worker: {
 			mount: "data-hatch=\"<unit>\", naming an #App.capabilities.vendored entry — the element renders nothing"
 			props: "data-prop-* attributes, delivered as one current-value object, withheld until the unit says it is ready"
 			events: answer: {
@@ -380,7 +371,6 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 		// floating to a new release would change them with no change here.
 		documentConfig: #Path
 		documentConfig: *"../../plugins/omnishell/server/deno.json" | string
-		contentSecurityPolicy: strings.TrimSpace(_cspAsset)
 		machineSchema: #Path
 		machineSchema: *"../../plugins/omnishell/machine.cue" | string
 
@@ -393,7 +383,6 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 		// js-yaml for a shell.yaml config, morphlex when a template changes
 		// under a mounted screen, kinetic, prng and game-inputs for a kinetic unit.
 		_preloadSkip: {
-			"deferred-boot.js":       true
 			"storybook.js":          true
 			"vendor/ses.umd.min.js": true
 			"vendor/js-yaml.js":     true
@@ -409,8 +398,8 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 		modules: [...#Path]
 		modules: [
 			"shell.js", "chrome.js", "screen.js", "fragment.js", "data-sync.js", "validate.js", "render.js",
-			"release-plan.js", "release-assets.js", "preloads.js", "markup.js", "script-url.js", "deferred-boot.js",
-			"host-dom.js", "hatch.js", "hatch-worker.js", "storybook.js", "jessie.js", "kinetic.js", "prng.js",
+			"release-plan.js", "release-assets.js", "preloads.js",
+			"hatch.js", "hatch-worker.js", "storybook.js", "jessie.js", "kinetic.js", "prng.js",
 			"vendor/mecha-client.js", "vendor/js-yaml.js", "vendor/ses.umd.min.js", "vendor/morphlex.js",
 			"vendor/messages.js", "vendor/game-inputs.js",
 		]
@@ -448,8 +437,6 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 		// Validation modules backing entity predicates, fetched before write.
 		validations: [...#Jessie]
 		validations: *[] | [...#Jessie]
-
-		hostDom: *[] | [...#Path]
 
 		// Every file a vendored unit needs served, its own `src` among them:
 		// the wrapper an engineer audited, and whatever that wrapper loads. A
@@ -580,7 +567,6 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 				target: "/srv/\(v)"
 				watch:  true
 			}],
-			[for f in T.surface.hostDom {file: f, target: "/srv/\(f)", watch: true}],
 			// Unwatched, unlike every other app-authored file here: the watch
 			// list becomes compose develop sync+restart entries, and a unit's
 			// unaudited half is megabytes that would restart the proxy on every

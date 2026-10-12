@@ -9,32 +9,43 @@
 // smoke) skip injection.
 const SES_URL = new URL("./vendor/ses.umd.min.js", import.meta.url).href;
 
-// SES alone may submit strings to eval/Function. The default policy grants
-// that crossing only while the platform is loading or evaluating its cage;
-// it never admits script elements, HTML or script URLs.
-let evaluating = 0;
-let evalPolicy;
-function prepareEval() {
-  if (globalThis.trustedTypes && !evalPolicy) {
-    evalPolicy = trustedTypes.createPolicy("default", {
-      createScript(source, _type, sink) {
-        if (evaluating === 0 || (sink !== "eval" && sink !== "Function")) throw new TypeError(`untrusted script sink: ${sink}`);
-        return source;
-      },
-    });
-  }
+/**
+ * Whether this host EXECUTES a script handed to it, which is what the element
+ * path below actually depends on — and which the presence of a `document` does
+ * not promise. A parsing-only DOM (linkedom's) appends the element and
+ * runs nothing, so its `onload` never fires and a branch keyed on `document`
+ * would hang there rather than fail. Asked rather than assumed, with an inline
+ * script, which a host that runs scripts runs synchronously on insertion.
+ */
+function runsInjectedScripts() {
+  if (typeof document === "undefined" || document === null) return false;
+  if (typeof document.createElement !== "function" || !document.head) return false;
+  const probe = document.createElement("script");
+  probe.textContent = "globalThis.__prontoScriptProbe = true;";
+  document.head.append(probe);
+  probe.remove();
+  const ran = globalThis.__prontoScriptProbe === true;
+  delete globalThis.__prontoScriptProbe;
+  return ran;
 }
 
 let sesReady;
 export function ensureSes() {
   return (sesReady ??= (async () => {
     if (!globalThis.Compartment) {
-      prepareEval();
-      evaluating++;
-      try {
+      // Same bytes either way, by the means the host actually has: a page that
+      // runs scripts loads a script element, and everything else — deno, and
+      // any DOM that only parses — imports the bundle as a module.
+      if (runsInjectedScripts()) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = SES_URL;
+          script.onload = resolve;
+          script.onerror = () => reject(new Error(`failed loading ${SES_URL}`));
+          document.head.append(script);
+        });
+      } else {
         await import(SES_URL);
-      } finally {
-        evaluating--;
       }
     }
     // What the bundle owes: the cage, and the call that seals the realm around
@@ -48,12 +59,7 @@ export function ensureSes() {
     // instances of this file on one page.
     if (!globalThis.__prontoLockdown) {
       globalThis.__prontoLockdown = true;
-      evaluating++;
-      try {
-        lockdown({ errorTaming: "unsafe" });
-      } finally {
-        evaluating--;
-      }
+      lockdown({ errorTaming: "unsafe" });
     }
   })());
 }
@@ -284,12 +290,7 @@ export async function evaluateCaged(source, endowments = {}, undeclared = {}) {
       configurable: false,
     });
   }
-  evaluating++;
-  try {
-    return cage.evaluate(source);
-  } finally {
-    evaluating--;
-  }
+  return cage.evaluate(source);
 }
 
 export async function evaluateRole(source, role = "handler", requestedEndowments = []) {

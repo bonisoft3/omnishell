@@ -1,14 +1,11 @@
 import { describe, expect, it } from "@test/harness"
-import { machineLint, type Reach } from "../interpreter/lint.ts"
+import { machineLint } from "../interpreter/lint.ts"
 import { machineShape } from "../interpreter/fragment.js"
-
-/** Where a chart's writes land, as check-markup hands it over from shell.yaml. */
-const reach = (durabilities: Record<string, string> = {}, table = "row"): Reach => ({ table, durabilityOf: (t) => durabilities[t] })
-const lint = (m: unknown, available: Set<string>, r: Reach = reach({ favorite: "live" })) => machineLint(m as Parameters<typeof machineLint>[0], available, r)
 
 const FIB = {
   field: "phase",
   initial: "counting",
+  context: { current: 1, previous: 0 },
   on: { refused: { target: "counting" } },
   states: {
     counting: {
@@ -41,24 +38,24 @@ describe("machineShape", () => {
 
 describe("machineLint", () => {
   it("passes the fib machine against its modules", () => {
-    expect(lint(FIB, MODULES)).toBe(null)
+    expect(machineLint(FIB, MODULES)).toBe(null)
   })
 
   it("reports a guard naming no module", () => {
-    const why = lint(FIB, new Set(["advance", "carry", "beat"]))
+    const why = machineLint(FIB, new Set(["advance", "carry", "beat"]))
     expect(why).toContain('"pastLimit"')
     expect(why).toContain("no module")
   })
 
   it("reports a reference after-delay naming no module", () => {
-    const why = lint(FIB, new Set(["pastLimit", "advance", "carry"]))
+    const why = machineLint(FIB, new Set(["pastLimit", "advance", "carry"]))
     expect(why).toContain('"beat"')
   })
 
   it("reports a raise no state handles — the undrawn arrow", () => {
     const m = JSON.parse(JSON.stringify(FIB))
     m.states.counting.on.click.raise = "bang"
-    const why = lint(m, MODULES)
+    const why = machineLint(m, MODULES)
     expect(why).toContain('"bang"')
     expect(why).toContain("undrawn")
   })
@@ -66,17 +63,17 @@ describe("machineLint", () => {
   it("reports a transition key outside the subset", () => {
     const m = JSON.parse(JSON.stringify(FIB))
     m.states.done.on.click = { target: "counting", invoke: "nope" }
-    const why = lint(m, MODULES)
+    const why = machineLint(m, MODULES)
     expect(why).toContain('"invoke"')
     expect(why).toContain("subset")
   })
 
-  it("refuses chart context because the entity owns row defaults", () => {
+  it("reports context carrying the machine's own field", () => {
     const m = JSON.parse(JSON.stringify(FIB))
-    m.context = { current: 1 }
-    const why = lint(m, MODULES)
-    expect(why).toContain("context")
-    expect(why).toContain("entity's field defaults")
+    m.context.phase = "counting"
+    const why = machineLint(m, MODULES)
+    expect(why).toContain('"phase"')
+    expect(why).toContain("one writer")
   })
 })
 
@@ -87,15 +84,15 @@ describe("machineLint params", () => {
     states: { a: { on: { click: { guard, target: "b" } } }, b: {} },
   })
   it("a {type, params} guard resolves like a bare name", () => {
-    expect(lint(withGuard({ type: "under", params: { limit: 2 } }), new Set(["under"]))).toBe(null)
-    expect(lint(withGuard({ type: "under" }), new Set())).toContain('"under" name no module')
+    expect(machineLint(withGuard({ type: "under", params: { limit: 2 } }), new Set(["under"]))).toBe(null)
+    expect(machineLint(withGuard({ type: "under" }), new Set())).toContain('"under" name no module')
   })
   it("params must be literals — data, never structure", () => {
-    expect(lint(withGuard({ type: "under", params: { limit: { nested: true } } }), new Set(["under"])))
+    expect(machineLint(withGuard({ type: "under", params: { limit: { nested: true } } }), new Set(["under"])))
       .toContain("non-literal")
   })
   it("an object in a value position must be exactly {type, params?}", () => {
-    expect(lint(withGuard({ type: "under", extra: 1 }), new Set(["under"])))
+    expect(machineLint(withGuard({ type: "under", extra: 1 }), new Set(["under"])))
       .toContain("not {type, params?}")
   })
   it("a {type, params} assign value joins refs, not dual-position strings", () => {
@@ -106,7 +103,7 @@ describe("machineLint params", () => {
     }
     const s = machineShape(m)
     expect(s.refs).toEqual(["bump"])
-    expect(lint(m, new Set())).toContain('"bump" name no module')
+    expect(machineLint(m, new Set())).toContain('"bump" name no module')
   })
 })
 
@@ -147,6 +144,7 @@ describe("machineLint effects and nested states", () => {
           click: {
             target: "favoriting",
             effect: {
+              level: 2,
               op: "upsert",
               entity: "favorite",
               token: "tok-1",
@@ -173,7 +171,7 @@ describe("machineLint effects and nested states", () => {
   }
 
   it("passes a machine with nested states and valid effect", () => {
-    expect(lint(nestedMachine, new Set(["myHandler"]))).toBe(null)
+    expect(machineLint(nestedMachine, new Set(["myHandler"]))).toBe(null)
   })
 
   it("machineShape extracts handler refs from effect values and walks nested states", () => {
@@ -186,43 +184,37 @@ describe("machineLint effects and nested states", () => {
   })
 
   it("reports missing handler in effect values", () => {
-    expect(lint(nestedMachine, new Set())).toContain('"myHandler" name no module')
+    expect(machineLint(nestedMachine, new Set())).toContain('"myHandler" name no module')
   })
 
   it("reports an unknown key in an effect", () => {
     const bad = JSON.parse(JSON.stringify(nestedMachine))
     bad.states.unfavorited.on.click.effect.bogus = "value"
-    expect(lint(bad, new Set(["myHandler"]))).toContain('"bogus"')
+    expect(machineLint(bad, new Set(["myHandler"]))).toContain('"bogus"')
   })
 
   it("reports an invalid effect op", () => {
     const bad = JSON.parse(JSON.stringify(nestedMachine))
     bad.states.unfavorited.on.click.effect.op = "not_an_op"
-    expect(lint(bad, new Set(["myHandler"]))).toContain('effect op "not_an_op"')
+    expect(machineLint(bad, new Set(["myHandler"]))).toContain('effect op "not_an_op"')
   })
 
-  it("a write to a live row is compensable: the chart draws refused, or is refused", () => {
-    expect(lint(nestedMachine, new Set(["myHandler"]))).toBe(null)
-    const deaf = JSON.parse(JSON.stringify(nestedMachine))
-    delete deaf.states.favoriting.on.refused
-    expect(lint(deaf, new Set(["myHandler"]))).toContain('effect on "favorite" is compensable (live)')
-    // The same chart over a row this tab owns claims nothing of the server,
-    // so it owes no arrow: the level is the entity's, never the chart's.
-    expect(lint(deaf, new Set(["myHandler"]), reach({ favorite: "tab" }))).toBe(null)
+  it("passes with descriptive effect level and verifies compensable effect requires refused", () => {
+    const descMachine = JSON.parse(JSON.stringify(nestedMachine))
+    descMachine.states.unfavorited.on.click.effect.level = "compensable"
+    expect(machineLint(descMachine, new Set(["myHandler"]))).toBe(null)
+
+    // Missing refused transition fails loudly
+    delete descMachine.states.favoriting.on.refused
+    expect(machineLint(descMachine, new Set(["myHandler"]))).toContain(
+      'compensable effect on "favorite" requires "refused" transition',
+    )
   })
 
-  it("an effect states no level of its own, and names no row the schema lacks", () => {
+  it("reports an invalid effect level", () => {
     const bad = JSON.parse(JSON.stringify(nestedMachine))
-    bad.states.unfavorited.on.click.effect.level = "replicated"
-    expect(lint(bad, new Set(["myHandler"]))).toContain('"level"')
-    expect(lint(nestedMachine, new Set(["myHandler"]), reach({}))).toContain('effect on "favorite", which the emitted schema does not declare')
-  })
-
-  it("an effect naming no entity writes the region's row", () => {
-    const own = JSON.parse(JSON.stringify(nestedMachine))
-    delete own.states.unfavorited.on.click.effect.entity
-    delete own.states.favoriting.on.refused
-    expect(lint(own, new Set(["myHandler"]), reach({ article: "live" }, "article"))).toContain('effect on "article" is compensable (live)')
+    bad.states.unfavorited.on.click.effect.level = "magic"
+    expect(machineLint(bad, new Set(["myHandler"]))).toContain('effect level "magic" is not in')
   })
 
   it("passes a machine with entry, exit, onDone, always, and parallel states", () => {
@@ -246,7 +238,7 @@ describe("machineLint effects and nested states", () => {
         },
       },
     }
-    expect(lint(advanced as never, new Set())).toBe(null)
+    expect(machineLint(advanced as never, new Set())).toBe(null)
   })
 
   it("reports an invalid key inside entry action", () => {
@@ -259,7 +251,7 @@ describe("machineLint effects and nested states", () => {
         },
       },
     }
-    expect(lint(bad as never, new Set())).toContain('"invalidKey" — outside the #Action subset')
+    expect(machineLint(bad as never, new Set())).toContain('"invalidKey" — outside the #Action subset')
   })
 })
 

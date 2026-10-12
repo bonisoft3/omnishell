@@ -192,7 +192,6 @@ export async function fetchRelease(base, previous = null, { preferCached = false
     return previous;
   }
   const assets = new Map();
-  const policies = new Map();
   const controller = new AbortController();
   const downloading = [];
   try {
@@ -202,8 +201,6 @@ export async function fetchRelease(base, previous = null, { preferCached = false
       if (!file.ok) throw new Error(`${file.status} fetching release asset ${path}`);
       const value = await verifiedBody(file, path, manifest.assets[path], bytes);
       assets.set(url, value);
-      const policy = file.headers.get("Content-Security-Policy");
-      if (policy) policies.set(url, policy);
     })());
     await Promise.all(downloading);
   } catch (error) {
@@ -216,8 +213,7 @@ export async function fetchRelease(base, previous = null, { preferCached = false
     const savedAt = String(Date.now());
     for (const [url, value] of assets) {
       await cache.put(`${url}?pronto-release=${manifest.id}`, new Response(value, {
-        headers: { "X-Pronto-Cached-At": savedAt, "Content-Type": contentType(url),
-          ...(policies.has(url) ? { "Content-Security-Policy": policies.get(url) } : {}) },
+        headers: { "X-Pronto-Cached-At": savedAt, "Content-Type": contentType(url) },
       }));
     }
     await cache.put(`${assetUrl(base, "shell/release.json")}?pronto-release=${manifest.id}`, new Response(JSON.stringify(manifest), {
@@ -242,12 +238,6 @@ function contentType(url) {
     ico: "image/x-icon", webmanifest: "application/manifest+json",
     gif: "image/gif", webp: "image/webp", avif: "image/avif", woff: "font/woff", woff2: "font/woff2",
   })[extension] ?? "application/octet-stream";
-}
-
-export function releaseModuleURL(url) {
-  if (!active || !active.assets.has(String(url))) throw new Error(`module absent from selected release: ${url}`);
-  if (!globalThis.navigator?.serviceWorker?.controller) throw new Error("release modules require a controlling service worker");
-  return String(url);
 }
 
 export function releaseReader() {

@@ -6,7 +6,7 @@
 // compartment, because a machine is data. Value positions — a guard, an
 // assign's value, an `after` delay — hold a literal or the name of a Jessie
 // module (resolved like any data-on-* handler, called with the reduce's
-// signature); everything that draws the chart — targets, initial,
+// signature); everything that draws the chart — targets, initial, context,
 // state names, raised event types — is always data. The machine is closed
 // over its row: its leaves see {items: [row]} and nothing else, its writes
 // never leave the row, and every transition lands as one stated row through
@@ -19,8 +19,8 @@
 // table a machine writes is a tab or device one.
 //
 // The machine is the writer of the initial fact: a region without
-// data-empty-row binds the entity defaults plus filter equalities and
-// {field: initial}; where data-empty-row is present it must agree
+// data-empty-row binds a row synthesized from {...context, field: initial}
+// plus its filter equalities; where data-empty-row is present it must agree
 // (vetted at generate, never arbitrated at runtime).
 //
 // Everything XState has beyond this shape — invoke, sendTo/emit — fails
@@ -52,6 +52,10 @@ package terminal
 		field:   string
 		initial: or([for k, _ in M.states {k}])
 	}
+	// Literal initial values for the row's other columns; with `initial` this
+	// makes the machine the complete statement of the initial world. Never the
+	// machine's own field — one fact, one writer.
+	context?: [string]: string | number | bool | null
 	// Root-level transitions, applied in every state unless the state declares
 	// the same event key.
 	on?:     M.#On
@@ -123,10 +127,7 @@ package terminal
 		type: "event"
 		params: close({field: "value" | "checked" | "valueAsNumber" | "key" | "pointerX" | "pointerY"})
 	})
-	// What can be claimed of a write is the durability of the row it lands on
-	// (REFERENCE.md, "Effects"): a chart states no level, the lint reads it off
-	// the entity, and a compensable write wants a `refused` arrow.
-	#EffectLevel: "projection" | "ephemeral" | "compensable" | "replicated" | "external"
+	#EffectLevel: "projection" | "ephemeral" | "compensable" | "replicated" | "external" | 0 | 1 | 2 | 3 | 4
 	#Durability:  "server" | "live" | "offline" | "tab" | "device"
 	#DurabilityEffectLevel: {
 		tab:     "ephemeral"
@@ -135,25 +136,11 @@ package terminal
 		live:    "compensable"
 		server:  "replicated"
 	}
-	// Every op a declaration may write with, named as GraphQL names a
-	// mutation, and classified by what happens if it happens twice (a join
-	// is `x ⊔ x = x`: CRDTs, Shapiro et al. 2011). `ensure`, `upsert`,
-	// `delete` and an absolute `update` are joins — twice is once. `create`
-	// is a duplicate unless the client mints the key, which the terminal
-	// does: a retry carries the same key and is a join on the wire (the
-	// gateway's `resolution=ignore-duplicates`, mecha docs/proxy.md);
-	// data-sync.js `add` runs the entity's validations as an insert, nothing
-	// more. `accumulate` adds twice, and is exactly-once only as a fold over
-	// a keyed event set. `reduce` has the delivery of the ops it returns.
-	// `navigate` writes no row: it fills the route's params, and a second
-	// hash change lands on the same route. A consumer narrows this to the
-	// ops its performer runs; none extends it.
-	#MutationOp: "create" | "ensure" | "upsert" | "update" | "accumulate" | "delete" | "reduce" | "navigate"
 	// Declarative mutation effect executed by the terminal runtime into store.
-	// Closed and pure: never arbitrary code, never touches DOM directly. The
-	// four ops the store performs.
+	// Closed and pure: never arbitrary code, never touches DOM directly.
 	#Effect: close({
-		op:      M.#MutationOp & ("create" | "update" | "delete" | "upsert")
+		level?:  M.#EffectLevel
+		op:      "create" | "update" | "delete" | "upsert"
 		entity?: string
 		token?:  string
 		filter?: string

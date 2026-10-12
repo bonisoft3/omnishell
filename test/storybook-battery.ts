@@ -2,7 +2,6 @@ import { parseHTML } from "npm:linkedom@0.18.4";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FuelMeter } from "./fuel-meter.ts";
-import { controlProperties } from "../server/linkedom-controls.ts";
 import {
   extractRegions,
   generateIsolatedFrames,
@@ -31,7 +30,6 @@ import {
   appUnits,
   appRoutes,
   appI18n,
-  appSchema,
   topLayer,
   type Catalogs,
 } from "./screen-harness.ts";
@@ -58,13 +56,9 @@ function makeProxyRow(
   base: Record<string, unknown>,
   table: string,
   seeds: TableRows,
-  schema: Awaited<ReturnType<typeof appSchema>>,
 ): Record<string, unknown> {
   const seedRow = seeds[table]?.[0] ?? {};
-  const defaults = Object.fromEntries((schema?.[table]?.fields ?? [])
-    .filter((field) => Object.hasOwn(field, "default"))
-    .map((field) => [field.name, field.default]));
-  const merged: Record<string, unknown> = { ...defaults, ...seedRow, ...base };
+  const merged: Record<string, unknown> = { ...seedRow, ...base };
   return new Proxy(merged, {
     get: (target, prop) => {
       if (typeof prop !== "string") return undefined;
@@ -129,7 +123,6 @@ export async function runStorybookBatteryForApp(
   const discoveredMessages = await appMessages(appUrl);
   const messages = createProxyMessages(discoveredMessages);
   const units = await appUnits(appUrl);
-  const schema = await appSchema(appUrl);
   const routes = await appRoutes(appUrl);
   const i18n = await appI18n(appUrl);
 
@@ -194,11 +187,14 @@ export async function runStorybookBatteryForApp(
       }
 
       const machineList = Array.isArray(parsedMachine) ? parsedMachine : [parsedMachine];
+      const machineContext: Record<string, unknown> = {};
+      for (const m of machineList) {
+        if (m.context && typeof m.context === "object") {
+          Object.assign(machineContext, m.context);
+        }
+      }
       const table = el.getAttribute("data-live") ?? "item";
-      const defaults = Object.fromEntries((schema?.[table]?.fields ?? [])
-        .filter((field) => Object.hasOwn(field, "default"))
-        .map((field) => [field.name, field.default]));
-      const baseRow = { ...defaults, ...(seeds[table]?.[0] ?? { id: `${table}_0001` }) };
+      const baseRow = { ...(seeds[table]?.[0] ?? { id: `${table}_0001` }), ...machineContext };
 
       for (const m of machineList) {
         report.machinesPosed++;
@@ -264,17 +260,17 @@ export async function runStorybookBatteryForApp(
         query: async (tbl: string, _order: unknown, opts: { singleton?: boolean }) => {
           fuel.spend("fire", 1, `query_${tbl}`);
           const tblSeeds = seeds[tbl] ?? [];
-          const rows = tblSeeds.map((s: Record<string, unknown>) => makeProxyRow(s, tbl, seeds, schema));
+          const rows = tblSeeds.map((s: Record<string, unknown>) => makeProxyRow(s, tbl, seeds));
 
           if (tbl === regionTable && frame.row && typeof frame.row === "object") {
-            const targetRow = makeProxyRow(frame.row, tbl, seeds, schema);
+            const targetRow = makeProxyRow(frame.row, tbl, seeds);
             const list = [targetRow, ...rows];
             return opts?.singleton ? [list[0]] : list;
           }
           if (rows.length > 0) {
             return opts?.singleton ? [rows[0]] : rows;
           }
-          const fallback = makeProxyRow({}, tbl, seeds, schema);
+          const fallback = makeProxyRow({}, tbl, seeds);
           return [fallback];
         },
         subscribe: () => () => {},
@@ -318,7 +314,6 @@ export async function runStorybookBatteryForApp(
       const { document: frameDoc } = parseHTML(
         "<!doctype html><html><head></head><body><div id=shell></div></body></html>",
       );
-      controlProperties(frameDoc);
       topLayer(frameDoc, (frameDoc.defaultView as unknown as { Event: new (t: string, i: object) => object }).Event);
 
       const prevDoc = (globalThis as Record<string, unknown>).document;
@@ -348,7 +343,6 @@ export async function runStorybookBatteryForApp(
             units,
             routes,
             i18n,
-            schema,
           },
           {
             handlers: false,

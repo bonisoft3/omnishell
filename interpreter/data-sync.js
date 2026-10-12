@@ -1,7 +1,7 @@
 // Cluster store adapter: the shell as virtual terminal against the real
 // virtual cluster, riding mecha's published data plane (vendor/mecha-client):
-// live/offline rows use Electric-synced collections and durable transactions;
-// server rows use authenticated requests whose HTTP result settles the command.
+// one Electric-synced TanStack DB collection per table, and durable offline
+// transactions for every mutation — at-least-once end to end, txid-confirmed.
 //
 // Server-durability queries go directly to PostgREST without remote
 // subscriptions. Live reads use maintained views where possible; server-
@@ -149,15 +149,7 @@ async function http(url, init) {
     location.reload();
     return new Promise(() => {});
   }
-  if (!res.ok) {
-    const method = init?.method ?? "GET";
-    const detail = await res.text();
-    const err = new Error(`${res.status} ${method} ${url}${detail === "" ? "" : `: ${detail}`}`);
-    if (method !== "GET" && res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) {
-      err.name = "NonRetriableError";
-    }
-    throw err;
-  }
+  if (!res.ok) throw new Error(`${res.status} ${init?.method ?? "GET"} ${url}`);
   return res;
 }
 
@@ -360,10 +352,6 @@ export function createStore(base = "", cfg = {}) {
   const ordersInEngine = () => (orders ??= carrier().engineOrders());
   const compareTxid = (a, b) => carrier().compareCarrier(TXID, a, b);
   const orderOf = (table) => columnOrder(carrier().compareCarrier, cfg.schema?.[table]?.fields);
-  // shell.yaml `read:` names the tables pronto derived as lazy: their shapes
-  // open from now and each view loads its rows as a subset. Every other
-  // table is read whole.
-  const lazy = (table) => cfg.read?.[table] === "lazy";
   const client = createMechaClient({
     carriers: cfg.carriers,
     // cfg.keys names the pk of every table whose pk is not "id" (pipeline
@@ -381,8 +369,7 @@ export function createStore(base = "", cfg = {}) {
       fields: cfg.schema?.[t]?.fields,
       durability: local[t],
       access: cfg.access?.[t],
-      // mecha's client names the two modes in Electric's words.
-      sync: lazy(t) ? "on-demand" : "eager",
+      sync: cfg.sync?.[t],
     })),
     electricUrl: `${base}/electric`,
     crudUrl: `${base}/crud`,
@@ -405,9 +392,10 @@ export function createStore(base = "", cfg = {}) {
   // Partial collections are never an authoritative whole outside a query.
   // Queries explicitly lease completeness where their local evaluation needs
   // it; validation, visibility and fold reads still require an eager table.
+  const onDemand = (table) => cfg.sync?.[table] === "on-demand";
   const whole = (table, site) => {
-    if (lazy(table)) {
-      throw new ProgramError(`${site} reads ${table} whole, and ${table} reads lazily: its collection holds only the rows its views loaded`);
+    if (onDemand(table)) {
+      throw new ProgramError(`${site} reads ${table} whole, and ${table} syncs on demand: its collection holds only the rows its views loaded`);
     }
   };
   // A collection read as the table, once it holds the first snapshot: an
@@ -426,7 +414,7 @@ export function createStore(base = "", cfg = {}) {
     return entry;
   }
 
-  // A snapshot read of a lazy table needs every row its filter could
+  // A snapshot read of an on-demand table needs every row its filter could
   // admit, not the table: the clauses a view states (eq, neq, null tests)
   // bound that superset, and the predicates it cannot state (a boolean, a
   // cursor, a pattern, a cap a view cannot keep) run locally over it. Its
@@ -434,7 +422,7 @@ export function createStore(base = "", cfg = {}) {
   // clause the engine can bind, or a join it cannot keep, is bounded only by
   // its tables.
   function snapshotDemands(table, opts) {
-    const tables = snapshotTables(table, opts).filter(lazy);
+    const tables = snapshotTables(table, opts).filter(onDemand);
     const stated = (opts.filter ?? "").split("&").filter(part => {
       const at = part.indexOf("=");
       return !["limit", "offset"].includes(part.slice(0, at)) && STATED.test(part.slice(at + 1));
@@ -471,16 +459,16 @@ export function createStore(base = "", cfg = {}) {
   // Opaque reducers can request a whole-table mutation without making every
   // collection eager at startup. Its demand stays subscribed so later writes
   // keep the complete optimistic view, including rows no screen displays.
-  const mutatilazys = new Map();
+  const mutationDemands = new Map();
   async function mutationCollection(table, site) {
-    if (!lazy(table)) return wholeCollection(table, site);
+    if (!onDemand(table)) return wholeCollection(table, site);
     const c = client.collections[table];
     if (c === undefined) throw new Error(`${site} reads ${table}, which has no collection`);
-    let entry = mutatilazys.get(table);
+    let entry = mutationDemands.get(table);
     if (entry === undefined) {
       entry = completeDemand(table);
       lease(entry);
-      mutatilazys.set(table, entry);
+      mutationDemands.set(table, entry);
     }
     await settled(entry);
     return c;
@@ -496,15 +484,6 @@ export function createStore(base = "", cfg = {}) {
       // Dropped on rejection: a fetch that failed once would otherwise refuse
       // the table for the rest of the session.
       p = Promise.all(Object.entries(validations[table] ?? {}).map(async ([name, v]) => {
-        if (!Array.isArray(v.on) || v.on.length === 0 || v.on.some(op => !["insert", "update", "delete"].includes(op))) {
-          throw new Error(`validation ${table}.${name}: missing or invalid lifecycle events`);
-        }
-        for (const op of v.on) {
-          const order = v.order?.[op];
-          if (!Array.isArray(order) || order.length !== 2 || order.some(n => !Number.isInteger(n) || n < 0)) {
-            throw new Error(`validation ${table}.${name}: missing lifecycle order for ${op}`);
-          }
-        }
         const url = new URL(v.src, cfg.appBase);
         let source;
         if (readCode) source = await readCode(url);
@@ -514,7 +493,7 @@ export function createStore(base = "", cfg = {}) {
           source = await res.text();
         }
         const granted = cfg.endowments?.[v.src] ?? [];
-        return { name, on: v.on, order: v.order, edges: v.edges ?? [], test: await evaluateRole(source, "validation", granted) };
+        return { name, edges: v.edges ?? [], test: await evaluateRole(source, "validation", granted) };
       })).catch((e) => {
         predicates.delete(table);
         throw e;
@@ -534,27 +513,22 @@ export function createStore(base = "", cfg = {}) {
   // than one per row. It is keyed by table AND join column: two validations of
   // one entity may walk to one table on different columns.
   async function validate(table, type, row, current, edgeIndex) {
-    const list = (await predicatesFor(table)).filter(v => v.on.includes(type))
-      .sort((a, b) => a.order[type][0] - b.order[type][0] || a.order[type][1] - b.order[type][1]);
+    const list = await predicatesFor(table);
     if (list.length === 0) return;
+    const collection = await wholeCollection(table, `validation of ${table}`);
     const key = keyOf(table);
-    const collection = requestOnly(table) ? undefined : await wholeCollection(table, `validation of ${table}`);
-    const held = type === "insert" ? undefined : current ?? (requestOnly(table)
-      ? (await readServer(table, null, { filter: `${key}=eq.${encodeURIComponent(row[key])}` }))[0]
-      : collection.toArray.find((r) => String(r[key]) === String(row[key])));
+    const held = type !== "update"
+      ? undefined
+      : current ?? collection.toArray.find((r) => String(r[key]) === String(row[key]));
     // An update states the fields that change, so judging it without the row
     // it changes would judge a fragment as if it were the whole row.
     if (type === "update" && held === undefined) {
       throw new Error(`validation ${table}: update of a row the store does not hold: ${String(row[key])}`);
     }
-    if (type === "delete" && held === undefined) return;
     const rowsFor = async (edge, produced, name) => {
-      const want = String(produced[edge.from]);
-      if (requestOnly(table) || requestOnly(edge.table)) {
-        return readServer(edge.table, null, { filter: `${edge.key}=eq.${encodeURIComponent(want)}` });
-      }
       await ensurePrepared(edge.table);
       const c = await wholeCollection(edge.table, `validation ${table}.${name}`);
+      const want = String(produced[edge.from]);
       const at = `${edge.table} ${edge.key}`;
       let index = edgeIndex.get(at);
       if (index === undefined) {
@@ -570,7 +544,7 @@ export function createStore(base = "", cfg = {}) {
       }
       return index.get(want) ?? [];
     };
-    await judge(list, { table, type, row: type === "delete" ? held : row, held, rowsFor, owner: access[table]?.owner, me: userId });
+    await judge(list, { table, type, row, held, rowsFor, owner: access[table]?.owner, me: userId });
   }
 
   // A local collection is made ready for use once per boot, before the first
@@ -879,12 +853,12 @@ export function createStore(base = "", cfg = {}) {
     const comparable = (t, col) => profile(t, col)?.subset !== false;
     // These restrictions belong to this query, not every use of its table.
     // Null tests bind no typed value, including the PK test for completeness.
-    if (lazy(table) && spec.some(s => ["eq", "neq"].includes(s.op) && !comparable(table, s.col))) return null;
-    if (lazy(table) && limit !== undefined && (order ?? "").split(",").some(k => {
+    if (onDemand(table) && spec.some(s => ["eq", "neq"].includes(s.op) && !comparable(table, s.col))) return null;
+    if (onDemand(table) && limit !== undefined && (order ?? "").split(",").some(k => {
       const p = profile(table, k.split(".")[0]);
       return p?.subset === false || (p?.order === "text" && p.pattern === undefined);
     })) return null;
-    if (embeds.some(e => lazy(e.table) && !comparable(e.table, keyOf(e.table)))) return null;
+    if (embeds.some(e => onDemand(e.table) && !comparable(e.table, keyOf(e.table)))) return null;
     const clause = (row, { col, op, value }) => {
       const num = Number(value);
       const isNum = value !== "" && !Number.isNaN(num) && String(num) === value;
@@ -1037,7 +1011,7 @@ export function createStore(base = "", cfg = {}) {
         return true;
       },
     };
-    const offs = sources.filter(([t]) => lazy(t)).map(([t, c]) =>
+    const offs = sources.filter(([t]) => onDemand(t)).map(([t, c]) =>
       c.utils.onSubsetFailure((error) => {
         if (!entry.view.isLoadingSubset || entry.failure !== undefined) return;
         entry.failure = { table: t, error, refused: refusal(error) };
@@ -1054,7 +1028,7 @@ export function createStore(base = "", cfg = {}) {
    * collection's public readiness and its `loadingSubset:change` event alone.
    *
    * Not toArrayWhenReady: it answers as soon as the view holds any row, and an
-   * lazy view holds rows while its subset is still arriving — the first
+   * on-demand view holds rows while its subset is still arriving — the first
    * read would render a partial list as if it were the whole one.
    *
    * A view that failed rejects, and so does one whose subset was refused: the
@@ -1175,7 +1149,7 @@ export function createStore(base = "", cfg = {}) {
     await ensurePrepared(table);
     // A read the engine already maintains needs no re-derivation: the view is
     // the filter and the order, kept current by the deltas that woke us.
-    const held = maintainedView(table, { ...opts, order }, lazy(table));
+    const held = maintainedView(table, { ...opts, order }, onDemand(table));
     if (held !== null) {
       const release = lease(held);
       try {
@@ -1198,7 +1172,7 @@ export function createStore(base = "", cfg = {}) {
       const releases = [];
       try {
         await Promise.all([
-          ...snapshotTables(table, opts).filter(t => !lazy(t)).map(t => wholeCollection(t, `a read of ${table}`)),
+          ...snapshotTables(table, opts).filter(t => !onDemand(t)).map(t => wholeCollection(t, `a read of ${table}`)),
           ...snapshotDemands(table, opts).map(entry => {
             releases.push(lease(entry));
             return settled(entry);
@@ -1489,48 +1463,6 @@ export function createStore(base = "", cfg = {}) {
     };
   }
 
-  // A server entity has no replicated snapshot or offline intent. Its command
-  // completes when CRUD accepts it; a refusal must never be reported as queued.
-  async function serverCommand(table, method, values, filter) {
-    const fields = cfg.schema[table].fields ?? [];
-    const clean = row => {
-      const command = Object.fromEntries(Object.entries(row)
-        .filter(([key]) => !key.startsWith("$") && key !== "txid" && key !== "scope_id" && (method !== "PATCH" || key !== keyOf(table))));
-      return fields.length === 0 ? command : carrier().normalizeRow(fields, command);
-    };
-    const body = values === undefined ? undefined : JSON.stringify(Array.isArray(values)
-      ? values.map(clean) : clean(values));
-    const res = await http(`${crud(table)}${filter === undefined ? "" : `?${filter}`}`, {
-      method,
-      headers: {
-        "Content-Type": "application/json",
-        Prefer: "return=representation",
-        ...(method === "POST" ? { "Idempotency-Key": crypto.randomUUID() } : {}),
-      },
-      body,
-    });
-    const rows = await res.json();
-    if (!Array.isArray(rows)) throw new ProgramError(`${method} ${table}: CRUD returned no row array`);
-    const identity = key => String(literal(table, keyOf(table), String(key)) ?? key);
-    const keys = rows.map(row => {
-      if (row?.[keyOf(table)] === undefined) throw new ProgramError(`${method} ${table}: CRUD returned a row without its key`);
-      return identity(row[keyOf(table)]);
-    });
-    if (keys.length > 0) notifySettled(table, keys);
-    const submitted = method === "POST" ? (Array.isArray(values) ? values : [values]) : [];
-    const expected = method === "POST" ? submitted.length : 1;
-    const wanted = method === "POST"
-      ? submitted.map(row => row[keyOf(table)]).filter(key => key !== undefined).map(identity)
-      : [identity(new URLSearchParams(filter).get(keyOf(table)).slice(3))];
-    const accepted = new Set(keys);
-    if (rows.length !== expected || wanted.some(key => !accepted.has(key))) {
-      const changed = rows.length === 0 ? "no rows" : `${rows.length} of ${expected} rows`;
-      const err = new Error(`${method} ${table} changed ${changed}: the server refused the command`);
-      err.name = "NonRetriableError";
-      throw err;
-    }
-  }
-
   /* Every mutation below takes a batch, because the collection does its work
    * per CALL and not per row: it maintains the live queries each region reads
    * a table through, and that is what a write costs. A caller with a hundred
@@ -1553,18 +1485,6 @@ export function createStore(base = "", cfg = {}) {
       if (e?.key === undefined) throw new Error(`write ${table}: an edit names no ${key}`);
       return { ...e.row, [key]: e.key };
     });
-    if (requestOnly(table)) {
-      const commands = [];
-      const edgeIndex = new Map();
-      for (const row of rows) {
-        const filter = `${key}=eq.${encodeURIComponent(row[key])}`;
-        const have = (await readServer(table, null, { filter }))[0];
-        await validate(table, have === undefined ? "insert" : "update", row, have, edgeIndex);
-        commands.push({ row, method: have === undefined ? "POST" : "PATCH", filter: have === undefined ? undefined : filter });
-      }
-      for (const command of commands) await serverCommand(table, command.method, command.row, command.filter);
-      return;
-    }
     const collection = await mutationCollection(table, "a write by key");
     // Asked once for the batch. Asked per row it is a scan of the table per
     // row, which is the quadratic term this whole shape exists to remove — and
@@ -1618,7 +1538,6 @@ export function createStore(base = "", cfg = {}) {
     const filled = rows.map((r) => blank(table, r));
     const edgeIndex = new Map();
     for (const row of filled) await validate(table, "insert", row, undefined, edgeIndex);
-    if (requestOnly(table)) return serverCommand(table, "POST", filled);
     await settle(
       onSettled(client.insert(table, filled), table, filled.map((r) => String(r[key]))),
       ACCEPT_MS,
@@ -1626,13 +1545,13 @@ export function createStore(base = "", cfg = {}) {
     );
   }
 
-  // A write by key names its row, and a table read lazily holds only the
+  // A write by key names its row, and a table synced on demand holds only the
   // rows some view loaded; the key a form or an effect carries need not be one
   // of them. Each row the collection lacks is loaded as a view of its key, held
   // until the write has gone out. A row that does not exist stays missing, and
   // the write is the collection's own refusal of it.
   async function holding(table, keys, write) {
-    if (!lazy(table)) {
+    if (!onDemand(table)) {
       const collection = client.collections[table];
       if (collection === undefined) throw new Error(`a write by key reads ${table}, which has no collection`);
       // Request-only reads leave even eager collections idle. Keep their
@@ -1650,7 +1569,7 @@ export function createStore(base = "", cfg = {}) {
     try {
       for (const k of new Set(keys.filter((k) => !collection.has(k)))) {
         const entry = maintainedView(table, { filter: `${keyOf(table)}=eq.${k}` }, true);
-        if (entry === null) throw new ProgramError(`${table} reads lazily, and a view of one row of it by ${keyOf(table)} is not one the engine maintains`);
+        if (entry === null) throw new ProgramError(`${table} syncs on demand, and a view of one row of it by ${keyOf(table)} is not one the engine maintains`);
         held.push(entry.acquire());
       }
       await Promise.all(held.map(settled));
@@ -1665,15 +1584,6 @@ export function createStore(base = "", cfg = {}) {
     if (edits.length === 0) return;
     await ensurePrepared(table);
     const key = keyOf(table);
-    if (requestOnly(table)) {
-      const edgeIndex = new Map();
-      for (const e of edits) {
-        if (e?.key === undefined) throw new Error(`patch ${table}: an edit names no ${key}`);
-        await validate(table, "update", { ...e.changes, [key]: e.key }, undefined, edgeIndex);
-      }
-      for (const e of edits) await serverCommand(table, "PATCH", e.changes, `${key}=eq.${encodeURIComponent(e.key)}`);
-      return;
-    }
     await holding(table, edits.map((e) => e.key), async () => {
       // The key last: a `changes` naming the key cannot redirect the judgement
       // onto a row other than the one this edit identifies.
@@ -1706,16 +1616,9 @@ export function createStore(base = "", cfg = {}) {
     if (keys === null) {
       throw new Error(`upsert ${table}: no natural key covers ${Object.keys(values).join(",")}`);
     }
+    const collection = await mutationCollection(table, "an upsert by natural key");
     const at = (r, c) => String(r[c] ?? (c === owner ? userId() : ""));
     const wanted = keys.map((c) => at(values, c));
-    if (requestOnly(table)) {
-      const filter = keys.map((col, i) => values[col] === null ? `${col}=is.null` : `${col}=eq.${encodeURIComponent(wanted[i])}`).join("&");
-      const rows = await readServer(table, null, { filter });
-      if (rows.length > 1) throw new ProgramError(`upsert ${table}: its natural key identifies ${rows.length} rows`);
-      if (rows.length === 1) return patch(table, [{ key: rows[0][keyOf(table)], changes: values }], onRefused);
-      return add(table, [{ [keyOf(table)]: crypto.randomUUID(), ...values }], onRefused);
-    }
-    const collection = await mutationCollection(table, "an upsert by natural key");
     const existing = collection.toArray.find(
       (r) => visible(table, r) && keys.every((c, i) => at(r, c) === wanted[i]),
     );
@@ -1730,18 +1633,6 @@ export function createStore(base = "", cfg = {}) {
 
   async function drop(table, keys, onRefused) {
     if (keys.length === 0) return;
-    await ensurePrepared(table);
-    const edgeIndex = new Map();
-    for (const key of keys) {
-      if (key === undefined) throw new Error(`drop ${table}: a key is undefined`);
-      await validate(table, "delete", { [keyOf(table)]: key }, undefined, edgeIndex);
-    }
-    if (requestOnly(table)) {
-      for (const key of keys) {
-        await serverCommand(table, "DELETE", undefined, `${keyOf(table)}=eq.${encodeURIComponent(key)}`);
-      }
-      return;
-    }
     await holding(table, keys, () =>
       settle(
         onSettled(client.remove(table, keys), table, keys.map((k) => String(k))),
@@ -1767,10 +1658,6 @@ export function createStore(base = "", cfg = {}) {
     // DELETE has no ordering to cap against — honoring the rest of the filter
     // would silently widen the deletion's scope.
     if (parseLimit(filter) !== undefined) throw new Error(`delete filter carries a limit: ${filter}`);
-    if (requestOnly(table)) {
-      const rows = await readServer(table, null, { filter });
-      return drop(table, rows.map(row => row[keyOf(table)]), onRefused);
-    }
     await ensurePrepared(table);
     const preds = parseFilter(filter, orderOf(table));
     // A precondition, not a branch: resolving these keys anywhere but the

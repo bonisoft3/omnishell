@@ -1,4 +1,4 @@
-// Deno smoke: a table read lazily, over the real store, the vendored
+// Deno smoke: a table that syncs on demand, over the real store, the vendored
 // client and a ShapeStream answered by an Electric in process. A view's rows
 // are only the ones its subsets loaded, so the store must never answer before
 // they are all there, never wake a region on a half-joined row, and refuse
@@ -9,7 +9,7 @@ import { FIXTURE_CARRIERS } from "./fixture-types.js";
 import { ProgramError } from "./fragment.js";
 import { assert, tick, until, withBrowser } from "./smoke-browser.js";
 
-// Electric's shape protocol as @electric-sql/client asks it: a lazy
+// Electric's shape protocol as @electric-sql/client asks it: an on-demand
 // shape opens at `offset=now` with only changes logged, each view's rows come
 // as a subset snapshot, and live polls hang until a change is pushed. A subset
 // waits on the gate the test holds for its table.
@@ -202,7 +202,7 @@ const config = (extra = {}) => ({
       { name: "rate", type: "decimal", precision: 10, scale: 2 }, { name: "ref", type: "uuid" }, { name: "at", type: "timestamptz" },
     ] },
   },
-  read: { player_game: "lazy", player: "lazy" },
+  sync: { player_game: "on-demand", player: "on-demand" },
   ...extra,
 });
 const world = () => ({
@@ -231,7 +231,7 @@ for (const [table, id] of [["stat", "s1"], ["player", "p1"]]) {
           ? Promise.resolve(Response.json(rows.stat.filter(row => rows.player.some(player => player.id === row.player_id))))
           : fake.fetcher(input, init),
       }, async createStore => {
-        const cfg = config({ read: { stat: "lazy", player: "lazy", player_game: "lazy" } });
+        const cfg = config({ sync: { stat: "on-demand", player: "on-demand", player_game: "on-demand" } });
         cfg.schema.stat.durability = "live";
         cfg.schema.player.durability = "server";
         const store = createStore(fake.base, cfg);
@@ -278,7 +278,7 @@ const serverRead = (name, setup, fn) =>
           ? Promise.resolve(Response.json(rows.stat.filter(row => row.player_id === "p1")))
           : fake.fetcher(input, init),
       }, async createStore => {
-        const cfg = config({ read: { stat: "lazy", player: "lazy", player_game: "lazy" } });
+        const cfg = config({ sync: { stat: "on-demand", player: "on-demand", player_game: "on-demand" } });
         cfg.schema.stat.durability = "live";
         cfg.schema.player.durability = "server";
         const opts = setup(cfg);
@@ -364,7 +364,7 @@ Deno.test({
         return Promise.resolve(Response.json(named(url.searchParams.get("player_id").slice(3))));
       },
     }, async (createStore) => {
-      const cfg = config({ read: { stat: "lazy", player: "lazy", player_game: "lazy" } });
+      const cfg = config({ sync: { stat: "on-demand", player: "on-demand", player_game: "on-demand" } });
       cfg.schema.stat.durability = "live";
       cfg.schema.player.durability = "server";
       const first = { filter: "player_id=eq.p1", select: "*,player!inner(name)" };
@@ -403,7 +403,7 @@ Deno.test({
   },
 });
 
-for (const mode of ["eager", "lazy"]) {
+for (const mode of ["eager", "on-demand"]) {
   Deno.test({
     name: `a registered reverse embed stays server-computed with ${mode} collections`,
     sanitizeOps: false,
@@ -421,7 +421,7 @@ for (const mode of ["eager", "lazy"]) {
         }
         return fake.fetcher(input, init);
       } }, async createStore => {
-        const cfg = config({ read: { player: mode, player_game: mode, stat: mode } });
+        const cfg = config({ sync: { player: mode, player_game: mode, stat: mode } });
         cfg.schema.player.durability = "live";
         const store = createStore(fake.base, cfg);
         const opts = { filter: "id=eq.p1", select: "*,player_game(round)" };
@@ -448,7 +448,7 @@ for (const mode of ["eager", "lazy"]) {
 }
 
 /** A test of the store over an Electric serving world(), handed both. */
-const lazy = (name, fn) =>
+const onDemand = (name, fn) =>
   Deno.test({
     name,
     sanitizeOps: false,
@@ -466,7 +466,7 @@ const lazy = (name, fn) =>
     },
   });
 
-lazy("a lazy view answers only once its subset and its join's are in, and wakes on whole rows", async ({ fake, store }) => {
+onDemand("a view on demand answers only once its subset and its join's are in, and wakes on whole rows", async ({ fake, store }) => {
   const opts = { filter: "game_id=eq.g1", select: "*,player(name)" };
   const wakes = [];
   const view = () => [...globalThis.__prontoViews.values()][0].view;
@@ -514,7 +514,7 @@ lazy("a lazy view answers only once its subset and its join's are in, and wakes 
   stop();
 });
 
-lazy("a typed column's equality is one literal of its type, and no `or`", async ({ fake, store }) => {
+onDemand("a typed column's equality is one literal of its type, and no `or`", async ({ fake, store }) => {
   const opts = { filter: "round=eq.3" };
   const stop = store.subscribe("player_game", () => {}, opts);
   const rows = await store.query("player_game", null, opts);
@@ -524,11 +524,11 @@ lazy("a typed column's equality is one literal of its type, and no `or`", async 
   stop();
 });
 
-lazy("a read whose order is only positional joins the view its subscription opened", async ({ fake, store }) => {
+onDemand("a read whose order is only positional joins the view its subscription opened", async ({ fake, store }) => {
   const stop = store.subscribe("player_game", () => {}, { filter: "game_id=eq.g1", order: "round.desc" });
   // Regression: read() looked the view up by opts.order alone, so a read
   // passing its order only as the positional argument missed the view and,
-  // on a table read lazily, was refused as a whole read.
+  // on a table that syncs on demand, was refused as a whole read.
   const rows = await store.query("player_game", "round.desc", { filter: "game_id=eq.g1" });
   assert(JSON.stringify(rows.map((r) => r.id)) === `["pg2","pg1"]`, `the read is the view, ordered: ${JSON.stringify(rows)}`);
   stop();
@@ -538,7 +538,7 @@ for (const [kind, opts, indexedTable, column] of [
   ["joined", { filter: "game_id=eq.g1", select: "*,player(name)" }, "player", "id"],
   ["capped", { filter: "game_id=eq.g1&limit=1", order: "round.desc" }, "player_game", "round"],
 ]) {
-  lazy(`a ${kind} demand stays bounded after its source collection is cleaned up`, async ({ fake, store }) => {
+  onDemand(`a ${kind} demand stays bounded after its source collection is cleaned up`, async ({ fake, store }) => {
     let stop = store.subscribe("player_game", () => {}, opts);
     const first = await store.query("player_game", null, opts);
     const collections = globalThis.__mechaClient.collections;
@@ -549,8 +549,8 @@ for (const [kind, opts, indexedTable, column] of [
     await Promise.all([collections.player_game.cleanup(), collections.player.cleanup()]);
     assert(collections[indexedTable].indexes.size === 0, "source cleanup discarded the index");
     const warnings = [];
-    const savedConsole = globalThis.console;
-    globalThis.console = { ...savedConsole, warn: (...args) => warnings.push(args.join(" ")) };
+    const warn = console.warn;
+    console.warn = (...args) => warnings.push(args.join(" "));
     const before = fake.subsets.length;
     try {
       stop = store.subscribe("player_game", () => {}, opts);
@@ -565,12 +565,12 @@ for (const [kind, opts, indexedTable, column] of [
       assert(warnings.length === 0, `no index fallback: ${warnings.join("; ")}`);
     } finally {
       stop();
-      globalThis.console = savedConsole;
+      console.warn = warn;
     }
   });
 }
 
-lazy("a literal its column cannot hold is a view of no rows, which Electric can state", async ({ fake, store }) => {
+onDemand("a literal its column cannot hold is a view of no rows, which Electric can state", async ({ fake, store }) => {
   // What a probe nested under a row with a null foreign key asks for: the
   // placeholder interpolates to the empty string. Regression: sent as the
   // literal, Electric refused to cast it ("invalid syntax for type uuid")
@@ -599,17 +599,17 @@ Deno.test({
       const store = createStore(fake.base, config({
         uniques: { player_game: [["game_id", "player_id"]] },
         pipelines: [fold],
-        validations: { stat: { "counted": { src: "v.js", on: ["insert", "update"], order: {insert: [0, 0], update: [0, 0]}, edges: [{ table: "player_game", key: "player_id", from: "player_id" }] } } },
+        validations: { stat: { "counted": { src: "v.js", edges: [{ table: "player_game", key: "player_id", from: "player_id" }] } } },
       }));
       const refused = async (site, run) => {
         try {
           await run();
         } catch (err) {
           assert(err instanceof ProgramError, `${site}: ${err}`);
-          assert(/reads lazily/.test(err.message), `${site}: ${err.message}`);
+          assert(/syncs on demand/.test(err.message), `${site}: ${err.message}`);
           return;
         }
-        throw new Error(`smoke failed: ${site} read a lazy table whole`);
+        throw new Error(`smoke failed: ${site} read an on-demand table whole`);
       };
       await refused("a fold projection", () => store.query("stat", null, {}));
       await refused("a validation's edge", () => store.add("stat", [{ id: "s2", player_id: "p2", games: 1 }]));
@@ -649,7 +649,7 @@ Deno.test({
   async fn() {
     const fake = electric(world(), SCHEMA);
     await withBrowser({ fetch: fake.fetcher }, async createStore => {
-      const store = createStore(fake.base, config({ read: {} }));
+      const store = createStore(fake.base, config({ sync: {} }));
       const rows = await store.query("player_game", null, { filter: "game_id=eq.g1&limit=1", select: "*,player(name)" });
       assert(rows.length === 1 && rows[0].player.name === "Ana", "the cap keeps the joined row");
       assert(fake.subsets.length === 0, "both collections are eager");
@@ -658,7 +658,7 @@ Deno.test({
 });
 
 for (const operation of ["write", "upsert", "delete"]) {
-  lazy(
+  onDemand(
     `an opaque ${operation} waits for complete demand before touching an unseen row`,
     async ({ fake, store }) => {
       const opts = { filter: "game_id=eq.g1" };
@@ -703,7 +703,7 @@ for (const operation of ["write", "upsert", "delete"]) {
   );
 }
 
-lazy(
+onDemand(
   "mutation demand survives a screen releasing its shared view",
   async ({ fake, store }) => {
     const opts = { filter: "id=not.is.null" };
@@ -730,7 +730,7 @@ lazy(
   },
 );
 
-lazy(
+onDemand(
   "concurrent mutations share complete demand and wait through a transport failure",
   async ({ fake, store }) => {
     fake.fail("player_game", [401, { error: "invalid shape token" }]);
@@ -750,7 +750,7 @@ lazy(
   },
 );
 
-lazy(
+onDemand(
   "a refused mutation subset leaves the collection untouched",
   async ({ fake, store }) => {
     fake.fail("player_game", [400, REFUSED_BY_ELECTRIC]);
@@ -769,7 +769,7 @@ lazy(
   },
 );
 
-lazy("a write by key loads the row no view loaded, and a row that does not exist is the collection's own refusal", async ({ fake, store }) => {
+onDemand("a write by key loads the row no view loaded, and a row that does not exist is the collection's own refusal", async ({ fake, store }) => {
   // Regression: the key a form or an effect carries need not be a row any
   // view on the screen loaded (a pick from a server-computed list), and
   // TanStack refuses to update a key it does not hold. Resolving is the
@@ -788,7 +788,7 @@ lazy("a write by key loads the row no view loaded, and a row that does not exist
   assert(/passed to update but an object for this key was not found/.test(refusal?.message), `patch of a missing key: ${refusal}`);
 });
 
-lazy("a read waiting on a view its region released settles, and the region's next subscription reads afresh", async ({ fake, store }) => {
+onDemand("a read waiting on a view its region released settles, and the region's next subscription reads afresh", async ({ fake, store }) => {
   const opts = { filter: "game_id=eq.g1" };
   const release = fake.hold("player_game");
   const stop = store.subscribe("player_game", () => {}, opts);
@@ -814,7 +814,7 @@ lazy("a read waiting on a view its region released settles, and the region's nex
 const REFUSED_BY_ELECTRIC = { message: "Invalid request", errors: { subset: { where: ["At location 0: unknown reference nope"] } } };
 const REFUSED_BY_GATE = { message: "Invalid request", errors: { subset: { where: ["subset__where is not a predicate a subset may state"] } } };
 
-lazy("a subset that failed in transit is asked again while the read waits, and only a refusal of the subset itself is a program error", async ({ fake, store }) => {
+onDemand("a subset that failed in transit is asked again while the read waits, and only a refusal of the subset itself is a program error", async ({ fake, store }) => {
   const ids = (rows) => JSON.stringify(rows.map((r) => r.id).sort());
   const failure = (p) => p.then(() => null, (err) => err);
   const asked = (filter) => fake.subsets.filter((s) => s.table === "player_game" && s.params["1"] === filter).length;
@@ -862,7 +862,7 @@ lazy("a subset that failed in transit is asked again while the read waits, and o
 // gate refusing what it minted, or the page's cluster answering in a body the
 // store did not read as a refusal left the region loading for good, the cause
 // on the console alone, where the screen used to say network-error.
-lazy("a subset that keeps failing fails the read once its rebuilds run out, and the next read asks again", async ({ fake, store }) => {
+onDemand("a subset that keeps failing fails the read once its rebuilds run out, and the next read asks again", async ({ fake, store }) => {
   const opts = { filter: "game_id=eq.g1" };
   const stop = store.subscribe("player_game", () => {}, opts);
   const asked = () => fake.subsets.filter((s) => s.table === "player_game" && s.params["1"] === "g1").length;
@@ -876,7 +876,7 @@ lazy("a subset that keeps failing fails the read once its rebuilds run out, and 
   stop();
 });
 
-lazy("a typed literal is read against its column's own field and compared in canonical form", async ({ fake, store }) => {
+onDemand("a typed literal is read against its column's own field and compared in canonical form", async ({ fake, store }) => {
   const read = async (filter) => {
     const stop = store.subscribe("stat", () => {}, { filter });
     try {
@@ -901,7 +901,7 @@ lazy("a typed literal is read against its column's own field and compared in can
   assert(await read("at=neq.2026-09-22 14:18:21.84623+00") === `["s2"]`, "a physical label's neq");
 });
 
-lazy("a whole read demands its embeds while an eager base snapshot is pending", async ({ fake, store }) => {
+onDemand("a whole read demands its embeds while an eager base snapshot is pending", async ({ fake, store }) => {
   const release = fake.stall("stat");
   const releaseEmbed = fake.hold("player");
   let answered;
@@ -916,7 +916,7 @@ lazy("a whole read demands its embeds while an eager base snapshot is pending", 
   assert(globalThis.__prontoViews.size === 0, "temporary complete demand released");
 });
 
-lazy("a broad reader neither widens nor blocks a concurrent filtered reader", async ({ fake, store }) => {
+onDemand("a broad reader neither widens nor blocks a concurrent filtered reader", async ({ fake, store }) => {
   const opts = { filter: "game_id=eq.g1" };
   const stopSubset = store.subscribe("player_game", () => {}, opts);
   assert((await store.query("player_game", null, opts)).length === 2, "filtered screen loaded its subset");
@@ -939,7 +939,7 @@ lazy("a broad reader neither widens nor blocks a concurrent filtered reader", as
 });
 
 for (const filter of ["game_id=eq.g1", "game_id=ilike.g1", undefined]) {
-  lazy(`a pending ${filter ?? "whole"} read survives its screen leaving past view GC`, async ({ fake, store }) => {
+  onDemand(`a pending ${filter ?? "whole"} read survives its screen leaving past view GC`, async ({ fake, store }) => {
     const opts = { filter };
     const release = fake.hold("player_game");
     const stop = store.subscribe("player_game", () => {}, opts);
@@ -955,7 +955,7 @@ for (const filter of ["game_id=eq.g1", "game_id=ilike.g1", undefined]) {
 }
 
 for (const filter of ["game_id=eq.g1", "game_id=ilike.g1"]) {
-  lazy(`a named ${filter} read releases its temporary demand on success and refusal`, async ({ fake, store }) => {
+  onDemand(`a named ${filter} read releases its temporary demand on success and refusal`, async ({ fake, store }) => {
     fake.fail("player_game", [400, { errors: { subset: ["predicate rejected"] } }]);
     const error = await store.query("player_game", null, { filter }).then(() => null, err => err);
     assert(error instanceof ProgramError, "subset refusal reaches caller");
@@ -966,10 +966,10 @@ for (const filter of ["game_id=eq.g1", "game_id=ilike.g1"]) {
 }
 
 // A boolean filter reads through the snapshot path, and a snapshot read of an
-// lazy table once demanded the whole table: GolAberto's chances screen,
+// on-demand table once demanded the whole table: GolAberto's chances screen,
 // filtered by group and current=is.true, pulled every position_chance row.
 for (const filter of ["game_id=eq.g1&done=is.true", "done=is.true&game_id=eq.g1&limit=5"]) {
-  lazy(`a boolean-filtered read ${filter} demands only the rows its stated clauses bound`, async ({ fake, store }) => {
+  onDemand(`a boolean-filtered read ${filter} demands only the rows its stated clauses bound`, async ({ fake, store }) => {
     let wakes = 0;
     const stop = store.subscribe("player_game", () => wakes++, { filter });
     const rows = await store.query("player_game", null, { filter });
@@ -981,7 +981,7 @@ for (const filter of ["game_id=eq.g1&done=is.true", "done=is.true&game_id=eq.g1&
   });
 }
 
-lazy("a snapshot subscription holds notifications until all embedded demand is complete", async ({ fake, store }) => {
+onDemand("a snapshot subscription holds notifications until all embedded demand is complete", async ({ fake, store }) => {
   const release = fake.hold("player");
   const opts = { filter: "game_id=eq.g1&limit=1", select: "*,player(name)" };
   let wakes = 0;
@@ -1002,7 +1002,7 @@ lazy("a snapshot subscription holds notifications until all embedded demand is c
   stop();
 });
 
-lazy("a capped free-text order demands completeness before sorting locally", async ({ fake, store }) => {
+onDemand("a capped free-text order demands completeness before sorting locally", async ({ fake, store }) => {
   const rows = await store.query("player", "name.desc", { filter: "id=not.is.null&limit=1" });
   assert(rows.length === 1 && rows[0].name === "Duda", "local collation and cap applied");
   const optionOrder = await store.query("player", null, { order: "name.desc", filter: "id=not.is.null&limit=1" });
@@ -1020,7 +1020,7 @@ Deno.test({
     rows.stat[0].player_id = "1";
     rows.stat[1].player_id = "2";
     const fake = electric(rows, { ...SCHEMA, player: { ...SCHEMA.player, id: { type: "int8" } } });
-    const cfg = config({ read: { stat: "lazy", player: "lazy" } });
+    const cfg = config({ sync: { stat: "on-demand", player: "on-demand" } });
     cfg.schema.player.fields[0].type = "int64";
     await withBrowser({ fetch: fake.fetcher }, async createStore => {
       const store = createStore(fake.base, cfg);
@@ -1035,7 +1035,7 @@ Deno.test({
   },
 });
 
-for (const mode of ["eager", "lazy"]) {
+for (const mode of ["eager", "on-demand"]) {
   Deno.test({
     name: `${mode} typed queries preserve canonical equality, nulls and invalid literals`,
     sanitizeOps: false,
@@ -1045,7 +1045,7 @@ for (const mode of ["eager", "lazy"]) {
       rows.stat.push({ ...rows.stat[0], id: "null", rate: null, ref: null });
       const fake = electric(rows, SCHEMA);
       await withBrowser({ fetch: fake.fetcher }, async createStore => {
-        const store = createStore(fake.base, config({ read: { stat: mode } }));
+        const store = createStore(fake.base, config({ sync: { stat: mode } }));
         // A decimal cannot be sent in an Electric subset: the complete
         // snapshot must compare its literals exactly as an eager view does.
         const cases = [
@@ -1082,7 +1082,7 @@ for (const mode of ["eager", "lazy"]) {
   });
 }
 
-for (const mode of ["eager", "lazy"]) {
+for (const mode of ["eager", "on-demand"]) {
   Deno.test({
     name: `${mode} JSON scalar snapshots preserve queries and external wakes`,
     sanitizeOps: false,
@@ -1092,7 +1092,7 @@ for (const mode of ["eager", "lazy"]) {
       rows.stat[0].payload = "1";
       rows.stat[1].payload = "true";
       const fake = electric(rows, { ...SCHEMA, stat: { ...SCHEMA.stat, payload: { type: "json" } } });
-      const cfg = config({ read: { stat: mode } });
+      const cfg = config({ sync: { stat: mode } });
       cfg.carriers = { ...FIXTURE_CARRIERS, types: { ...FIXTURE_CARRIERS.types, json: {
         pg: "json", column: "checked", subset: false, base: ["json", "jsonb"], json: "value", order: "none", beyond: ["scalar-values", "finite-numbers"],
       } } };
@@ -1176,14 +1176,8 @@ Deno.test({
     const reading = new Promise(resolve => { releaseRead = resolve; });
     let calls = 0;
     let committed = [];
-    let finishWrite;
-    await withBrowser({ fetch: async (input, init) => {
-      assert(String(input).startsWith("http://settled/crud/player_game"), "server commands open no remote subscription");
-      if (init?.method === "POST") {
-        await new Promise(resolve => { finishWrite = resolve; });
-        committed = JSON.parse(init.body);
-        return Response.json(committed);
-      }
+    await withBrowser({ fetch: async input => {
+      assert(String(input).startsWith("http://settled/crud/player_game?"), "the read opens no remote subscription");
       const snapshot = [...committed];
       if (++calls === 1) await reading;
       return Response.json(snapshot);
@@ -1191,7 +1185,10 @@ Deno.test({
       const cfg = config();
       cfg.schema.player_game.durability = "server";
       const store = createStore("http://settled", cfg);
-
+      let finishWrite;
+      globalThis.__mechaClient.insert = (_table, rows) => new Promise(resolve => {
+        finishWrite = () => { committed = rows; resolve(); };
+      });
       let refreshed;
       const stop = store.subscribe("player_game", () => { refreshed = store.query("player_game"); });
       try {

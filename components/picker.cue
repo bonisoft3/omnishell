@@ -96,16 +96,17 @@ import (
 		(o.name): P.readout == "columns" || o.assign != _|_
 	}}
 
-	defaults: {
-		if P.readout == "columns" {
-			label: P._initialLabel
-			for o in P.options {("sel_\(o.name)"): [if o.name == P.initial {"true"}, "false"][0]}
-		}
-	}
-
 	machine: terminal.#Machine & {
 		field:   P.field
 		initial: P.initial
+		if P.readout == "columns" {
+			context: {
+				label: P._initialLabel
+				for o in P.options {
+					("sel_\(o.name)"): [if o.name == P.initial {"true"}, "false"][0]
+				}
+			}
+		}
 		on: {for o in P.options {
 			("click@\(P.key)-trigger-\(o.name)"): [
 				if P.guard != _|_ {

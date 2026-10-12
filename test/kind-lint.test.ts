@@ -137,23 +137,12 @@ describe("kindLint", () => {
     const e = entity({
       fields: [
         { name: "id", type: "uuid", pk: true },
-        { name: "kind", type: "text", defaulted: true, default: "note" },
+        { name: "kind", type: "text", default: "'note'" },
       ],
     })
     const why = kindLint(["kind=eq.note", "kind=eq.link"], e, admits({ kind: ["note", "link"] }))
     expect(why).toContain("DB-defaulted")
     expect(kindLint(["kind=eq.note", "kind=eq.link", undefined], e, admits({ kind: ["note", "link"] }))).toBe(null)
-  })
-
-  it("an expression-defaulted discriminant still needs a template for the pending row", () => {
-    const e = entity({fields: [
-      {name: "id", type: "uuid", pk: true},
-      {name: "kind", type: "string", defaulted: true},
-    ]})
-    expect(kindLint(["kind=eq.note", "kind=eq.link"], e, admits({kind: ["note", "link"]})))
-      .toContain("DB-defaulted")
-    expect(kindLint(["kind=eq.note", "kind=eq.link", undefined], e, admits({kind: ["note", "link"]})))
-      .toBe(null)
   })
 
   it("an int enum's members compare as the strings a data-when carries", () => {

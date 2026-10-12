@@ -60,10 +60,10 @@ material a Jessie role could decide from.
 **Presence has no owner.** It is shared and not durable, the quadrant neither the
 cluster nor the terminal holds.
 
-**No port reaches a sensor.** A unit's ports are entities and events; a
-camera frame is neither, and a role with nothing endowed cannot read one and
-stay a function of its inputs. MediaPipe's per-frame case and `terminal.cue`'s
-`sensors` roster are the evidence waiting on a port shaped for it.
+**Which capabilities are grantable is undecided.** A role with nothing endowed
+cannot read a sensor or a camera frame and stay a function of its inputs; a
+hatch could and is granted nothing. MediaPipe's per-frame case and
+`terminal.cue`'s `sensors` are the evidence waiting on it.
 
 **The interpreter's own wiring is ad hoc.** The navigation listener, retry
 timers and drag live inside the host instead of as a unit's returned requests.
