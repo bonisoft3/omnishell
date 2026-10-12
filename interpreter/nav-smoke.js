@@ -109,7 +109,11 @@ function boot({
   globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
 
   const listeners = {};
-  globalThis.addEventListener = (ev, fn) => (listeners[ev] ??= []).push(fn);
+  const onlineWaiters = [];
+  globalThis.addEventListener = (ev, fn) => {
+    (listeners[ev] ??= []).push(fn);
+    if (ev === "online") onlineWaiters.splice(0).forEach((resolve) => resolve());
+  };
 
   let onNavigate = null;
   const intercepted = [];
@@ -185,6 +189,7 @@ function boot({
     if (u.endsWith("/auth/guest")) {
       minted.push(u);
       if (offline) return Promise.reject(new TypeError("Failed to fetch"));
+      return Promise.resolve(new Response(JSON.stringify({token: "t", user: {id: "u1", handle: "sunlit-fox-01", guest: true}})));
     }
     const screen = u.match(/screens\/(\w+)\.html$/);
     if (screen) {
@@ -217,6 +222,13 @@ function boot({
     minted,
     // The browser telling the page it is back online.
     online: () => (listeners.online ?? []).splice(0).forEach((fn) => fn()),
+    waitForRetry: () => listeners.online?.length
+      ? Promise.resolve()
+      : new Promise((resolve) => onlineWaiters.push(resolve)),
+    restoreNetwork() {
+      offline = false;
+      this.online();
+    },
     // A rejection nobody awaited, delivered as the browser would.
     stray: (reason) => (listeners.unhandledrejection ?? []).forEach((fn) => fn({reason, preventDefault() {}})),
     // A throw nobody caught — a listener's, a timer's — delivered as the
@@ -281,6 +293,7 @@ function boot({
 }
 
 const settle = (ms = 80) => new Promise((r) => setTimeout(r, ms));
+const afterFrames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 // Long enough to outlive shell.js's SCREEN_LOAD_CAP_MS and the release's two
 // frames. Raise it with that constant, never below it.
 const SCREEN_CAP_WAIT = 2400;
@@ -333,6 +346,7 @@ Deno.test({
     // which is the condition under test.
     app.goto("/other");
     await settle(SCREEN_CAP_WAIT);
+    await afterFrames();
     const el = arriving(app);
     assert(el !== undefined, "no screen slot was created");
     assert(!("entering" in el.dataset), "the screen is still covered by its own entrance");
@@ -345,8 +359,14 @@ Deno.test({
   sanitizeResources: false,
   async fn() {
     const app = await start({rejects: ["other"]});
-    await app.goto("/other").catch(() => {});
-    await settle();
+    let failure;
+    try {
+      await app.goto("/other");
+    } catch (err) {
+      failure = err;
+    }
+    assert(String(failure).includes("screen other unavailable"), `the failed load said ${failure}`);
+    await afterFrames();
     const el = arriving(app);
     assert(el !== undefined, "no screen slot was created");
     assert(!("entering" in el.dataset), "the screen is still covered by its own entrance");
@@ -747,15 +767,18 @@ Deno.test({
     const app = boot({at: "/regras", serving: "regras", tables: ["note"], offline: true});
     const servedScreen = app.mount.querySelector("[data-served]");
     const {createShell} = await import("./shell.js");
-    createShell({config: "./shell/shell.yaml", mount: app.mount});
-    await settle();
+    const booting = createShell({config: "./shell/shell.yaml", mount: app.mount});
+    await app.waitForRetry();
     assert(app.mount.querySelector("pre") === null, `a banner: ${app.mount.querySelector("pre")?.textContent}`);
     assert(app.mount.querySelector(".shell-screen") === servedScreen && !servedScreen.hidden, "the served screen was taken down");
     assert(app.minted.length === 1, `${app.minted.length} mints`);
     app.online();
-    await settle();
+    await app.waitForRetry();
     assert(app.minted.length === 2, `the mint was not asked again online: ${app.minted.length}`);
     assert(app.mount.querySelector(".shell-screen") === servedScreen, "the served screen was taken down");
+    app.restoreNetwork();
+    await booting;
+    await afterFrames();
   },
 });
 
