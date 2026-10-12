@@ -6,7 +6,6 @@ import { canonical, guardNames, type Machine } from "./canonical.ts"
 const FIB: Machine = {
   field: "phase",
   initial: "counting",
-  context: { current: 1, previous: 0 },
   on: { refused: { target: "counting" } },
   states: {
     counting: {
@@ -31,12 +30,10 @@ describe("canonical", () => {
   it("the faithful form is a config createMachine accepts, after and raise intact", () => {
     const cfg = canonical(FIB) as {
       initial: string
-      context: unknown
       on: Record<string, { target?: string }[]>
       states: Record<string, { on?: Record<string, unknown>; after?: Record<string, unknown> }>
     }
     expect(cfg.initial).toBe("counting")
-    expect(cfg.context).toEqual({ current: 1, previous: 0 })
     expect("field" in cfg).toBe(false)
     // Root-level targets address the root's children — the leading dot.
     expect(cfg.on.refused[0].target).toBe(".counting")

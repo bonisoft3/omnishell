@@ -20,7 +20,6 @@ const ROUTE = { screen: "acc", files: { html: "acc.html", css: "acc.css", handle
 const EXPANSION = {
   field: "open",
   initial: "none",
-  context: { exp_one: "false", exp_two: "false" },
   states: {
     none: {
       on: {
@@ -46,7 +45,6 @@ const EXPANSION = {
 const CARET = {
   field: "caret",
   initial: "one",
-  context: { cur_one: "true", cur_two: "false" },
   states: {
     one: {
       on: {
@@ -77,7 +75,12 @@ const files = (charts: unknown = [EXPANSION, CARET]) => ({
 /** No seeded row: the fallback the charts synthesize between them is what the
  * first write states, which is the case this has to cover. */
 const mount = (charts: unknown = [EXPANSION, CARET]) =>
-  mountScreen({ route: ROUTE, files: files(charts), tables: { acc_demo: [] }, seed: 1 })
+  mountScreen({ route: ROUTE, files: files(charts), tables: { acc_demo: [] }, seed: 1, schema: { acc_demo: { fields: [
+    { name: "exp_one", type: "string", default: "false" },
+    { name: "exp_two", type: "string", default: "false" },
+    { name: "cur_one", type: "string", default: "true" },
+    { name: "cur_two", type: "string", default: "false" },
+  ] } } })
 
 const read = (m: Mounted) => {
   const row = m.rows("acc_demo")[0] ?? {}
@@ -94,8 +97,8 @@ const press = (m: Mounted, id: string, key: string) => {
 }
 
 describe("two charts, one row", () => {
-  it("synthesizes a fallback row carrying every chart's initial world", async () => {
-    // Neither chart's context may be lost to the other's: the row a first write
+  it("synthesizes a fallback row carrying schema defaults and every chart's initial state", async () => {
+    // Neither chart's initial state or schema defaults may be lost: the row a first write
     // states is the union, or whichever chart moved first would put a row
     // missing the other's columns and the bindings would fail on the next pass.
     const m = await mount()
@@ -169,7 +172,7 @@ describe("what parallel charts may not share", () => {
   it("counts the field as a column a chart writes", () => {
     // It is one: the transition's target lands there. A rule that judged only
     // the assigns would let a chart's field be another's derived column.
-    const shadow = { field: "x", initial: "a", context: {}, states: { a: { on: { "click@h-one": { target: "a", assign: { caret: "one" } } } } } }
+    const shadow = { field: "x", initial: "a", states: { a: { on: { "click@h-one": { target: "a", assign: { caret: "one" } } } } } }
     expect(parallelLint([CARET, shadow])).toMatch(/both write "caret"/)
   })
 })

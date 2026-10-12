@@ -115,7 +115,7 @@ export type I18n = { default: string; locales: Record<string, { path: string }> 
  * of it: the columns, what an integer counts where it counts money, and the
  * table a foreign key refers to. */
 export type Schema = Record<string, {
-  fields: { name: string; type: string; money?: { currency: string; minorUnits: number }; ref?: string }[];
+  fields: { name: string; type: string; default?: string | number | boolean | null; money?: { currency: string; minorUnits: number }; ref?: string }[];
 }>;
 
 /** A catalogue per locale. A value is a sentence or a compile-time AST. */

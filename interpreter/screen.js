@@ -856,12 +856,15 @@ function declaredCharts(spec, table) {
     if (chart === null || typeof chart !== "object" || Array.isArray(chart)) {
       throw new ProgramError(`region "${table}": data-machine holds ${JSON.stringify(chart)}, which is not a chart`);
     }
+    const contextIn = (node) => "context" in node || Object.values(node.states ?? {}).some(contextIn);
+    if (contextIn(chart)) {
+      throw new ProgramError(`region "${table}": chart context is not supported; declare the entity's field defaults`);
+    }
     if (chart.type === "parallel") {
       for (const [regionName, regionNode] of Object.entries(chart.states ?? {})) {
         charts.push({
           field: regionNode.field ?? regionName,
           initial: regionNode.initial,
-          context: regionNode.context ?? (regionNode.field ? chart.context : undefined),
           on: { ...chart.on, ...regionNode.on },
           states: regionNode.states ?? {},
           after: regionNode.after,
@@ -3161,13 +3164,14 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           `machine region "${table}" has no data-empty-row and its filter pins no id=eq.; the machine's first write would have no key`,
         );
       }
-      // {...context, ...eqs, field: initial}: each chart states the initial
-      // world, the filter's equalities add the facts any visible row carries,
-      // and the field is the chart's own — a filter pinning it would herd rows
-      // out of its own read and earns no override. Parallel charts hold
-      // disjoint columns, so the merge cannot lose one of them: the row is the
-      // union of what they each said, which is the row they all then write to.
-      fallbackRow = { ...eqs };
+      // Schema defaults are literal values; expression defaults are performed
+      // by the store. Filter facts and each chart's initial state own their
+      // columns over the defaults, including parallel charts' disjoint fields.
+      fallbackRow = {
+        ...Object.fromEntries((cfg.schema?.[table]?.fields ?? [])
+          .filter((f) => Object.hasOwn(f, "default")).map((f) => [f.name, f.default])),
+        ...eqs,
+      };
       for (const chart of mounted) {
         let initialVal = chart.initial;
         let node = chart.states?.[initialVal];
@@ -3175,7 +3179,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           initialVal = `${initialVal}.${node.initial}`;
           node = node.states[node.initial];
         }
-        fallbackRow = { ...(chart.context ?? {}), ...fallbackRow, [chart.field]: initialVal };
+        fallbackRow[chart.field] = initialVal;
       }
     }
     // Read back by the machine reduce (wired per refresh, outside this scope):

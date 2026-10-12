@@ -80,7 +80,8 @@ type SchemaField = {
   type: string;
   pk?: boolean;
   unique?: boolean;
-  default?: string;
+  default?: string | number | boolean | null;
+  defaulted?: boolean;
   enum?: string[];
   money?: { currency: string; minorUnits: number };
 };

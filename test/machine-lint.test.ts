@@ -9,7 +9,6 @@ const lint = (m: unknown, available: Set<string>, r: Reach = reach({ favorite: "
 const FIB = {
   field: "phase",
   initial: "counting",
-  context: { current: 1, previous: 0 },
   on: { refused: { target: "counting" } },
   states: {
     counting: {
@@ -72,12 +71,12 @@ describe("machineLint", () => {
     expect(why).toContain("subset")
   })
 
-  it("reports context carrying the machine's own field", () => {
+  it("refuses chart context because the entity owns row defaults", () => {
     const m = JSON.parse(JSON.stringify(FIB))
-    m.context.phase = "counting"
+    m.context = { current: 1 }
     const why = lint(m, MODULES)
-    expect(why).toContain('"phase"')
-    expect(why).toContain("one writer")
+    expect(why).toContain("context")
+    expect(why).toContain("entity's field defaults")
   })
 })
 

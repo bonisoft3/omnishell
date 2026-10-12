@@ -28,7 +28,8 @@ export type Entity = {
     type: string;
     pk?: boolean;
     unique?: boolean;
-    default?: string;
+    default?: string | number | boolean | null;
+    defaulted?: boolean;
     /** What the integer counts, where it counts money (schema.cue #Field). */
     money?: { currency: string; minorUnits: number };
   }[];
@@ -435,12 +436,13 @@ export function machineRegions(html: string): MachineRegion[] {
     for (const chart of raw) {
       if (chart && typeof chart === "object" && (chart as Record<string, unknown>).type === "parallel") {
         const p = chart as Record<string, unknown>;
+        if ("context" in p) throw new Error("chart context is not supported; declare the entity's field defaults");
         const states = (p.states ?? {}) as Record<string, Record<string, unknown>>;
         for (const [regionName, regionNode] of Object.entries(states)) {
+          if ("context" in regionNode) throw new Error("chart context is not supported; declare the entity's field defaults");
           parallelCharts.push({
             field: regionNode.field ?? regionName,
             initial: regionNode.initial,
-            context: regionNode.context ?? (regionNode.field ? p.context : undefined),
             on: { ...(p.on as object), ...(regionNode.on as object) },
             states: regionNode.states ?? {},
             after: regionNode.after,
@@ -1099,7 +1101,7 @@ export function kindLint(whens: (string | undefined)[], e: Entity, enumOf: EnumO
     // DB-defaulted discriminant is absent until the synced row arrives — and
     // an eq admits no row missing its column. Only a default template can
     // render the pending row (decision-offline-note-path).
-    if (field?.default !== undefined) {
+    if (field?.defaulted === true) {
       return `"${col}" is DB-defaulted, so a pending row may lack it and no template would admit it; ` +
         `declare a default template`;
     }
@@ -1244,7 +1246,6 @@ type Machine = {
   field?: string;
   type?: string;
   initial?: string;
-  context?: Record<string, unknown>;
   on?: Record<string, unknown>;
   onDone?: unknown;
   always?: unknown;
@@ -1284,12 +1285,15 @@ function collectStateActions(state: StateNode): unknown[] {
 /** Machine lint: the reason a data-machine's leaves or cascade are unsound,
  * or null. References (guards, non-numeric after keys) must name modules in
  * `available`; every raised type must be handled by some state or root `on:`
- * (the cascade stays drawable); context never carries the machine's own
- * field — one fact, one writer; and a write whose row the server may refuse
+ * (the cascade stays drawable); the entity owns the row defaults; and a
+ * write whose row the server may refuse
  * (a compensable effect, read off the entity's durability through `reach`)
  * is drawn in a chart that hears `refused`, since one deaf to the no has a
  * zombie state by construction. */
 export function machineLint(machine: Machine, available: Set<string>, reach: Reach): string | null {
+  const contextIn = (node: object): boolean => "context" in node ||
+    Object.values((node as {states?: Record<string, object>}).states ?? {}).some(contextIn);
+  if (contextIn(machine)) return "chart context is not supported; declare the entity's field defaults";
   const values: unknown[] = [
     ...Object.values(machine.on ?? {}),
     ...Object.values(machine.states ?? {}).flatMap(collectValues),
@@ -1352,16 +1356,13 @@ export function machineLint(machine: Machine, available: Set<string>, reach: Rea
   if (unraisable.length > 0) {
     return `raise ${unraisable.map((r) => `"${r}"`).join(", ")} is handled by no state or root on: — the cascade has an undrawn arrow`;
   }
-  if (machine.context !== undefined && machine.field && machine.field in machine.context) {
-    return `context carries the machine's own field "${machine.field}" — one fact, one writer (initial: is the declaration)`;
-  }
   return null;
 }
 
 export type Write = { col: string; value: string | number | boolean };
 
 /** Every literal a machine region persists into a column: the machine's
- * context, its assign literals, and the data-empty-row — a transition
+ * initial, its assign literals, and the data-empty-row — a transition
  * concluding from the synthesized fallback row restates that row verbatim, so
  * its values are written, not merely bound. A `{type, params}` assign is a
  * module's return, which nothing declares a type for; it carries no literal
@@ -1376,7 +1377,6 @@ export function machineWrites(machine: Machine, emptyRow?: string): Write[] {
   if (emptyRow !== undefined) {
     for (const [k, v] of Object.entries(JSON.parse(emptyRow) as Record<string, unknown>)) push(k, v);
   }
-  for (const [k, v] of Object.entries(machine.context ?? {})) push(k, v);
   const values: unknown[] = [
     ...Object.values(machine.on ?? {}),
     ...Object.values(machine.states ?? {}).flatMap(collectValues),

@@ -20,11 +20,10 @@ const w = (...pairs: [string, string | number | boolean][]): Write[] =>
   pairs.map(([col, value]) => ({ col, value }))
 
 describe("machineWrites", () => {
-  it("collects the empty row, the context, the state column and every assign literal", () => {
+  it("collects the empty row, the state column and every assign literal", () => {
     const machine = {
       field: "variant",
       initial: "mineiro",
-      context: { winner: "" },
       states: {
         mineiro: { on: { "click@trigger-paulista": [{ target: "paulista", assign: { hand_no: "1", stake: "2" } }] } },
         paulista: {},
@@ -34,7 +33,7 @@ describe("machineWrites", () => {
     // expectState compares that column strictly on every step — a machine
     // spelling it one way in an arrow and another in an assign disowns half
     // its own rows, which is the defect this rule is for.
-    expect(machineWrites(machine, '{"id":"","variant":"mineiro"}')).toEqual([
+    expect(machineWrites(machine, '{"id":"","variant":"mineiro","winner":""}')).toEqual([
       { col: "id", value: "" },
       { col: "variant", value: "mineiro" },
       { col: "winner", value: "" },

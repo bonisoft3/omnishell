@@ -130,7 +130,6 @@ function chartsOn(el: El): string[] {
         charts.push({
           field: regionNode.field ?? regionName,
           initial: regionNode.initial,
-          context: regionNode.context ?? (regionNode.field ? p.context : undefined),
           on: { ...(p.on as object), ...(regionNode.on as object) },
           states: regionNode.states ?? {},
           after: regionNode.after,
@@ -425,6 +424,7 @@ async function walkScreen(
         seed: SEED,
         epoch: EPOCH,
         cluster,
+        schema: cluster.schema,
         // The names a data-hatch may carry, so a declared unit resolves and an
         // undeclared one is still the wiring mistake it was — and no mount,
         // because a unit renders nothing and declares no machine, and linkedom
@@ -825,19 +825,19 @@ export async function selfTest(): Promise<{ failures: string[] }> {
   const authoredKey = machineKey(
     "archive_page",
     "id=eq.team-{param.id}",
-    `{"context":{"owner_id":"{param.id}"}}`,
+    `{"on":{"click":{"assign":{"owner_id":"{param.id}"}}}}`,
     params,
   );
   const mountedKey = machineKey(
     "archive_page",
     "id=eq.team-team%207",
-    `{"context":{"owner_id":"team 7"}}`,
+    `{"on":{"click":{"assign":{"owner_id":"team 7"}}}}`,
     params,
   );
   const otherChartKey = machineKey(
     "archive_page",
     "id=eq.team-team%207",
-    `{"context":{"owner_id":"team 7","other":true}}`,
+    `{"on":{"click":{"assign":{"owner_id":"team 7","other":true}}}}`,
     params,
   );
   if (authoredKey !== mountedKey || authoredKey === otherChartKey) {

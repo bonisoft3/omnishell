@@ -1,7 +1,7 @@
 import { batched } from "./batched-store.js";
 // Deno smoke: the #Machine v2 grammar end to end — value positions holding
 // literals and Jessie references, guarded candidate lists, raise, root-level
-// on:, after as the relocated invoke, context in the synthesized fallback,
+// on:, after as the relocated invoke, schema defaults in the synthesized fallback,
 // row closure, and refused as an ordinary machine event. The specimen is the
 // design session's Fibonacci autoplayer: three states, three one-line
 // modules, zero reducers.
@@ -12,7 +12,6 @@ import { parseHTML } from "npm:linkedom@0.18.4";
 const MACHINE = {
   field: "phase",
   initial: "counting",
-  context: { current: 1, previous: 0 },
   on: { refused: { target: "counting" } },
   states: {
     counting: {
@@ -64,6 +63,22 @@ const ROUTE = {
     handlers: Object.keys(MODULES).map((m) => `shell/handlers/${m}`),
   },
   states: ["populated"],
+};
+
+const CFG = {
+  schema: {
+    fib: { fields: [{ name: "current", type: "double", default: 1 }, { name: "previous", type: "double", default: 0 }] },
+    pk: { fields: [{ name: "n", type: "double", default: 0 }] },
+    favorite: { fields: [
+      { name: "count", type: "double", default: 0 },
+      { name: "favorited", type: "bool", default: false },
+      { name: "token", type: "string", default: "" },
+    ] },
+    profile: { fields: [{ name: "email", type: "string", default: "" }] },
+    session: { fields: [{ name: "log", type: "string", default: "start" }] },
+    game: { fields: [{ name: "roundNum", type: "double", default: 1 }] },
+    score: { fields: [{ name: "current", type: "double", default: 10 }, { name: "previous", type: "double", default: 0 }] },
+  },
 };
 
 const tick = (ms = 25) => new Promise((r) => setTimeout(r, ms));
@@ -184,7 +199,48 @@ const assert = (cond, msg) => {
 };
 
 Deno.test({
-  name: "clicks advance the sequence: context seeds the fallback, assigns read one snapshot",
+  name: "schema defaults preserve literal types while chart initial and filter equalities override them",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const chart = { field: "phase", initial: "idle", states: { idle: { on: { click: "done" } }, done: {} } };
+    const html = `<section class="screen" data-screen="defaults">
+      <button id="defaults" data-live="defaults" data-filter="id=eq.the&amp;kind=eq.chosen"
+              data-phase="{phase}" data-machine='${JSON.stringify(chart)}'>Go</button>
+    </section>`;
+    const { document, Event, store, puts } = boot(html);
+    const cfg = { schema: { defaults: { fields: [
+      { name: "id", type: "string", default: "uuid()" },
+      { name: "kind", type: "string", default: "other" },
+      { name: "phase", type: "string", default: "other" },
+      { name: "count", type: "double", default: 0 },
+      { name: "active", type: "bool", default: false },
+      { name: "optional", type: "string", default: null },
+      { name: "label", type: "string", default: "'literal'" },
+      { name: "expression", type: "string", default: "uuid()" },
+      { name: "absent", type: "string" },
+    ] } } };
+    const { interpretScreen } = await import("./screen.js");
+    const mount = document.getElementById("shell");
+    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {}, cfg);
+    const btn = mount.querySelector("#defaults");
+    assert(btn.getAttribute("data-phase") === "idle", "chart initial overrides the schema state default");
+    btn.dispatchEvent(new Event("click"));
+    await tick(30);
+    const row = puts[0];
+    assert(row.id === "the" && row.kind === "chosen", `filter equalities override schema defaults: ${JSON.stringify(row)}`);
+    assert(row.phase === "done", "transition writes the chart state");
+    assert(typeof row.count === "number" && row.count === 0, "zero remains a number");
+    assert(typeof row.active === "boolean" && row.active === false, "false remains a boolean");
+    assert(Object.hasOwn(row, "optional") && row.optional === null, "null remains an explicit default");
+    assert(row.label === "'literal'" && row.expression === "uuid()", "string defaults are neither unquoted nor evaluated");
+    assert(!Object.hasOwn(row, "absent"), "fields without defaults remain absent");
+  },
+});
+
+Deno.test({
+  name: "clicks advance the sequence: schema defaults seed the fallback, assigns read one snapshot",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -192,12 +248,10 @@ Deno.test({
     const { document, Event, store, puts } = boot();
     const { interpretScreen } = await import("./screen.js");
     const mount = document.getElementById("shell");
-    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {});
+    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {}, CFG);
 
     const btn = mount.querySelector("#fib");
-    // No row, no data-empty-row: the fallback is {...context, field: initial,
-    // ...filter eqs}, and the binding reads context's value.
-    assert(btn.textContent === "1", `context seeds the readout, got "${btn.textContent}"`);
+    assert(btn.textContent === "1", `schema defaults seed the readout, got "${btn.textContent}"`);
     assert(btn.getAttribute("data-phase") === "counting", "initial state bound");
 
     for (const _ of [0, 1, 2, 3, 4]) {
@@ -226,7 +280,7 @@ Deno.test({
     ]);
     const { interpretScreen } = await import("./screen.js");
     const mount = document.getElementById("shell");
-    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {});
+    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {}, CFG);
 
     const btn = mount.querySelector("#fib");
     btn.dispatchEvent(new Event("click"));
@@ -251,7 +305,7 @@ Deno.test({
     const { document, Event, store, puts } = boot();
     const { interpretScreen } = await import("./screen.js");
     const mount = document.getElementById("shell");
-    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {});
+    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {}, CFG);
     const btn = mount.querySelector("#fib");
 
     btn.dispatchEvent(new Event("dblclick"));
@@ -278,7 +332,7 @@ Deno.test({
     const { document, Event, store, puts } = boot();
     const { interpretScreen } = await import("./screen.js");
     const mount = document.getElementById("shell");
-    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {});
+    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {}, CFG);
     const btn = mount.querySelector("#fib");
 
     // In, out, in: the naive reduce's duplicate-chain hazard. The generation
@@ -307,7 +361,7 @@ Deno.test({
     const { document, Event, store, rows, knobs } = boot();
     const { interpretScreen } = await import("./screen.js");
     const mount = document.getElementById("shell");
-    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {});
+    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {}, CFG);
     const btn = mount.querySelector("#fib");
 
     btn.dispatchEvent(new Event("dblclick"));
@@ -333,7 +387,7 @@ Deno.test({
     const { document, Event, store, puts } = boot(html);
     const { interpretScreen } = await import("./screen.js");
     const mount = document.getElementById("shell");
-    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {});
+    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {}, CFG);
     const btn = mount.querySelector("#fib");
     btn.dispatchEvent(new Event("click"));
     await tick(30);
@@ -350,7 +404,6 @@ Deno.test({
 const PARAMS_MACHINE = {
   field: "phase",
   initial: "counting",
-  context: { n: 0 },
   states: {
     counting: {
       on: {
@@ -382,7 +435,7 @@ Deno.test({
     const { interpretScreen } = await import("./screen.js");
     const mount = document.getElementById("shell");
     const route = { ...ROUTE, files: { ...ROUTE.files, handlers: Object.keys(MODULES).map((m) => `shell/handlers/${m}`) } };
-    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {});
+    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {}, CFG);
     const btn = mount.querySelector("#pk");
 
     btn.dispatchEvent(new Event("click"));
@@ -400,7 +453,6 @@ MODULES["normalizeInput.js"] = "const f = (state, event) => String(event.value ?
 const FAVORITE_MACHINE = {
   field: "phase",
   initial: "unfavorited",
-  context: { count: 0, favorited: false, token: "" },
   states: {
     unfavorited: {
       on: {
@@ -463,7 +515,7 @@ Deno.test({
     const { interpretScreen } = await import("./screen.js");
     const mount = document.getElementById("shell");
     const route = { ...ROUTE, files: { ...ROUTE.files, handlers: Object.keys(MODULES).map((m) => `shell/handlers/${m}`) } };
-    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {});
+    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {}, CFG);
     const btn = mount.querySelector("#fav");
 
     assert(btn.getAttribute("data-phase") === "unfavorited", "starts unfavorited");
@@ -490,7 +542,7 @@ Deno.test({
     const { interpretScreen } = await import("./screen.js");
     const mount = document.getElementById("shell");
     const route = { ...ROUTE, files: { ...ROUTE.files, handlers: Object.keys(MODULES).map((m) => `shell/handlers/${m}`) } };
-    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {});
+    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {}, CFG);
     const btn = mount.querySelector("#fav");
     const time = fakeTime();
     try {
@@ -527,7 +579,7 @@ Deno.test({
     const { interpretScreen } = await import("./screen.js");
     const mount = document.getElementById("shell");
     const route = { ...ROUTE, files: { ...ROUTE.files, handlers: Object.keys(MODULES).map((m) => `shell/handlers/${m}`) } };
-    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {});
+    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {}, CFG);
     const btn = mount.querySelector("#fav");
 
     btn.dispatchEvent(new Event("click"));
@@ -549,7 +601,7 @@ Deno.test({
     knobs.failUpsert = true;
     const { interpretScreen } = await import("./screen.js");
     const mount = document.getElementById("shell");
-    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {});
+    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {}, CFG);
     const btn = mount.querySelector("#fav");
 
     btn.dispatchEvent(new Event("click"));
@@ -589,7 +641,6 @@ Deno.test({
     const NORMALIZE_MACHINE = {
       field: "status",
       initial: "idle",
-      context: { email: "" },
       states: {
         idle: {
           on: {
@@ -617,7 +668,7 @@ Deno.test({
     const { interpretScreen } = await import("./screen.js");
     const mount = document.getElementById("shell");
     const route = { ...ROUTE, files: { ...ROUTE.files, handlers: Object.keys(MODULES).map((m) => `shell/handlers/${m}`) } };
-    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {});
+    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {}, CFG);
     const btn = mount.querySelector("#norm-btn");
 
     const clickEvent = new Event("click");
@@ -642,7 +693,6 @@ Deno.test({
     const ENTRY_EXIT_MACHINE = {
       field: "phase",
       initial: "a",
-      context: { log: "start" },
       states: {
         a: {
           exit: {
@@ -668,7 +718,7 @@ Deno.test({
     const { interpretScreen } = await import("./screen.js");
     const mount = document.getElementById("shell");
     const route = { ...ROUTE, files: { ...ROUTE.files, handlers: [] } };
-    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {});
+    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {}, CFG);
     const btn = mount.querySelector("#ee-btn");
 
     btn.dispatchEvent(new Event("NEXT"));
@@ -691,7 +741,6 @@ Deno.test({
     const ONDONE_MACHINE = {
       field: "phase",
       initial: "round",
-      context: { roundNum: 1 },
       states: {
         round: {
           initial: "dealing",
@@ -720,7 +769,7 @@ Deno.test({
     const { interpretScreen } = await import("./screen.js");
     const mount = document.getElementById("shell");
     const route = { ...ROUTE, files: { ...ROUTE.files, handlers: [] } };
-    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {});
+    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {}, CFG);
     const btn = mount.querySelector("#od-btn");
 
     assert(btn.getAttribute("data-phase") === "round.dealing", `expected round.dealing, got ${btn.getAttribute("data-phase")}`);
@@ -768,7 +817,7 @@ Deno.test({
     const { interpretScreen } = await import("./screen.js");
     const mount = document.getElementById("shell");
     const route = { ...ROUTE, files: { ...ROUTE.files, handlers: [] } };
-    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {});
+    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {}, CFG);
     const btn = mount.querySelector("#par-btn");
 
     assert(btn.getAttribute("data-audio") === "muted", `expected audio muted, got ${btn.getAttribute("data-audio")}`);
@@ -795,7 +844,6 @@ Deno.test({
     const ALWAYS_MACHINE = {
       field: "phase",
       initial: "idle",
-      context: { current: 10, previous: 0 },
       states: {
         idle: {
           on: { CHECK: "evaluating" },
@@ -819,7 +867,7 @@ Deno.test({
     const { interpretScreen } = await import("./screen.js");
     const mount = document.getElementById("shell");
     const route = { ...ROUTE, files: { ...ROUTE.files, handlers: Object.keys(MODULES).map((m) => `shell/handlers/${m}`) } };
-    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {});
+    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {}, CFG);
     const btn = mount.querySelector("#alw-btn");
 
     assert(btn.getAttribute("data-phase") === "idle", `expected idle, got ${btn.getAttribute("data-phase")}`);

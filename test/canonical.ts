@@ -40,7 +40,6 @@ export type Machine = {
   field?: string;
   type?: string;
   initial?: string;
-  context?: Record<string, unknown>;
   on?: Record<string, unknown>;
   onDone?: unknown;
   always?: unknown;
@@ -138,7 +137,6 @@ export function canonical(machine: Machine, opts: { drive?: boolean } = {}): Rec
   const out: Record<string, unknown> = { id: "machine", states };
   if (machine.type !== undefined) out.type = machine.type;
   if (machine.initial !== undefined) out.initial = machine.initial;
-  if (machine.context !== undefined) out.context = machine.context;
   const rootOn: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(machine.on ?? {})) {
     rootOn[key] = mapValue(value, { drive, atRoot: true });

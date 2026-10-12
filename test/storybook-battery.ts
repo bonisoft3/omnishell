@@ -30,6 +30,7 @@ import {
   appUnits,
   appRoutes,
   appI18n,
+  appSchema,
   topLayer,
   type Catalogs,
 } from "./screen-harness.ts";
@@ -123,6 +124,7 @@ export async function runStorybookBatteryForApp(
   const discoveredMessages = await appMessages(appUrl);
   const messages = createProxyMessages(discoveredMessages);
   const units = await appUnits(appUrl);
+  const schema = await appSchema(appUrl);
   const routes = await appRoutes(appUrl);
   const i18n = await appI18n(appUrl);
 
@@ -187,14 +189,11 @@ export async function runStorybookBatteryForApp(
       }
 
       const machineList = Array.isArray(parsedMachine) ? parsedMachine : [parsedMachine];
-      const machineContext: Record<string, unknown> = {};
-      for (const m of machineList) {
-        if (m.context && typeof m.context === "object") {
-          Object.assign(machineContext, m.context);
-        }
-      }
       const table = el.getAttribute("data-live") ?? "item";
-      const baseRow = { ...(seeds[table]?.[0] ?? { id: `${table}_0001` }), ...machineContext };
+      const defaults = Object.fromEntries((schema?.[table]?.fields ?? [])
+        .filter((field) => Object.hasOwn(field, "default"))
+        .map((field) => [field.name, field.default]));
+      const baseRow = { ...defaults, ...(seeds[table]?.[0] ?? { id: `${table}_0001` }) };
 
       for (const m of machineList) {
         report.machinesPosed++;
@@ -343,6 +342,7 @@ export async function runStorybookBatteryForApp(
             units,
             routes,
             i18n,
+            schema,
           },
           {
             handlers: false,

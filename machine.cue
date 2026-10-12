@@ -6,7 +6,7 @@
 // compartment, because a machine is data. Value positions — a guard, an
 // assign's value, an `after` delay — hold a literal or the name of a Jessie
 // module (resolved like any data-on-* handler, called with the reduce's
-// signature); everything that draws the chart — targets, initial, context,
+// signature); everything that draws the chart — targets, initial,
 // state names, raised event types — is always data. The machine is closed
 // over its row: its leaves see {items: [row]} and nothing else, its writes
 // never leave the row, and every transition lands as one stated row through
@@ -19,8 +19,8 @@
 // table a machine writes is a tab or device one.
 //
 // The machine is the writer of the initial fact: a region without
-// data-empty-row binds a row synthesized from {...context, field: initial}
-// plus its filter equalities; where data-empty-row is present it must agree
+// data-empty-row binds the entity defaults plus filter equalities and
+// {field: initial}; where data-empty-row is present it must agree
 // (vetted at generate, never arbitrated at runtime).
 //
 // Everything XState has beyond this shape — invoke, sendTo/emit — fails
@@ -52,10 +52,6 @@ package terminal
 		field:   string
 		initial: or([for k, _ in M.states {k}])
 	}
-	// Literal initial values for the row's other columns; with `initial` this
-	// makes the machine the complete statement of the initial world. Never the
-	// machine's own field — one fact, one writer.
-	context?: [string]: string | number | bool | null
 	// Root-level transitions, applied in every state unless the state declares
 	// the same event key.
 	on?:     M.#On
