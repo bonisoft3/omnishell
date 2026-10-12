@@ -25,8 +25,6 @@ async function copy(source: string, target: string): Promise<void> {
   }
 }
 
-type EmittedFile = { format: string; text?: string; data?: unknown; src?: string };
-
 // Release-pinned artifacts belong to their installed terminal. A tree-terminal
 // test compiles their authored source in a sibling copy so the module's seats
 // resolve normally, without changing the app's published corpus.
@@ -40,21 +38,7 @@ export async function withStorybookCorpus<T>(app: URL, use: (corpus: URL) => Pro
     await copy(source, fixture);
     const mode = await run(Deno.execPath(), ["run", "--no-config", "--no-check", "--no-lock", "--allow-read", terminal, "mode", fixture, "--local"]);
     await Deno.writeTextFile(join(fixture, "program_terminal.cue"), mode);
-    await run(Deno.execPath(), ["run", "--config", join(pronto, "deno.json"), "--frozen", "--allow-read", `--allow-write=${fixture}`, "--allow-run=cue,deno", "--allow-env", join(pronto, "derive.ts"), fixture]);
-
-    // Only the terminal projection is needed here; SQL, build definitions and
-    // IR drawings do not participate in posing a screen.
-    const projection = '{for path, file in out.files if path =~ "^(shell/|messages/|[.]pronto/seeds[.]json$)" {(path): file}}';
-    const files = JSON.parse(await run("cue", ["export", ".", "-e", projection, "--out", "json"], fixture)) as Record<string, EmittedFile>;
-    for (const [path, file] of Object.entries(files)) {
-      const target = join(fixture, path);
-      await Deno.mkdir(join(target, ".."), { recursive: true });
-      if (file.text !== undefined) await Deno.writeTextFile(target, file.text);
-      else if (file.data !== undefined && ["yaml", "json"].includes(file.format)) await Deno.writeTextFile(target, JSON.stringify(file.data));
-      else if (file.src !== undefined) {
-        if (join(fixture, file.src) !== target) await Deno.copyFile(join(fixture, file.src), target);
-      } else throw new Error(`storybook corpus: ${path} has no renderable terminal content`);
-    }
+    await run(Deno.execPath(), ["run", "--config", join(pronto, "deno.json"), "--frozen", "--allow-read", `--allow-write=${fixture}`, "--allow-run=cue,deno", "--allow-env", join(pronto, "terminal-corpus.ts"), fixture]);
     return await use(pathToFileURL(`${fixture}/`));
   } finally {
     await Deno.remove(fixture, { recursive: true });

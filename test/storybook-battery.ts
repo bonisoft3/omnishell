@@ -58,9 +58,13 @@ function makeProxyRow(
   base: Record<string, unknown>,
   table: string,
   seeds: TableRows,
+  schema: Awaited<ReturnType<typeof appSchema>>,
 ): Record<string, unknown> {
   const seedRow = seeds[table]?.[0] ?? {};
-  const merged: Record<string, unknown> = { ...seedRow, ...base };
+  const defaults = Object.fromEntries((schema?.[table]?.fields ?? [])
+    .filter((field) => Object.hasOwn(field, "default"))
+    .map((field) => [field.name, field.default]));
+  const merged: Record<string, unknown> = { ...defaults, ...seedRow, ...base };
   return new Proxy(merged, {
     get: (target, prop) => {
       if (typeof prop !== "string") return undefined;
@@ -260,17 +264,17 @@ export async function runStorybookBatteryForApp(
         query: async (tbl: string, _order: unknown, opts: { singleton?: boolean }) => {
           fuel.spend("fire", 1, `query_${tbl}`);
           const tblSeeds = seeds[tbl] ?? [];
-          const rows = tblSeeds.map((s: Record<string, unknown>) => makeProxyRow(s, tbl, seeds));
+          const rows = tblSeeds.map((s: Record<string, unknown>) => makeProxyRow(s, tbl, seeds, schema));
 
           if (tbl === regionTable && frame.row && typeof frame.row === "object") {
-            const targetRow = makeProxyRow(frame.row, tbl, seeds);
+            const targetRow = makeProxyRow(frame.row, tbl, seeds, schema);
             const list = [targetRow, ...rows];
             return opts?.singleton ? [list[0]] : list;
           }
           if (rows.length > 0) {
             return opts?.singleton ? [rows[0]] : rows;
           }
-          const fallback = makeProxyRow({}, tbl, seeds);
+          const fallback = makeProxyRow({}, tbl, seeds, schema);
           return [fallback];
         },
         subscribe: () => () => {},
