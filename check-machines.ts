@@ -41,6 +41,7 @@ import {
   appRoutes,
   appSeed,
   appUnits,
+  appHostDom,
   boxOf,
   type Cluster,
   type El,
@@ -392,6 +393,7 @@ async function walkScreen(
   routes: Route[] = [],
   i18n?: I18n,
 ): Promise<Walked> {
+  const hostDom = await appHostDom(appDir);
   const html = route.files.html;
   const markup = await Deno.readTextFile(new URL(html, appDir));
   const authored = machineRegions(markup);
@@ -431,6 +433,8 @@ async function walkScreen(
         // has neither of the boundaries one could be given.
         units,
         mountUnits: false,
+        hostDom,
+        mountHostDom: false,
         messages,
         // The table a data-route link on the screen composes its href from.
         routes,

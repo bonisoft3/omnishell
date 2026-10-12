@@ -42,7 +42,12 @@ Electric collections.
 Screen HTML is parsed in an inert template and checked before its nodes are
 mounted. Scripts, inline handlers, executable URLs, `srcdoc` and embedded
 objects are refused, including inside nested templates. The compiler's markup
-check uses the same refusal. The terminal never executes a screen's scripts.
+check uses the same refusal. The terminal never executes a screen's scripts. A route may explicitly name a
+`host-dom` hatch in its manifest: trusted ES modules with ambient host access,
+served and versioned with the release. Their mount receives the screen,
+messages, params and an abort signal and returns cleanup. Pause, stop and morph
+abort and clean up; resume and a visible morph mount again. See the
+[[../../pronto/SPEC|artifact contract]] for declarations and obligations.
 
 Pronto emits the terminal's CSP at the door and in the entry page; verified
 release caching retains it. The only Trusted Types policies are the inert

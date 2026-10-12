@@ -244,6 +244,12 @@ function contentType(url) {
   })[extension] ?? "application/octet-stream";
 }
 
+export function releaseModuleURL(url) {
+  if (!active || !active.assets.has(String(url))) throw new Error(`module absent from selected release: ${url}`);
+  if (!globalThis.navigator?.serviceWorker?.controller) throw new Error("release modules require a controlling service worker");
+  return String(url);
+}
+
 export function releaseReader() {
   const selected = active;
   return async (url) => {

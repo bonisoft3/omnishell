@@ -773,6 +773,7 @@ export async function createShell({ config, mount, liveUpdates = false, preload 
       const { renderStorybook } = await import("./storybook.js");
       const { route, params, locale } = currentRoute();
       await renderStorybook(mount, appBase, route, params, cfg.units ?? {}, {
+        hostDom: cfg.hostDom ?? {},
         messages,
         locale,
         routes: cfg.routes,

@@ -24,6 +24,7 @@ import {
   Unanswered,
 } from "./fragment.js";
 import { evaluateRole } from "./jessie.js";
+import { hostDomScreen } from "./host-dom.js";
 import { releaseReader } from "./release-assets.js";
 
 export async function fetchText(url, init) {
@@ -1369,6 +1370,7 @@ function staticOrParam(template, ctx) {
 // opts.navigate is how a navigate form reaches the terminal's stack.
 export async function interpretScreen(mount, appBase, route, store, params = {}, opts = {}) {
   const screenOpts = opts;
+  const hostDom = await hostDomScreen(route, appBase, opts.hostDom ?? {}, opts);
   const read = opts.release ? releaseReader() : fetchText;
   const files = [new URL(route.files.html, appBase), new URL(route.files.css, appBase)];
   let [html, css] = await Promise.all(files.map(opts.release ? read : screenFile));
@@ -1400,6 +1402,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   for (const stop of mount._prontoStops ?? []) stop();
   const cleanups = [];
   mount._prontoStops = cleanups;
+  cleanups.push(hostDom.stop);
   // One seat per data-on-mutation handler, screen-wide (see wireEvents).
   const folds = new Map();
   const work = new Set();
@@ -1488,10 +1491,6 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   };
 
   let currentLocale = opts.locale ?? params.locale ?? opts.i18n?.default;
-  // A screen's own script says things the markup cannot bind — chrome that
-  // outlives the row it speaks for. It reads the catalogue the bindings read,
-  // so one app never keeps the same sentence in two places.
-  globalThis.__prontoMessages = opts.messages;
   // What a binding reads off the app rather than off its row: the route table
   // and the locales every link's address is composed from (routeHref).
   const cfg = { routes: opts.routes, i18n: opts.i18n, schema: opts.schema, prefix: opts.prefix, endowments: opts.endowments };
@@ -4049,6 +4048,22 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // a screen it is holding for a back press is paused, not stopped. A morph
   // waiting on the newer template's modules meets either when it resumes.
   let held = "shown";
+  const stopScreen = () => {
+    held = "stopped";
+    const errors = [];
+    for (const stop of [...regions.map(r => () => r.stop()), ...cleanups.splice(0)]) {
+      try { stop(); } catch (error) { errors.push(error); }
+    }
+    if (errors.length) throw new AggregateError(errors, "screen cleanup failed");
+  };
+  const mountHostDom = () => {
+    try { hostDom.start(screen, { messages: opts.messages, params }); }
+    catch (error) {
+      try { stopScreen(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], "screen mount failed"); }
+      throw error;
+    }
+  };
+  mountHostDom();
   // A newer template for the screen on show (the service worker's
   // revalidation): its skeleton is brought to it in place, then each region
   // (retemplate). A region it adds, or whose read it changes, is hydrated
@@ -4074,6 +4089,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       adapters = modules.adapters;
       Object.assign(renderers, modules.renderers);
     }
+    hostDom.stop();
     await morphScreen(screen, next);
     if (held === "stopped") return;
     const pairs = new Map();
@@ -4109,6 +4125,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     setState(state);
     // What it hydrated subscribed as it did, held or not.
     if (held === "paused") for (const r of regions) r.pause();
+    if (held === "shown") mountHostDom();
   };
   // One at a time, in the order they arrive: each waits on the modules its
   // template names, and a later one landing first would be morphed back.
@@ -4125,18 +4142,18 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // Which template this screen was drawn from (templateHash).
     cas,
     pause: () => {
+      if (held !== "shown") return;
       held = "paused";
+      hostDom.stop();
       for (const r of regions) r.pause();
     },
-    resume: () => {
+    resume: async () => {
+      if (held !== "paused") return;
       held = "shown";
-      return Promise.all(regions.map((r) => r.resume()));
+      await Promise.all(regions.map((r) => r.resume()));
+      if (held === "shown") mountHostDom();
     },
-    stop: () => {
-      held = "stopped";
-      for (const r of regions) r.stop();
-      for (const cleanup of cleanups.splice(0)) cleanup();
-    },
+    stop: stopScreen,
     // Its words written again, in the catalogues as they now stand.
     localize: () => localize(screen),
     morph: (newHtml, { preserve } = {}) => {

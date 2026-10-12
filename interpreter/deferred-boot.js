@@ -1,5 +1,8 @@
 import { scriptURL } from "./script-url.js";
 
+/**
+ * @param {new (callback: (list: {getEntriesByName(name: string): object[]}, observer: {disconnect(): void}) => void) => {observe(options: {type: string, buffered: boolean}): void}} Observer
+ */
 export function startDeferredBoot(document, Observer = PerformanceObserver) {
   const loader = document.querySelector("script[data-pronto-boot]");
   if (!loader) throw new Error("the document has no deferred boot");

@@ -87,6 +87,7 @@ export async function renderDocument({
       // Nothing is mounted where nothing runs: a unit's frame or worker
       // belongs to the shell, which mounts it into the screen it takes over.
       mountUnits: false,
+      mountHostDom: false,
       navigate: () => {
         throw new Error("a rendered document navigates by its links");
       },

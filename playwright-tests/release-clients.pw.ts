@@ -8,6 +8,8 @@ async function serve() {
       '<!doctype html><html><head><meta name="referrer" content="no-referrer"></head><body>A document<script type="module" src="/shell/boot.js"></script></body></html>',
     ],
     ["shell/boot.js", 'import {version} from "/omnishell/interpreter/shell.js"; window.runtimeVersion = version;'],
+    ["shell/hatches/dealer.js", 'import { version } from "./helper.js"; export default screen => { screen.dataset.dealer = version; return () => {}; };'],
+    ["shell/hatches/helper.js", 'export const version = "A";'],
     ["shell/shell.css", ""],
     ["shell/design.css", ""],
     ["shell/shell.json", JSON.stringify({ routes: [{ path: "/" }] })],
@@ -32,6 +34,9 @@ async function serve() {
     ["shell/units/child.js", 'self.child = "A";'],
     ["shell/units/engine.wasm", new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 0, 2, 0, 255])],
   ])
+  for (const module of ["host-dom.js", "script-url.js", "release-assets.js"]) {
+    files.set(`omnishell/interpreter/${module}`, await Deno.readTextFile(new URL(`../interpreter/${module}`, import.meta.url)))
+  }
   const worker = await Deno.readTextFile(new URL("../offline-first-sw.js", import.meta.url))
   const assets = await Deno.readTextFile(new URL("../interpreter/release-assets.js", import.meta.url))
   let manifest = await releaseManifest("runtime@A", files)
@@ -98,6 +103,33 @@ async function stage(page: Page) {
 }
 
 describe("verified client lifetimes", () => {
+  it("loads host-DOM modules and their imports from the document's release after deploy", async () => {
+    const server = await serve()
+    try {
+      await withPage(async page => {
+        const id = await prepare(page, server.base)
+        await server.deploy()
+        await page.goto(`${server.base}/?pronto-release=${id}`)
+        const result = await page.evaluate(async id => {
+          const { hostDomScreen } = await import("/omnishell/interpreter/host-dom.js")
+          const { fetchRelease, activateRelease } = await import("/omnishell/interpreter/release-assets.js")
+          const base = new URL("/", location.href)
+          activateRelease(await fetchRelease(base, null, { releaseId: id }))
+          const declaration = { dealer: { src: "shell/hatches/dealer.js", note: "trusted DOM" } }
+          const hatch = await hostDomScreen({ hatches: ["dealer"] }, base, declaration, { release: true })
+          hatch.start(document.body, {})
+          hatch.stop()
+          let refused = false
+          try {
+            await hostDomScreen({ hatches: ["dealer"] }, base, { dealer: { ...declaration.dealer, src: "shell/hatches/missing.js" } }, { release: true })
+          } catch (error) { refused = error.message.includes("absent from selected release") }
+          return { version: document.body.dataset.dealer, refused }
+        }, id)
+        expect(result).toEqual({ version: "A", refused: true })
+      })
+    } finally { await server.close() }
+  })
+
   it("keeps reserved pins during concurrent navigations and cleanup", async () => {
     const server = await serve()
     try {

@@ -104,6 +104,8 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 	}
 
 	capabilities: {
+		hostDom: true
+
 		// Platform doctrine, published as data. Pronto reads this at compile
 		// time: the prelude describes it to hop 1, and #emit refuses an app auth
 		// mode the terminal does not offer. Users never type identifiers — a
@@ -408,7 +410,7 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 		modules: [
 			"shell.js", "chrome.js", "screen.js", "fragment.js", "data-sync.js", "validate.js", "render.js",
 			"release-plan.js", "release-assets.js", "preloads.js", "markup.js", "script-url.js", "deferred-boot.js",
-			"hatch.js", "hatch-worker.js", "storybook.js", "jessie.js", "kinetic.js", "prng.js",
+			"host-dom.js", "hatch.js", "hatch-worker.js", "storybook.js", "jessie.js", "kinetic.js", "prng.js",
 			"vendor/mecha-client.js", "vendor/js-yaml.js", "vendor/ses.umd.min.js", "vendor/morphlex.js",
 			"vendor/messages.js", "vendor/game-inputs.js",
 		]
@@ -446,6 +448,8 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 		// Validation modules backing entity predicates, fetched before write.
 		validations: [...#Jessie]
 		validations: *[] | [...#Jessie]
+
+		hostDom: *[] | [...#Path]
 
 		// Every file a vendored unit needs served, its own `src` among them:
 		// the wrapper an engineer audited, and whatever that wrapper loads. A
@@ -576,6 +580,7 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 				target: "/srv/\(v)"
 				watch:  true
 			}],
+			[for f in T.surface.hostDom {file: f, target: "/srv/\(f)", watch: true}],
 			// Unwatched, unlike every other app-authored file here: the watch
 			// list becomes compose develop sync+restart entries, and a unit's
 			// unaudited half is megabytes that would restart the proxy on every

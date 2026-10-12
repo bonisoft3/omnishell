@@ -220,7 +220,7 @@ live screen own markup it did not render
   screen to `interpretScreen`, which prepares the screen's template as a mount
   would and reads the served tree against it (`adoptTree`): what a render holds
   only in memory — a placeholder attribute's template, a list's item templates
-  — is set on the served node it became, the template's scripts run in place,
+  — is set on the served node it became, the route's declared host-DOM hatches mount in place,
   and the words are rewritten only where the catalogue says otherwise. The
   document and the worker's copies of its template and stylesheet are each any
   deploy old, and a hash says only that two differ, not which is newer: where
@@ -296,7 +296,9 @@ the order they arrive: each waits on its own modules, and a later one landing
 first would be morphed back to the earlier. A screen
 the reader leaves while those load is stopped and morphs no further; one held
 for a back press takes the newer template and listens again as it resumes. Its
-scripts do not run: a screen's scripts run once, where it is first mounted.
+ordinary markup never runs scripts. Declared host-DOM hatches stop before a
+morph and mount again after its regions are ready; a paused screen waits until
+resume.
 
 The document names no position in the change log to resume its rows from:
 they become current through the regions' first reads and the live stream, and
