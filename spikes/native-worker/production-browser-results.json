@@ -1,0 +1,164 @@
+{
+  "measuredOn": "2026-10-13",
+  "workerVersion": "3e82472f-65a2-48de-9ac2-45b33143d5ea",
+  "change": "9dbcac6f8: fixed player table geometry; production still client-rendered",
+  "method": "Lighthouse 13.5.0 default simulated mobile; six serial runs with fresh browser profiles; production hostname resolved to 104.21.69.77 to bypass stale local DNS; no concurrent QA traffic. Initial players run was the first measured after deployment.",
+  "runs": [
+    {
+      "page": "players",
+      "run": 1,
+      "url": "https://golaberto.bonisoft3.com/en/players",
+      "fetchTime": "2026-10-13T16:38:16.693Z",
+      "score": 88,
+      "metrics": {
+        "first-contentful-paint": 1654.003791381836,
+        "largest-contentful-paint": 2983.327895690918,
+        "total-blocking-time": 32,
+        "cumulative-layout-shift": 0,
+        "speed-index": 6044.350220622349
+      },
+      "warnings": [
+        "The page loaded too slowly to finish within the time limit. Results may be incomplete."
+      ],
+      "throttling": {
+        "rttMs": 150,
+        "throughputKbps": 1638.4,
+        "requestLatencyMs": 562.5,
+        "downloadThroughputKbps": 1474.5600000000002,
+        "uploadThroughputKbps": 675,
+        "cpuSlowdownMultiplier": 4
+      },
+      "throttlingMethod": "simulate"
+    },
+    {
+      "page": "flamengo",
+      "run": 1,
+      "url": "https://golaberto.bonisoft3.com/equipe-campeonato/flamengo-rj/brazil-campeonato-brasileiro-2026?lang=pt-BR",
+      "fetchTime": "2026-10-13T16:39:10.722Z",
+      "score": 94,
+      "metrics": {
+        "first-contentful-paint": 1766.7417913818358,
+        "largest-contentful-paint": 2759.741791381836,
+        "total-blocking-time": 36,
+        "cumulative-layout-shift": 0,
+        "speed-index": 3363.2076125478743
+      },
+      "warnings": [
+        "The page loaded too slowly to finish within the time limit. Results may be incomplete."
+      ],
+      "throttling": {
+        "rttMs": 150,
+        "throughputKbps": 1638.4,
+        "requestLatencyMs": 562.5,
+        "downloadThroughputKbps": 1474.5600000000002,
+        "uploadThroughputKbps": 675,
+        "cpuSlowdownMultiplier": 4
+      },
+      "throttlingMethod": "simulate"
+    },
+    {
+      "page": "players",
+      "run": 2,
+      "url": "https://golaberto.bonisoft3.com/en/players",
+      "fetchTime": "2026-10-13T16:40:05.265Z",
+      "score": 94,
+      "metrics": {
+        "first-contentful-paint": 1733.1770000000001,
+        "largest-contentful-paint": 2820.177,
+        "total-blocking-time": 12.5,
+        "cumulative-layout-shift": 0,
+        "speed-index": 3008.4341040709496
+      },
+      "warnings": [
+        "The page loaded too slowly to finish within the time limit. Results may be incomplete."
+      ],
+      "throttling": {
+        "rttMs": 150,
+        "throughputKbps": 1638.4,
+        "requestLatencyMs": 562.5,
+        "downloadThroughputKbps": 1474.5600000000002,
+        "uploadThroughputKbps": 675,
+        "cpuSlowdownMultiplier": 4
+      },
+      "throttlingMethod": "simulate"
+    },
+    {
+      "page": "flamengo",
+      "run": 2,
+      "url": "https://golaberto.bonisoft3.com/equipe-campeonato/flamengo-rj/brazil-campeonato-brasileiro-2026?lang=pt-BR",
+      "fetchTime": "2026-10-13T16:40:59.790Z",
+      "score": 95,
+      "metrics": {
+        "first-contentful-paint": 1653.0520000000001,
+        "largest-contentful-paint": 2777.052,
+        "total-blocking-time": 13.5,
+        "cumulative-layout-shift": 0,
+        "speed-index": 2767.4426502082824
+      },
+      "warnings": [
+        "The page loaded too slowly to finish within the time limit. Results may be incomplete."
+      ],
+      "throttling": {
+        "rttMs": 150,
+        "throughputKbps": 1638.4,
+        "requestLatencyMs": 562.5,
+        "downloadThroughputKbps": 1474.5600000000002,
+        "uploadThroughputKbps": 675,
+        "cpuSlowdownMultiplier": 4
+      },
+      "throttlingMethod": "simulate"
+    },
+    {
+      "page": "players",
+      "run": 3,
+      "url": "https://golaberto.bonisoft3.com/en/players",
+      "fetchTime": "2026-10-13T16:41:54.458Z",
+      "score": 95,
+      "metrics": {
+        "first-contentful-paint": 1638.179,
+        "largest-contentful-paint": 2650.679,
+        "total-blocking-time": 18,
+        "cumulative-layout-shift": 0,
+        "speed-index": 2808.9806760936735
+      },
+      "warnings": [
+        "The page loaded too slowly to finish within the time limit. Results may be incomplete."
+      ],
+      "throttling": {
+        "rttMs": 150,
+        "throughputKbps": 1638.4,
+        "requestLatencyMs": 562.5,
+        "downloadThroughputKbps": 1474.5600000000002,
+        "uploadThroughputKbps": 675,
+        "cpuSlowdownMultiplier": 4
+      },
+      "throttlingMethod": "simulate"
+    },
+    {
+      "page": "flamengo",
+      "run": 3,
+      "url": "https://golaberto.bonisoft3.com/equipe-campeonato/flamengo-rj/brazil-campeonato-brasileiro-2026?lang=pt-BR",
+      "fetchTime": "2026-10-13T16:42:48.479Z",
+      "score": 96,
+      "metrics": {
+        "first-contentful-paint": 1657.916291381836,
+        "largest-contentful-paint": 2650.916291381836,
+        "total-blocking-time": 15,
+        "cumulative-layout-shift": 0,
+        "speed-index": 2586.4320324500086
+      },
+      "warnings": [
+        "The page loaded too slowly to finish within the time limit. Results may be incomplete."
+      ],
+      "throttling": {
+        "rttMs": 150,
+        "throughputKbps": 1638.4,
+        "requestLatencyMs": 562.5,
+        "downloadThroughputKbps": 1474.5600000000002,
+        "uploadThroughputKbps": 675,
+        "cpuSlowdownMultiplier": 4
+      },
+      "throttlingMethod": "simulate"
+    }
+  ]
+}

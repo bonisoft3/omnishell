@@ -1,0 +1,41 @@
+{
+  "status": "Real database public snapshots and cross-Worker M-SSR validated locally; full application integration pending",
+  "date": "2026-10-13",
+  "runtime": {
+    "deno": "2.9.7",
+    "pglite": "0.5.8",
+    "wrangler": "4.149.0",
+    "workerd": "1.20261006.1",
+    "platform": "macOS arm64; local only"
+  },
+  "regressionTests": {
+    "edgeClusterAndPublicSnapshots": {
+      "tests": 2,
+      "steps": 21
+    },
+    "postgrestReads": {
+      "tests": 2,
+      "steps": 16
+    },
+    "renderProtocol": {
+      "tests": 8
+    }
+  },
+  "integration": {
+    "checks": [
+      "anonymous M-SSR reads real PGlite through RPC; unchanged revision reuses HTML and answers 304",
+      "ordinary authenticated CRUD commit invalidates anonymous HTML; private row excluded by RLS",
+      "eight concurrent navigations after a write produce one fresh render",
+      "deletion and insertion change the rendered data",
+      "restoring the original database cannot reuse a document from the previous directory generation"
+    ],
+    "initialMs": 295.67754200000036,
+    "freshAfterWriteMs": 16.47179099999994,
+    "validatedReuse": {
+      "requests": 30,
+      "medianMs": 3.078042000000096,
+      "p95Ms": 6.682999999999993
+    },
+    "scope": "Two local Workers with separate database and rendering Durable Objects, actual PGlite SQL, RLS, RPC and M-SSR. Small public/private test schema, not Golaberto route coverage or remote Free-plan validation."
+  }
+}

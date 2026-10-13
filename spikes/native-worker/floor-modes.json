@@ -1,0 +1,13 @@
+{
+  "full": { "flags": {}, "sacrifices": "Original optimized renderer, with existing captured-store limitations." },
+  "no-wiring": { "flags": { "wiring": true }, "sacrifices": "No event, keyboard, hatch or machine wiring. Captured tab-state can conceal missing initialization and effects." },
+  "no-validation": { "flags": { "validation": true }, "sacrifices": "No markup safety validation. Never use with unvalidated input." },
+  "clone-templates": { "flags": { "templates": true }, "sacrifices": "Caches parsed markup across documents without proving ownership semantics, invalidation or memory bounds." },
+  "no-attributes": { "flags": { "attributes": true }, "sacrifices": "Skips row attribute binding, breaking links, controls and accessibility attributes." },
+  "no-charts": { "flags": { "charts": true }, "sacrifices": "Omits custom renderer output, including charts." },
+  "lean": { "flags": { "wiring": true, "templates": true, "validation": true }, "sacrifices": "Combines no-wiring, clone-templates and no-validation; single-fixture HTML parity does not prove semantic correctness." },
+  "minimal": { "flags": { "wiring": true, "templates": true, "validation": true, "attributes": true, "charts": true }, "sacrifices": "Lean plus missing attributes and charts; still stamps rows, binds text and serializes DOM." },
+  "no-serialization": { "flags": { "serialization": true }, "sacrifices": "Builds the full DOM but sends only an assembly-only marker; excludes HTML serialization and payload transfer." },
+  "serialize-only": { "flags": {}, "sacrifices": "Serializes a frozen document; no data queries, binding or chart generation. A serialization control, not a renderer." },
+  "static": { "flags": {}, "sacrifices": "Returns captured HTML unchanged; no rendering or freshness. A response-serving control." }
+}

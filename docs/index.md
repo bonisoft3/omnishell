@@ -23,6 +23,7 @@
 
 # Harnesses and fixtures
 
+* [[native-worker-ssr|Native Worker SSR]] - reference: Fresh public database snapshots, the opt-in Cloudflare release renderer, and revision-cache experiments.
 * [Reconciliation spike harnesses](reconciliation-spike/README.md) - howto: How to re-run the measurements behind screen updates.
 * [daisyUI theme coverage](../test/design-tokens.md) - metric: The finding design-tokens.test.ts prints when its reading of daisyUI's themes and its pin disagree.
 * [Visibility fixtures](../test/fixtures/visibility/README.md) - reference: Frozen copies of app stylesheets and markup that visibility.test.ts reads, each mirroring its source under apps/.

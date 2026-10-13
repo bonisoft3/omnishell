@@ -341,7 +341,7 @@ export function othersFor(p, sinkRow, mine, pair, compareTxid) {
   return total;
 }
 
-export function createStore(base = "", cfg = {}) {
+export function createStore(base = "", cfg = {}, { request = http, schedule: enqueue = later } = {}) {
   servedToReader = cfg.mintedGuest === true;
   const readCode = cfg.release ? releaseReader() : null;
   // cfg.local names the browser-owned tables (shell.yaml `local:`), which are
@@ -1166,7 +1166,7 @@ export function createStore(base = "", cfg = {}) {
     // that equality cannot match; sending it to Postgres would be a cast error.
     const clauses = parseFilterSpec(opts.filter);
     if (clauses?.some(({ col, op, value }) => op === "eq" && literal(table, col, value) === NOHOLD)) return [];
-    return (await http(`${crud(table)}?${search(order, opts)}`)).json();
+    return (await request(`${crud(table)}?${search(order, opts)}`)).json();
   }
 
   async function read(table, order, opts = {}) {
@@ -1327,7 +1327,7 @@ export function createStore(base = "", cfg = {}) {
       if (scheduled) return;
       scheduled = true;
       notifications.add(wake);
-      cancel = later(wake);
+      cancel = enqueue(wake);
     };
     return {
       /** These rows moved. */
@@ -1500,7 +1500,7 @@ export function createStore(base = "", cfg = {}) {
     };
     const body = values === undefined ? undefined : JSON.stringify(Array.isArray(values)
       ? values.map(clean) : clean(values));
-    const res = await http(`${crud(table)}${filter === undefined ? "" : `?${filter}`}`, {
+    const res = await request(`${crud(table)}${filter === undefined ? "" : `?${filter}`}`, {
       method,
       headers: {
         "Content-Type": "application/json",
@@ -1812,7 +1812,7 @@ export function createStore(base = "", cfg = {}) {
 
   async function upload(key, file) {
     if (!token()) throw new Error("an upload requires an authenticated session");
-    return http(`${base}/blobs/mecha-objects/${encodeURIComponent(key)}`, { method: "PUT", body: file });
+    return request(`${base}/blobs/mecha-objects/${encodeURIComponent(key)}`, { method: "PUT", body: file });
   }
 
   const writing = (fn) => (...args) => (served.clear(), fn(...args));
@@ -1829,5 +1829,14 @@ export function createStore(base = "", cfg = {}) {
     flushNotifications,
     tabSnapshot,
     restoreTabs,
+    async close() {
+      for (const entry of views.values()) {
+        while (entry.refs > 0) entry.release();
+      }
+      for (const entry of mutatilazys.values()) {
+        while (entry.refs > 0) entry.release();
+      }
+      await Promise.all(Object.values(client.collections).map(c => c.cleanup()));
+    },
   };
 }

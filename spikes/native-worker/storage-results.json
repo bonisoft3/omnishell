@@ -1,0 +1,255 @@
+{
+  "measuredOn": "2026-10-13",
+  "source": "Offline full-archive release pgdata copy from edge-release worktree; not current production allocation",
+  "units": "decimal bytes",
+  "tablesBytes": 3164569600,
+  "indexesBytes": 4132003840,
+  "largestRelations": [
+    {
+      "schema": "public",
+      "name": "team_rating",
+      "estimated_rows": 8195227,
+      "heap_bytes": 895614976,
+      "table_bytes": 895893504,
+      "index_bytes": 1502552064,
+      "total_bytes": 2398445568
+    },
+    {
+      "schema": "public",
+      "name": "player_game",
+      "estimated_rows": 3291918,
+      "heap_bytes": 494338048,
+      "table_bytes": 494501888,
+      "index_bytes": 928276480,
+      "total_bytes": 1422778368
+    },
+    {
+      "schema": "public",
+      "name": "team_odds_history",
+      "estimated_rows": 2157360,
+      "heap_bytes": 465371136,
+      "table_bytes": 465526784,
+      "index_bytes": 497033216,
+      "total_bytes": 962560000
+    },
+    {
+      "schema": "public",
+      "name": "team_game",
+      "estimated_rows": 637940,
+      "heap_bytes": 225116160,
+      "table_bytes": 225206272,
+      "index_bytes": 276561920,
+      "total_bytes": 501768192
+    },
+    {
+      "schema": "public",
+      "name": "game_change",
+      "estimated_rows": 660772,
+      "heap_bytes": 328663040,
+      "table_bytes": 328785920,
+      "index_bytes": 136667136,
+      "total_bytes": 465453056
+    },
+    {
+      "schema": "public",
+      "name": "game",
+      "estimated_rows": 318970,
+      "heap_bytes": 66519040,
+      "table_bytes": 66568192,
+      "index_bytes": 169893888,
+      "total_bytes": 236462080
+    },
+    {
+      "schema": "public",
+      "name": "game_card",
+      "estimated_rows": 318970,
+      "heap_bytes": 88670208,
+      "table_bytes": 88727552,
+      "index_bytes": 121430016,
+      "total_bytes": 210157568
+    },
+    {
+      "schema": "public",
+      "name": "team_roster",
+      "estimated_rows": 305441,
+      "heap_bytes": 98959360,
+      "table_bytes": 99016704,
+      "index_bytes": 83894272,
+      "total_bytes": 182910976
+    },
+    {
+      "schema": "public",
+      "name": "player_stat",
+      "estimated_rows": 155491,
+      "heap_bytes": 63504384,
+      "table_bytes": 63553536,
+      "index_bytes": 118702080,
+      "total_bytes": 182255616
+    },
+    {
+      "schema": "public",
+      "name": "position_chance",
+      "estimated_rows": 988850,
+      "heap_bytes": 123011072,
+      "table_bytes": 123076608,
+      "index_bytes": 38674432,
+      "total_bytes": 161751040
+    },
+    {
+      "schema": "public",
+      "name": "player_metric_dirty",
+      "estimated_rows": 290688,
+      "heap_bytes": 43810816,
+      "table_bytes": 43859968,
+      "index_bytes": 62218240,
+      "total_bytes": 106078208
+    },
+    {
+      "schema": "public",
+      "name": "team_player",
+      "estimated_rows": 305425,
+      "heap_bytes": 33816576,
+      "table_bytes": 33865728,
+      "index_bytes": 58277888,
+      "total_bytes": 92143616
+    },
+    {
+      "schema": "public",
+      "name": "goal",
+      "estimated_rows": 225720,
+      "heap_bytes": 26607616,
+      "table_bytes": 26648576,
+      "index_bytes": 37732352,
+      "total_bytes": 64380928
+    },
+    {
+      "schema": "public",
+      "name": "team_rating_chart",
+      "estimated_rows": 13920,
+      "heap_bytes": 3670016,
+      "table_bytes": 60940288,
+      "index_bytes": 1630208,
+      "total_bytes": 62570496
+    },
+    {
+      "schema": "public",
+      "name": "team_player_history",
+      "estimated_rows": 155533,
+      "heap_bytes": 29949952,
+      "table_bytes": 29990912,
+      "index_bytes": 28123136,
+      "total_bytes": 58114048
+    }
+  ],
+  "largestIndexes": [
+    {
+      "table_name": "team_rating",
+      "name": "team_rating_match_history_idx",
+      "bytes": 631472128,
+      "definition": "CREATE INDEX team_rating_match_history_idx ON public.team_rating USING btree (team_id, measure_date DESC, id) INCLUDE (offense, defense)",
+      "primary_key": false,
+      "unique_key": false
+    },
+    {
+      "table_name": "team_rating",
+      "name": "team_rating_home_latest_idx",
+      "bytes": 553836544,
+      "definition": "CREATE INDEX team_rating_home_latest_idx ON public.team_rating USING btree (team_id, measure_date DESC, id) INCLUDE (rating)",
+      "primary_key": false,
+      "unique_key": false
+    },
+    {
+      "table_name": "team_rating",
+      "name": "team_rating_pkey",
+      "bytes": 258514944,
+      "definition": "CREATE UNIQUE INDEX team_rating_pkey ON public.team_rating USING btree (id)",
+      "primary_key": true,
+      "unique_key": true
+    },
+    {
+      "table_name": "team_odds_history",
+      "name": "team_odds_history_pkey",
+      "bytes": 251322368,
+      "definition": "CREATE UNIQUE INDEX team_odds_history_pkey ON public.team_odds_history USING btree (id)",
+      "primary_key": true,
+      "unique_key": true
+    },
+    {
+      "table_name": "player_game",
+      "name": "player_game_routes_game_lineup_idx",
+      "bytes": 223141888,
+      "definition": "CREATE INDEX player_game_routes_game_lineup_idx ON public.player_game USING btree (game_id, side DESC, bench, on_minute, id)",
+      "primary_key": false,
+      "unique_key": false
+    },
+    {
+      "table_name": "player_game",
+      "name": "player_game_latest_read_idx",
+      "bytes": 193781760,
+      "definition": "CREATE INDEX player_game_latest_read_idx ON public.player_game USING btree (player_id, day DESC NULLS LAST, id)",
+      "primary_key": false,
+      "unique_key": false
+    },
+    {
+      "table_name": "player_game",
+      "name": "player_game_routes_player_day_idx",
+      "bytes": 193781760,
+      "definition": "CREATE INDEX player_game_routes_player_day_idx ON public.player_game USING btree (player_id, day DESC, id)",
+      "primary_key": false,
+      "unique_key": false
+    },
+    {
+      "table_name": "player_game",
+      "name": "uq_player_game",
+      "bytes": 163676160,
+      "definition": "CREATE UNIQUE INDEX uq_player_game ON public.player_game USING btree (game_id, player_id)",
+      "primary_key": false,
+      "unique_key": true
+    },
+    {
+      "table_name": "team_odds_history",
+      "name": "team_odds_history_group_team_day_idx",
+      "bytes": 127426560,
+      "definition": "CREATE INDEX team_odds_history_group_team_day_idx ON public.team_odds_history USING btree (group_id, team_id, recorded_on, \"position\")",
+      "primary_key": false,
+      "unique_key": false
+    },
+    {
+      "table_name": "player_game",
+      "name": "player_game_pkey",
+      "bytes": 103817216,
+      "definition": "CREATE UNIQUE INDEX player_game_pkey ON public.player_game USING btree (id)",
+      "primary_key": true,
+      "unique_key": true
+    }
+  ],
+  "compressed8KiB": {
+    "bytes": 3935895552,
+    "blocks": 896181,
+    "pageSize": 4096,
+    "pages": 960912,
+    "seconds": 56.110083542065695,
+    "note": "Local SQLite using production fs_block schema and 8KiB blocks; zlib level 1 plus encoding byte. Cloudflare allocation and runtime codec still unverified."
+  },
+  "compressionRoundTrip": {
+    "verifiedBlocks": 896181,
+    "verifiedBytes": 7341424680,
+    "seconds": 25.137948875082657
+  },
+  "nativeRatingsSample": {
+    "sampleRows": 79500,
+    "sampleBytes": 12599296,
+    "bytesPerRow": 158.4817106918239,
+    "projectedBytesFor8195227Rows": 1298793594.467824,
+    "method": "1% PostgreSQL SYSTEM sample REPEATABLE(42); all eight columns retained; UUID as 16-byte BLOB, date as epoch days, one covering history index and WITHOUT ROWID primary key. Projection only; no production query parity test."
+  },
+  "compressed128KiB": {
+    "bytes": 1940004864,
+    "blocks": 56995,
+    "blockSize": 131072,
+    "packedPayloadBytes": 1857167482,
+    "roundTripVerifiedBytes": 7341424680,
+    "seconds": 139.9494291250594,
+    "note": "Local SQLite, production fs_block schema with 128KiB blocks; zlib level 1 plus encoding byte; excludes fs_node/import metadata. All codec results compared to source. Cloudflare codec CPU, random read/write amplification, limits, and crash recovery still unverified."
+  }
+}

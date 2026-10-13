@@ -1,0 +1,141 @@
+{
+  "date": "2026-10-13",
+  "origin": "https://golaberto-free-preview.davi-d2c.workers.dev",
+  "accountPlan": "paid",
+  "versions": {
+    "entry": "0486302a-42f1-4162-8719-340a9282c137",
+    "database": "dc5c0a2b-6286-4a03-a1e9-f70516799d87",
+    "renderer": "f7b3e561-0a20-4c7a-a23e-cf0a1c9041e5"
+  },
+  "archive": {
+    "sourceBytes": 7341424680,
+    "files": 1498,
+    "chunksVerified": 2937,
+    "format": {
+      "version": 1,
+      "blockSize": 131072,
+      "codec": "deflate"
+    }
+  },
+  "browser": {
+    "origin": "https://golaberto-free-preview.davi-d2c.workers.dev",
+    "date": "2026-10-13T18:38:28.914Z",
+    "players": {
+      "publicHtml": true,
+      "search": true,
+      "pagination": true
+    },
+    "flamengo": {
+      "publicHtml": true,
+      "negotiatedLocale": true,
+      "hoverReads": 0
+    },
+    "errors": []
+  },
+  "freshness": {
+    "insertVisible": true,
+    "updateVisible": true,
+    "revisionChanged": true,
+    "rejectedWriteInvisible": true
+  },
+  "http": {
+    "headBodyBytes": 0,
+    "unknownRoute": 404,
+    "missingTeam": 404,
+    "vary": "Accept-Language"
+  },
+  "entryCpu": {
+    "samples": 260,
+    "maximumMs": 8,
+    "exceptions": []
+  },
+  "reportedDatabaseUsage": {
+    "rowsRead": 212094,
+    "rowsWritten": 81388,
+    "exceededCpuErrors": 0,
+    "exceededMemoryErrors": 0
+  },
+  "lighthouse": [
+    {
+      "page": "players",
+      "serverState": "unwarmed",
+      "lighthouse": "13.5.0",
+      "fetchTime": "2026-10-13T18:36:46.288Z",
+      "performance": 91,
+      "metrics": {
+        "first-contentful-paint": 1643.6860000000006,
+        "largest-contentful-paint": 2539.5720000000006,
+        "total-blocking-time": 91.5,
+        "cumulative-layout-shift": 0,
+        "speed-index": 6063.8486879533775,
+        "server-response-time": 3545
+      },
+      "warnings": [
+        "The page loaded too slowly to finish within the time limit. Results may be incomplete."
+      ]
+    },
+    {
+      "page": "players",
+      "serverState": "warmed",
+      "lighthouse": "13.5.0",
+      "fetchTime": "2026-10-13T18:42:22.554Z",
+      "performance": 96,
+      "metrics": {
+        "first-contentful-paint": 1584.676,
+        "largest-contentful-paint": 2311.5599999999995,
+        "total-blocking-time": 90,
+        "cumulative-layout-shift": 0,
+        "speed-index": 3567.7795739764206,
+        "server-response-time": 1907
+      },
+      "warnings": [
+        "The page loaded too slowly to finish within the time limit. Results may be incomplete."
+      ]
+    },
+    {
+      "page": "flamengo",
+      "serverState": "after database deployment",
+      "lighthouse": "13.5.0",
+      "fetchTime": "2026-10-13T18:32:04.469Z",
+      "performance": 82,
+      "metrics": {
+        "first-contentful-paint": 1741.1459999999997,
+        "largest-contentful-paint": 3493.5459999999994,
+        "total-blocking-time": 49,
+        "cumulative-layout-shift": 0,
+        "speed-index": 8773.505074749566,
+        "server-response-time": 5063
+      },
+      "warnings": [
+        "The page loaded too slowly to finish within the time limit. Results may be incomplete."
+      ]
+    },
+    {
+      "page": "flamengo",
+      "serverState": "warmed",
+      "lighthouse": "13.5.0",
+      "fetchTime": "2026-10-13T18:39:14.385Z",
+      "performance": 95,
+      "metrics": {
+        "first-contentful-paint": 1206.6395,
+        "largest-contentful-paint": 1656.6395,
+        "total-blocking-time": 35.5,
+        "cumulative-layout-shift": 0,
+        "speed-index": 5534.624757372305,
+        "server-response-time": 3020
+      },
+      "warnings": [
+        "The page loaded too slowly to finish within the time limit. Results may be incomplete."
+      ]
+    }
+  ],
+  "limitations": [
+    "Paid-account deployment does not establish Free-plan enforcement or resolve the documented 1 GB versus 10 GB per-object discrepancy.",
+    "The namespace is an isolated archive copy; the production hostname and live database have not been cut over.",
+    "Lighthouse uses a new mobile browser context with default simulated throttling. Warming means one preparatory server request, not retained HTML. Small samples do not establish score distributions.",
+    "Open Electric requests produce Lighthouse load-timeout warnings; independent browser checks establish usable pages and interactions.",
+    "Database analytics are reported aggregates and may lag requests; they include import and validation, not a daily traffic-capacity benchmark.",
+    "The entry CPU sample does not cover initial archive import.",
+    "The edge target retains its existing guest-only authentication and unavailable derivation workers."
+  ]
+}

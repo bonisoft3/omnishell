@@ -1,0 +1,7 @@
+{
+  "name": "golaberto-native-ssr-spike",
+  "main": "probe.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false
+}

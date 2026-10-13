@@ -817,6 +817,13 @@ function unprefixed(cfg, pathname) {
   return pathname.startsWith(`${prefix}/`) ? pathname.slice(prefix.length) : pathname;
 }
 
+export function acceptedLanguages(header = '') {
+  return header.split(',')
+    .map(value => { const [tag, q = 'q=1'] = value.trim().split(';'); return { tag: tag.trim(), q: Number(q.trim().replace(/^q\s*=\s*/, '')) }; })
+    .filter(({ tag, q }) => tag && Number.isFinite(q) && q > 0 && q <= 1)
+    .sort((a, b) => b.q - a.q).map(({ tag }) => tag);
+}
+
 /** The language an address is in, and what is left of it once a locale prefix
  * is taken off. Separate from routeAt because the chrome is drawn before any
  * route is mounted — the gate, the strip — and has to ask the same resolution

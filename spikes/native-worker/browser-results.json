@@ -1,0 +1,679 @@
+{
+  "measuredOn": "2026-10-13",
+  "scope": "Experimental single-run comparison; SSR serves captured Golaberto data through the native Worker and uses live API reads during browser adoption. This is not a production SSR benchmark.",
+  "lighthouse": {
+    "live": {
+      "version": "13.5.0",
+      "url": "https://golaberto.davi-d2c.workers.dev/equipe-campeonato/flamengo-rj/brazil-campeonato-brasileiro-2026?lang=pt-BR",
+      "fetchTime": "2026-10-13T15:53:01.146Z",
+      "performance": 69,
+      "metrics": {
+        "first-contentful-paint": 2905,
+        "largest-contentful-paint": 6834.6050000000005,
+        "total-blocking-time": 106.73499999999967,
+        "speed-index": 4595.360533956527,
+        "cumulative-layout-shift": 0
+      },
+      "warnings": [
+        "The page loaded too slowly to finish within the time limit. Results may be incomplete."
+      ],
+      "throttling": {
+        "rttMs": 150,
+        "throughputKbps": 1638.4,
+        "requestLatencyMs": 562.5,
+        "downloadThroughputKbps": 1474.5600000000002,
+        "uploadThroughputKbps": 675,
+        "cpuSlowdownMultiplier": 4
+      },
+      "throttlingMethod": "simulate"
+    },
+    "ssrCaptured": {
+      "version": "13.5.0",
+      "url": "https://127.0.0.1:20220/equipe-campeonato/flamengo-rj/brazil-campeonato-brasileiro-2026?lang=pt-BR",
+      "fetchTime": "2026-10-13T15:57:26.702Z",
+      "performance": 93,
+      "metrics": {
+        "first-contentful-paint": 2552.8469999999998,
+        "largest-contentful-paint": 2552.8469999999998,
+        "total-blocking-time": 67.5,
+        "speed-index": 2552.8469999999998,
+        "cumulative-layout-shift": 0
+      },
+      "warnings": [
+        "The page loaded too slowly to finish within the time limit. Results may be incomplete."
+      ],
+      "throttling": {
+        "rttMs": 150,
+        "throughputKbps": 1638.4,
+        "requestLatencyMs": 562.5,
+        "downloadThroughputKbps": 1474.5600000000002,
+        "uploadThroughputKbps": 675,
+        "cpuSlowdownMultiplier": 4
+      },
+      "throttlingMethod": "simulate"
+    }
+  },
+  "profiles": {
+    "live": {
+      "date": "2026-10-13T15:52:12.527Z",
+      "browser": "149.0.7827.55",
+      "cpuSlowdown": 4,
+      "htmlBytes": 34480,
+      "servedHtml": false,
+      "observedBlockingMs": 53,
+      "errors": [],
+      "scope": "Cold browser context, cache disabled, explicit CPU slowdown, unthrottled network, sampled main-thread CPU. Observed blocking covers FCP through two seconds after chart readiness, not Lighthouse TBT/TTI. SSR preview uses captured data and live browser reads.",
+      "timing": {
+        "events": {
+          "heading": 3762.7000000476837,
+          "chart": 6249
+        },
+        "paints": [
+          {
+            "name": "first-paint",
+            "entryType": "paint",
+            "startTime": 592,
+            "duration": 0,
+            "paintTime": 587.3000001907349,
+            "presentationTime": 592
+          },
+          {
+            "name": "first-contentful-paint",
+            "entryType": "paint",
+            "startTime": 3268,
+            "duration": 0,
+            "paintTime": 3259.300000190735,
+            "presentationTime": 3268
+          }
+        ],
+        "adoption": {
+          "headingRetained": false,
+          "rowsRetained": 0,
+          "rows": 0
+        }
+      },
+      "topSelf": [
+        {
+          "frame": [
+            "(idle)",
+            "",
+            0
+          ],
+          "sampledMs": 6684.328000000004
+        },
+        {
+          "frame": [
+            "(program)",
+            "",
+            0
+          ],
+          "sampledMs": 546.9029999999998
+        },
+        {
+          "frame": [
+            "interpretScreen",
+            "https://golaberto.davi-d2c.workers.dev/omnishell/interpreter/_immutable-430c013d07ca4b2d40cd6765ed7e233fdb68e85ced12585b42b1bc07ba8938d2-screen.js",
+            1373
+          ],
+          "sampledMs": 55.67899999999999
+        },
+        {
+          "frame": [
+            "isImmutableDataProperty",
+            "https://golaberto.davi-d2c.workers.dev/omnishell/interpreter/vendor/_immutable-d6a22c7c6dea2a8e9b1ea8613e649c8ae58aec86ad677a7118fdf0e19678a468-ses.umd.min.js",
+            1
+          ],
+          "sampledMs": 54.85700000000001
+        },
+        {
+          "frame": [
+            "fetch",
+            "",
+            0
+          ],
+          "sampledMs": 53.550000000000004
+        },
+        {
+          "frame": [
+            "bindElementAttributes",
+            "https://golaberto.davi-d2c.workers.dev/omnishell/interpreter/_immutable-430c013d07ca4b2d40cd6765ed7e233fdb68e85ced12585b42b1bc07ba8938d2-screen.js",
+            1207
+          ],
+          "sampledMs": 53.543
+        },
+        {
+          "frame": [
+            "(garbage collector)",
+            "",
+            0
+          ],
+          "sampledMs": 41.76100000000001
+        },
+        {
+          "frame": [
+            "(anonymous)",
+            "https://golaberto.davi-d2c.workers.dev/omnishell/interpreter/vendor/_immutable-d6a22c7c6dea2a8e9b1ea8613e649c8ae58aec86ad677a7118fdf0e19678a468-ses.umd.min.js",
+            1
+          ],
+          "sampledMs": 30.302999999999997
+        },
+        {
+          "frame": [
+            "bindTexts",
+            "https://golaberto.davi-d2c.workers.dev/omnishell/interpreter/_immutable-430c013d07ca4b2d40cd6765ed7e233fdb68e85ced12585b42b1bc07ba8938d2-screen.js",
+            1147
+          ],
+          "sampledMs": 21.653
+        },
+        {
+          "frame": [
+            "bindAttributes",
+            "https://golaberto.davi-d2c.workers.dev/omnishell/interpreter/_immutable-430c013d07ca4b2d40cd6765ed7e233fdb68e85ced12585b42b1bc07ba8938d2-screen.js",
+            1192
+          ],
+          "sampledMs": 20.544
+        },
+        {
+          "frame": [
+            "interpolate",
+            "https://golaberto.davi-d2c.workers.dev/omnishell/interpreter/_immutable-430c013d07ca4b2d40cd6765ed7e233fdb68e85ced12585b42b1bc07ba8938d2-screen.js",
+            923
+          ],
+          "sampledMs": 20.139999999999997
+        },
+        {
+          "frame": [
+            "ownedBy",
+            "https://golaberto.davi-d2c.workers.dev/omnishell/interpreter/_immutable-430c013d07ca4b2d40cd6765ed7e233fdb68e85ced12585b42b1bc07ba8938d2-screen.js",
+            1040
+          ],
+          "sampledMs": 19.073999999999998
+        },
+        {
+          "frame": [
+            "parseMarkup",
+            "https://golaberto.davi-d2c.workers.dev/omnishell/interpreter/_immutable-1d8c1974aa87cee8379e392a2093fc67bea4fcb96b053820712c095d484b3c62-markup.js",
+            29
+          ],
+          "sampledMs": 18.312000000000005
+        },
+        {
+          "frame": [
+            "createShell",
+            "https://golaberto.davi-d2c.workers.dev/omnishell/interpreter/_immutable-27e5dac663e2b38902a4100408a49f424c6a1e401f820225b295f46bf207e77d-shell.js",
+            430
+          ],
+          "sampledMs": 17.36
+        },
+        {
+          "frame": [
+            "imports",
+            "https://golaberto.davi-d2c.workers.dev/omnishell/interpreter/vendor/_immutable-d6a22c7c6dea2a8e9b1ea8613e649c8ae58aec86ad677a7118fdf0e19678a468-ses.umd.min.js",
+            1
+          ],
+          "sampledMs": 15.620000000000001
+        },
+        {
+          "frame": [
+            "visit",
+            "https://golaberto.davi-d2c.workers.dev/omnishell/interpreter/_immutable-1d8c1974aa87cee8379e392a2093fc67bea4fcb96b053820712c095d484b3c62-markup.js",
+            9
+          ],
+          "sampledMs": 14.499
+        },
+        {
+          "frame": [
+            "refresh",
+            "https://golaberto.davi-d2c.workers.dev/omnishell/interpreter/_immutable-430c013d07ca4b2d40cd6765ed7e233fdb68e85ced12585b42b1bc07ba8938d2-screen.js",
+            3464
+          ],
+          "sampledMs": 12.086000000000002
+        },
+        {
+          "frame": [
+            "(anonymous)",
+            "",
+            1
+          ],
+          "sampledMs": 11.282
+        },
+        {
+          "frame": [
+            "(anonymous)",
+            "",
+            2
+          ],
+          "sampledMs": 11.125
+        },
+        {
+          "frame": [
+            "binding",
+            "https://golaberto.davi-d2c.workers.dev/omnishell/interpreter/_immutable-42450d4c51cbb15369c5680caa5cb842b3a833d7f4393e3b5add905520c6fb98-fragment.js",
+            26
+          ],
+          "sampledMs": 10.932
+        }
+      ]
+    },
+    "ssrCaptured": {
+      "date": "2026-10-13T15:54:11.438Z",
+      "browser": "149.0.7827.55",
+      "cpuSlowdown": 4,
+      "htmlBytes": 287603,
+      "servedHtml": true,
+      "observedBlockingMs": 153,
+      "errors": [],
+      "scope": "Cold browser context, cache disabled, explicit CPU slowdown, unthrottled network, sampled main-thread CPU. Observed blocking covers FCP through two seconds after chart readiness, not Lighthouse TBT/TTI. SSR preview uses captured data and live browser reads.",
+      "timing": {
+        "events": {
+          "heading": 208.29999995231628,
+          "chart": 404.2000000476837,
+          "served": 464.59999990463257,
+          "adopted": 2382.7000000476837
+        },
+        "paints": [
+          {
+            "name": "first-paint",
+            "entryType": "paint",
+            "startTime": 196,
+            "duration": 0,
+            "paintTime": 194.59999990463257,
+            "presentationTime": 196
+          },
+          {
+            "name": "first-contentful-paint",
+            "entryType": "paint",
+            "startTime": 276,
+            "duration": 0,
+            "paintTime": 263.09999990463257,
+            "presentationTime": 276
+          }
+        ],
+        "adoption": {
+          "headingRetained": true,
+          "rowsRetained": 185,
+          "rows": 186
+        }
+      },
+      "topSelf": [
+        {
+          "frame": [
+            "(idle)",
+            "",
+            0
+          ],
+          "sampledMs": 2740.898999999997
+        },
+        {
+          "frame": [
+            "(program)",
+            "",
+            0
+          ],
+          "sampledMs": 628.8399999999999
+        },
+        {
+          "frame": [
+            "(garbage collector)",
+            "",
+            0
+          ],
+          "sampledMs": 49.435
+        },
+        {
+          "frame": [
+            "interpretScreen",
+            "https://127.0.0.1:20220/omnishell/interpreter/screen.js",
+            1373
+          ],
+          "sampledMs": 48.769999999999996
+        },
+        {
+          "frame": [
+            "bindElementAttributes",
+            "https://127.0.0.1:20220/omnishell/interpreter/screen.js",
+            1207
+          ],
+          "sampledMs": 48.426
+        },
+        {
+          "frame": [
+            "isImmutableDataProperty",
+            "https://127.0.0.1:20220/omnishell/interpreter/vendor/ses.umd.min.js",
+            1
+          ],
+          "sampledMs": 41.568
+        },
+        {
+          "frame": [
+            "fetch",
+            "",
+            0
+          ],
+          "sampledMs": 41.112
+        },
+        {
+          "frame": [
+            "(anonymous)",
+            "https://127.0.0.1:20220/omnishell/interpreter/vendor/ses.umd.min.js",
+            1
+          ],
+          "sampledMs": 30.814999999999998
+        },
+        {
+          "frame": [
+            "adoptTree",
+            "https://127.0.0.1:20220/omnishell/interpreter/screen.js",
+            4214
+          ],
+          "sampledMs": 27.444999999999993
+        },
+        {
+          "frame": [
+            "ownedBy",
+            "https://127.0.0.1:20220/omnishell/interpreter/screen.js",
+            1040
+          ],
+          "sampledMs": 25.441
+        },
+        {
+          "frame": [
+            "localize",
+            "https://127.0.0.1:20220/omnishell/interpreter/screen.js",
+            1527
+          ],
+          "sampledMs": 24.552000000000003
+        },
+        {
+          "frame": [
+            "querySelector",
+            "",
+            0
+          ],
+          "sampledMs": 17.816
+        },
+        {
+          "frame": [
+            "toNode",
+            "https://127.0.0.1:20220/omnishell/interpreter/render.js",
+            126
+          ],
+          "sampledMs": 17.174000000000003
+        },
+        {
+          "frame": [
+            "imports",
+            "https://127.0.0.1:20220/omnishell/interpreter/vendor/ses.umd.min.js",
+            1
+          ],
+          "sampledMs": 16.724000000000004
+        },
+        {
+          "frame": [
+            "interpolate",
+            "https://127.0.0.1:20220/omnishell/interpreter/screen.js",
+            923
+          ],
+          "sampledMs": 15.734
+        },
+        {
+          "frame": [
+            "Observer.observe.type",
+            "https://127.0.0.1:20220/omnishell/interpreter/deferred-boot.js",
+            11
+          ],
+          "sampledMs": 13.722999999999999
+        },
+        {
+          "frame": [
+            "refresh",
+            "https://127.0.0.1:20220/omnishell/interpreter/screen.js",
+            3464
+          ],
+          "sampledMs": 12.576000000000002
+        },
+        {
+          "frame": [
+            "routeParams",
+            "https://127.0.0.1:20220/omnishell/interpreter/fragment.js",
+            730
+          ],
+          "sampledMs": 11.125
+        },
+        {
+          "frame": [
+            "bindTexts",
+            "https://127.0.0.1:20220/omnishell/interpreter/screen.js",
+            1147
+          ],
+          "sampledMs": 10.744
+        },
+        {
+          "frame": [
+            "createShell",
+            "https://127.0.0.1:20220/omnishell/interpreter/shell.js",
+            430
+          ],
+          "sampledMs": 10.600000000000001
+        }
+      ]
+    },
+    "oldBundle": {
+      "date": "2026-10-13T15:56:39.856Z",
+      "browser": "149.0.7827.55",
+      "cpuSlowdown": 4,
+      "htmlBytes": 5733025,
+      "servedHtml": false,
+      "observedBlockingMs": 57,
+      "errors": [],
+      "scope": "Cold browser context, cache disabled, explicit CPU slowdown, unthrottled network, sampled main-thread CPU. Observed blocking covers FCP through two seconds after chart readiness, not Lighthouse TBT/TTI. SSR preview uses captured data and live browser reads.",
+      "timing": {
+        "events": {
+          "chart": 6187.599999904633
+        },
+        "paints": [
+          {
+            "name": "first-paint",
+            "entryType": "paint",
+            "startTime": 156,
+            "duration": 0,
+            "paintTime": 155.39999985694885,
+            "presentationTime": 156
+          },
+          {
+            "name": "first-contentful-paint",
+            "entryType": "paint",
+            "startTime": 3132,
+            "duration": 0,
+            "paintTime": 3123.0999999046326,
+            "presentationTime": 3132
+          }
+        ],
+        "adoption": {
+          "headingRetained": false,
+          "rowsRetained": 0,
+          "rows": 0
+        }
+      },
+      "topSelf": [
+        {
+          "frame": [
+            "(idle)",
+            "",
+            0
+          ],
+          "sampledMs": 6410.947000000018
+        },
+        {
+          "frame": [
+            "(program)",
+            "",
+            0
+          ],
+          "sampledMs": 914.2389999999997
+        },
+        {
+          "frame": [
+            "isImmutableDataProperty",
+            "https://127.0.0.1:20195/equipe-campeonato/flamengo-rj/brazil-campeonato-brasileiro-2026?lang=pt-BR",
+            52823
+          ],
+          "sampledMs": 60.2
+        },
+        {
+          "frame": [
+            "bindElementAttributes",
+            "https://127.0.0.1:20195/equipe-campeonato/flamengo-rj/brazil-campeonato-brasileiro-2026?lang=pt-BR",
+            8230
+          ],
+          "sampledMs": 49.03499999999999
+        },
+        {
+          "frame": [
+            "(anonymous)",
+            "https://127.0.0.1:20195/equipe-campeonato/flamengo-rj/brazil-campeonato-brasileiro-2026?lang=pt-BR",
+            586
+          ],
+          "sampledMs": 42.29700000000001
+        },
+        {
+          "frame": [
+            "interpretScreen",
+            "https://127.0.0.1:20195/equipe-campeonato/flamengo-rj/brazil-campeonato-brasileiro-2026?lang=pt-BR",
+            8341
+          ],
+          "sampledMs": 41.406
+        },
+        {
+          "frame": [
+            "fetch",
+            "",
+            0
+          ],
+          "sampledMs": 34.17099999999999
+        },
+        {
+          "frame": [
+            "decodeBase64",
+            "https://127.0.0.1:20195/equipe-campeonato/flamengo-rj/brazil-campeonato-brasileiro-2026?lang=pt-BR",
+            31254
+          ],
+          "sampledMs": 21.918000000000003
+        },
+        {
+          "frame": [
+            "globalThis.fetch",
+            "https://127.0.0.1:20195/equipe-campeonato/flamengo-rj/brazil-campeonato-brasileiro-2026?lang=pt-BR",
+            57064
+          ],
+          "sampledMs": 21.653
+        },
+        {
+          "frame": [
+            "ownedBy",
+            "https://127.0.0.1:20195/equipe-campeonato/flamengo-rj/brazil-campeonato-brasileiro-2026?lang=pt-BR",
+            8124
+          ],
+          "sampledMs": 15.506
+        },
+        {
+          "frame": [
+            "interpolate",
+            "https://127.0.0.1:20195/equipe-campeonato/flamengo-rj/brazil-campeonato-brasileiro-2026?lang=pt-BR",
+            8078
+          ],
+          "sampledMs": 15.249
+        },
+        {
+          "frame": [
+            "imports",
+            "https://127.0.0.1:20195/equipe-campeonato/flamengo-rj/brazil-campeonato-brasileiro-2026?lang=pt-BR",
+            47137
+          ],
+          "sampledMs": 14.134
+        },
+        {
+          "frame": [
+            "parseMarkup",
+            "https://127.0.0.1:20195/equipe-campeonato/flamengo-rj/brazil-campeonato-brasileiro-2026?lang=pt-BR",
+            5530
+          ],
+          "sampledMs": 13.221
+        },
+        {
+          "frame": [
+            "(garbage collector)",
+            "",
+            0
+          ],
+          "sampledMs": 12.502999999999998
+        },
+        {
+          "frame": [
+            "bindAttributes",
+            "https://127.0.0.1:20195/equipe-campeonato/flamengo-rj/brazil-campeonato-brasileiro-2026?lang=pt-BR",
+            8221
+          ],
+          "sampledMs": 11.290000000000001
+        },
+        {
+          "frame": [
+            "createShell",
+            "https://127.0.0.1:20195/equipe-campeonato/flamengo-rj/brazil-campeonato-brasileiro-2026?lang=pt-BR",
+            46348
+          ],
+          "sampledMs": 9.945
+        },
+        {
+          "frame": [
+            "(anonymous)",
+            "https://127.0.0.1:20195/equipe-campeonato/flamengo-rj/brazil-campeonato-brasileiro-2026?lang=pt-BR",
+            7661
+          ],
+          "sampledMs": 9.835999999999999
+        },
+        {
+          "frame": [
+            "refresh",
+            "https://127.0.0.1:20195/equipe-campeonato/flamengo-rj/brazil-campeonato-brasileiro-2026?lang=pt-BR",
+            10064
+          ],
+          "sampledMs": 9.515
+        },
+        {
+          "frame": [
+            "onAttrs",
+            "https://127.0.0.1:20195/equipe-campeonato/flamengo-rj/brazil-campeonato-brasileiro-2026?lang=pt-BR",
+            10898
+          ],
+          "sampledMs": 9.323
+        },
+        {
+          "frame": [
+            "binding",
+            "https://127.0.0.1:20195/equipe-campeonato/flamengo-rj/brazil-campeonato-brasileiro-2026?lang=pt-BR",
+            5572
+          ],
+          "sampledMs": 9.318
+        }
+      ]
+    }
+  },
+  "earlyHints": {
+    "hostname": "golaberto.bonisoft3.com",
+    "worker": "golaberto",
+    "protocol": "HTTP/2",
+    "statuses": [
+      "HTTP/2 103",
+      "HTTP/2 200"
+    ],
+    "preloadCount": 30,
+    "tlsVerified": true,
+    "dns": "Public resolver returned the new address; wire check used curl --resolve while local negative DNS cache persisted.",
+    "browserCheck": {
+      "chartReadyMs": 5494.5,
+      "errors": [],
+      "dnsOverride": "Chromium host-resolver-rules used the public DNS address while the local resolver retained its negative response."
+    }
+  }
+}

@@ -1,7 +1,7 @@
 // The order a screen's language is decided in, asserted where it is defined.
 // Four sources re-derived at three call sites is how a row and a path come to
 // disagree, so the order is one function and these are its claims.
-import { directionOf, localeByPath, localeTable, negotiateLocale, resolveLocale } from "../interpreter/fragment.js";
+import { acceptedLanguages, directionOf, localeByPath, localeTable, negotiateLocale, resolveLocale, routeAt } from "../interpreter/fragment.js";
 
 const assert = (ok: unknown, msg: string) => {
   if (!ok) throw new Error(msg);
@@ -16,6 +16,14 @@ const I18N = {
     "en": { path: "en" },
   },
 };
+
+Deno.test("SSR and browser choose the same locale before adoption", () => {
+  const cfg = { i18n: I18N, routes: [{ path: '/team' }] };
+  const preferred = acceptedLanguages('pt-BR;q=0.2, en-US, en;q=0.9, es;q=0, de;q=bad');
+  assert(preferred.join(',') === 'en-US,en,pt-BR', 'quality order and excluded languages');
+  assert(routeAt(cfg, '/team', '', preferred)?.locale === 'en', 'unprefixed SSR uses the browser preference');
+  assert(routeAt(cfg, '/es/team', '', preferred)?.locale === 'es', 'explicit locale still outranks the header');
+});
 
 Deno.test("a declared locale's segment is its own", () => {
   assert(localeTable(I18N)["pt-BR"].path === "pt-br", "pt-BR takes the segment it declares");

@@ -1,0 +1,513 @@
+{
+  "note": "Local workerd, captured queries, no profiler. Two rounds in opposite order; each mode starts a fresh process. CPU is process CPU, not Cloudflare billed CPU. HTML equality covers one snapshot only. Static controls are not dynamic-render lower bounds.",
+  "modes": {
+    "full": {
+      "flags": {},
+      "sacrifices": "Original optimized renderer, with existing captured-store limitations."
+    },
+    "no-wiring": {
+      "flags": {
+        "wiring": true
+      },
+      "sacrifices": "No event, keyboard, hatch or machine wiring. Captured tab-state can conceal missing initialization and effects."
+    },
+    "no-validation": {
+      "flags": {
+        "validation": true
+      },
+      "sacrifices": "No markup safety validation. Never use with unvalidated input."
+    },
+    "clone-templates": {
+      "flags": {
+        "templates": true
+      },
+      "sacrifices": "Caches parsed markup across documents without proving ownership semantics, invalidation or memory bounds."
+    },
+    "no-attributes": {
+      "flags": {
+        "attributes": true
+      },
+      "sacrifices": "Skips row attribute binding, breaking links, controls and accessibility attributes."
+    },
+    "no-charts": {
+      "flags": {
+        "charts": true
+      },
+      "sacrifices": "Omits custom renderer output, including charts."
+    },
+    "lean": {
+      "flags": {
+        "wiring": true,
+        "templates": true,
+        "validation": true
+      },
+      "sacrifices": "Combines no-wiring, clone-templates and no-validation; single-fixture HTML parity does not prove semantic correctness."
+    },
+    "minimal": {
+      "flags": {
+        "wiring": true,
+        "templates": true,
+        "validation": true,
+        "attributes": true,
+        "charts": true
+      },
+      "sacrifices": "Lean plus missing attributes and charts; still stamps rows, binds text and serializes DOM."
+    },
+    "no-serialization": {
+      "flags": {
+        "serialization": true
+      },
+      "sacrifices": "Builds the full DOM but sends only an assembly-only marker; excludes HTML serialization and payload transfer."
+    },
+    "serialize-only": {
+      "flags": {},
+      "sacrifices": "Serializes a frozen document; no data queries, binding or chart generation. A serialization control, not a renderer."
+    },
+    "static": {
+      "flags": {},
+      "sacrifices": "Returns captured HTML unchanged; no rendering or freshness. A response-serving control."
+    }
+  },
+  "runs": [
+    {
+      "round": 1,
+      "mode": "full",
+      "requests": 30,
+      "warmupRequests": 10,
+      "processCpuMsPerRender": 66.66666666666667,
+      "medianWallMs": 58.85581253096461,
+      "p95WallMs": 63.72862495481968,
+      "bytes": 287603,
+      "byteIdentical": true,
+      "sha256": "54f9ceae03a466b54dfd396cc6a2ceb70d0937338663b63ba27c6191c4c8aa9f",
+      "rowNodes": 186,
+      "links": 236,
+      "svgs": 1
+    },
+    {
+      "round": 1,
+      "mode": "no-wiring",
+      "requests": 30,
+      "warmupRequests": 10,
+      "processCpuMsPerRender": 63.33333333333334,
+      "medianWallMs": 53.67560451850295,
+      "p95WallMs": 57.47566698119044,
+      "bytes": 287603,
+      "byteIdentical": true,
+      "sha256": "54f9ceae03a466b54dfd396cc6a2ceb70d0937338663b63ba27c6191c4c8aa9f",
+      "rowNodes": 186,
+      "links": 236,
+      "svgs": 1
+    },
+    {
+      "round": 1,
+      "mode": "no-validation",
+      "requests": 30,
+      "warmupRequests": 10,
+      "processCpuMsPerRender": 63.33333333333334,
+      "medianWallMs": 57.3394795646891,
+      "p95WallMs": 58.86758421547711,
+      "bytes": 287603,
+      "byteIdentical": true,
+      "sha256": "54f9ceae03a466b54dfd396cc6a2ceb70d0937338663b63ba27c6191c4c8aa9f",
+      "rowNodes": 186,
+      "links": 236,
+      "svgs": 1
+    },
+    {
+      "round": 1,
+      "mode": "clone-templates",
+      "requests": 30,
+      "warmupRequests": 10,
+      "processCpuMsPerRender": 59.99999999999999,
+      "medianWallMs": 55.082645965740085,
+      "p95WallMs": 57.313333032652736,
+      "bytes": 287603,
+      "byteIdentical": true,
+      "sha256": "54f9ceae03a466b54dfd396cc6a2ceb70d0937338663b63ba27c6191c4c8aa9f",
+      "rowNodes": 186,
+      "links": 236,
+      "svgs": 1
+    },
+    {
+      "round": 1,
+      "mode": "no-attributes",
+      "requests": 30,
+      "warmupRequests": 10,
+      "processCpuMsPerRender": 60.99999999999999,
+      "medianWallMs": 50.74589606374502,
+      "p95WallMs": 71.54716597869992,
+      "bytes": 272795,
+      "byteIdentical": false,
+      "sha256": "539dfb629edaeadeb0d5022a62a352ccbc95ec73b44dc9df7804ed6df60a01e3",
+      "rowNodes": 186,
+      "links": 20,
+      "svgs": 1
+    },
+    {
+      "round": 1,
+      "mode": "no-charts",
+      "requests": 30,
+      "warmupRequests": 10,
+      "processCpuMsPerRender": 61.33333333333333,
+      "medianWallMs": 55.46277097892016,
+      "p95WallMs": 59.44587499834597,
+      "bytes": 261335,
+      "byteIdentical": false,
+      "sha256": "71e4ff5e5b72881419a593ed4257e7eea33ebe73be629c8d222082ef91f98c4f",
+      "rowNodes": 186,
+      "links": 236,
+      "svgs": 0
+    },
+    {
+      "round": 1,
+      "mode": "lean",
+      "requests": 30,
+      "warmupRequests": 10,
+      "processCpuMsPerRender": 53.99999999999999,
+      "medianWallMs": 51.109167048707604,
+      "p95WallMs": 53.89654217287898,
+      "bytes": 287603,
+      "byteIdentical": true,
+      "sha256": "54f9ceae03a466b54dfd396cc6a2ceb70d0937338663b63ba27c6191c4c8aa9f",
+      "rowNodes": 186,
+      "links": 236,
+      "svgs": 1
+    },
+    {
+      "round": 1,
+      "mode": "minimal",
+      "requests": 30,
+      "warmupRequests": 10,
+      "processCpuMsPerRender": 39.99999999999999,
+      "medianWallMs": 36.536728497594595,
+      "p95WallMs": 51.21637508273125,
+      "bytes": 246527,
+      "byteIdentical": false,
+      "sha256": "2aacaf14b94e366bd9814e3b877cbfc87591e45d771b5f288d1dca4a74ec994e",
+      "rowNodes": 186,
+      "links": 20,
+      "svgs": 0
+    },
+    {
+      "round": 1,
+      "mode": "no-serialization",
+      "requests": 30,
+      "warmupRequests": 10,
+      "processCpuMsPerRender": 64.33333333333333,
+      "medianWallMs": 54.74350007716566,
+      "p95WallMs": 58.68962500244379,
+      "bytes": 13,
+      "byteIdentical": false,
+      "sha256": "3d569d2c4aa261a35c63e4144d4e38c98bbb1449a84470d2089c831291d41cc7",
+      "rowNodes": 0,
+      "links": 0,
+      "svgs": 0
+    },
+    {
+      "round": 1,
+      "mode": "serialize-only",
+      "requests": 300,
+      "warmupRequests": 10,
+      "processCpuMsPerRender": 5.9,
+      "medianWallMs": 6.549895508214831,
+      "p95WallMs": 7.180999964475632,
+      "bytes": 287603,
+      "byteIdentical": true,
+      "sha256": "54f9ceae03a466b54dfd396cc6a2ceb70d0937338663b63ba27c6191c4c8aa9f",
+      "rowNodes": 186,
+      "links": 236,
+      "svgs": 1
+    },
+    {
+      "round": 1,
+      "mode": "static",
+      "requests": 300,
+      "warmupRequests": 10,
+      "processCpuMsPerRender": 0.7,
+      "medianWallMs": 1.3054789742454886,
+      "p95WallMs": 1.8762918189167976,
+      "bytes": 287603,
+      "byteIdentical": true,
+      "sha256": "54f9ceae03a466b54dfd396cc6a2ceb70d0937338663b63ba27c6191c4c8aa9f",
+      "rowNodes": 186,
+      "links": 236,
+      "svgs": 1
+    },
+    {
+      "round": 2,
+      "mode": "static",
+      "requests": 300,
+      "warmupRequests": 10,
+      "processCpuMsPerRender": 0.8333333333333333,
+      "medianWallMs": 1.438313047401607,
+      "p95WallMs": 2.923250198364258,
+      "bytes": 287603,
+      "byteIdentical": true,
+      "sha256": "54f9ceae03a466b54dfd396cc6a2ceb70d0937338663b63ba27c6191c4c8aa9f",
+      "rowNodes": 186,
+      "links": 236,
+      "svgs": 1
+    },
+    {
+      "round": 2,
+      "mode": "serialize-only",
+      "requests": 300,
+      "warmupRequests": 10,
+      "processCpuMsPerRender": 6.0666666666666655,
+      "medianWallMs": 6.748500629328191,
+      "p95WallMs": 7.5700420420616865,
+      "bytes": 287603,
+      "byteIdentical": true,
+      "sha256": "54f9ceae03a466b54dfd396cc6a2ceb70d0937338663b63ba27c6191c4c8aa9f",
+      "rowNodes": 186,
+      "links": 236,
+      "svgs": 1
+    },
+    {
+      "round": 2,
+      "mode": "no-serialization",
+      "requests": 30,
+      "warmupRequests": 10,
+      "processCpuMsPerRender": 65.33333333333333,
+      "medianWallMs": 55.26727100368589,
+      "p95WallMs": 59.296416817232966,
+      "bytes": 13,
+      "byteIdentical": false,
+      "sha256": "3d569d2c4aa261a35c63e4144d4e38c98bbb1449a84470d2089c831291d41cc7",
+      "rowNodes": 0,
+      "links": 0,
+      "svgs": 0
+    },
+    {
+      "round": 2,
+      "mode": "minimal",
+      "requests": 30,
+      "warmupRequests": 10,
+      "processCpuMsPerRender": 39.666666666666664,
+      "medianWallMs": 36.25579155050218,
+      "p95WallMs": 41.94170911796391,
+      "bytes": 246527,
+      "byteIdentical": false,
+      "sha256": "2aacaf14b94e366bd9814e3b877cbfc87591e45d771b5f288d1dca4a74ec994e",
+      "rowNodes": 186,
+      "links": 20,
+      "svgs": 0
+    },
+    {
+      "round": 2,
+      "mode": "lean",
+      "requests": 30,
+      "warmupRequests": 10,
+      "processCpuMsPerRender": 54.33333333333334,
+      "medianWallMs": 51.50685447733849,
+      "p95WallMs": 53.89145785011351,
+      "bytes": 287603,
+      "byteIdentical": true,
+      "sha256": "54f9ceae03a466b54dfd396cc6a2ceb70d0937338663b63ba27c6191c4c8aa9f",
+      "rowNodes": 186,
+      "links": 236,
+      "svgs": 1
+    },
+    {
+      "round": 2,
+      "mode": "no-charts",
+      "requests": 30,
+      "warmupRequests": 10,
+      "processCpuMsPerRender": 62.666666666666664,
+      "medianWallMs": 56.9399994565174,
+      "p95WallMs": 61.66566605679691,
+      "bytes": 261335,
+      "byteIdentical": false,
+      "sha256": "71e4ff5e5b72881419a593ed4257e7eea33ebe73be629c8d222082ef91f98c4f",
+      "rowNodes": 186,
+      "links": 236,
+      "svgs": 0
+    },
+    {
+      "round": 2,
+      "mode": "no-attributes",
+      "requests": 30,
+      "warmupRequests": 10,
+      "processCpuMsPerRender": 62.66666666666667,
+      "medianWallMs": 52.219395991414785,
+      "p95WallMs": 67.79124983586371,
+      "bytes": 272795,
+      "byteIdentical": false,
+      "sha256": "539dfb629edaeadeb0d5022a62a352ccbc95ec73b44dc9df7804ed6df60a01e3",
+      "rowNodes": 186,
+      "links": 20,
+      "svgs": 1
+    },
+    {
+      "round": 2,
+      "mode": "clone-templates",
+      "requests": 30,
+      "warmupRequests": 10,
+      "processCpuMsPerRender": 62.33333333333333,
+      "medianWallMs": 56.51887506246567,
+      "p95WallMs": 66.03387510403991,
+      "bytes": 287603,
+      "byteIdentical": true,
+      "sha256": "54f9ceae03a466b54dfd396cc6a2ceb70d0937338663b63ba27c6191c4c8aa9f",
+      "rowNodes": 186,
+      "links": 236,
+      "svgs": 1
+    },
+    {
+      "round": 2,
+      "mode": "no-validation",
+      "requests": 30,
+      "warmupRequests": 10,
+      "processCpuMsPerRender": 71.0,
+      "medianWallMs": 60.608979081735015,
+      "p95WallMs": 95.59466689825058,
+      "bytes": 287603,
+      "byteIdentical": true,
+      "sha256": "54f9ceae03a466b54dfd396cc6a2ceb70d0937338663b63ba27c6191c4c8aa9f",
+      "rowNodes": 186,
+      "links": 236,
+      "svgs": 1
+    },
+    {
+      "round": 2,
+      "mode": "no-wiring",
+      "requests": 30,
+      "warmupRequests": 10,
+      "processCpuMsPerRender": 65.66666666666667,
+      "medianWallMs": 56.28679157234728,
+      "p95WallMs": 59.82058309018612,
+      "bytes": 287603,
+      "byteIdentical": true,
+      "sha256": "54f9ceae03a466b54dfd396cc6a2ceb70d0937338663b63ba27c6191c4c8aa9f",
+      "rowNodes": 186,
+      "links": 236,
+      "svgs": 1
+    },
+    {
+      "round": 2,
+      "mode": "full",
+      "requests": 30,
+      "warmupRequests": 10,
+      "processCpuMsPerRender": 72.0,
+      "medianWallMs": 60.80583296716213,
+      "p95WallMs": 67.4608750268817,
+      "bytes": 287603,
+      "byteIdentical": true,
+      "sha256": "54f9ceae03a466b54dfd396cc6a2ceb70d0937338663b63ba27c6191c4c8aa9f",
+      "rowNodes": 186,
+      "links": 236,
+      "svgs": 1
+    }
+  ],
+  "date": "2026-10-13",
+  "baseCommit": "ae919d8e9",
+  "status": "Local experiments only; correctness sacrificed deliberately. No production renderer changes.",
+  "summary": {
+    "full": {
+      "cpuMsRange": [
+        66.66666666666667,
+        72.0
+      ],
+      "byteIdentical": true
+    },
+    "no-wiring": {
+      "cpuMsRange": [
+        63.33333333333334,
+        65.66666666666667
+      ],
+      "byteIdentical": true
+    },
+    "no-validation": {
+      "cpuMsRange": [
+        63.33333333333334,
+        71.0
+      ],
+      "byteIdentical": true
+    },
+    "clone-templates": {
+      "cpuMsRange": [
+        59.99999999999999,
+        62.33333333333333
+      ],
+      "byteIdentical": true
+    },
+    "no-attributes": {
+      "cpuMsRange": [
+        60.99999999999999,
+        62.66666666666667
+      ],
+      "byteIdentical": false
+    },
+    "no-charts": {
+      "cpuMsRange": [
+        61.33333333333333,
+        62.666666666666664
+      ],
+      "byteIdentical": false
+    },
+    "lean": {
+      "cpuMsRange": [
+        53.99999999999999,
+        54.33333333333334
+      ],
+      "byteIdentical": true
+    },
+    "minimal": {
+      "cpuMsRange": [
+        39.666666666666664,
+        39.99999999999999
+      ],
+      "byteIdentical": false
+    },
+    "no-serialization": {
+      "cpuMsRange": [
+        64.33333333333333,
+        65.33333333333333
+      ],
+      "byteIdentical": false
+    },
+    "serialize-only": {
+      "cpuMsRange": [
+        5.9,
+        6.0666666666666655
+      ],
+      "byteIdentical": true
+    },
+    "static": {
+      "cpuMsRange": [
+        0.7,
+        0.8333333333333333
+      ],
+      "byteIdentical": true
+    }
+  },
+  "findings": [
+    "Full rendering: 67\u201372 ms CPU. Cached parsing plus disabled event/machine wiring and markup validation: about 54 ms, retaining exact HTML only for this captured snapshot.",
+    "Removing row attributes and custom renderer output as well reduces CPU to about 40 ms, with visibly incorrect output. This is an observed ablation result, not a universal rendering lower bound.",
+    "Markup validation alone contributes little compared with the DOM pipeline; removing safety checks is not an attractive production optimization.",
+    "Serialization of an already-built frozen DOM costs about 6 ms. Serving frozen HTML costs 0.7\u20130.8 ms. Neither performs dynamic rendering or proves freshness.",
+    "The useful next production candidate is validated template preparation reused across requests, plus an explicit separation of SSR initialization from browser event wiring. A much larger reduction would require minimizing DOM allocation through a compiled rendering plan."
+  ],
+  "limitations": [
+    "Replay queries contain pre-materialized tab-state and suppress writes; skipping machine wiring can appear correct because required work already happened during capture.",
+    "Template cloning retains an original document and has not established ownership, invalidation, memory bounds, or correct behavior across changed data or templates.",
+    "All cases use one Portuguese Flamengo route and captured data. No actual database, network reads, production Worker measurements, Container measurements or Lighthouse score.",
+    "Static and serialization controls pay no query, binding or chart-generation cost. They do not demonstrate a sub-10-ms dynamic renderer.",
+    "Local process CPU measured through ps has 10-ms total resolution; 300 requests were used for cheap controls. Runtime scheduling, JIT and GC still cause variation."
+  ],
+  "reproduce": [
+    "Use pinned Deno 2.9.7 from apps/golaberto and Wrangler 4.149.0. Install the existing spike dependencies and obtain capture output as described in results.json.",
+    "From apps/golaberto: mise exec -- deno run -A ../../plugins/omnishell/spikes/native-worker/prepare.ts <capture-directory>",
+    "From apps/golaberto: mise exec -- deno run -A ../../plugins/omnishell/spikes/native-worker/floor-prepare.ts <capture-directory>",
+    "From this spike directory, with ports 20218 and 20219 free: python3 floor-bench.py <absolute-wrangler-executable> <output-json>",
+    "The generator writes separate patched modules/configuration under ignored .generated/. The ordinary worker.ts and interpreter sources are unchanged. Never deploy the floor configuration."
+  ],
+  "checks": {
+    "measuredRequests": 1740,
+    "warmupRequests": 220,
+    "fullOutputSha256": "54f9ceae03a466b54dfd396cc6a2ceb70d0937338663b63ba27c6191c4c8aa9f",
+    "stablePerMode": true,
+    "fullGoldenParityBothRounds": true
+  }
+}

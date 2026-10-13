@@ -1,0 +1,498 @@
+{
+  "status": "Feasibility and initial rendering optimization measured; not production ready",
+  "date": "2026-10-13",
+  "baseCommit": "dc32664ee355ef7764e8b665a2a4fd7ac889ca8e",
+  "runtime": {
+    "deno": "2.9.7",
+    "wrangler": "4.149.0",
+    "workerd": "1.20261006.1",
+    "platform": "macOS arm64, local workerd; no remote deployment"
+  },
+  "scope": "Existing renderDocument and screen interpreter, actual Flamengo route and public data captured through existing Deno SSR; 34 captured queries, 18 startup-compiled roles. Data transport and reactive store are replaced by snapshot replay.",
+  "parity": {
+    "byteIdentical": true,
+    "bytes": 287603,
+    "sha256": "54f9ceae03a466b54dfd396cc6a2ceb70d0937338663b63ba27c6191c4c8aa9f"
+  },
+  "browser": {
+    "noJavaScript": {
+      "h1": "Flamengo-RJ\nBrasil - Campeonato Brasileiro 2026",
+      "title": "Flamengo-RJBrasil - Campeonato Brasileiro 2026 \u2014 golaberto",
+      "links": 236
+    },
+    "adopted": {
+      "heading": true,
+      "retainedRows": 184,
+      "totalRows": 185,
+      "removed": [
+        {
+          "id": "a0400000-0000-4000-8000-000000004072:a0700000-0000-4000-8000-000000000011",
+          "table": "team_odds_progress_source"
+        }
+      ]
+    },
+    "errors": []
+  },
+  "performance": {
+    "firstRenderServerTimingMs": 312,
+    "uninstrumented": {
+      "requests": 30,
+      "medianWallMs": 228.26956259086728,
+      "p95WallMs": 301.0715409182012,
+      "processCpuMsPerRender": 229.33333333333337,
+      "samplesMs": [
+        229.5230000745505,
+        227.01612510718405,
+        301.0715409182012,
+        242.6547089125961,
+        199.0379160270095,
+        213.34470808506012,
+        204.28104186430573,
+        202.13783392682672,
+        212.7930831629783,
+        252.19845888204873,
+        224.24445906654,
+        245.01929199323058,
+        202.3655839730054,
+        208.86054099537432,
+        241.1784171126783,
+        232.15445782989264,
+        251.16962497122586,
+        260.21925010718405,
+        531.9792497903109,
+        207.0199998561293,
+        230.9792498126626,
+        206.5820840653032,
+        245.8268750924617,
+        231.63404199294746,
+        199.4982911273837,
+        230.77416699379683,
+        192.87270796485245,
+        260.6124170124531,
+        216.20854106731713,
+        213.51429191417992
+      ],
+      "note": "Local workerd with captured public data, profiler disconnected. Process CPU includes runtime overhead; not Cloudflare billed CPU."
+    },
+    "profiled": {
+      "endpoint": "http://127.0.0.1:20218",
+      "samples": [
+        {
+          "wallMs": 562.959625,
+          "timing": "render;dur=543",
+          "bytes": 287603
+        },
+        {
+          "wallMs": 296.89545799999996,
+          "timing": "render;dur=278",
+          "bytes": 287603
+        },
+        {
+          "wallMs": 207.0752090000001,
+          "timing": "render;dur=194",
+          "bytes": 287603
+        },
+        {
+          "wallMs": 194.95749999999998,
+          "timing": "render;dur=183",
+          "bytes": 287603
+        },
+        {
+          "wallMs": 205.95608399999992,
+          "timing": "render;dur=176",
+          "bytes": 287603
+        },
+        {
+          "wallMs": 265.4454169999999,
+          "timing": "render;dur=254",
+          "bytes": 287603
+        },
+        {
+          "wallMs": 201.7856670000001,
+          "timing": "render;dur=191",
+          "bytes": 287603
+        },
+        {
+          "wallMs": 246.98191599999973,
+          "timing": "render;dur=220",
+          "bytes": 287603
+        },
+        {
+          "wallMs": 213.0659999999998,
+          "timing": "render;dur=201",
+          "bytes": 287603
+        },
+        {
+          "wallMs": 180.3488339999999,
+          "timing": "render;dur=168",
+          "bytes": 287603
+        },
+        {
+          "wallMs": 181.148416,
+          "timing": "render;dur=170",
+          "bytes": 287603
+        },
+        {
+          "wallMs": 182.86441699999978,
+          "timing": "render;dur=170",
+          "bytes": 287603
+        },
+        {
+          "wallMs": 259.03600000000006,
+          "timing": "render;dur=235",
+          "bytes": 287603
+        },
+        {
+          "wallMs": 239.70754199999965,
+          "timing": "render;dur=228",
+          "bytes": 287603
+        },
+        {
+          "wallMs": 197.2815830000004,
+          "timing": "render;dur=187",
+          "bytes": 287603
+        },
+        {
+          "wallMs": 183.61175000000003,
+          "timing": "render;dur=171",
+          "bytes": 287603
+        },
+        {
+          "wallMs": 184.4827909999999,
+          "timing": "render;dur=158",
+          "bytes": 287603
+        },
+        {
+          "wallMs": 194.52224999999999,
+          "timing": "render;dur=177",
+          "bytes": 287603
+        },
+        {
+          "wallMs": 180.8513750000002,
+          "timing": "render;dur=169",
+          "bytes": 287603
+        },
+        {
+          "wallMs": 212.62474999999995,
+          "timing": "render;dur=202",
+          "bytes": 287603
+        }
+      ],
+      "medianWallMs": 205.95608399999992,
+      "p95WallMs": 296.89545799999996,
+      "heapBefore": {
+        "usedSize": 91569504,
+        "totalSize": 128483328,
+        "embedderHeapUsedSize": 418760,
+        "backingStorageSize": 780059
+      },
+      "heapAfter": {
+        "usedSize": 94567440,
+        "totalSize": 151928832,
+        "embedderHeapUsedSize": 488232,
+        "backingStorageSize": 780059
+      },
+      "sampledActiveMsPerRender": 227.42035,
+      "note": "Local workerd; CDP sampling is an estimate, not Cloudflare billed CPU. JS heap is not total isolate memory. Data is a captured public snapshot; database and live sync excluded.",
+      "topSampledFunctions": [
+        [
+          "(garbage collector)",
+          830413
+        ],
+        [
+          "(anonymous)",
+          624436
+        ],
+        [
+          "__name",
+          338411
+        ],
+        [
+          "DOMEventTarget",
+          222907
+        ],
+        [
+          "set tracing",
+          165303
+        ],
+        [
+          "DOMTokenList",
+          140779
+        ],
+        [
+          "bindElementAttributes",
+          102862
+        ],
+        [
+          "get attributes",
+          101208
+        ],
+        [
+          "querySelectorAll",
+          96279
+        ],
+        [
+          "DOMStringMap",
+          94335
+        ],
+        [
+          "(program)",
+          92372
+        ],
+        [
+          "interpolate",
+          89139
+        ],
+        [
+          "unescapeCSS",
+          74600
+        ],
+        [
+          "getName3",
+          59845
+        ],
+        [
+          "parseSelector",
+          59183
+        ]
+      ]
+    },
+    "startupProfile": {
+      "sampledActiveMs": 66.0,
+      "sampledGcMs": 3.9,
+      "profileWindowMs": 121.8,
+      "bundleKiB": 1404.71,
+      "gzipKiB": 274.02
+    },
+    "stage": "Original spike before rendering optimizations; use optimization.comparison for the controlled comparison."
+  },
+  "findings": [
+    "SES request-time evaluation is refused by workerd. Startup compilation of declared roles works; request-time evaluation only looks up precompiled roles. No unsafe-eval runtime binding was enabled.",
+    "The real Worker render is byte-identical to Deno SSR for this recorded page. Without JavaScript it contains the page title, heading, chart, and 236 links.",
+    "The browser retains the heading and all persisted football rows. It rebuilds one tab-local team_odds_progress_source row; no browser errors occurred.",
+    "Full uncached rendering exceeds the Workers Free 10 ms request CPU budget by a wide margin on this host. Network waits and database processing are excluded.",
+    "JS heap samples ranged from 18.1 MB at the first profiling run to 94.6 MB after repeated renders. Allocated heap reached 151.9 MB locally. These are not total isolate memory measurements or proof of compliance with the production 128 MB limit; retained memory needs investigation."
+  ],
+  "limitations": [
+    "Local estimates are not Cloudflare billed CPU, production latency, or a Lighthouse score. First-render timing excludes Worker startup, real data fetches, and network latency.",
+    "The snapshot query store returns recorded rows, suppresses subscriptions, and treats tab-state writes as already materialized. It establishes rendering feasibility, not live-store or mutation parity.",
+    "Startup role instances are reused; production implementation must preserve fresh compartment/module lifetime semantics and isolation across requests.",
+    "This proves one route in Portuguese. Other routes, locales, concurrent requests, long-term memory bounds, and production cache invalidation remain unverified.",
+    "No cache of rendered HTML is implemented; every measured request renders the full page. Existing server-read freshness rules cannot be bypassed merely to hit a CPU target."
+  ],
+  "reproduce": [
+    "From apps/golaberto, use mise exec -- deno to select pinned Deno 2.9.7. All paths below starting with ../../ are relative to that directory.",
+    "mise exec -- deno run -A --config ../../plugins/omnishell/server/deno.json ../../plugins/omnishell/spikes/native-worker/capture.ts <release-public-directory> <capture-directory>",
+    "mise exec -- deno run -A ../../plugins/omnishell/spikes/native-worker/prepare.ts <capture-directory>",
+    "From this spike directory, npm ci --ignore-scripts --no-audit --no-fund. Use wrangler 4.149.0 from mise where npm:wrangler, node_modules/.bin/wrangler.",
+    "wrangler dev --config .generated/wrangler.json --port 20218 --inspector-port 20219 --local",
+    "From apps/golaberto: mise exec -- deno run -A --node-modules-dir=none ../../plugins/omnishell/spikes/native-worker/measure.ts",
+    "For an unprofiled CPU estimate, disconnect the inspector and run bench.py <render-workerd-pid> http://127.0.0.1:20218/ <result.json>. Select the actual render process, not Wrangler or its entry proxy.",
+    "wrangler deploy --dry-run --config .generated/wrangler.json --outfile <worker-bundle>; wrangler check startup --worker <worker-bundle> --outfile <profile.cpuprofile>",
+    "From apps/golaberto: mise exec -- deno run -A ../../plugins/omnishell/spikes/native-worker/preview.ts <release-public-directory> <localhost-tls-key> <localhost-tls-cert>",
+    "mise exec -- deno run -A --node-modules-dir=none ../../plugins/omnishell/spikes/native-worker/browser.ts",
+    "SES boundary: wrangler dev --config wrangler.jsonc --port 20216 --inspector-port 20217 --local. GET / returns 42 with fetch/Deno/process unavailable inside the compartment; GET /runtime returns the expected EvalError."
+  ],
+  "localArtifacts": {
+    "fixture": "/tmp/golaberto-native-ssr-fixture",
+    "workerHTML": "/tmp/golaberto-native-render.html",
+    "cpuProfile": "/tmp/golaberto-native-measure.json.cpuprofile",
+    "startupProfile": "/tmp/golaberto-native-startup-render.cpuprofile"
+  },
+  "optimization": {
+    "status": "Local optimization measured; uncached rendering still exceeds 10 ms CPU.",
+    "changes": [
+      "Disable Wrangler function-name preservation in the Worker build.",
+      "Prune formatted output and nested regions from attribute-binding walks; use attribute probes instead of CSS selectors for format ancestry and route presence.",
+      "Parse the immutable entry HTML once at startup and clone it per request; rows, charts and output HTML are rendered afresh."
+    ],
+    "comparison": {
+      "method": "Separate freshly started Wrangler/workerd processes; original f339d838b interpreter and Worker with keep_names=true versus optimized sources with keep_names=false. Ten warmup renders, then 30 requests with profiler disconnected. Every warmup response checked byte-for-byte against the captured Deno reference.",
+      "baseline": {
+        "requests": 30,
+        "medianWallMs": 73.48839554470032,
+        "p95WallMs": 148.0532919522375,
+        "processCpuMsPerRender": 88.33333333333334,
+        "samplesMs": [
+          80.39895887486637,
+          75.74349991045892,
+          80.71858389303088,
+          73.57954187318683,
+          72.89608404971659,
+          73.71791615150869,
+          73.48908297717571,
+          72.81745807267725,
+          163.61812502145767,
+          75.05916687659919,
+          73.02549993619323,
+          72.26929115131497,
+          71.60808402113616,
+          72.51520804129541,
+          73.4080420807004,
+          72.7985838893801,
+          78.42570799402893,
+          73.65762488916516,
+          73.48770811222494,
+          71.84858387336135,
+          148.0532919522375,
+          77.09866599179804,
+          74.72679112106562,
+          71.68549997732043,
+          73.93229193985462,
+          71.58083282411098,
+          71.38766697607934,
+          72.56962498649955,
+          76.0089170653373,
+          71.03412505239248
+        ],
+        "note": "Local workerd with captured public data, profiler disconnected. Process CPU includes runtime overhead; not Cloudflare billed CPU.",
+        "warmupRequests": 10
+      },
+      "optimized": {
+        "requests": 30,
+        "medianWallMs": 59.61935454979539,
+        "p95WallMs": 123.12083411961794,
+        "processCpuMsPerRender": 70.33333333333333,
+        "samplesMs": [
+          67.10979202762246,
+          57.67516605556011,
+          55.80074992030859,
+          70.82225009799004,
+          61.48649984970689,
+          60.003750026226044,
+          123.12083411961794,
+          61.12095806747675,
+          56.88824993558228,
+          58.59575001522899,
+          47.14983399026096,
+          60.37879199720919,
+          58.642499847337604,
+          54.535833885893226,
+          59.56633319146931,
+          59.31391706690192,
+          56.732041062787175,
+          48.443458043038845,
+          58.34816605783999,
+          62.752958154305816,
+          59.671167051419616,
+          60.39604195393622,
+          135.90370793826878,
+          63.05804196745157,
+          60.044582933187485,
+          51.05804116465151,
+          58.167291805148125,
+          59.56754204817116,
+          60.06158282980323,
+          61.15329102613032
+        ],
+        "note": "Local workerd with captured public data, profiler disconnected. Process CPU includes runtime overhead; not Cloudflare billed CPU.",
+        "warmupRequests": 10
+      },
+      "cpuReductionPercent": 20.377358490566056,
+      "note": "Earlier exploratory runs measured 177 ms baseline and 74 ms optimized CPU; that larger gain did not reproduce in controlled fresh-process runs. Historical ~300 ms observations are not a reliable warm-render baseline. Do not attribute their entire difference to these changes."
+    },
+    "checks": {
+      "htmlByteIdentical": true,
+      "bytes": 287603,
+      "browser": {
+        "noJavaScript": {
+          "h1": "Flamengo-RJ\nBrasil - Campeonato Brasileiro 2026",
+          "title": "Flamengo-RJBrasil - Campeonato Brasileiro 2026 \u2014 golaberto",
+          "links": 236
+        },
+        "adopted": {
+          "heading": true,
+          "retainedRows": 184,
+          "totalRows": 185,
+          "removed": [
+            {
+              "id": "a0400000-0000-4000-8000-000000004072:a0700000-0000-4000-8000-000000000011",
+              "table": "team_odds_progress_source"
+            }
+          ]
+        },
+        "errors": []
+      },
+      "tests": "24 tests (91 steps) passed across 12 suites, including a regression for literal renderer content and nested row ownership."
+    },
+    "profileBeforeEntryClone": {
+      "sampledActiveMsPerRender": 73.59515,
+      "heapAfter": {
+        "usedSize": 114642596,
+        "totalSize": 166805504,
+        "embedderHeapUsedSize": 604576,
+        "backingStorageSize": 780059
+      },
+      "topSampledFunctions": [
+        [
+          "(garbage collector)",
+          285198
+        ],
+        [
+          "DOMEventTarget",
+          88848
+        ],
+        [
+          "get dataset",
+          61090
+        ],
+        [
+          "bindElementAttributes",
+          58257
+        ],
+        [
+          "get classList",
+          53922
+        ],
+        [
+          "get",
+          44775
+        ],
+        [
+          "parseSelector",
+          43568
+        ],
+        [
+          "querySelectorAll",
+          39957
+        ],
+        [
+          "get attributes",
+          34827
+        ],
+        [
+          "Node2",
+          28900
+        ],
+        [
+          "(anonymous)",
+          28255
+        ],
+        [
+          "cloneNode",
+          26004
+        ],
+        [
+          "(program)",
+          24937
+        ],
+        [
+          "visit",
+          23606
+        ],
+        [
+          "query",
+          20786
+        ]
+      ],
+      "note": "Profile includes the build and binding changes, before entry cloning. Allocation, garbage collection, and DOM serialization remain prominent. No bounded-memory claim."
+    },
+    "nextExperiment": "Compile a binding/serialization plan from the same validated templates, minimizing DOM allocation while preserving escaping, renderer validation and browser-adoption witnesses. Measure against the same golden HTML and changing-row fixtures.",
+    "limits": [
+      "Captured query replay still excludes real data transport and live store costs. Local process CPU is not Cloudflare billed CPU.",
+      "Ten milliseconds for every full render is unproven; serving materialized public HTML is a separate path requiring reliable invalidation. Request-only server reads cannot simply be cached.",
+      "No production deployment or Lighthouse measurement was made. Existing compartment-lifetime and memory limitations still apply."
+    ]
+  },
+  "furtherExperiments": "floor-results.json: second optimization round, deliberately incomplete variants with separate generated modules; see floor-modes.json for sacrificed semantics."
+}

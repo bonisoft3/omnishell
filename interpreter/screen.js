@@ -1190,10 +1190,16 @@ function guardEdits(el) {
 }
 
 function bindAttributes(scope, ctx) {
-  for (const el of [scope, ...scope.querySelectorAll("*")]) {
-    if (!ownedBy(el, scope)) continue;
+  const visit = (el) => {
     bindElementAttributes(el, ctx);
-  }
+    // Renderer output has no bindings; nested regions bind against their own
+    // rows. Prune both before walking a potentially large chart or list.
+    if (el.hasAttribute("data-text-format")) return;
+    for (let child = el.firstElementChild; child !== null; child = child.nextElementSibling) {
+      if (!child.hasAttribute("data-live")) visit(child);
+    }
+  };
+  visit(scope);
 }
 
 /**
@@ -1208,7 +1214,9 @@ function bindElementAttributes(el, ctx) {
   // Nodes a renderer produced are the row's own content, not authored
   // markup: nothing in them is a binding, and the braces an author wrote
   // name no column.
-  if (el.parentElement?.closest("[data-text-format]")) return;
+  for (let parent = el.parentElement; parent !== null; parent = parent.parentElement) {
+    if (parent.hasAttribute("data-text-format")) return;
+  }
   // setAttribute would consume the placeholder template; persistent regions
   // (singletons) re-bind on every refresh, so originals are stashed.
   const stash = (el._prontoAttrs ??= {});
@@ -1314,7 +1322,7 @@ function bindElementAttributes(el, ctx) {
   // region re-binds, and data-locale is how a language switcher links to the
   // page it is on in another language. A navigate form names a route too, and
   // takes no href: its :params are its inputs, and they are read at submit.
-  if (el.dataset?.route !== undefined && el.localName !== "form") {
+  if (el.hasAttribute("data-route") && el.localName !== "form") {
     const args = routeParams(el);
     // A param that bound to nothing is a destination that does not exist —
     // the row this link points at has no id yet. The href goes with it, the

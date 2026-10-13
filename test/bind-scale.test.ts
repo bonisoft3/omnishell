@@ -75,6 +75,32 @@ const callsToAppend = async (n: number, method: string): Promise<number> => {
 }
 
 describe("binding a region", () => {
+  it("leaves formatted content literal and nested bindings in their own row", async () => {
+    const files = {
+      "grid.html": `<section class="screen" data-screen="grid">
+        <div data-live="cell"><template data-item><article>
+          <b class="bound" title="{label}"></b>
+          <div data-text-format="plain"><i class="literal" title="{label}"></i></div>
+          <div data-live="child"><template data-item><i class="nested" title="{label}"></i></template></div>
+        </article></template></div>
+      </section>`,
+      "grid.css": "",
+    }
+    const m = await mountScreen({ route: ROUTE, files, seed: 1,
+      tables: { cell: [{ id: "p", label: "parent" }], child: [{ id: "c", label: "child" }] } })
+    try {
+      await m.settle()
+      expect(m.one(".bound").getAttribute("title")).toBe("parent")
+      expect(m.one(".literal").getAttribute("title")).toBe("{label}")
+      expect(m.one(".nested").getAttribute("title")).toBe("child")
+      await m.store.update("cell", "p", { label: "changed" })
+      await m.settle()
+      expect(m.one(".bound").getAttribute("title")).toBe("changed")
+      expect(m.one(".literal").getAttribute("title")).toBe("{label}")
+      expect(m.one(".nested").getAttribute("title")).toBe("child")
+    } finally { await m.stop() }
+  })
+
   it("asks a containment question per element, not per element and row", async () => {
     const small = await callsToAppend(100, "contains")
     const large = await callsToAppend(400, "contains")

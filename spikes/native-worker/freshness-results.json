@@ -1,0 +1,304 @@
+{
+  "status": "Strict-freshness Durable Object protocol validated locally; production integration pending",
+  "date": "2026-10-13",
+  "runtime": {
+    "deno": "2.9.7",
+    "wrangler": "4.149.0",
+    "workerd": "1.20261006.1",
+    "platform": "macOS arm64; local only"
+  },
+  "protocolTests": {
+    "passed": 8,
+    "command": "deno test --no-config fresh-render.test.ts"
+  },
+  "integration": {
+    "checks": [
+      "test controls require authorization; unsupported routes, parameters and methods rejected",
+      "real M-SSR is byte-identical to Deno reference; public HTML, ETag, HEAD and 304",
+      "acknowledged commit forces fresh HTML even with previous ETag",
+      "partial writes roll back with revision; conflicting writer rejected",
+      "commit during paused render: old snapshot consistent; eight later requests share new render",
+      "render failure returns 500 with no stale document; next request recovers",
+      "deletion yields 404; insertion invalidates the retained 404",
+      "Durable Object eviction preserves committed revision and HTML without rerender"
+    ],
+    "referenceBytes": 287603,
+    "referenceSha256": "54f9ceae03a466b54dfd396cc6a2ceb70d0937338663b63ba27c6191c4c8aa9f",
+    "validatedHits": {
+      "requests": 100,
+      "medianWallMs": 2.2734999656677246,
+      "p95WallMs": 3.463875036686659
+    },
+    "dirtyRenders": {
+      "requests": 20,
+      "medianWallMs": 62.55066650919616,
+      "p95WallMs": 73.54879193007946
+    },
+    "finalState": {
+      "revision": 28,
+      "renders": 20,
+      "born": "75aca036-59dc-44c3-bf7a-f9fdad487b25",
+      "paused": false,
+      "documents": [
+        {
+          "revision": 28,
+          "etag": "\"54f9ceae03a466b54dfd396cc6a2ceb70d0937338663b63ba27c6191c4c8aa9f\""
+        }
+      ]
+    },
+    "scope": "Local workerd, SQLite authority over captured public query results. Mutation transport, snapshot isolation and actual M-SSR exercised; live database, remote latency, Free-plan enforcement and production memory fit not established."
+  },
+  "boundedHeap": {
+    "v8Flags": "--max-old-space-size=64 --max-semi-space-size=4",
+    "integration": {
+      "checks": [
+        "test controls require authorization; unsupported routes, parameters and methods rejected",
+        "real M-SSR is byte-identical to Deno reference; public HTML, ETag, HEAD and 304",
+        "acknowledged commit forces fresh HTML even with previous ETag",
+        "partial writes roll back with revision; conflicting writer rejected",
+        "commit during paused render: old snapshot consistent; eight later requests share new render",
+        "render failure returns 500 with no stale document; next request recovers",
+        "deletion yields 404; insertion invalidates the retained 404",
+        "Durable Object eviction preserves committed revision and HTML without rerender"
+      ],
+      "referenceBytes": 287603,
+      "referenceSha256": "54f9ceae03a466b54dfd396cc6a2ceb70d0937338663b63ba27c6191c4c8aa9f",
+      "validatedHits": {
+        "requests": 100,
+        "medianWallMs": 1.8855410162359476,
+        "p95WallMs": 2.6562910061329603
+      },
+      "dirtyRenders": {
+        "requests": 20,
+        "medianWallMs": 61.93850049749017,
+        "p95WallMs": 92.37854182720184
+      },
+      "finalState": {
+        "revision": 275,
+        "renders": 20,
+        "born": "082fcffe-256c-4632-81fe-7d0172bf70c3",
+        "paused": false,
+        "documents": [
+          {
+            "revision": 275,
+            "etag": "\"54f9ceae03a466b54dfd396cc6a2ceb70d0937338663b63ba27c6191c4c8aa9f\""
+          }
+        ]
+      },
+      "scope": "Local workerd, SQLite authority over captured public query results. Mutation transport, snapshot isolation and actual M-SSR exercised; live database, remote latency, Free-plan enforcement and production memory fit not established."
+    },
+    "memory": {
+      "initial": {
+        "usedSize": 41827540,
+        "totalSize": 48250880,
+        "embedderHeapUsedSize": 282480,
+        "backingStorageSize": 1073571
+      },
+      "samples": [
+        {
+          "renders": 20,
+          "heap": {
+            "usedSize": 43848300,
+            "totalSize": 56901632,
+            "embedderHeapUsedSize": 280096,
+            "backingStorageSize": 1073571
+          }
+        },
+        {
+          "renders": 40,
+          "heap": {
+            "usedSize": 28303260,
+            "totalSize": 47267840,
+            "embedderHeapUsedSize": 241576,
+            "backingStorageSize": 1073571
+          }
+        },
+        {
+          "renders": 60,
+          "heap": {
+            "usedSize": 22596072,
+            "totalSize": 43532288,
+            "embedderHeapUsedSize": 225352,
+            "backingStorageSize": 1073571
+          }
+        },
+        {
+          "renders": 80,
+          "heap": {
+            "usedSize": 43179928,
+            "totalSize": 50610176,
+            "embedderHeapUsedSize": 321304,
+            "backingStorageSize": 1073571
+          }
+        },
+        {
+          "renders": 100,
+          "heap": {
+            "usedSize": 65853380,
+            "totalSize": 73023488,
+            "embedderHeapUsedSize": 374032,
+            "backingStorageSize": 1073571
+          }
+        },
+        {
+          "renders": 120,
+          "heap": {
+            "usedSize": 27104760,
+            "totalSize": 49627136,
+            "embedderHeapUsedSize": 236264,
+            "backingStorageSize": 1073571
+          }
+        },
+        {
+          "renders": 140,
+          "heap": {
+            "usedSize": 24380984,
+            "totalSize": 50085888,
+            "embedderHeapUsedSize": 285248,
+            "backingStorageSize": 785936
+          }
+        },
+        {
+          "renders": 160,
+          "heap": {
+            "usedSize": 59023448,
+            "totalSize": 66338816,
+            "embedderHeapUsedSize": 365096,
+            "backingStorageSize": 1073571
+          }
+        },
+        {
+          "renders": 180,
+          "heap": {
+            "usedSize": 31940448,
+            "totalSize": 60178432,
+            "embedderHeapUsedSize": 276368,
+            "backingStorageSize": 1073571
+          }
+        },
+        {
+          "renders": 200,
+          "heap": {
+            "usedSize": 52786776,
+            "totalSize": 60440576,
+            "embedderHeapUsedSize": 332688,
+            "backingStorageSize": 1073571
+          }
+        }
+      ],
+      "note": "Local workerd CDP JS heap sampled every 20 dirty renders with normal garbage collection. This neither measures total isolate memory nor establishes production 128 MiB enforcement."
+    }
+  },
+  "defaultHeap": {
+    "initial": {
+      "usedSize": 8755340,
+      "totalSize": 13484032,
+      "embedderHeapUsedSize": 515872,
+      "backingStorageSize": 785936
+    },
+    "samples": [
+      {
+        "renders": 20,
+        "heap": {
+          "usedSize": 37216304,
+          "totalSize": 101203968,
+          "embedderHeapUsedSize": 360040,
+          "backingStorageSize": 785936
+        }
+      },
+      {
+        "renders": 40,
+        "heap": {
+          "usedSize": 71906404,
+          "totalSize": 136265728,
+          "embedderHeapUsedSize": 482712,
+          "backingStorageSize": 785936
+        }
+      },
+      {
+        "renders": 60,
+        "heap": {
+          "usedSize": 41354224,
+          "totalSize": 115032064,
+          "embedderHeapUsedSize": 304984,
+          "backingStorageSize": 785936
+        }
+      },
+      {
+        "renders": 80,
+        "heap": {
+          "usedSize": 35103320,
+          "totalSize": 121208832,
+          "embedderHeapUsedSize": 238960,
+          "backingStorageSize": 1073571
+        }
+      },
+      {
+        "renders": 100,
+        "heap": {
+          "usedSize": 116402508,
+          "totalSize": 181108736,
+          "embedderHeapUsedSize": 667856,
+          "backingStorageSize": 785936
+        }
+      },
+      {
+        "renders": 120,
+        "heap": {
+          "usedSize": 76436268,
+          "totalSize": 157515776,
+          "embedderHeapUsedSize": 399976,
+          "backingStorageSize": 785936
+        }
+      },
+      {
+        "renders": 140,
+        "heap": {
+          "usedSize": 182013216,
+          "totalSize": 224755712,
+          "embedderHeapUsedSize": 836184,
+          "backingStorageSize": 1073571
+        }
+      },
+      {
+        "renders": 160,
+        "heap": {
+          "usedSize": 43910228,
+          "totalSize": 144408576,
+          "embedderHeapUsedSize": 352312,
+          "backingStorageSize": 785936
+        }
+      },
+      {
+        "renders": 180,
+        "heap": {
+          "usedSize": 130801632,
+          "totalSize": 194740224,
+          "embedderHeapUsedSize": 700696,
+          "backingStorageSize": 785936
+        }
+      },
+      {
+        "renders": 200,
+        "heap": {
+          "usedSize": 236284820,
+          "totalSize": 278233088,
+          "embedderHeapUsedSize": 1139096,
+          "backingStorageSize": 1073571
+        }
+      }
+    ],
+    "note": "Local workerd CDP JS heap sampled every 20 dirty renders with normal garbage collection. This neither measures total isolate memory nor establishes production 128 MiB enforcement."
+  },
+  "additionalChecks": [
+    "Changing RELEASE in local Wrangler config rejected persisted HTML at unchanged data revision, rendered again, and matched reference.",
+    "Extracted shared document renderer preserves original uncached Worker byte parity."
+  ],
+  "limits": [
+    "Captured query results, not live database reads; already-derived tab rows and no-op fixture writes remain from the initial spike.",
+    "Native role compartment lifetime remains unproven for arbitrary apps.",
+    "Sampled JS heap is not total isolate memory; tighter V8 heap stress is not Cloudflare memory-limit enforcement.",
+    "No remote deployment, Free-plan enforcement test, network latency estimate, or Lighthouse measurement.",
+    "Single public fixture route; production needs a live transactional revision/snapshot adapter, route coverage and deployment identity."
+  ]
+}

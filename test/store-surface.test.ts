@@ -17,7 +17,7 @@ import { batched } from "../interpreter/batched-store.js"
 
 /** Every call the interpreter makes on a store. */
 const SURFACE = ["query", "add", "write", "patch", "drop", "dropWhere", "upsertBy", "subscribe", "upload"]
-const RUNTIME = ["tabSnapshot", "restoreTabs", "flushNotifications"]
+const RUNTIME = ["tabSnapshot", "restoreTabs", "flushNotifications", "close"]
 
 /** The singular writes a test double states for itself, which the adapter
  * decomposes a batch into. */
@@ -38,7 +38,11 @@ Deno.test({ name: "the store surface is what data-sync offers", sanitizeOps: fal
   try {
     const { createStore } = await import("../interpreter/data-sync.js")
     const store = await createStore("", { app: "surface", entities: {}, migrations: [], pipelines: [] })
-    expect(Object.keys(store).sort()).toEqual([...SURFACE, ...RUNTIME].sort())
+    try {
+      expect(Object.keys(store).sort()).toEqual([...SURFACE, ...RUNTIME].sort())
+    } finally {
+      await store.close()
+    }
   } finally {
     if (!had) delete (globalThis as Record<string, unknown>).localStorage
   }

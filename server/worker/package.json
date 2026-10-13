@@ -1,0 +1,8 @@
+{
+  "name": "omnishell-worker-renderer",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "linkedom": "0.18.4"
+  }
+}
