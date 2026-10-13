@@ -89,7 +89,7 @@ app's `.say.yaml`. Findings are `{severity, path, message}` JSON, and
 ## The subsystems
 
 **The terminal** owns what cannot be federated and mounts units into boxes — a
-compartment for app roles, an iframe or a worker seat for a vendored unit whose
+compartment for app roles, a realm or an agent seat for a vendored unit whose
 answer the terminal parses: [terminal.md](docs/terminal.md).
 
 **Data** reaches a screen as rows; a reduce answers with keyed writes, a refused

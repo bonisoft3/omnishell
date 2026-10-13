@@ -1,3 +1,4 @@
+import { startDeferredBoot } from "../interpreter/deferred-boot.js"
 import { describe, expect, it } from "@test/harness"
 import { parseHTML } from "linkedom"
 import { renderDocument } from "../interpreter/document.js"
@@ -38,6 +39,7 @@ async function rendered(appBase: string, base: string, hints = "") {
 }
 
 function loader(document: ReturnType<typeof parseHTML>["document"]) {
+  Object.defineProperty(document, "baseURI", { value: new URL(document.querySelector("base")!.getAttribute("href")!, "https://reader.test").href });
   let paint!: (list: { getEntriesByName: (name: string) => object[] }, observer: { disconnect: () => void }) => void
   let disconnected = false
   const observer = { disconnect: () => { disconnected = true } }
@@ -45,7 +47,7 @@ function loader(document: ReturnType<typeof parseHTML>["document"]) {
     constructor(callback: typeof paint) { paint = callback }
     observe(options: object) { expect(options).toEqual({ type: "paint", buffered: true }) }
   }
-  new Function("document", "PerformanceObserver", document.querySelector("script")!.textContent!)(document, PerformanceObserver)
+  startDeferredBoot(document, PerformanceObserver)
   return (name: string) => {
     paint({ getEntriesByName: (asked) => asked === name ? [{}] : [] }, observer)
     return disconnected
@@ -58,9 +60,9 @@ describe("a rendered document's hydration preloads", () => {
     // miss the fetch cache and parse modules outside their compartment.
     const document = await rendered("http://renderer.internal/", "/shell/", '<link rel="modulepreload" href="/omnishell/interpreter/screen.js">')
     const paint = loader(document)
-    expect(document.querySelectorAll('link[rel="preload"], link[rel="modulepreload"], script[src]').length).toBe(0)
+    expect(document.querySelectorAll('link[rel="preload"], link[rel="modulepreload"], script[src]:not([data-pronto-boot])').length).toBe(0)
     expect(paint("first-paint")).toBe(false)
-    expect(document.querySelectorAll('link[rel="preload"], link[rel="modulepreload"], script[src]').length).toBe(0)
+    expect(document.querySelectorAll('link[rel="preload"], link[rel="modulepreload"], script[src]:not([data-pronto-boot])').length).toBe(0)
     expect(paint("first-contentful-paint")).toBe(true)
     const fetches = [...document.querySelectorAll('link[rel="preload"][as="fetch"]')]
     expect(fetches.map((link) => link.getAttribute("href"))).toEqual([
@@ -72,7 +74,7 @@ describe("a rendered document's hydration preloads", () => {
     expect(document.querySelector('link[as="style"]')?.hasAttribute("crossorigin")).toBe(false)
     expect([...document.querySelectorAll('link[rel="modulepreload"]')].map((link) => link.getAttribute("href")))
       .toEqual(["/omnishell/interpreter/screen.js"])
-    expect(document.querySelector("script[src]")?.getAttribute("src")).toBe("./boot.js")
+    expect(document.querySelector("script[src]")?.getAttribute("src")).toBe("https://reader.test/shell/boot.js")
     expect(document.querySelector('link[href*="other"]')).toBe(null)
     expect(document.documentElement.outerHTML).not.toContain("renderer.internal")
   })

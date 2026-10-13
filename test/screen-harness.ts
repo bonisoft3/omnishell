@@ -41,6 +41,8 @@ const upsertKey = resolveKey as (
 // the seam below exists.
 await ensureSes();
 
+const ORIGIN = "http://app.test";
+
 /** The console seam every silent failure passes through. Lockdown leaves a
  * frozen console on a writable global, so the seam is a console of its own
  * that forwards everything else to the tamed one. Nothing is collected until a
@@ -104,6 +106,7 @@ export type Route = {
   /** The same path in each declared locale, on a route carrying a slug. */
   paths?: Record<string, string>;
   screen: string;
+  hatches?: string[];
   files: { html: string; css: string; handlers: string[]; renderers?: string[]; adapters?: string[]; shared?: string[] };
   states?: string[];
 };
@@ -115,7 +118,7 @@ export type I18n = { default: string; locales: Record<string, { path: string }> 
  * of it: the columns, what an integer counts where it counts money, and the
  * table a foreign key refers to. */
 export type Schema = Record<string, {
-  fields: { name: string; type: string; money?: { currency: string; minorUnits: number }; ref?: string }[];
+  fields: { name: string; type: string; default?: string | number | boolean | null; money?: { currency: string; minorUnits: number }; ref?: string }[];
 }>;
 
 /** A catalogue per locale. A value is a sentence or a compile-time AST. */
@@ -484,7 +487,14 @@ export type El = {
 
 /** A vendored unit, as shell.yaml declares it and as the interpreter resolves
  * a `data-hatch` name against. */
-export type Unit = { isolation: string; capabilities: string[]; src: string };
+export type Unit = {
+  isolation: string;
+  ports: { reads: string[]; raises: string[] };
+  /** An agent's memo as the terminal performs it: the table, the key and the
+   * columns an answer fills. */
+  memo?: { table: string; key: string[]; columns: string[] };
+  src: string;
+};
 
 type Interpreter = {
   interpretScreen(
@@ -496,6 +506,7 @@ type Interpreter = {
     opts: {
       units: Record<string, Unit>;
       mountUnits: boolean;
+      mountHostDom: boolean;
       messages?: Catalogs;
       locale?: string;
       routes?: Route[];
@@ -522,7 +533,7 @@ async function interpreter(search: string): Promise<Interpreter> {
     return engine;
   }
   knobs = search;
-  global.location = new URL(`http://screen.test/${search}`);
+  global.location = new URL(`${ORIGIN}/${search}`);
   engine = import("../interpreter/screen.js") as unknown as Promise<Interpreter>;
   await engine;
   if (global.__prontoClock === undefined) {
@@ -605,6 +616,8 @@ export type MountSpec = {
    * false: linkedom has neither a Worker nor a frame, and a unit renders
    * nothing and declares no machine, so mounting one adds nothing to a walk. */
   mountUnits?: boolean;
+  hostDom?: Record<string, { src: string; note: string }>;
+  mountHostDom?: boolean;
   messages?: Catalogs;
   locale?: string;
   /** The whole route table, because a link names a route and the binder
@@ -828,7 +841,7 @@ export async function mountScreen(spec: MountSpec): Promise<Mounted> {
   };
   (globalThis as unknown as EventTarget).addEventListener("unhandledrejection", onEscape as EventListener);
 
-  const base = "http://app.test/";
+  const base = `${ORIGIN}/`;
   global.fetch = (url: unknown) => {
     const path = new URL(String(url), base).pathname.replace(/^\//, "");
     const source = spec.files[path];
@@ -860,6 +873,7 @@ export async function mountScreen(spec: MountSpec): Promise<Mounted> {
     if (mount === null) throw new Error("the harness document has no mount");
     handle = await interpretScreen(mount, base, spec.route, store, spec.params ?? {}, screenEnv(spec, {
       mountUnits: spec.mountUnits ?? true,
+      mountHostDom: spec.mountHostDom ?? true,
       messages: spec.messages,
       locale: spec.locale,
       // A case asserts on rendered text, so the zone is the harness's and not
@@ -1072,6 +1086,7 @@ export async function mountApp(
     tables: { ...(await appSeed(spec.appDir)), ...spec.tables },
     cluster: { ...declared, ...spec.cluster },
     units: { ...(await appUnits(spec.appDir)), ...spec.units },
+    hostDom: { ...(await appHostDom(spec.appDir)), ...spec.hostDom },
     schema: spec.schema ?? await appSchema(spec.appDir),
     endowments: spec.endowments ?? await appEndowments(spec.appDir),
   });
@@ -1092,6 +1107,13 @@ export async function appSchema(appDir: URL): Promise<Schema | undefined> {
     schema?: Schema;
   };
   return shell.schema;
+}
+
+export async function appHostDom(appDir: URL): Promise<Record<string, { src: string; note: string }>> {
+  const shell = parseYaml(await Deno.readTextFile(new URL("shell/shell.yaml", appDir))) as {
+    hostDom?: Record<string, { src: string; note: string }>;
+  };
+  return shell.hostDom ?? {};
 }
 
 /** The vendored units an app declares (shell.yaml `units:`), which is what a

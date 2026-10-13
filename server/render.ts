@@ -46,10 +46,10 @@ export type Renderer = {
 export async function warmEagerTables(store: Pick<Store, "query">, cfg: {
   tables: string[];
   schema?: Record<string, { durability?: string }>;
-  sync?: Record<string, string>;
+  read?: Record<string, string>;
 }): Promise<void> {
   await Promise.all(cfg.tables
-    .filter(t => cfg.schema?.[t]?.durability !== "server" && cfg.sync?.[t] !== "on-demand")
+    .filter(t => cfg.schema?.[t]?.durability !== "server" && cfg.read?.[t] !== "lazy")
     .map(t => store.query(t, null, {})));
 }
 
@@ -455,7 +455,7 @@ export async function serve(env: (name: string) => string | undefined = (name) =
     }
     return renderer.handle(req);
   });
-  // Each retained document's subscriptions hold its on-demand views.
+  // Each retained document's subscriptions hold its lazy views.
   await warmEagerTables(store, cfg);
   ready = true;
 }

@@ -87,6 +87,7 @@ export async function renderDocument({
       // Nothing is mounted where nothing runs: a unit's frame or worker
       // belongs to the shell, which mounts it into the screen it takes over.
       mountUnits: false,
+      mountHostDom: false,
       navigate: () => {
         throw new Error("a rendered document navigates by its links");
       },
@@ -102,10 +103,6 @@ export async function renderDocument({
         for (const region of screen.querySelectorAll("[data-live]")) region._prontoEmpty?.remove();
         screen.setAttribute("data-state", "loading");
       }
-      // A screen's own script runs when the shell mounts the screen, against the
-      // catalogue it reads. In a document it would run as the parser reaches it,
-      // before either exists.
-      for (const script of screen.querySelectorAll("script")) script.remove();
 
       if (hasStrip(cfg, servesGuests(cfg))) {
         const nav = drawStrip(doc, cfg);
@@ -233,18 +230,9 @@ function deferBoot(doc) {
   const boot = doc.querySelector("script[type=module][src]");
   if (boot === null) throw new Error("the entry page boots no module");
   const loader = doc.createElement("script");
-  loader.textContent = `new PerformanceObserver((list, observer) => {
-  if (!list.getEntriesByName("first-contentful-paint").length) return;
-  observer.disconnect();
-  for (const attrs of ${JSON.stringify(ahead)}) {
-    const link = document.createElement("link");
-    for (const [name, value] of Object.entries(attrs)) link.setAttribute(name, value);
-    document.head.append(link);
-  }
-  const boot = document.createElement("script");
-  boot.type = "module";
-  boot.src = ${JSON.stringify(boot.getAttribute("src"))};
-  document.body.append(boot);
-}).observe({ type: "paint", buffered: true });`;
+  loader.setAttribute("type", "module");
+  loader.setAttribute("src", "/omnishell/interpreter/deferred-boot.js");
+  loader.setAttribute("data-pronto-boot", boot.getAttribute("src"));
+  loader.setAttribute("data-pronto-preloads", JSON.stringify(ahead));
   boot.replaceWith(loader);
 }

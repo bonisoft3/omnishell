@@ -5,7 +5,7 @@ import type { createStore as CreateStore } from "../interpreter/data-sync.js"
 import { until, withBrowser } from "../interpreter/smoke-browser.js"
 
 Deno.test({
-  name: "retained documents lease their on-demand query until invalidation or eviction",
+  name: "retained documents lease their lazy query until invalidation or eviction",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -43,7 +43,7 @@ Deno.test({
       return Response.json([...changes.splice(0), { headers: { control: "up-to-date", global_last_seen_lsn: String(offset) } }], { headers })
     }
     const cfg = {
-      tables: ["card"], carriers: FIXTURE_CARRIERS, sync: { card: "on-demand" },
+      tables: ["card"], carriers: FIXTURE_CARRIERS, read: { card: "lazy" },
       schema: { card: { durability: "live", fields: [{ name: "id", type: "string" }, { name: "name", type: "string" }] } },
     }
     const online = Object.getOwnPropertyDescriptor(navigator, "onLine")

@@ -766,12 +766,13 @@ export function mounted(cfg, href) {
  * types them — the harness knows its Unit, the shell knows its Route — and this
  * only decides WHICH fields travel, not what they hold.
  *
- * @param {{units?: any, routes?: any, i18n?: any, schema?: any} | undefined} cfg
+ * @param {{hostDom?: any, units?: any, routes?: any, i18n?: any, schema?: any} | undefined} cfg
  * @param {T} [over]
- * @returns {{units: any, routes: any, i18n: any, schema: any} & T}
+ * @returns {{hostDom: any, units: any, routes: any, i18n: any, schema: any} & T}
  */
 export function screenEnv(cfg, over = /** @type {T} */ ({})) {
   return {
+    hostDom: cfg?.hostDom ?? {},
     units: cfg?.units ?? {},
     routes: cfg?.routes,
     i18n: cfg?.i18n,

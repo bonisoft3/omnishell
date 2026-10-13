@@ -12,7 +12,7 @@ async function serve(authenticated = false, automaticGuest = false, promoteTo?: 
       navigator.serviceWorker.register("/offline-first-sw.js");
       createShell({config:"./shell.json",mount:document.getElementById("app"),liveUpdates:true})
         .then(app => { window.appReady = !!app.store; window.navigate = app.navigate; });`],
-    ["shell/shell.json", JSON.stringify({ app: "release", tables: automaticGuest ? ["unused"] : [], sync: { unused: "on-demand" }, ...(authenticated ? { auth: { required: true, service: "/auth", promote: !!promoteTo } } : {}), local: { probe: "tab" }, carriers: FIXTURE_CARRIERS, routes: [
+    ["shell/shell.json", JSON.stringify({ app: "release", tables: automaticGuest ? ["unused"] : [], read: { unused: "lazy" }, ...(authenticated ? { auth: { required: true, service: "/auth", promote: !!promoteTo } } : {}), local: { probe: "tab" }, carriers: FIXTURE_CARRIERS, routes: [
       { path: "/", screen: "home", nav: { label: "Home" }, files: { html: "shell/screens/home.html", css: "shell/screens/home.css", handlers: [] } },
       { path: "/other", screen: "other", nav: { label: "Other" }, files: { html: "shell/screens/other.html", css: "shell/screens/other.css", handlers: [] } },
     ] })],
@@ -22,8 +22,8 @@ async function serve(authenticated = false, automaticGuest = false, promoteTo?: 
     ["shell/screens/home.css", ""],
     ["offline-first-sw.js", await Deno.readTextFile(new URL("../offline-first-sw.js", import.meta.url))],
   ])
-  const modules = ["shell.js", "chrome.js", "screen.js", "fragment.js", "data-sync.js", "validate.js", "render.js",
-    "release-plan.js", "release-assets.js", "preloads.js", "hatch.js", "hatch-worker.js", "storybook.js", "jessie.js",
+  const modules = ["shell.js", "chrome.js", "screen.js", "host-dom.js", "fragment.js", "data-sync.js", "validate.js", "render.js",
+    "release-plan.js", "release-assets.js", "preloads.js", "markup.js", "script-url.js", "deferred-boot.js", "hatch.js", "hatch-worker.js", "storybook.js", "jessie.js",
     "kinetic.js", "prng.js", "vendor/mecha-client.js", "vendor/js-yaml.js", "vendor/ses.umd.min.js", "vendor/morphlex.js", "vendor/messages.js"]
   for (const module of modules) files.set(`omnishell/interpreter/${module}`, await Deno.readTextFile(new URL(`../interpreter/${module}`, import.meta.url)))
   const shell = files.get("omnishell/interpreter/shell.js")!

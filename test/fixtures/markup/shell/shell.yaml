@@ -13,7 +13,9 @@
 # binds. Each of the two carries a money column, so the format rule has both a
 # declaration to resolve and a table to resolve it on. The partial unique on
 # `note` is declared with a predicate this grammar cannot read: it witnesses
-# nothing, and saying so is the schema's own finding.
+# nothing, and saying so is the schema's own finding. `units:` carries one
+# unit whose ports the hatch screen's mounts disagree with on every count,
+# and one raise no mount handles.
 schema:
   note:
     durability: tab
@@ -41,3 +43,9 @@ schema:
 routes:
   - {path: /, screen: sound}
   - {path: /note/:id, screen: detail}
+units:
+  oracle:
+    isolation: agent
+    ports: {reads: [detail], raises: [answer, verdict]}
+    memo: {table: detail, key: [title, body], columns: [title, body]}
+    src: shell/units/oracle.js

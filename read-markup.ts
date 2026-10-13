@@ -191,7 +191,7 @@ export function selfTest(): { failures: string[] } {
   });
 
   // Every route a read can take, each as the store would serve it: pronto's
-  // derive decides which tables load on demand from exactly these.
+  // derive decides which tables are read lazily from exactly these.
   const routed = `<section data-live="game" data-filter="id=eq.{param.id}">` +
     `<ol data-live="goal" data-select="*,player(name)" data-filter="game_id=eq.{id}&limit=5" ` +
     `data-order='{"by":"{sort}","of":{"new":"minute.desc","old":"minute.asc"}}'></ol></section>` +
@@ -222,8 +222,8 @@ export function selfTest(): { failures: string[] } {
   ).reads[0], {
     table: "goal", kind: "live", nested: false, lists: [], route: "server", clauses: [], embeds: ["player", "club", "home_id"], orders: [],
   });
-  // pronto's sync rule keeps a table eager when a view of it is read once per
-  // row of a list, and lets one nested only in slots load on demand: a slot
+  // pronto's read rule keeps a table eager when a view of it is read once per
+  // row of a list, and lets one nested only in slots be read lazily: a slot
   // binds one row, so its nested reads run once. A slot stamped by a list
   // runs once per row all the same, and a named template's read once per row
   // of each list naming it and of the one holding it.
@@ -250,7 +250,7 @@ export function selfTest(): { failures: string[] } {
   ]);
   // Regression: a read in a top-level named template took only the regions
   // naming it, not the lists stamping those, so a player under a game that
-  // pins one row stayed on demand while read once per championship row, where
+  // pins one row stayed lazy while read once per championship row, where
   // the same markup written nested turned it eager.
   const outer = `<ul data-live="championship"><template data-item>`;
   const game = `<ol data-live="game" data-filter="id=eq.{game_id}"`;
@@ -274,7 +274,7 @@ export function selfTest(): { failures: string[] } {
   // Regression: only a data-on-mutation reduce was recorded, but a reduce
   // bound to any DOM event writes the same way (updates put, patch and
   // delete; effects upsert and delete by filter), and so does a drag's
-  // data-handler, so pronto's sync rule left a table on demand that a click
+  // data-handler, so pronto's read rule left a table lazy that a click
   // could write by natural key. A reduce in a named template is wired in each
   // region that stamps the template: each naming it, and the one holding it.
   const reducing = `<template data-item data-name="cell"><li><button data-on-click="mark"></button></li></template>` +

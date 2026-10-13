@@ -46,6 +46,22 @@ machine too.
   (`<type>@<dom-id>`) may be ugly and change at will; one a human writes must
   survive the third case.
 
+## The initial row
+
+The entity owns the row's shape and the defaults of its other columns; a
+chart declaring `context` is refused. `shell.yaml` carries literal defaults
+under `schema.<table>.fields[]`, on each field's `default`: decoded SQL
+quoted strings, numbers, booleans and null. Numeric defaults for `int64` and
+`decimal` use exact canonical strings, as their row values do. SQL expressions
+supply no terminal default.
+
+With no `data-empty-row`, a singleton machine region requires a filter
+pinning `id`. It binds those defaults, overlays the filter's equalities,
+then its `field: initial`. An explicit
+`data-empty-row` is the whole row, resolved against the enclosing row;
+the terminal does not merge defaults into it. The machine's assignments
+then write through the same row path as a reduce.
+
 ## Effects
 
 A callback cannot be verified, rolled back or replayed, so an effect is a
@@ -64,11 +80,10 @@ descriptor whose level says what can be claimed of it
   store methods remain program errors.
 - **A compensable effect draws `refused`**
   ([the lint](../REFERENCE.md#effects)), since a chart deaf to the no has a
-  zombie state by construction. The rule is partial: the interpreter defaults
-  an unlabelled effect to 2 and reads it nowhere, so an unlabelled upsert onto
-  an `offline` or `live` entity ships a chart deaf to the server's no. Reading
-  the level off the effect's entity, whose durability `shell.yaml` carries,
-  would make the rule total.
+  zombie state by construction. The level is read off the effect's entity,
+  whose durability `shell.yaml` carries, so the rule is total: an upsert onto
+  an `offline` or `live` row owes the arrow whatever the chart says of
+  itself, and a chart can say nothing — `effect.level` is not in the grammar.
 
 ## Gestures and cancels
 
@@ -138,8 +153,8 @@ lifecycle cancellation. The terminal takes the middle:
 ## What stays provable
 
 State is relational, modules run under SES with no ambient IO, guards are data
-with literal params, and context is the row, which keeps an SMT reading of a
-chart open: an invariant (`count >= 0`) under any order of clicks and refusals,
+with literal params, and the entity supplies the row, which keeps an SMT
+reading of a chart open: an invariant (`count >= 0`) under any order of clicks and refusals,
 each guard's satisfiability (`UNSAT` is a dead arrow), a candidate list's
 disjointness and coverage. No checker reads a chart this way, so an
 unsatisfiable guard surfaces only as an arrow the walk reports never fired.
@@ -164,7 +179,8 @@ the HTML is the contract the reader touches, run the same however it was made.
   store rejection; dispatching a DOM event would miss that arrow.
 - **Posing** (`test/storybook-battery.ts`, over every app from
   `test/universal-storybook.test.ts`) reaches a state without a transition,
-  since state is a column: seed `{[field]: state, ...context}`, mount under
+  since state is a column: overlay the fixture seed on the entity's defaults,
+  set `[field]: state`, mount under
   `handlers: false`, assert no store write — a story that mutated would drift
   every sibling baseline. Independent regions cost Σ|Sᵢ| frames, not Π|Sᵢ|;
   `includePairwise`, off in that run, pairs only a chart's first two regions,

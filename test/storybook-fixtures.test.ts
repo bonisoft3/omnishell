@@ -6,7 +6,7 @@ describe("storybook fixture values", () => {
     const store = fixtureStore("populated", new Set(), {
       archive_page: {
         fields: [
-          { name: "sort", default: "'1y'", enum: ["1m", "3m", "1y"] },
+          { name: "sort", default: "1y", enum: ["1m", "3m", "1y"] },
           { name: "period", default: "invalid", enum: ["1m", "all"] },
         ],
       },

@@ -1,13 +1,15 @@
 import { describe, expect, it, withPage } from "./harness.ts"
 import { releaseManifest } from "../test/release-fixture.ts"
 
+const policy = (await Deno.readTextFile(new URL("../content-security-policy.txt", import.meta.url))).trim()
+
 async function serve() {
   const files = new Map<string, string>([
     ["shell/index.html", '<!doctype html><html><head><base href="/shell/"><link rel="stylesheet" href="shell.css"></head><body><div id="app"><div class="shell-screen" data-served><section class="screen" data-screen="home"><h1>Release</h1><input name="draft"></section></div></div><script type="module" src="boot.js"></script></body></html>'],
     ["shell/shell.css", "body { --release: A }"],
     ["shell/design.css", ""],
     ["shell/boot.js", `import { createShell } from "/omnishell/interpreter/shell.js";
-      navigator.serviceWorker.register("/offline-first-sw.js");
+      navigator.serviceWorker.register((await import("/omnishell/interpreter/script-url.js")).scriptURL("/offline-first-sw.js"));
       createShell({config:"./shell.json",mount:document.getElementById("app"),liveUpdates:true})
         .then(app => { window.appReady = !!app.store; window.navigate = app.navigate; });`],
     ["shell/shell.json", JSON.stringify({ app: "release", tables: [], routes: [
@@ -18,8 +20,8 @@ async function serve() {
     ["shell/screens/home.css", ""],
     ["offline-first-sw.js", await Deno.readTextFile(new URL("../offline-first-sw.js", import.meta.url))],
   ])
-  const modules = ["shell.js", "chrome.js", "screen.js", "fragment.js", "data-sync.js", "validate.js", "render.js",
-    "release-plan.js", "release-assets.js", "preloads.js", "hatch.js", "hatch-worker.js", "storybook.js", "jessie.js",
+  const modules = ["shell.js", "chrome.js", "screen.js", "host-dom.js", "fragment.js", "data-sync.js", "validate.js", "render.js",
+    "release-plan.js", "release-assets.js", "preloads.js", "markup.js", "script-url.js", "deferred-boot.js", "hatch.js", "hatch-worker.js", "storybook.js", "jessie.js",
     "kinetic.js", "prng.js", "vendor/mecha-client.js", "vendor/js-yaml.js", "vendor/ses.umd.min.js", "vendor/morphlex.js", "vendor/messages.js"]
   for (const module of modules) files.set(`omnishell/interpreter/${module}`, await Deno.readTextFile(new URL(`../interpreter/${module}`, import.meta.url)))
   const shell = files.get("omnishell/interpreter/shell.js")!
@@ -36,7 +38,7 @@ async function serve() {
     const file = files.get(path) ?? (!path || path === "other" ? files.get("shell/index.html") : undefined)
     if (file === undefined) return new Response("missing", { status: 404 })
     const type = path.endsWith(".js") ? "text/javascript" : path.endsWith(".css") ? "text/css" : path.endsWith(".json") ? "application/json" : "text/html"
-    return new Response(file, { headers: { "Content-Type": type, "Cache-Control": "no-cache" } })
+    return new Response(file, { headers: { "Content-Type": type, "Cache-Control": "no-cache", "Content-Security-Policy": policy } })
   })
   return {
     base: `http://localhost:${(server.addr as Deno.NetAddr).port}`,
@@ -83,6 +85,9 @@ describe("verified release restart", () => {
           return startupReleaseId()
         })).toBe(id)
         expect(await page.locator("input").inputValue()).toBe("recover me")
+        expect(await page.evaluate(() => {
+          try { document.body.innerHTML = "<p>untrusted</p>"; return false } catch { return true }
+        })).toBe(true)
         expect(await page.evaluate(() => getComputedStyle(document.body).getPropertyValue("--release").trim())).toBe("B")
         expect(await other.evaluate(() => (window as any).runtimeRelease)).toBe("A")
         expect(await other.evaluate(async () => (await (await fetch("/omnishell/interpreter/shell.js")).text()).startsWith('globalThis.runtimeRelease = "A"'))).toBe(true)

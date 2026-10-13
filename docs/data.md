@@ -37,10 +37,10 @@ so no writer knows a region changed; the renderer does, having just applied the
 rows. Elm's one funnel knows what it changed and needs no hook; here the
 transition has to be published and its cycles bounded.
 
-## A table synced on demand
+## A table read lazily
 
-`shell.yaml`'s `sync` names the tables pronto derived as on demand
-([screens](../../pronto/docs/screens.md#the-reads-decide-how-a-table-syncs)).
+`shell.yaml`'s `read` names the tables pronto derived as lazy
+([screens](../../pronto/docs/screens.md#the-reads-decide-how-a-table-is-read)).
 The store passes the mode to mecha's client, which opens the shape from now and
 loads each maintained view's rows, and its embeds' by key, as subset
 snapshots. These rules follow from a collection that holds only what its views
@@ -91,7 +91,7 @@ asked for:
   garbage collection. Releasing a view need not evict cached source rows.
 - **Incidental whole reads outside queries are refused.** A validation,
   visibility rule or fold's projection raises a `ProgramError` naming the
-  site (`whole` in `data-sync.js`) when it meets an on-demand table. Pronto's
+  site (`whole` in `data-sync.js`) when it meets a lazy table. Pronto's
   rule keeps such a table eager, so one raised is a drift between the two.
 - **Opaque mutations demand completeness before writing.** A reducer's keyed
   put, natural-key upsert or filtered delete loads all visible rows before

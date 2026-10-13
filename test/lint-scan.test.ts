@@ -31,13 +31,13 @@ describe("comment stripping", () => {
 // side pins that the walker's decode hands the authored JSON back, so a
 // label carrying the delimiting quote survives the whole trip.
 describe("single-quoted attribute entities", () => {
-  const esc = '{"field":"f","initial":"x","states":{"x":{}},"context":{"label":"d&#39;or &amp; friends"}}'
+  const esc = '{"field":"f","initial":"x","states":{"x":{"on":{"click":{"assign":{"label":"d&#39;or &amp; friends"}}}}}}'
   const html = `<div data-live="prefs" data-filter="id=eq.the" data-machine='${esc}'></div>`
 
   it("decodes &#39; and &amp; back to the authored JSON", () => {
     const regions = machineRegions(html)
     expect(regions.length).toEqual(1)
     const parsed = JSON.parse(regions[0].machine)
-    expect(parsed.context.label).toEqual("d'or & friends")
+    expect(parsed.states.x.on.click.assign.label).toEqual("d'or & friends")
   })
 })

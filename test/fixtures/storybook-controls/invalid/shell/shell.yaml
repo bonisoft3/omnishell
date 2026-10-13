@@ -1,0 +1,12 @@
+app: control
+schema:
+  preference:
+    durability: tab
+    fields:
+      - {name: id, type: string, pk: true}
+      - {name: sort, type: string, default: unknown, enum: [name, date]}
+  entry:
+    durability: tab
+    fields:
+      - {name: id, type: string, pk: true}
+      - {name: label, type: string}

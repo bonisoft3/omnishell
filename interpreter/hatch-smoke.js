@@ -1,12 +1,13 @@
 import { batched } from "./batched-store.js";
-// Deno smoke: the terminal's hatch — a vendored unit in a sandboxed
-// iframe, props in and named events out. The frame is driven through a stub
+import { ProgramError } from "./fragment.js";
+// Deno smoke: the terminal's hatch — a vendored unit in the realm seat, a
+// sandboxed iframe, props in and named events out. The frame is driven through a stub
 // contentWindow: linkedom has no
 // browsing context, and the bridge reads contentWindow per message precisely
 // so a navigated (or stubbed) frame is the one that gets answered.
 import { parseHTML } from "npm:linkedom@0.18.4";
 
-const UNIT = { isolation: "iframe", capabilities: [], src: "shell/units/embed.html", note: "oEmbed host" };
+const UNIT = { isolation: "realm", ports: { reads: ["article"], raises: ["answer", "select"] }, src: "shell/units/embed.html", note: "oEmbed host" };
 
 const SCREEN_HTML = `<section class="screen" data-screen="article">
   <article data-live="article" data-order="created_at.desc" data-on-answer="shadow">
@@ -189,11 +190,14 @@ Deno.test("props wait for ready, coalesce, and re-deliver idempotently", async (
 
 Deno.test("a unit the terminal cannot honour fails loudly", async () => {
   const { mountHatch } = await import("./hatch.js");
+  // As a ProgramError: the mount runs inside the region's refresh, whose
+  // outage guard retries anything else as a dead gateway.
   const refuses = (unit, src, why) => {
     const { target } = dom();
     try {
       mountHatch(target, { unit, src });
-    } catch {
+    } catch (e) {
+      assert(e instanceof ProgramError, `${why}: refused as the app's bug, got ${e}`);
       return;
     }
     throw new Error(`smoke failed: mounted anyway — ${why}`);
@@ -201,10 +205,12 @@ Deno.test("a unit the terminal cannot honour fails loudly", async () => {
   // The schema offers three isolation boundaries; the terminal implements two.
   // Quietly substituting a different boundary is the failure worth refusing.
   refuses({ ...UNIT, isolation: "compartment" }, "https://a.example/u.html", "compartment isolation");
-  // An opaque-origin frame is granted nothing, so answering a capability
-  // request with silence would hand the app a unit that cannot do its job.
-  refuses({ ...UNIT, capabilities: ["sensors.camera"] }, "https://a.example/u.html", "camera capability");
+  // A unit touches the app through its ports alone; one declaring none has
+  // no channel the terminal could hold it to.
+  refuses({ ...UNIT, ports: undefined }, "https://a.example/u.html", "no ports");
   refuses(UNIT, "javascript:alert(1)", "javascript: src");
+  // An event outside the unit's raises is refused at the seat both boundaries
+  // share; worker-smoke.js holds it, where the port delivers synchronously.
 });
 
 Deno.test({
@@ -284,5 +290,25 @@ Deno.test({
       .catch((e) => (threw = e));
     assert(threw !== null, "an undeclared unit is refused");
     assert(String(threw.message).includes('data-hatch="embed"'), `the error names the unit, got ${threw?.message}`);
+
+    // The ports, held at the mount: the mount sits in the article region and
+    // handles `answer`, so a unit reading another table, or raising another
+    // name, is refused there — as a ProgramError, since the mount runs inside
+    // the region's refresh, where anything else is dressed as a dead gateway
+    // and retried.
+    const refusedWith = async (units, phrase) => {
+      const fresh = parseHTML("<!doctype html><html><body><div id=shell></div></body></html>");
+      globalThis.document = fresh.document;
+      let err = null;
+      try {
+        await interpretScreen(fresh.document.getElementById("shell"), base, ROUTE, store, {}, { units });
+        await tick();
+      } catch (e) {
+        err = e;
+      }
+      assert(err !== null && String(err.message).includes(phrase), `refused with ${phrase}, got ${err?.message}`);
+    };
+    await refusedWith({ embed: { ...UNIT, ports: { reads: ["comment"], raises: UNIT.ports.raises } } }, 'is fed the row of "article"');
+    await refusedWith({ embed: { ...UNIT, ports: { reads: ["article"], raises: ["select"] } } }, 'handles "answer"');
   },
 });

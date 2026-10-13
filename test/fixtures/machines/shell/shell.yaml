@@ -45,6 +45,11 @@ local:
   nodes:
     - {}
 schema:
+  toggle:
+    fields:
+      - {name: id, type: string}
+      - {name: state, type: string}
+      - {name: title, type: string, default: Draft}
   bare:
     fields:
       - {name: id, type: string}

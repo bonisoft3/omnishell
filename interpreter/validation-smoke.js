@@ -17,7 +17,7 @@ const config = (src) => ({
   seed: { article: [{ id: "a1", author_id: "u1" }, { id: "a2", author_id: "u2" }] },
   validations: {
     favorite: {
-      "own-article": { src, edges: [{ table: "article", key: "id", from: "article_id" }] },
+      "own-article": { src, on: ["insert", "update"], order: {insert: [0, 0], update: [0, 0]}, edges: [{ table: "article", key: "id", from: "article_id" }] },
     },
   },
 });
@@ -249,6 +249,53 @@ Deno.test({
       const err = await refusal(store.add("favorite", [{ id: "f1", article_id: "a2", user_id: "u1" }]));
       assert(err !== null && err.name !== "NonRetriableError", `a non-boolean is thrown as a program error, got ${err?.name}`);
       assert(/answered string/.test(err.message), `the error says what was answered, got ${err.message}`);
+    });
+  },
+});
+
+Deno.test({
+  name: "delete guards see the old row and refuse the whole local batch before mutation",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const src = "shell/validations/delete.js";
+    serve({ [src]: `(state, event) => event.type === "delete" && state.items.length === 1 && state.items[0].id === event.row.id && event.row.user_id !== "blocked";` });
+    await withBrowser({}, async createStore => {
+      const cfg = config(src);
+      cfg.validations.favorite["own-article"].on = ["delete"];
+      cfg.validations.favorite["own-article"].order = {delete: [0, 0]};
+      const store = createStore("", cfg);
+      await store.add("favorite", [
+        { id: "f1", article_id: "a1", user_id: "ok" },
+        { id: "f2", article_id: "a1", user_id: "blocked" },
+      ]);
+      const err = await refusal(store.drop("favorite", ["f1", "f2"]));
+      assert(err?.validation === "own-article", `expected named delete refusal, got ${err}`);
+      assert((await store.query("favorite", null, {})).length === 2, "batch partially deleted before the guard refused");
+      await store.drop("favorite", ["f1"]);
+      const rows = await store.query("favorite", null, {});
+      assert(rows.length === 1 && rows[0].id === "f2", "the accepted delete did not remove exactly its row");
+    });
+  },
+});
+
+Deno.test({
+  name: "browser refusal order follows the compiled lifecycle order, not declaration order",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const src = "shell/validations/no.js";
+    serve({ [src]: "() => false" });
+    await withBrowser({}, async createStore => {
+      const cfg = config(src);
+      cfg.validations.favorite = {
+        firstDeclared: {src, on: ["insert"], order: {insert: [1, 0]}, edges: []},
+        laterTransitionGuard: {src, on: ["insert"], order: {insert: [0, 1]}, edges: []},
+        firstTransitionGuard: {src, on: ["insert"], order: {insert: [0, 0]}, edges: []},
+      };
+      const store = createStore("", cfg);
+      const error = await refusal(store.add("favorite", [{id: "f", article_id: "a1", user_id: "u"}]));
+      assert(error?.validation === "firstTransitionGuard", `wrong first refusal: ${error?.validation}`);
     });
   },
 });

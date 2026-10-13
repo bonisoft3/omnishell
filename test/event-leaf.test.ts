@@ -98,7 +98,6 @@ describe("a machine's control", () => {
     const chart = JSON.stringify({
       field: "state",
       initial: "idle",
-      context: { term: "" },
       states: { idle: { on: {
         "input@box": { assign: { term: { type: "event", params: { field: "value" } } } },
         "click@clear": { assign: { term: "" } },
@@ -113,7 +112,7 @@ describe("a machine's control", () => {
       </section>`,
       "find.css": "",
     }
-    const m = await mountScreen({ route: ROUTE, files, tables: world(), seed: 1 })
+    const m = await mountScreen({ route: ROUTE, files, tables: world(), seed: 1, schema: { search: { fields: [{ name: "term", type: "string", default: "" }] } } })
     await m.settle()
     m.set("#box", "value", "golaço")
     m.fire("#box", "input")

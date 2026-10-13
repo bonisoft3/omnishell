@@ -55,6 +55,7 @@ type Route = {
   nav?: { label: string; key?: string; strip?: boolean };
   files: { html: string; css: string; handlers?: string[]; shared?: string[] };
   states?: string[];
+  hatches?: string[];
 };
 
 type I18n = { default: string; locales: Record<string, { path: string }> };
@@ -70,6 +71,7 @@ type ShellConfig = {
   tables?: string[];
   routes?: Route[];
   units?: Record<string, unknown>;
+  hostDom?: Record<string, { src: string; note: string }>;
   // Passed through to every mount rather than read here: a value format
   // resolves a column's declaration in it.
   schema?: Record<string, unknown>;
@@ -651,6 +653,7 @@ export async function checkMemoryApp(
           // A money binding resolves its currency and its scale off the bound
           // column, so a screen carrying one renders only where the schema does.
           schema: shell.schema,
+          hostDom: shell.hostDom,
         });
       } catch (err) {
         findings.push({
@@ -962,6 +965,7 @@ export async function checkPseudoLocale(
           routes,
           i18n: view,
           schema: shell.schema,
+          hostDom: shell.hostDom,
         });
       } catch (err) {
         findings.push({
@@ -1060,6 +1064,21 @@ export async function selfTest(): Promise<{ failures: string[] }> {
   const cleanFindings = await checkMemoryApp(baseShell, baseMessages, cleanFiles);
   if (cleanFindings.length !== 0) {
     failures.push(`clean app expected 0 findings, got ${JSON.stringify(cleanFindings)}`);
+  }
+
+  const hostShell: ShellConfig = {
+    ...baseShell,
+    hostDom: { trusted: { src: "shell/hatches/trusted.js", note: "host-owned presenter" } },
+    routes: baseShell.routes!.map(route => ({ ...route, hatches: ["trusted"] })),
+  };
+  // Fixtures must resolve the declaration without importing its module.
+  for (const check of [checkMemoryApp, checkPseudoLocale]) {
+    const findings = await check(hostShell, baseMessages, cleanFiles);
+    if (findings.length) failures.push(`declared inert host-DOM hatch: ${JSON.stringify(findings)}`);
+    const missing = await check({ ...hostShell, hostDom: {} }, baseMessages, cleanFiles);
+    if (!missing.some(f => f.message.includes("undeclared host-DOM hatch"))) {
+      failures.push("fixture accepted an undeclared host-DOM hatch");
+    }
   }
 
   // Case 2: Catches un-interpolated placeholder in text node
