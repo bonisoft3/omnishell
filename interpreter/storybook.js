@@ -8,7 +8,7 @@
 // including dotted paths, which the interpreter's lookup probes as whole
 // keys against the total `has` — synthesizing from the leaf segment.
 
-import { screenEnv } from "./fragment.js";
+import { parseLimit, screenEnv } from "./fragment.js";
 import { interpretScreen } from "./screen.js";
 
 function fixture(field, i, state, counted, fields = []) {
@@ -47,8 +47,7 @@ export function fixtureStore(state, counted = new Set(), schema = {}) {
     throw new Error("storybook is read-only");
   };
   return {
-    // Same signature as the cluster store; filter/select opts are ignored —
-    // fixtures answer any shape.
+    // Predicates and selects do not constrain synthesized fixture values.
     //
     // The empty state is asked first, singleton or not: a region reading one
     // row is still reading none when there is none. What stands in its place
@@ -56,11 +55,8 @@ export function fixtureStore(state, counted = new Set(), schema = {}) {
     // sees, and the whole of what a prerendered document offers a crawler.
     query: async (table, _order, opts) => {
       const fields = schema?.[table]?.fields ?? [];
-      return empty
-        ? []
-        : opts?.singleton
-        ? [row(0, state, counted, fields)]
-        : [0, 1, 2].map((i) => row(i, state, counted, fields));
+      const count = empty ? 0 : Math.min(opts?.singleton ? 1 : 3, parseLimit(opts?.filter) ?? Infinity);
+      return Array.from({ length: count }, (_, i) => row(i, state, counted, fields));
     },
     subscribe: () => () => {},
     create: reject,

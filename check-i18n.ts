@@ -591,6 +591,24 @@ function mountDocument() {
   return document;
 }
 
+export function* inspectedElements(root: Element, formatted = false): Generator<Element> {
+  const excluded = 'script, style, [translate="no"]' + (formatted ? ", [data-text-format]" : "");
+  if (root.closest(excluded)) return;
+  let el: Element | null = root.firstElementChild;
+  while (el !== null) {
+    if (el.tagName !== "SCRIPT" && el.tagName !== "STYLE" && !el.matches(excluded)) {
+      yield el;
+      if (el.tagName !== "TEMPLATE" && el.firstElementChild !== null) {
+        el = el.firstElementChild;
+        continue;
+      }
+    }
+    while (el !== root && el.nextElementSibling === null) el = el.parentElement!;
+    if (el === root) return;
+    el = el.nextElementSibling;
+  }
+}
+
 export async function checkMemoryApp(
   shell: ShellConfig,
   messages: Record<string, Catalog>,
@@ -671,10 +689,7 @@ export async function checkMemoryApp(
         const frame = fig.querySelector(".frame");
         if (!frame) continue;
 
-        for (const el of frame.querySelectorAll("*")) {
-          if (el.tagName === "SCRIPT" || el.tagName === "STYLE" || el.closest("script, style")) continue;
-          if (el.closest('[translate="no"]')) continue;
-
+        for (const el of inspectedElements(frame)) {
           // 1. Exact catalog binding match on data-text="{msg.<key>}"
           const dt = el.getAttribute("data-text");
           if (dt && dt.startsWith("{msg.") && dt.endsWith("}")) {
@@ -998,14 +1013,8 @@ export async function checkPseudoLocale(
           });
         }
 
-        for (const el of frame.querySelectorAll("*")) {
-          if (el.tagName === "SCRIPT" || el.tagName === "STYLE" || el.closest("script, style")) continue;
-          if (el.closest('[translate="no"]')) continue;
-          // Intl formats a date or an amount under the pseudo tag's base
-          // language, so its output is correctly undecorated: "Aug 2, 09:00" is
-          // not a string anybody translates.
-          if (el.closest("[data-text-format]")) continue;
-
+        // Intl output belongs to the pseudo locale's base language.
+        for (const el of inspectedElements(frame, true)) {
           const plain = (where: string, value: string) => {
             const val = value.trim();
             if (val === "" || val.includes(OPEN) || SYNTHETIC.test(val)) return;
