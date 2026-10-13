@@ -15,12 +15,13 @@ import { parseMarkup } from "./markup.js";
 // service exists to sign against.
 
 import { chromeText, describe, drawStrip, guestBox, hasStrip, localizeStrip } from "./chrome.js";
-import { localeByPath, localeTable, ProgramError, resolveLocale, routeHref, routePattern, screenEnv, Unanswered } from "./fragment.js";
+import { localeAt, localeTable, ProgramError, routeAt, routeHref, screenEnv, Unanswered } from "./fragment.js";
 import { fetchText, interpretScreen, prefetchScreen, templateHash, submitsOnChange } from "./screen.js";
 import { compileCatalog } from "./vendor/messages.js";
 import { planRelease } from "./release-plan.js";
 import { activateRelease, fetchRelease, prepareRestartRelease, readAsset, startupReleaseId } from "./release-assets.js";
-import { preloadScreen } from "./preloads.js";
+export { routeAt } from "./fragment.js";
+import { assetURL, preloadScreen } from "./preloads.js";
 
 const recoveryKey = "pronto-live-update-recovery";
 const sessionOwner = (session) => {
@@ -348,89 +349,6 @@ function renderSession(session, cfg, store, signOut, chrome, served = null) {
   return box;
 }
 
-// Route patterns may contain :name segments, each matching exactly one
-// non-empty path segment; matched values arrive decoded as route params. The
-// query string is folded in under its own names, so `?q=x` reaches a screen as
-// {param.q}.
-function matchRoute(pattern, path) {
-  const [cleanPath, queryString] = path.split("?");
-  const ps = pattern.split("/");
-  const xs = cleanPath.split("/");
-  if (ps.length !== xs.length) return null;
-  const params = {};
-  // The query is read FIRST so the pattern's own captures land over it: a
-  // :param is part of the address and a query is what rode along beside it, so
-  // /note/7?id=9 is note 7. Refusing the pair instead would let any pasted URL
-  // take the screen down, which is not a visitor's to do.
-  if (queryString) {
-    for (const [k, v] of new URLSearchParams(queryString)) if (k !== "pronto-release") params[k] = v;
-  }
-  for (let i = 0; i < ps.length; i++) {
-    if (ps[i].startsWith(":") && xs[i]) params[ps[i].slice(1)] = decodeURIComponent(xs[i]);
-    else if (ps[i] !== xs[i]) return null;
-  }
-  return params;
-}
-
-/** An address without the path the app is mounted under, where it is mounted
- * under one (cfg.prefix): a project site serves it at /<repo>/, and the routes
- * are written from the root. routeHref puts the prefix back. */
-function unprefixed(cfg, pathname) {
-  const prefix = cfg.prefix ?? "";
-  if (prefix === "" || pathname === prefix) return prefix === "" ? pathname : "/";
-  return pathname.startsWith(`${prefix}/`) ? pathname.slice(prefix.length) : pathname;
-}
-
-/** The language an address is in, and what is left of it once a locale prefix
- * is taken off. Separate from routeAt because the chrome is drawn before any
- * route is mounted — the gate, the strip — and has to ask the same resolution
- * order: a second order is how an address and a screen come to disagree. */
-function localeAt(cfg, pathname, search, preferred) {
-  // Segment -> tag, so the first segment is asked of a map rather than guessed
-  // from the shape of the word: anything the app does not declare is already a
-  // slug of the default language.
-  const byPath = localeByPath(cfg.i18n);
-  const [, first, ...rest] = unprefixed(cfg, pathname).split("/");
-  const prefixed = Object.hasOwn(byPath, first);
-  const path = prefixed ? byPath[first] : undefined;
-  const query = new URLSearchParams(search).get("lang") ?? undefined;
-  return {
-    rel: prefixed ? `/${rest.join("/")}` : unprefixed(cfg, pathname),
-    path,
-    query,
-    // One resolver, so a row and an address cannot disagree about the language
-    // a screen is in. navigator.languages is the browser's Accept-Language,
-    // and loses to anything the reader was handed.
-    locale: resolveLocale(cfg.i18n, { path, query, preferred }),
-    // The language the ADDRESS is written in, which only the prefix decides:
-    // /regras is Portuguese whatever ?lang= asks for, and the ask is honoured
-    // by redirecting to /es/reglas rather than by matching it here.
-    written: path ?? cfg.i18n?.default,
-  };
-}
-
-/** What an address says, or null where it names no screen. The locale is part
- * of the answer: the first render is then correct rather than corrected, and
- * the screen never discovers its own language. `preferred` is the browser's
- * Accept-Language, passed in so this function decides nothing from ambient
- * state and can be asked about an address the terminal is not at. */
-export function routeAt(cfg, pathname, search, preferred) {
-  const { rel, path, query, locale, written } = localeAt(cfg, pathname, search, preferred);
-  for (const r of cfg.routes) {
-    const params = matchRoute(routePattern(r, written), rel + search);
-    if (params === null) continue;
-    // `lang` is the wire's name for a locale and dies at this boundary;
-    // `locale` is the model's. It is set only where the ADDRESS decided — a
-    // prefix, or a ?lang= naming a locale the app declares — which is what
-    // leaves a row free to decide on a plain route, and what keeps an app
-    // declaring no locales at all from carrying the key.
-    delete params.lang;
-    if (path !== undefined || (query !== undefined && locale === query)) params.locale = locale;
-    return { route: r, params, locale, written };
-  }
-  return null;
-}
-
 /** The app's catalogues, keyed by tag, fetched one locale at a time: a reader
  * is in one language, and the five they are not in cost a page its first paint
  * on a slow link. `ensure` answers once the locale's file has been asked for,
@@ -464,7 +382,7 @@ function catalogues(appBase, i18n, release = false) {
   const load = async (loc, init) => {
     if (release) take(loc, await readAsset(urlOf(loc)));
     else {
-      const res = await fetch(urlOf(loc), init);
+      const res = await fetch(assetURL(urlOf(loc)), init);
       if (res.ok) take(loc, await res.text());
     }
     answered.add(loc);
@@ -679,6 +597,9 @@ export async function createShell({ config, mount, liveUpdates = false, preload 
     let hear = null;
     let words = null;
     globalThis.navigator?.serviceWorker?.addEventListener("message", (e) => {
+      // Another tab may revalidate canonical files from a newer deploy. This
+      // document's import map keeps its templates, roles and catalogues together.
+      if (document.getElementById("pronto-assets")) return;
       const type = e.data?.type;
       // One announced before the catalogue is first asked for has nothing to
       // replace: the request is answered from the worker's copy, this one.
@@ -987,6 +908,7 @@ export async function createShell({ config, mount, liveUpdates = false, preload 
         if (canonical !== undefined) restate(canonical);
         ({ route, params, locale, written } = currentRoute());
       }
+      if (preload && !liveUpdates) preloadScreen(document, appBase, route);
       if (!answered(locale)) {
         await ensureMessages(locale);
         if (turn !== showing) return;

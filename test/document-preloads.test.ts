@@ -2,7 +2,7 @@ import { startDeferredBoot } from "../interpreter/deferred-boot.js"
 import { describe, expect, it } from "@test/harness"
 import { parseHTML } from "linkedom"
 import { renderDocument } from "../interpreter/document.js"
-import { preloadScreen } from "../interpreter/preloads.js"
+import { assetURL, preloadScreen } from "../interpreter/preloads.js"
 
 const files = {
   html: "shell/screens/home.html",
@@ -55,6 +55,26 @@ function loader(document: ReturnType<typeof parseHTML>["document"]) {
 }
 
 describe("a rendered document's hydration preloads", () => {
+  it("uses one release map for navigation preloads and screen fetches while retaining canonical role names", () => {
+    const imports = Object.fromEntries(Object.values(files).flat().map(path => {
+      const canonical = new URL(path, "https://reader.test/").pathname
+      return [canonical, canonical.replace(/([^/]+)$/, "_immutable-abc-$1")]
+    }))
+    const { document } = parseHTML(`<html><head><base href="/shell/"><script type="importmap" id="pronto-assets">${JSON.stringify({ imports })}</script></head></html>`)
+    Object.defineProperty(document, "baseURI", { value: "https://reader.test/shell/" })
+    preloadScreen(document, "https://reader.test/", route)
+    preloadScreen(document, "https://reader.test/", route)
+    const hints = [...document.querySelectorAll('link[rel="preload"]')].map(link => link.getAttribute("href"))
+    expect(hints.length).toBe(Object.keys(imports).length)
+    for (const [canonical, hashed] of Object.entries(imports)) {
+      expect(hints).toContain(hashed)
+      expect(assetURL(new URL(canonical, "https://reader.test"), document).pathname).toBe(hashed)
+      expect(assetURL(canonical, document).pathname).toBe(hashed)
+      expect(assetURL(new URL(canonical, "https://external.test"), document).pathname).toBe(canonical)
+    }
+    expect(assetURL("handlers/save.js", document).pathname).toBe(imports["/shell/handlers/save.js"])
+    expect(route.files.handlers[0]).toBe("shell/handlers/save.js")
+  })
   it("starts only this screen's fetches and styles together after its first contentful paint", async () => {
     // Jessie is fetched as source, not imported: modulepreload would both
     // miss the fetch cache and parse modules outside their compartment.

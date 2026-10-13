@@ -27,8 +27,10 @@ import { evaluateRole } from "./jessie.js";
 import { hostDomScreen } from "./host-dom.js";
 import { releaseReader } from "./release-assets.js";
 
+import { assetURL } from "./preloads.js";
+
 export async function fetchText(url, init) {
-  const res = await fetch(url, init).catch((err) => {
+  const res = await fetch(assetURL(url), init).catch((err) => {
     // fetch rejects with a TypeError when no answer arrived at all.
     throw err instanceof TypeError ? new Unanswered(`nothing answered ${url}: ${err.message}`, { cause: err }) : err;
   });

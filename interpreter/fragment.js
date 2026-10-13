@@ -782,3 +782,87 @@ export function screenEnv(cfg, over = /** @type {T} */ ({})) {
     ...over,
   };
 }
+
+
+// Route patterns may contain :name segments, each matching exactly one
+// non-empty path segment; matched values arrive decoded as route params. The
+// query string is folded in under its own names, so `?q=x` reaches a screen as
+// {param.q}.
+function matchRoute(pattern, path) {
+  const [cleanPath, queryString] = path.split("?");
+  const ps = pattern.split("/");
+  const xs = cleanPath.split("/");
+  if (ps.length !== xs.length) return null;
+  const params = {};
+  // The query is read FIRST so the pattern's own captures land over it: a
+  // :param is part of the address and a query is what rode along beside it, so
+  // /note/7?id=9 is note 7. Refusing the pair instead would let any pasted URL
+  // take the screen down, which is not a visitor's to do.
+  if (queryString) {
+    for (const [k, v] of new URLSearchParams(queryString)) if (k !== "pronto-release") params[k] = v;
+  }
+  for (let i = 0; i < ps.length; i++) {
+    if (ps[i].startsWith(":") && xs[i]) params[ps[i].slice(1)] = decodeURIComponent(xs[i]);
+    else if (ps[i] !== xs[i]) return null;
+  }
+  return params;
+}
+
+/** An address without the path the app is mounted under, where it is mounted
+ * under one (cfg.prefix): a project site serves it at /<repo>/, and the routes
+ * are written from the root. routeHref puts the prefix back. */
+function unprefixed(cfg, pathname) {
+  const prefix = cfg.prefix ?? "";
+  if (prefix === "" || pathname === prefix) return prefix === "" ? pathname : "/";
+  return pathname.startsWith(`${prefix}/`) ? pathname.slice(prefix.length) : pathname;
+}
+
+/** The language an address is in, and what is left of it once a locale prefix
+ * is taken off. Separate from routeAt because the chrome is drawn before any
+ * route is mounted — the gate, the strip — and has to ask the same resolution
+ * order: a second order is how an address and a screen come to disagree. */
+export function localeAt(cfg, pathname, search, preferred) {
+  // Segment -> tag, so the first segment is asked of a map rather than guessed
+  // from the shape of the word: anything the app does not declare is already a
+  // slug of the default language.
+  const byPath = localeByPath(cfg.i18n);
+  const [, first, ...rest] = unprefixed(cfg, pathname).split("/");
+  const prefixed = Object.hasOwn(byPath, first);
+  const path = prefixed ? byPath[first] : undefined;
+  const query = new URLSearchParams(search).get("lang") ?? undefined;
+  return {
+    rel: prefixed ? `/${rest.join("/")}` : unprefixed(cfg, pathname),
+    path,
+    query,
+    // One resolver, so a row and an address cannot disagree about the language
+    // a screen is in. navigator.languages is the browser's Accept-Language,
+    // and loses to anything the reader was handed.
+    locale: resolveLocale(cfg.i18n, { path, query, preferred }),
+    // The language the ADDRESS is written in, which only the prefix decides:
+    // /regras is Portuguese whatever ?lang= asks for, and the ask is honoured
+    // by redirecting to /es/reglas rather than by matching it here.
+    written: path ?? cfg.i18n?.default,
+  };
+}
+
+/** What an address says, or null where it names no screen. The locale is part
+ * of the answer: the first render is then correct rather than corrected, and
+ * the screen never discovers its own language. `preferred` is the browser's
+ * Accept-Language, passed in so this function decides nothing from ambient
+ * state and can be asked about an address the terminal is not at. */
+export function routeAt(cfg, pathname, search, preferred) {
+  const { rel, path, query, locale, written } = localeAt(cfg, pathname, search, preferred);
+  for (const r of cfg.routes) {
+    const params = matchRoute(routePattern(r, written), rel + search);
+    if (params === null) continue;
+    // `lang` is the wire's name for a locale and dies at this boundary;
+    // `locale` is the model's. It is set only where the ADDRESS decided — a
+    // prefix, or a ?lang= naming a locale the app declares — which is what
+    // leaves a row free to decide on a plain route, and what keeps an app
+    // declaring no locales at all from carrying the key.
+    delete params.lang;
+    if (path !== undefined || (query !== undefined && locale === query)) params.locale = locale;
+    return { route: r, params, locale, written };
+  }
+  return null;
+}
