@@ -26,13 +26,15 @@ function prepareEval() {
 }
 
 let sesReady;
-export function ensureSes() {
+// Single-file releases supply their compiled SES installer; the same policy
+// window owns both that installation and the ordinary module load.
+export function ensureSes(install = () => import(SES_URL)) {
   return (sesReady ??= (async () => {
+    prepareEval();
     if (!globalThis.Compartment) {
-      prepareEval();
       evaluating++;
       try {
-        await import(SES_URL);
+        await install();
       } finally {
         evaluating--;
       }

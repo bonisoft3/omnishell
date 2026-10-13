@@ -7,6 +7,7 @@ function serve() {
   const stop = new AbortController();
   const server = Deno.serve({ port: 0, signal: stop.signal, onListen() {} }, async (req) => {
     const path = new URL(req.url).pathname;
+    if (path === "/bundled-ses.js") return new Response(`export function installSes() {\n${await Deno.readTextFile(new URL("interpreter/vendor/ses.umd.min.js", root))}\n}`, { headers: { "content-type": "text/javascript" } });
     if (path === "/shell/screens/probe.html") return new Response('<section data-screen="probe"><button id="probe">Count</button></section>');
     if (path === "/shell/screens/probe.css") return new Response("");
     if (path === "/shell/hatches/probe.js") return new Response(`
@@ -28,6 +29,27 @@ function serve() {
 }
 
 describe("the terminal content security boundary", () => {
+  it("a compiled SES installer uses the same bounded eval permission as a module load", async () => {
+    const server = serve();
+    try {
+      await withPage(async (page) => {
+        await page.goto(`${server.base}/header`);
+        const result = await page.evaluate(async () => {
+          const { ensureSes, evaluateCaged } = await import("/interpreter/jessie.js");
+          const { installSes } = await import("/bundled-ses.js");
+          let installed = 0;
+          const install = () => { installed++; installSes(); };
+          await ensureSes(install);
+          await ensureSes(install);
+          const value = await evaluateCaged('({sum: 1 + 2, authority: typeof fetch})');
+          let refused = false;
+          try { (0, eval)('1+2'); } catch { refused = true; }
+          return { installed, value, refused };
+        });
+        expect(result).toEqual({ installed: 1, value: { sum: 3, authority: "undefined" }, refused: true });
+      });
+    } finally { await server.close(); }
+  });
   for (const mode of ["header", "meta"]) it(`${mode} admits parsed markup and SES while rejecting untrusted sinks`, async () => {
     const server = serve();
     try {
