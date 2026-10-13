@@ -16,6 +16,7 @@
 // count on stderr, the exit code the severity band decides. Nothing here
 // prints, so a caller parsing stdout parses what the checker said.
 
+import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = new URL("../", import.meta.url);
@@ -69,8 +70,7 @@ function pathFrom(base: string, target: string): string {
 // it, and the root of the runtime image an app's images copy from). It unifies into the app's own package, so it carries that package's
 // name, read from the program it sits beside.
 async function mode(appDir: string, local: boolean): Promise<void> {
-  const cwd = `${pathToFileURL(Deno.cwd()).href}/`;
-  const dir = new URL(`${appDir.replace(/\/*$/, "")}/`, cwd);
+  const dir = new URL(pathToFileURL(resolve(Deno.cwd(), appDir)).href.replace(/\/?$/, "/"));
   const program = await Deno.readTextFile(new URL("program.cue", dir));
   const declared = program.match(/^package\s+(\w+)\s*$/m);
   if (declared === null) throw new Error(`${appDir}/program.cue declares no package`);
