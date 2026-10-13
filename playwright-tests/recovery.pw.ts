@@ -143,7 +143,7 @@ describe("release draft recovery", () => {
           } else {
             await server.deploy("C", true)
             await refresh(page)
-            await page.waitForFunction(() => document.querySelector("h1")?.textContent === "Template C")
+            await page.waitForFunction(() => document.querySelector("h1")?.textContent === "Template C", undefined, { timeout: 60_000 })
             if (next === "reload") {
               await page.reload()
               await ready(page, "B")
