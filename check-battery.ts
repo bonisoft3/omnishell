@@ -46,6 +46,7 @@
 // exit 1 when any finding above the advisory band is reported.
 
 import fc from "npm:fast-check@3.23.2";
+import { sharedInputs, type PropertyFor } from "./battery-inputs.ts";
 import { load as parseYaml } from "./interpreter/vendor/js-yaml.js";
 import { evaluateCaged } from "./interpreter/jessie.js";
 import { machineRegions, scanScreen } from "./interpreter/lint.ts";
@@ -60,6 +61,7 @@ import {
 import { fuelMeter, instrument, METER, selfTest as instrumentSelfTest } from "./instrument.ts";
 
 type Finding = { severity: string; path: string; message: string };
+type BatteryInput = { state: unknown; event: unknown };
 
 /** Whether a run's findings fail the verb. Nothing this check reports is a
  * fact about the checker — a module either survives the inputs its own schema
@@ -213,6 +215,7 @@ export async function exercise(
   inputs: fc.Arbitrary<{ state: unknown; event: unknown }>,
   site: CallSite = {},
   options: BatteryOptions = {},
+  propertyFor: PropertyFor<BatteryInput> = (predicate) => fc.property(inputs, predicate),
 ): Promise<Exercised> {
   const runs = options.numRuns ?? RUNS;
   const meter = fuelMeter(options.fuelLimit ?? FUEL);
@@ -245,7 +248,7 @@ export async function exercise(
 
   let maxFuel = 0;
   const details = fc.check(
-    fc.property(inputs, ({ state, event }) => {
+    propertyFor(({ state, event }) => {
       const frozenState = deepFreeze(structuredClone(state));
       const frozenEvent = deepFreeze(structuredClone(event));
 
@@ -370,7 +373,7 @@ export async function checkApp(appDir: URL, options: BatteryOptions = {}): Promi
   const take = async (
     path: string,
     role: "handler" | "validation",
-    inputsFor: (site: CallSite) => fc.Arbitrary<{ state: unknown; event: unknown }>,
+    inputsFor: (table?: string) => fc.Arbitrary<BatteryInput>,
     sites: CallSite[],
   ) => {
     let source: string;
@@ -380,10 +383,26 @@ export async function checkApp(appDir: URL, options: BatteryOptions = {}): Promi
       exercised.push({ path, role, runs: 0, maxFuel: 0, error: said(err) });
       return;
     }
+    const uses = new Map<string | undefined, number>();
+    for (const site of sites) uses.set(site.table, (uses.get(site.table) ?? 0) + 1);
+    const inputStreams = new Map<string | undefined, {
+      inputs: fc.Arbitrary<BatteryInput>;
+      propertyFor: PropertyFor<BatteryInput>;
+    }>();
     for (const site of sites) {
       let inputs: fc.Arbitrary<{ state: unknown; event: unknown }>;
+      let propertyFor: PropertyFor<BatteryInput>;
       try {
-        inputs = inputsFor(site);
+        let stream = inputStreams.get(site.table);
+        if (stream === undefined) {
+          inputs = inputsFor(site.table);
+          stream = {
+            inputs,
+            propertyFor: uses.get(site.table)! > 1 ? sharedInputs(inputs) : (predicate) => fc.property(inputs, predicate),
+          };
+          inputStreams.set(site.table, stream);
+        }
+        ({ inputs, propertyFor } = stream);
       } catch (err) {
         // A call site naming a region the schema does not declare: the world
         // it asks for does not exist, so there is nothing to draw and the
@@ -391,7 +410,10 @@ export async function checkApp(appDir: URL, options: BatteryOptions = {}): Promi
         exercised.push({ path, role, table: site.table, params: site.params, runs: 0, maxFuel: 0, error: said(err) });
         continue;
       }
-      exercised.push(await exercise(path, role, source, inputs, site, options));
+      exercised.push(await exercise(path, role, source, inputs, site, options, propertyFor));
+      const remaining = uses.get(site.table)! - 1;
+      uses.set(site.table, remaining);
+      if (remaining === 0) inputStreams.delete(site.table);
     }
   };
 
@@ -424,7 +446,7 @@ export async function checkApp(appDir: URL, options: BatteryOptions = {}): Promi
         });
         continue;
       }
-      await take(path, "handler", (site) => arbitraryHandlerInput(entities, site.table), named);
+      await take(path, "handler", (table) => arbitraryHandlerInput(entities, table), named);
     }
   }
 

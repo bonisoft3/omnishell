@@ -103,6 +103,7 @@ _omnishell: bayt.#project & {
 				// that fails.
 				"check-*.ts",
 				"arbitrary.ts",
+				"battery-inputs.ts",
 				// The adapter modules the terminal serves to an app's routes
 				// (terminal.cue `componentsRoot`), and the suite that grades
 				// them: both are this plugin's, so both ride its image.
