@@ -408,7 +408,7 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 
 		modules: [...#Path]
 		modules: [
-			"shell.js", "chrome.js", "screen.js", "fragment.js", "data-sync.js", "validate.js", "render.js",
+			"shell.js", "chrome.js", "screen.js", "fragment.js", "data-sync.js", "hybrid-client.js", "cortex-session.js", "cortex-command.js", "validate.js", "render.js",
 			"release-plan.js", "release-assets.js", "preloads.js", "markup.js", "script-url.js", "deferred-boot.js",
 			"host-dom.js", "hatch.js", "hatch-worker.js", "storybook.js", "jessie.js", "kinetic.js", "prng.js",
 			"vendor/mecha-client.js", "vendor/js-yaml.js", "vendor/ses.umd.min.js", "vendor/morphlex.js",
