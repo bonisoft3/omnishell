@@ -11,7 +11,7 @@
 // The pages are served rather than filed because one of them has to answer a
 // request with nothing, forever, which no fixture on disk can do.
 import { describe, expect, it, withPage } from "./harness.ts"
-import { settle } from "../check-visual.ts"
+import { motion, settle } from "../check-visual.ts"
 
 const PAGES: Record<string, string> = {
   "/quiet": `<p>nothing happens here</p>`,
@@ -124,6 +124,23 @@ describe("settle", () => {
       await withPage(async (page) => {
         await page.goto(`${server.base}/mutating`, { waitUntil: "domcontentloaded" })
         expect(await settleWithin(page as never, 10_000)).toBe(false)
+      })
+    } finally {
+      await server.close()
+    }
+  })
+  // "still moving" alone left an integrate failure undiagnosable: the page
+  // that would not settle passed on every machine the report could be read on.
+  it("names what was still moving when the cap came", async () => {
+    const server = serve()
+    try {
+      await withPage(async (page) => {
+        await page.goto(`${server.base}/mutating`, { waitUntil: "domcontentloaded" })
+        expect(await motion(page as never, { capMs: CAP_MS })).toBe("attributes data-tick on div#w")
+        await page.goto(`${server.base}/stalling-image`, { waitUntil: "domcontentloaded" })
+        expect(await motion(page as never, { capMs: CAP_MS })).toBe(`an image still loading: ${server.base}/never-answers`)
+        await page.goto(`${server.base}/quiet`, { waitUntil: "domcontentloaded" })
+        expect(await motion(page as never, { capMs: 5_000 })).toBe(null)
       })
     } finally {
       await server.close()

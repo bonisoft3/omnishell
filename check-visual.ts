@@ -357,7 +357,7 @@ async function openRoute(
   page: PageLike,
   base: string,
   url: string,
-): Promise<{ state: string; settled: boolean }> {
+): Promise<{ state: string; moving: string | null }> {
   // A route is a real path, so this asks the door for it the way a reader does
   // — the proxy's try_files is what hands back the entry document, and a URL
   // the route table does not answer stays a 404 here rather than a screen that
@@ -376,7 +376,7 @@ async function openRoute(
       { timeout: 20_000 },
     )
     .then((h) => h.jsonValue() as Promise<string>)
-  return { state, settled: await settle(page) }
+  return { state, moving: await motion(page) }
 }
 
 /**
@@ -404,22 +404,42 @@ export async function settle(
   // than to stay under it. No production caller passes either.
   opts: { capMs?: number; stableMs?: number } = {},
 ): Promise<boolean> {
+  return (await motion(page, opts)) === null
+}
+
+/**
+ * `settle`'s wait, answering what was still moving when the cap came: the last
+ * mutated node, moved box, loading image, running animation or entering
+ * screen, so a report names its cause. Null when the screen went quiet.
+ */
+export async function motion(
+  page: PageLike,
+  opts: { capMs?: number; stableMs?: number } = {},
+): Promise<string | null> {
   const { capMs = SETTLE_CAP_MS, stableMs = SETTLE_STABLE_MS } = opts
   return await page.evaluate(
     ({ stableMs, capMs }: { stableMs: number; capMs: number }) =>
-      new Promise<boolean>((resolve) => {
+      new Promise<string | null>((resolve) => {
+        const named = (node: Node | null | undefined): string => {
+          const el = (node?.nodeType === 1 ? node : node?.parentElement) as Element | null | undefined
+          if (!el) return "?"
+          const cls = [...el.classList].slice(0, 2).map((c) => `.${c}`).join("")
+          return `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ""}${cls}`
+        }
+        let cause = "the first sample"
         let done = false
         const finish = (quiet: boolean) => {
           if (done) return
           done = true
           observer.disconnect()
-          resolve(quiet)
+          resolve(quiet ? null : cause)
         }
         const cap = setTimeout(() => finish(false), capMs)
 
-        let mutated = true
-        const observer = new MutationObserver(() => {
-          mutated = true
+        let mutated: string | null = "the document"
+        const observer = new MutationObserver((records) => {
+          const r = records[records.length - 1]
+          mutated = `${r.type}${r.attributeName ? ` ${r.attributeName}` : ""} on ${named(r.target)}`
         })
         observer.observe(document.documentElement, {
           attributes: true,
@@ -428,37 +448,60 @@ export async function settle(
           subtree: true,
         })
 
-        const fingerprint = () => {
-          let h = 0
-          for (const el of document.querySelectorAll("*")) {
+        const boxes = () =>
+          [...document.querySelectorAll("*")].map((el) => {
             const r = el.getBoundingClientRect()
-            const s = `${r.x},${r.y},${r.width},${r.height}`
-            for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0
-          }
-          return h
-        }
+            return `${r.x},${r.y},${r.width},${r.height}`
+          })
         // Read fresh each sample: an image the second shape inserts is not in
         // any list taken earlier. `complete` covers errored images too, where
         // awaiting decode() would wait on a promise that never settles.
-        const loading = () => [...document.images].some((img) => !img.complete)
+        const loading = () => [...document.images].find((img) => !img.complete)
         // A fade moves no box and mutates no node, and a screen read inside one
         // is a screen at some opacity between the two it will have. The finite
         // ones are waited out, by the rule checkContrast states.
         const fading = () =>
-          document.getAnimations().some((a) =>
+          document.getAnimations().find((a) =>
             a.timeline instanceof DocumentTimeline && a.playState === "running" && a.playbackRate !== 0 &&
             a.effect?.getTiming().iterations !== Infinity
           )
-        const entering = () => document.querySelector(".shell-screen[data-entering]") !== null
+        const entering = () => document.querySelector(".shell-screen[data-entering]")
 
-        let previous = fingerprint()
+        let previous = boxes()
         let stableSince = performance.now()
         const sample = () => {
           if (done) return
           const now = performance.now()
-          const current = fingerprint()
-          if (mutated || current !== previous || loading() || fading() || entering()) {
-            mutated = false
+          const current = boxes()
+          const all = document.querySelectorAll("*")
+          const moved = current.findIndex((b, i) => b !== previous[i])
+          const image = loading()
+          const animation = fading()
+          const screen = entering()
+          const why = mutated ??
+            (moved >= 0 || current.length !== previous.length
+              ? `a box moved: ${moved >= 0 ? named(all[moved]) : "the element count changed"}`
+              : image
+              ? `an image still loading: ${image.currentSrc || image.src}`
+              : animation
+              ? (() => {
+                const effect = animation.effect as KeyframeEffect | null
+                const kind = "transitionProperty" in animation
+                  ? `transition of ${(animation as CSSTransition).transitionProperty}`
+                  : "animationName" in animation
+                  ? `animation ${(animation as CSSAnimation).animationName}`
+                  : "script animation"
+                const timing = effect?.getComputedTiming()
+                return `a ${kind} running on ${named(effect?.target)}${effect?.pseudoElement ?? ""}, at ${
+                  Math.round(Number(animation.currentTime))
+                }ms of ${Math.round(Number(timing?.endTime))}ms`
+              })()
+              : screen
+              ? `a screen entering: ${named(screen)}`
+              : null)
+          if (why) {
+            cause = why
+            mutated = null
             previous = current
             stableSince = now
           } else if (now - stableSince >= stableMs) {
@@ -470,7 +513,7 @@ export async function settle(
         setTimeout(sample, 50)
       }),
     { stableMs, capMs },
-  ) as boolean
+  ) as string | null
 }
 
 async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): Promise<number> {
@@ -610,7 +653,7 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
       return
     }
     try {
-      const { state, settled } = await openRoute(page, base, url)
+      const { state, moving } = await openRoute(page, base, url)
       if (state === "gone") {
         out.push({
           severity: "major",
@@ -619,11 +662,11 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
         })
         return
       }
-      if (!settled) {
+      if (moving !== null) {
         out.push({
           severity: "major",
           path: url,
-          message: `${where}: still moving after ${SETTLE_CAP_MS}ms, so everything below measured a moving screen.`,
+          message: `${where}: still moving after ${SETTLE_CAP_MS}ms (${moving}), so everything below measured a moving screen.`,
         })
       }
       const p = page as never
