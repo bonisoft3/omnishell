@@ -1,4 +1,5 @@
 import { parseHTML } from 'linkedom'
+import { carryReads, servedReadsScript } from '../interpreter/data-sync.js'
 import { renderDocument } from '../interpreter/document.js'
 import { acceptedLanguages, routeAt } from '../interpreter/fragment.js'
 import { compileCatalog } from '../interpreter/vendor/messages.js'
@@ -46,7 +47,10 @@ export function appRenderer(assets: Record<string, string>, origin: string) {
         here: url.pathname,
       })
       store.assertHealthy()
-      return { html: drawn.html, status: drawn.gone ? 404 : 200 }
+      return {
+        html: drawn.gone ? drawn.html : carryReads(drawn.html, store.reads, servedReadsScript),
+        status: drawn.gone ? 404 : 200,
+      }
     } finally {
       drawn?.handle.stop()
       await store.close()

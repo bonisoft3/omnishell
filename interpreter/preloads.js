@@ -62,3 +62,30 @@ export function preloadScreen(doc, appBase, route, { template = true } = {}) {
     doc.head.append(link);
   }
 }
+
+/** Screen names targeted by `data-route="..."` anywhere in a skeleton template,
+ * including inside `<template data-item>` blocks. */
+export function skeletonRoutes(html) {
+  const routes = new Set();
+  const stripped = String(html ?? "").replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>|<!--[\s\S]*?-->/gi, "");
+  for (const [, dq, sq] of stripped.matchAll(/\bdata-route\s*=\s*(?:"([^"{}\s]+)"|'([^'{}\s]+)')/g)) {
+    const name = dq ?? sq;
+    if (name) routes.add(name);
+  }
+  return [...routes];
+}
+
+/** Preloads every screen reachable from `screen` via its skeleton `data-route`
+ * links, top navigation strip, or generate-time `#pronto-assets` screen graph. */
+export function preloadLinkedScreens(doc, appBase, cfg, screen, names = []) {
+  if (!doc) return;
+  const map = doc.getElementById?.("pronto-assets");
+  const generated = map?.textContent ? (JSON.parse(map.textContent).screens?.[screen] ?? []) : [];
+  const routes = new Map((cfg?.routes ?? []).map((r) => [r.screen, r]));
+  for (const name of new Set([...generated, ...names])) {
+    if (!name || name === screen) continue;
+    const target = routes.get(name);
+    if (target) preloadScreen(doc, appBase, target);
+  }
+}
+

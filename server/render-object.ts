@@ -20,9 +20,7 @@ export function renderObject(render: (request: Request, reader: Reader) => Promi
       const etag = '"' + [...hash].map(b => b.toString(16).padStart(2, '0')).join('') + '"'
       const headers = {
         'content-type': 'text/html; charset=utf-8',
-        // SQL can depend on time without a write. Until dependencies cover that,
-        // every navigation renders from its current public transaction.
-        'cache-control': 'public, no-cache, must-revalidate',
+        'cache-control': result.status === 200 ? 'public, no-cache, must-revalidate' : 'no-store',
         vary: 'Accept-Language',
         etag, 'x-data-revision': revision, 'x-render-source': 'rendered',
       }

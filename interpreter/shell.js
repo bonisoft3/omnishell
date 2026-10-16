@@ -14,14 +14,14 @@ import { parseMarkup } from "./markup.js";
 // bypasses it entirely: the fixture adapter runs without the cluster, so no auth
 // service exists to sign against.
 
-import { chromeText, describe, drawStrip, guestBox, hasStrip, localizeStrip } from "./chrome.js";
+import { chromeText, describe, drawStrip, guestBox, hasStrip, localizeStrip, stripRoutes } from "./chrome.js";
 import { localeAt, localeTable, ProgramError, routeAt, routeHref, screenEnv, Unanswered } from "./fragment.js";
 import { fetchText, interpretScreen, prefetchScreen, templateHash, submitsOnChange } from "./screen.js";
 import { compileCatalog } from "./vendor/messages.js";
 import { planRelease } from "./release-plan.js";
 import { activateRelease, fetchRelease, prepareRestartRelease, readAsset, startupReleaseId } from "./release-assets.js";
 export { routeAt } from "./fragment.js";
-import { assetURL, preloadScreen } from "./preloads.js";
+import { assetURL, preloadLinkedScreens, preloadScreen } from "./preloads.js";
 
 const recoveryKey = "pronto-live-update-recovery";
 const sessionOwner = (session) => {
@@ -270,6 +270,28 @@ function renderLogin(mount, cfg, chrome) {
 // — `route` names it, its :params are filled from the session user, `name` is
 // the table and column their chosen name lives in. An app with no page for a
 // person declares no `self`, and the handle stands on its own.
+function renderPromote(ensureSession, cfg, chrome, served = null) {
+  const box = served?.querySelector(".shell-signin") ? served : guestBox(document);
+  const signIn = box.querySelector(".shell-signin");
+  signIn.addEventListener("click", async () => {
+    let current;
+    let next;
+    try {
+      current = await ensureSession();
+      next = await passkeyCeremony(cfg.auth.service, current.token);
+    } catch (err) {
+      console.error(err);
+      signIn.dataset.key = "chrome_passkey_failed";
+      signIn.textContent = chrome(signIn.dataset.key, document.documentElement.lang);
+      return;
+    }
+    if (sessionOwner(next) !== sessionOwner(current)) sessionStorage.removeItem(recoveryKey);
+    sessionStorage.setItem("pronto-token", JSON.stringify(next));
+    location.reload();
+  });
+  return box;
+}
+
 function renderSession(session, cfg, store, signOut, chrome, served = null) {
 
   // A guest has nothing to sign out of and a passkey to gain: one gesture
@@ -277,23 +299,7 @@ function renderSession(session, cfg, store, signOut, chrome, served = null) {
   // makes one of this guest, keeping what it wrote. A served document's strip
   // already holds that box (document.js), and it is the one bound.
   if (session.user.guest && cfg.auth?.promote) {
-    const box = served?.querySelector(".shell-signin") ? served : guestBox(document);
-    const signIn = box.querySelector(".shell-signin");
-    signIn.addEventListener("click", async () => {
-      let next;
-      try {
-        next = await passkeyCeremony(cfg.auth.service, session.token);
-      } catch (err) {
-        console.error(err);
-        signIn.dataset.key = "chrome_passkey_failed";
-        signIn.textContent = chrome(signIn.dataset.key, document.documentElement.lang);
-        return;
-      }
-      if (sessionOwner(next) !== sessionOwner(session)) sessionStorage.removeItem(recoveryKey);
-      sessionStorage.setItem("pronto-token", JSON.stringify(next));
-      location.reload();
-    });
-    return box;
+    return renderPromote(() => Promise.resolve(session), cfg, chrome, served);
   }
 
   const self = cfg.auth?.self;
@@ -707,6 +713,15 @@ export async function createShell({ config, mount, liveUpdates = false, preload 
 
     let session = null;
     let mintedGuest = false;
+    let guestSession = null;
+    let recovery = null;
+    const retainRecovery = () => {
+      if (!recovery) return;
+      if (Object.keys(recovery.screens ?? {}).length || recovery.initial?.length) {
+        sessionStorage.setItem(recoveryKey, JSON.stringify(recovery));
+      } else sessionStorage.removeItem(recoveryKey);
+    };
+    const hadInitialOwner = initialDraftOwner !== null;
     if (cfg.auth?.required) {
       const stored = sessionStorage.getItem("pronto-token");
       // A stored token is not a session. The account it names can be gone —
@@ -751,22 +766,35 @@ export async function createShell({ config, mount, liveUpdates = false, preload 
       if (stored) {
         session = JSON.parse(stored);
       } else {
-        session = await mintGuest(cfg, served !== null);
         mintedGuest = true;
-        if (initialDraftOwner === null) initialDraftOwner = sessionOwner(session);
-        sessionStorage.setItem("pronto-token", JSON.stringify(session));
+        guestSession = mintGuest(cfg, served !== null).then((s) => {
+          session = s;
+          if (!hadInitialOwner) initialDraftOwner = sessionOwner(s);
+          sessionStorage.setItem("pronto-token", JSON.stringify(s));
+          if (liveUpdates && recovery && recovery.owner === null && !hadInitialOwner) {
+            recovery.owner = sessionOwner(s);
+            retainRecovery();
+          }
+          return s;
+        });
       }
     }
 
     await catalogued;
     if (served !== null) await words.settle(servedWords);
     const { createStore } = await dataPlane;
-    const store = createStore("", { ...cfg, appBase, release: liveUpdates, mintedGuest });
-    let recovery = liveUpdates ? JSON.parse(sessionStorage.getItem(recoveryKey) ?? "null") : null;
+    const store = createStore("", {
+      ...cfg,
+      appBase,
+      release: liveUpdates,
+      mintedGuest,
+      ensureSession: guestSession ? () => guestSession : null,
+    });
+    recovery = liveUpdates ? JSON.parse(sessionStorage.getItem(recoveryKey) ?? "null") : null;
     const owner = liveUpdates ? (session === null ? storedSessionOwner() : sessionOwner(session)) : null;
     if (initialDraftOwner !== owner) initialFields = null;
     const ownsRecovery = owner !== undefined && (recovery?.owner === owner ||
-      (recovery?.owner === null && initialDraftOwner === owner &&
+      (recovery?.owner === null && (initialDraftOwner === owner || (mintedGuest && !hadInitialOwner)) &&
         recovery.initial && !recovery.screens && !recovery.tabs));
     if (recovery && ownsRecovery && recovery.expected === selectedRelease?.manifest.id) {
       recovery.owner = owner;
@@ -776,12 +804,6 @@ export async function createShell({ config, mount, liveUpdates = false, preload 
       sessionStorage.removeItem(recoveryKey);
       recovery = null;
     }
-    const retainRecovery = () => {
-      if (!recovery) return;
-      if (Object.keys(recovery.screens ?? {}).length || recovery.initial?.length) {
-        sessionStorage.setItem(recoveryKey, JSON.stringify(recovery));
-      } else sessionStorage.removeItem(recoveryKey);
-    };
 
     // Debug & visual-lint seam: pose fixture rows in-memory without page reloads.
     globalThis.__prontoStore = store;
@@ -855,7 +877,7 @@ export async function createShell({ config, mount, liveUpdates = false, preload 
       location.reload();
     };
 
-    if (hasStrip(cfg, session)) {
+    if (hasStrip(cfg, session || mintedGuest)) {
       nav = drawStrip(document, cfg);
       // A served strip naming this strip's routes is this strip: kept, with
       // the link the reader may be on, and its words and addresses rewritten
@@ -873,6 +895,25 @@ export async function createShell({ config, mount, liveUpdates = false, preload 
           servedBox?.remove();
           nav.append(box);
         }
+      } else if (mintedGuest && cfg.auth?.promote) {
+        const box = renderPromote(() => guestSession, cfg, chrome, servedBox);
+        if (box !== servedBox) {
+          servedBox?.remove();
+          nav.append(box);
+        }
+      } else if (mintedGuest) {
+        guestSession = guestSession.then((s) => {
+          const box = renderSession(s, cfg, store, signOut, chrome, servedBox);
+          if (box !== servedBox) {
+            servedBox?.remove();
+            nav.append(box);
+          }
+          if (current !== null) {
+            const explicitLocale = Boolean(cfg.i18n && current.locale === cfg.i18n.default && typeof location !== "undefined" && new URLSearchParams(location.search).has("lang"));
+            localizeStrip(nav, cfg, { locale: current.locale, here: location.pathname, messages, explicitLocale });
+          }
+          return s;
+        });
       } else servedBox?.remove();
     } else servedStrip?.remove();
 
@@ -937,7 +978,15 @@ export async function createShell({ config, mount, liveUpdates = false, preload 
         // back resumes. Only "push" is treated as an arrival.
         window.scrollTo(0, navigationType === "push" ? 0 : entry.scrollY);
         await entry.handle?.resume();
-        if (!liveUpdates) await catchUp(entry).catch(unheard(entry));
+        if (!liveUpdates) {
+          await catchUp(entry).catch(unheard(entry));
+          if (preload) {
+            preloadLinkedScreens(document, appBase, cfg, route.screen, [
+              ...(entry.handle?.links ?? []),
+              ...(hasStrip(cfg, session || mintedGuest) ? stripRoutes(cfg).map((r) => r.screen) : []),
+            ]);
+          }
+        }
         return;
       }
       // A served document is already the screen on show, so the first show()
@@ -1024,7 +1073,15 @@ export async function createShell({ config, mount, liveUpdates = false, preload 
         clearTimeout(capped);
         if (!adopting) release(el);
       }
-      if (!liveUpdates) await catchUp(fresh).catch(unheard(fresh));
+      if (!liveUpdates) {
+        await catchUp(fresh).catch(unheard(fresh));
+        if (preload) {
+          preloadLinkedScreens(document, appBase, cfg, route.screen, [
+            ...(fresh.handle?.links ?? []),
+            ...(hasStrip(cfg, session || mintedGuest) ? stripRoutes(cfg).map((r) => r.screen) : []),
+          ]);
+        }
+      }
     };
     // A newer template is a deploy's, and names its modules in that deploy's
     // config. The worker answers the config from its copy and announces none
@@ -1181,7 +1238,7 @@ export async function createShell({ config, mount, liveUpdates = false, preload 
         if (restartTarget !== target || gesture !== at || editing()) return;
         sessionStorage.setItem(recoveryKey, JSON.stringify({
           expected: target.manifest.id,
-          owner,
+          owner: liveUpdates ? (session === null ? storedSessionOwner() : sessionOwner(session)) : null,
           screens,
           tabs,
           ...(initialFields === null ? {} : { initial: [...new Map([...(recovery?.initial ?? []), ...initialFields])] }),
@@ -1237,6 +1294,7 @@ export async function createShell({ config, mount, liveUpdates = false, preload 
     hear = liveUpdates ? () => void checkRelease() : () => current !== null && catchUp(current).catch(unheard(current));
 
     await show();
+    if (guestSession) await guestSession;
     booted = true;
     if (liveUpdates) {
       void checkRelease();

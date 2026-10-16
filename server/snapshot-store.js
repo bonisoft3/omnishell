@@ -4,6 +4,7 @@ import { createStore } from "../interpreter/data-sync.js";
 // are new for every render; handlers may derive rows without writing the database.
 export function snapshotStore(cfg, appBase, reader) {
 	const failures = [];
+	const reads = new Map();
 	const schema = Object.fromEntries(
 		Object.entries(cfg.schema).map((
 			[table, value],
@@ -32,7 +33,12 @@ export function snapshotStore(cfg, appBase, reader) {
 				const rows = await reader.read(
 					url.pathname.slice("/crud".length) + url.search,
 				);
-				return Response.json(rows);
+				const body = JSON.stringify(rows);
+				reads.set(url.pathname + url.search, body);
+				return new Response(body, {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				});
 			} catch (error) {
 				failures.push(error);
 				throw error;
@@ -45,6 +51,7 @@ export function snapshotStore(cfg, appBase, reader) {
 	});
 	return {
 		...store,
+		reads,
 		assertHealthy() {
 			if (failures.length) {
 				throw new AggregateError(failures, "public snapshot read failed");

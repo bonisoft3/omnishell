@@ -306,15 +306,6 @@ export function recordReads(door: string, fetch: typeof globalThis.fetch, readKe
   };
 }
 
-/** `html` carrying `reads` at the end of its body, where the shell takes them,
- * in the element `script` draws. */
-export function carryReads(html: string, reads: Map<string, string>, script: (reads: Map<string, string>) => string): string {
-  if (reads.size === 0) return html;
-  const at = html.lastIndexOf("</body>");
-  if (at < 0) throw new Error("a document without a body cannot carry its reads");
-  return html.slice(0, at) + script(reads) + html.slice(at);
-}
-
 const parse = (html: string) => (parseHTML(html) as unknown as { document: unknown }).document;
 
 /**
@@ -375,7 +366,7 @@ export async function serve(env: (name: string) => string | undefined = (name) =
   await ensureSes();
   const { renderDocument } = await import("../interpreter/document.js");
   const { routeAt } = await import("../interpreter/shell.js");
-  const { createStore, readKey, servedReadsScript } = await import("../interpreter/data-sync.js");
+  const { carryReads, createStore, readKey, servedReadsScript } = await import("../interpreter/data-sync.js");
   const { compileCatalog } = await import("../interpreter/vendor/messages.js");
   const { templateHash } = await import("../interpreter/screen.js");
 

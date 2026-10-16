@@ -22,7 +22,21 @@ export async function until(cond, what) {
  * localStorage holds before the store loads, by key, each value as JSON.
  */
 export async function withBrowser({ fetch, storage = {} }, fn) {
-  const saved = { fetch: globalThis.fetch, window: globalThis.window, document: globalThis.document };
+  const saved = {
+    fetch: globalThis.fetch,
+    window: globalThis.window,
+    document: globalThis.document,
+    BroadcastChannel: globalThis.BroadcastChannel,
+  };
+  const channels = [];
+  if (saved.BroadcastChannel !== undefined) {
+    globalThis.BroadcastChannel = class extends saved.BroadcastChannel {
+      constructor(name) {
+        super(name);
+        channels.push(this);
+      }
+    };
+  }
   const backing = new Map(Object.entries(storage).map(([k, v]) => [k, JSON.stringify(v)]));
   const local = {
     getItem: (k) => backing.get(k) ?? null,
@@ -35,10 +49,13 @@ export async function withBrowser({ fetch, storage = {} }, fn) {
   };
   Object.defineProperty(globalThis, "localStorage", { value: local, configurable: true });
   globalThis.document = { addEventListener: () => {}, removeEventListener: () => {} };
+  const pagehide = [];
   globalThis.window = {
     localStorage: local,
     location: { origin: "http://localhost" },
-    addEventListener: () => {},
+    addEventListener: (type, fn) => {
+      if (type === "pagehide") pagehide.push(fn);
+    },
     removeEventListener: () => {},
     setTimeout: globalThis.setTimeout.bind(globalThis),
     clearTimeout: globalThis.clearTimeout.bind(globalThis),
@@ -50,6 +67,9 @@ export async function withBrowser({ fetch, storage = {} }, fn) {
     const { createStore } = await import("./data-sync.js");
     await fn(createStore);
   } finally {
+    for (const fn of pagehide) fn();
+    for (const ch of channels) ch.close();
+    globalThis.BroadcastChannel = saved.BroadcastChannel;
     globalThis.fetch = saved.fetch;
     delete globalThis.localStorage;
     if (saved.window === undefined) delete globalThis.window;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@test/harness"
 import { parseHTML } from "linkedom"
-import { carryReads, recordReads } from "../server/render.ts"
-import { createStore, readKey, servedReadsScript } from "../interpreter/data-sync.js"
+import { recordReads } from "../server/render.ts"
+import { carryReads, createStore, readKey, servedReadsScript } from "../interpreter/data-sync.js"
 import { FIXTURE_CARRIERS } from "../interpreter/fixture-types.js"
 
 // A server-rendered document's first paint asked the door again for every
@@ -120,5 +120,38 @@ describe("a document carrying its reads", () => {
       expect(await store.query("team", null, { filter: "slug=eq.flamengo" })).toEqual([{ id: "t1", name: "network" }])
       expect(asked.length).toBe(1)
     }, true)
+  })
+
+  it("answers a live-durability table from #pronto-reads while guest minting is still in flight", async () => {
+    await inDocument(async (asked) => {
+      sessionStorage.removeItem("pronto-token")
+      let settleGuest!: () => void
+      const guestSession = new Promise<{ token: string; user: { id: string; guest: boolean } }>((resolve) => {
+        settleGuest = () => {
+          const s = { token: "t", user: { id: "g1", guest: true } }
+          sessionStorage.setItem("pronto-token", JSON.stringify(s))
+          resolve(s)
+        }
+      })
+      const liveCfg = {
+        tables: ["team"],
+        carriers: FIXTURE_CARRIERS,
+        read: { team: "lazy" as const },
+        schema: { team: { durability: "live", fields: [{ name: "id", type: "string" }, { name: "slug", type: "string" }, { name: "name", type: "string" }] } },
+        mintedGuest: true,
+        ensureSession: () => guestSession,
+      }
+      const store = createStore("", liveCfg)
+      const unsub = store.subscribe("team", () => {}, { filter: "slug=eq.flamengo" })
+      try {
+        expect(await store.query("team", null, { filter: "slug=eq.flamengo" })).toEqual(served)
+        expect(asked).toEqual([])
+        expect(sessionStorage.getItem("pronto-token")).toBe(null)
+      } finally {
+        unsub()
+        settleGuest()
+        await store.close()
+      }
+    })
   })
 })

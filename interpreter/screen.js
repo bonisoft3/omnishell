@@ -27,7 +27,7 @@ import { evaluateRole } from "./jessie.js";
 import { hostDomScreen } from "./host-dom.js";
 import { releaseReader } from "./release-assets.js";
 
-import { assetURL } from "./preloads.js";
+import { assetURL, skeletonRoutes } from "./preloads.js";
 
 export async function fetchText(url, init) {
   const res = await fetch(assetURL(url), init).catch((err) => {
@@ -1585,6 +1585,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
 
   const markup = prepare(html);
   const cas = templateHash(html);
+  let links = skeletonRoutes(html);
   const screen = served?.screen ?? markup;
 
   let base = screen.getAttribute("data-state") || route.states?.[0] || "populated";
@@ -4094,6 +4095,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       renderers: await loadRenderers(next, appBase, route, endowmentsMap, read),
     };
     namedTemplates = named;
+    links = skeletonRoutes(newHtml);
     if (modules !== null) {
       for (const [name, module] of modules.handlers) handlers.set(name, module);
       adapters = modules.adapters;
@@ -4151,6 +4153,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     },
     // Which template this screen was drawn from (templateHash).
     cas,
+    get links() {
+      return links;
+    },
     pause: () => {
       if (held !== "shown") return;
       held = "paused";

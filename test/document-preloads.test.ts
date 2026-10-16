@@ -2,7 +2,7 @@ import { startDeferredBoot } from "../interpreter/deferred-boot.js"
 import { describe, expect, it } from "@test/harness"
 import { parseHTML } from "linkedom"
 import { renderDocument } from "../interpreter/document.js"
-import { assetURL, preloadScreen } from "../interpreter/preloads.js"
+import { assetURL, preloadLinkedScreens, preloadScreen, skeletonRoutes } from "../interpreter/preloads.js"
 
 const files = {
   html: "shell/screens/home.html",
@@ -146,5 +146,39 @@ describe("a rendered document's hydration preloads", () => {
     expect([...document.querySelectorAll('link[rel="stylesheet"]')].map((link) => link.outerHTML)).toEqual(sheets)
     expect(document.querySelector('link[rel="preload"][as="style"]')).toBe(null)
     expect(document.querySelector('link[rel="preload"][as="fetch"][href="/site/shell/screens/home.css"]')).not.toBe(null)
+  })
+
+  it("extracts skeleton data-route links including item templates and preloads their screens", () => {
+    const html = `
+      <section class="screen" data-screen="home">
+        <!-- <a data-route="commented">ignore</a> -->
+        <a data-route="players">Players</a>
+        <div data-live="game">
+          <template data-item>
+            <article>
+              <a data-route="game" data-param-id="{id}">Game</a>
+              <a data-route='team' data-param-id="{home_id}">Team</a>
+              <a data-route="{dynamic}">Ignore placeholder</a>
+            </article>
+          </template>
+        </div>
+      </section>
+    `
+    expect(skeletonRoutes(html)).toEqual(["players", "game", "team"])
+    const cfg = {
+      routes: [
+        route,
+        { path: "/players", screen: "players", files: { html: "shell/screens/players.html", css: "shell/screens/players.css" } },
+        { path: "/game/:id", screen: "game", files: { html: "shell/screens/game.html", css: "shell/screens/game.css" } },
+        { path: "/team/:id", screen: "team", files: { html: "shell/screens/team.html", css: "shell/screens/team.css" } },
+      ],
+    }
+    const { document } = parseHTML('<html><head><base href="/shell/"></head><body></body></html>')
+    preloadLinkedScreens(document, "https://reader.test/", cfg, "home", ["home", ...skeletonRoutes(html)])
+    expect([...document.querySelectorAll('link[rel="preload"]')].map((link) => link.getAttribute("href"))).toEqual([
+      "/shell/screens/players.html", "/shell/screens/players.css",
+      "/shell/screens/game.html", "/shell/screens/game.css",
+      "/shell/screens/team.html", "/shell/screens/team.css",
+    ])
   })
 })

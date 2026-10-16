@@ -769,8 +769,10 @@ Deno.test({
     const {createShell} = await import("./shell.js");
     const booting = createShell({config: "./shell/shell.yaml", mount: app.mount});
     await app.waitForRetry();
+    await settle();
     assert(app.mount.querySelector("pre") === null, `a banner: ${app.mount.querySelector("pre")?.textContent}`);
     assert(app.mount.querySelector(".shell-screen") === servedScreen && !servedScreen.hidden, "the served screen was taken down");
+    assert(!servedScreen.hasAttribute("data-served"), "the served screen hydrated before POST /auth/guest settled");
     assert(app.minted.length === 1, `${app.minted.length} mints`);
     app.online();
     await app.waitForRetry();

@@ -103,6 +103,15 @@ export function servedReadsScript(reads) {
   return `<script type="application/json" id="${SERVED_READS}">${json}</script>`;
 }
 
+/** `html` carrying `reads` at the end of its body, where the shell takes them,
+ * in the element `script` draws. */
+export function carryReads(html, reads, script = servedReadsScript) {
+  if (reads.size === 0) return html;
+  const at = html.lastIndexOf("</body>");
+  if (at < 0) throw new Error("a document without a body cannot carry its reads");
+  return html.slice(0, at) + script(reads) + html.slice(at);
+}
+
 /** The reads `doc` carries, taken out of it: each answers once. */
 export function takeServedReads(doc) {
   const el = doc?.getElementById?.(SERVED_READS);
@@ -124,6 +133,16 @@ export function readKey(url, base) {
 let served = new Map();
 let servedAt = null;
 let servedToReader = false;
+let pendingSession = null;
+
+function hasServedRead(url) {
+  if (!servedToReader || !guest()) return false;
+  const taken = takeServedReads(globalThis.document);
+  if (taken.size > 0) [served, servedAt] = [taken, globalThis.location.href];
+  if (globalThis.location?.href !== servedAt) served.clear();
+  if (served.size === 0) return false;
+  return served.has(readKey(url, globalThis.location?.href));
+}
 
 async function http(url, init) {
   if ((init?.method ?? "GET") === "GET") {
@@ -137,6 +156,7 @@ async function http(url, init) {
       return new Response(body, { status: 200, headers: { "Content-Type": "application/json" } });
     }
   }
+  if (pendingSession && !token()) await pendingSession();
   const headers = { ...init?.headers };
   const t = token();
   if (t) headers.Authorization = `Bearer ${t}`;
@@ -343,6 +363,7 @@ export function othersFor(p, sinkRow, mine, pair, compareTxid) {
 
 export function createStore(base = "", cfg = {}, { request = http, schedule: enqueue = later } = {}) {
   servedToReader = cfg.mintedGuest === true;
+  pendingSession = cfg.ensureSession ?? null;
   const readCode = cfg.release ? releaseReader() : null;
   // cfg.local names the browser-owned tables (shell.yaml `local:`), which are
   // collections like any other here — read by a region, mutated by a form —
@@ -585,7 +606,9 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   const preparedAt = new Map();
   const restoredTabs = new Map();
   const ensurePrepared = (table) => {
-    if (local[table] === undefined) return Promise.resolve();
+    if (local[table] === undefined) {
+      return pendingSession && !token() ? pendingSession().then(() => {}) : Promise.resolve();
+    }
     let p = preparedAt.get(table);
     if (p === undefined) {
       p = prepare(table);
@@ -1171,7 +1194,9 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
 
   async function read(table, order, opts = {}) {
     order ??= opts.order;
-    if (requestOnly(table)) return readServer(table, order, opts);
+    if (requestOnly(table) || hasServedRead(`${crud(table)}?${search(order, opts)}`)) {
+      return readServer(table, order, opts);
+    }
     await ensurePrepared(table);
     // A read the engine already maintains needs no re-derivation: the view is
     // the filter and the order, kept current by the deltas that woke us.
@@ -1367,6 +1392,24 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
         wakes.stop();
         for (const t of deps) settleListeners.get(t).delete(wakes.widened);
       };
+    }
+    if (pendingSession && !token()) {
+      const others = [
+        ...embedDeps(opts.select, table, cfg.schema),
+        ...accessDeps(table),
+        ...foldSourceOf(table),
+      ];
+      if ([table, ...others].some((t) => local[t] === undefined)) {
+        let stopped = false;
+        let stop = () => {};
+        pendingSession().then(() => {
+          if (!stopped) stop = subscribe(table, fn, opts);
+        });
+        return () => {
+          stopped = true;
+          stop();
+        };
+      }
     }
     // A maintained view's own changes ARE this region's input changing —
     // computed by the engine against the actual query rather than guessed
@@ -1811,6 +1854,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   }
 
   async function upload(key, file) {
+    if (pendingSession && !token()) await pendingSession();
     if (!token()) throw new Error("an upload requires an authenticated session");
     return request(`${base}/blobs/mecha-objects/${encodeURIComponent(key)}`, { method: "PUT", body: file });
   }

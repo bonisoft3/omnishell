@@ -22,14 +22,23 @@ active public snapshots to 16, before they join the chain shared with writes.
 Excess requests receive 503 with `Retry-After`; read or render errors reject the
 response.
 
-Every navigation renders afresh, including HEAD and conditional GET. PostgreSQL's
-revision alone cannot validate SQL that depends on `now()`, as Golaberto's upcoming
-games do. There is no retained HTML, stale response, or background regeneration in
-this release path. An ETag is computed after rendering; matching GET/HEAD requests
-can receive 304. HTML uses `public, no-cache, must-revalidate` and
-`Vary: Accept-Language`. Locale resolution matches the browser and honors explicit
-localized URLs before language preferences. Immutable assets retain independent
-edge caching and HTTP 103 hints.
+Rendered 200 HTML documents embed their snapshot `/crud/*` responses in
+`<script type="application/json" id="pronto-reads">` so fresh guest tabs adopt
+the SSR DOM without re-fetching those queries after first paint. The entry Worker
+stores 200 GET renders in `caches.default` for 86,400 s, keyed by renderer,
+reset, public-write timestamp, locale and URL, while sending
+`Cache-Control: public, no-cache, must-revalidate` and `Vary: Accept-Language`
+to the browser. Concurrent cold misses and stale revalidations for the same key
+share one in-flight render. Fresh cache hits (`<= 60s`) keep `#pronto-reads` and
+their ETag; stale hits (`> 60s`) drop the ETag, trigger `ctx.waitUntil`
+background regeneration, and strip `#pronto-reads` so the browser paints the
+cached HTML immediately and refreshes its live regions from `/crud/*` after first
+paint. Matching `If-None-Match` GET/HEAD requests bypass the edge cache and
+can receive 304 from the renderer. Locale resolution matches
+the browser and honors explicit localized URLs before language preferences.
+Immutable assets retain independent edge caching and HTTP 103 hints. Guests
+share public-only `/crud/*` cache entries across the colo for 5 s while keeping
+subject-scoped reads isolated per guest; mutations advance both write markers.
 
 The full compressed Golaberto archive and both target pages have been exercised
 on a separate Cloudflare deployment. This establishes the integrated runtime on
