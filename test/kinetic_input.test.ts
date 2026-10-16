@@ -1,6 +1,6 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import { GameInputs } from "../interpreter/vendor/game-inputs.js";
-import { createKineticInput } from "../interpreter/kinetic.js";
+import { createKineticInput, lerp, lerpAngle } from "../interpreter/kinetic.js";
 
 Deno.test("GameInputs: binds actions, tracks state, and latches press counts", () => {
   const inputs = new GameInputs(null as any, { gamepad: false });
@@ -56,4 +56,17 @@ Deno.test("createKineticInput: poll consumes latched actions across simulation t
   assertEquals(frame2.jump, false);
 
   input.destroy();
+});
+
+Deno.test("kinetic: lerp and lerpAngle perform linear and circular temporal interpolation", () => {
+  assertEquals(lerp(10, 20, 0), 10);
+  assertEquals(lerp(10, 20, 0.5), 15);
+  assertEquals(lerp(10, 20, 1), 20);
+
+  // lerpAngle handles wrapping across -PI / +PI boundary
+  const angleA = Math.PI - 0.1;
+  const angleB = -Math.PI + 0.1;
+  const mid = lerpAngle(angleA, angleB, 0.5);
+  // Shortest path wraps through PI
+  assertEquals(Math.abs(Math.abs(mid) - Math.PI) < 0.001, true);
 });

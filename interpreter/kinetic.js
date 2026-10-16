@@ -7,6 +7,17 @@ export { prngStep, createPrng } from "./prng.js";
 import { GameInputs } from "./vendor/game-inputs.js";
 export { GameInputs };
 
+export function lerp(a, b, alpha) {
+  return a + (b - a) * alpha;
+}
+
+export function lerpAngle(a, b, alpha) {
+  let diff = (b - a) % (Math.PI * 2);
+  if (diff < -Math.PI) diff += Math.PI * 2;
+  if (diff > Math.PI) diff -= Math.PI * 2;
+  return a + diff * alpha;
+}
+
 const MAX_FRAME_MS = 250.0;
 
 export function createKineticHost(options) {
