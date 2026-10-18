@@ -557,8 +557,10 @@ for (const [kind, opts, indexedTable, column] of [
       assert(collections[indexedTable].indexes.size === 1, `${column} index is recreated before the next query compiles`);
       const again = await store.query("player_game", null, opts);
       assert(JSON.stringify(again) === JSON.stringify(first), "the revisited query returns the same bounded rows");
+      // The revisit answers what the view last held while its subset loads.
+      await until(() => fake.subsets.slice(before).some(s => s.table === "player_game" && s.where === '"game_id" = $1'), "the revisit requests the game's subset");
+      if (kind === "joined") await until(() => collections.player.size > 0, "the revisit loads the game's players");
       const subsets = fake.subsets.slice(before);
-      assert(subsets.some(s => s.table === "player_game" && s.where === '"game_id" = $1'), "the revisit requests the game's subset");
       assert(subsets.every(s => s.table === "player_game" ? s.where === '"game_id" = $1' : s.where === '"id" = ANY($1)'), "every reopened source requests only matching rows");
       assert(collections.player_game.size === 2, "the unrelated game's row stays unloaded");
       if (kind === "joined") assert(collections.player.size === 2, "unrelated players stay unloaded");
@@ -1159,7 +1161,10 @@ Deno.test({
         rows = [];
         await tick(30);
         assert(wakes === 0 && requests.length === 1, `remote changes do not trigger a request-only read: ${wakes} wakes, ${requests.map(String).join(", ")}`);
-        assert((await store.query("player_game", null, opts)).length === 0, "an explicit read gets current rows");
+        assert((await store.query("player_game", null, opts)).length === 1, "a read again answers what the tab read");
+        await until(() => wakes === 1, "the rows the refresh behind it brought wake the reader");
+        assert(requests.length === 2, `one refresh: ${requests.map(String).join(", ")}`);
+        assert((await store.query("player_game", null, opts)).length === 0, "the woken read is what moved");
         assert(globalThis.__prontoViews.size === 0, "request-only reads create no local views");
         assert(globalThis.__mechaClient.collections.player_game.size === 0, "request-only reads retain no rows");
       } finally { stop(); }

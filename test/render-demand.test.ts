@@ -103,3 +103,81 @@ Deno.test({
     }
   },
 })
+
+// A view reopened after its reader left answers what it last held while its
+// subset loads, and the load names only the rows it brings: a row deleted in
+// between was named by nothing, so the reader drew it until something else
+// moved. The load's end now wakes a reader a stand-in answered, whole.
+Deno.test({
+  name: "a stand-in answered while a view loads is redrawn when the load ends",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const rows = [{ id: "1", name: "kept" }, { id: "2", name: "kept" }]
+    const changes: unknown[] = []
+    let wake: (() => void) | undefined
+    let offset = 1
+    const message = (value: typeof rows[number], operation = "insert") => ({
+      key: `"public"."card"/"${value.id}"`, value,
+      headers: { operation, relation: ["public", "card"] },
+    })
+    const fetcher = async (input: unknown, init?: RequestInit) => {
+      const url = new URL(String(input))
+      if (url.pathname === "/auth/shape") return Response.json({ token: "shape", where: "true", expires_in: 900 })
+      const headers = {
+        "electric-handle": "cards", "electric-offset": `0_${offset}`, "electric-cursor": String(offset),
+        "electric-schema": JSON.stringify({ id: { type: "text" }, name: { type: "text" } }),
+      }
+      if (url.searchParams.has("subset__where")) {
+        return Response.json({
+          metadata: { xmin: "1", xmax: "1", xip_list: [], snapshot_mark: offset, database_lsn: String(offset) },
+          data: rows.map(row => message(row)),
+        }, { headers })
+      }
+      if (url.searchParams.get("live") === "true" && changes.length === 0) {
+        await new Promise<void>((resolve, reject) => {
+          wake = resolve
+          init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true })
+        })
+      }
+      wake = undefined
+      return Response.json([...changes.splice(0), { headers: { control: "up-to-date", global_last_seen_lsn: String(offset) } }], { headers })
+    }
+    const cfg = {
+      tables: ["card"], carriers: FIXTURE_CARRIERS, read: { card: "lazy" },
+      schema: { card: { durability: "live", fields: [{ name: "id", type: "string" }, { name: "name", type: "string" }] } },
+    }
+    const online = Object.getOwnPropertyDescriptor(navigator, "onLine")
+    Object.defineProperty(navigator, "onLine", { value: true, configurable: true })
+    try {
+      await withBrowser({ fetch: fetcher }, async (createStore: typeof CreateStore) => {
+        const store = createStore("http://stand-in", cfg)
+        await warmEagerTables(store, cfg)
+        const opts = { filter: "name=eq.kept" }
+        const ids = (read: Array<{ id: string }>) => read.map(row => row.id).sort()
+        let notified = false
+        const first = store.subscribe("card", () => { notified = true }, opts)
+        expect(ids(await store.query("card", null, opts))).toEqual(["1", "2"])
+        await until(() => notified, "the first load woke its reader")
+        first()
+
+        const [gone] = rows.splice(1, 1)
+        offset++
+        changes.push(message(gone, "delete"))
+        wake?.()
+        await until(() => changes.length === 0 && wake !== undefined, "the delete reached the collection")
+
+        let woke = false
+        const second = store.subscribe("card", () => { woke = true }, opts)
+        try {
+          expect(ids(await store.query("card", null, opts))).toEqual(["1", "2"])
+          await until(() => woke, "the load's end woke the reader the stand-in answered")
+          expect(ids(await store.query("card", null, opts))).toEqual(["1"])
+        } finally { second() }
+      })
+    } finally {
+      if (online) Object.defineProperty(navigator, "onLine", online)
+      else delete (navigator as unknown as { onLine?: boolean }).onLine
+    }
+  },
+})

@@ -21,7 +21,7 @@ async function serve() {
     ["offline-first-sw.js", await Deno.readTextFile(new URL("../offline-first-sw.js", import.meta.url))],
   ])
   const modules = ["shell.js", "chrome.js", "screen.js", "host-dom.js", "fragment.js", "data-sync.js", "validate.js", "render.js",
-    "release-plan.js", "release-assets.js", "preloads.js", "markup.js", "script-url.js", "deferred-boot.js", "hatch.js", "hatch-worker.js", "storybook.js", "jessie.js",
+    "release-plan.js", "release-assets.js", "preloads.js", "link-prefetch.js", "markup.js", "script-url.js", "deferred-boot.js", "hatch.js", "hatch-worker.js", "storybook.js", "jessie.js",
     "kinetic.js", "prng.js", "vendor/mecha-client.js", "vendor/js-yaml.js", "vendor/ses.umd.min.js", "vendor/morphlex.js", "vendor/messages.js"]
   for (const module of modules) files.set(`omnishell/interpreter/${module}`, await Deno.readTextFile(new URL(`../interpreter/${module}`, import.meta.url)))
   const shell = files.get("omnishell/interpreter/shell.js")!

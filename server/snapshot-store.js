@@ -13,11 +13,13 @@ export function snapshotStore(cfg, appBase, reader) {
 			cfg.local?.[table] ? value : { ...value, durability: "server" },
 		]),
 	);
+	// Every read a render makes reads its snapshot (render.ts says why).
 	const store = createStore(appBase.origin, {
 		...cfg,
 		tables: [],
 		schema,
 		appBase,
+		keepReads: false,
 	}, {
 		async request(input, init) {
 			try {

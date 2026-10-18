@@ -862,6 +862,9 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
   console.log(JSON.stringify(findings, null, 2))
   const critical = findings.filter((f) => f.severity === "critical")
   if (critical.length) {
+    // Restated last: a runner's log keeps its tail, and the report above
+    // runs to megabytes a builder clips.
+    for (const f of critical) console.error(`critical ${f.path}: ${f.message}`)
     console.error(`\ncheck-visual: ${critical.length} critical finding(s); ${findings.length - critical.length} advisory.`)
     return 1
   }

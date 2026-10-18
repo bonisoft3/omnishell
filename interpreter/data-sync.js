@@ -112,6 +112,18 @@ export function carryReads(html, reads, script = servedReadsScript) {
   return html.slice(0, at) + script(reads) + html.slice(at);
 }
 
+/** The reads `html` carries, read from its text in the shape servedReadsScript
+ * writes: a prefetch has a document's text and no document, and parsing one
+ * is a sink Trusted Types refuses. */
+export function servedReadsOf(html) {
+  const open = `<script type="application/json" id="${SERVED_READS}">`;
+  const at = html.lastIndexOf(open);
+  if (at < 0) return new Map();
+  const end = html.indexOf("</script>", at + open.length);
+  if (end < 0) throw new Error(`a document's ${SERVED_READS} has no end`);
+  return new Map(Object.entries(JSON.parse(html.slice(at + open.length, end))));
+}
+
 /** The reads `doc` carries, taken out of it: each answers once. */
 export function takeServedReads(doc) {
   const el = doc?.getElementById?.(SERVED_READS);
@@ -1184,12 +1196,139 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   const query = async (table, order, opts = {}) =>
     project(table, await read(table, order, opts));
 
+  // Server reads as the tab last read them, by reader and address: a later
+  // read of the same address answers from here at once, as a view answers
+  // from its collection, so a screen drawn again draws whole on its first
+  // frame, and one request per address refreshes it behind. Rows that moved
+  // wake the read's readers, so a read a change woke shows what it held for
+  // that request and then what moved. A write this tab settles drops every
+  // read that depends on the table instead: its writer asks the door.
+  //
+  // A tab's alone: the server terminal renders every document from one store,
+  // where a kept answer would grow with every address rendered and answer a
+  // later render without the request its document has to record and carry
+  // (render.ts sets keepReads: false). Each map keeps the KEPT_READS answers
+  // used last.
+  const keepsReads = cfg.keepReads !== false;
+  const KEPT_READS = 256;
+  const answered = new Map();
+  // A view's last answer, by reader and query, for the same reason: a view
+  // closes a few seconds after its last reader (mecha-client's
+  // SHAPE_IDLE_MS), and a screen drawn again after that waited, empty, for
+  // its subset to load again. While it loads, the read answers what the view
+  // last held; the view's own subscription wakes the readers when it is whole.
+  const recalled = new Map();
+  const recallKey = (table, order, opts) => `${token() ?? ""} ${table} ${JSON.stringify([order ?? null, opts.filter ?? null, opts.select ?? null])}`;
+  function keep(memo, key, entry) {
+    memo.delete(key);
+    memo.set(key, entry);
+    if (memo.size > KEPT_READS) memo.delete(memo.keys().next().value);
+  }
+  function kept(memo, key) {
+    const entry = memo.get(key);
+    if (entry !== undefined) keep(memo, key, entry);
+    return entry;
+  }
+  // The rows are the read's own fresh array; a hit answers a copy of them.
+  // While a view loads, what the tab has for it: its own last answer, or the
+  // carried read of the same address a prefetched document seeded, which the
+  // server drew from the same rows. Each answer is its own copy. A load
+  // names only the rows it brings, so a row gone since the stand-in was drawn
+  // is named by nothing: its readers are woken whole when the load ends
+  // (subscribe), until a read answers what the view holds.
+  const stoodIn = new Set();
+  function standIn(key, table, order, opts) {
+    if (opts.current) return undefined;
+    const last = kept(recalled, key);
+    const carried = last !== undefined || !keepsReads ? undefined : kept(answered, memoKey(`${crud(table)}?${search(order, opts)}`));
+    if (last === undefined && carried === undefined) return undefined;
+    stoodIn.add(key);
+    return last !== undefined ? [...last.rows] : JSON.parse(carried.body);
+  }
+  function recall(key, table, opts, rows) {
+    stoodIn.delete(key);
+    if (keepsReads) keep(recalled, key, { rows, tables: readDeps(table, opts) });
+    return rows;
+  }
+  const readDeps = (table, opts) => new Set([table, ...embedDeps(opts.select, table, cfg.schema), ...accessDeps(table), ...foldSourceOf(table)]);
+  // One spelling per address, the one a carried read is recorded under
+  // (readKey): search() writes a query as the program stated it, a recorded
+  // one is URL-serialized, and a non-ASCII value spells the two differently.
+  const memoKey = (url) => `${token() ?? ""} ${readKey(url, "https://read.invalid")}`;
+  // A read whose order the program leaves to Postgres comes back in heap
+  // order, so the same rows in another order are no change: waking its
+  // readers for one would refresh it again, and again.
+  const canon = (body) => JSON.parse(body).map((row) => JSON.stringify(row)).sort().join("\n");
+  const unchanged = (url, a, b) => a === b || (!/[?&]order=/.test(url) && canon(a) === canon(b));
+  // Bumped by each write this tab settles, so a read in flight across one
+  // keeps nothing of what it brings back.
+  const generation = new Map();
+  function forget(table) {
+    generation.set(table, (generation.get(table) ?? 0) + 1);
+    for (const memo of [answered, recalled]) for (const [key, entry] of memo) if (entry.tables.has(table)) memo.delete(key);
+  }
+  const generations = (tables) => [...tables].map((t) => generation.get(t) ?? 0).join(",");
+  async function fetchServer(url) {
+    const rows = await (await request(url)).json();
+    return { rows, body: JSON.stringify(rows) };
+  }
+  function refresh(key, url, held) {
+    if (held.refreshing) return;
+    held.refreshing = fetchServer(url).then(({ body }) => {
+      if (answered.get(key) !== held || unchanged(url, body, held.body)) return;
+      held.body = body;
+      for (const t of held.tables) for (const fn of settleListeners.get(t) ?? []) fn();
+    }, () => {
+      // Resolved, not dropped: the rows on show stay as they were read, and
+      // the next read asks the door and meets the failure itself.
+      if (answered.get(key) === held) answered.delete(key);
+    }).finally(() => { held.refreshing = null; });
+  }
+
+  /** The reads a prefetched document carries (takeServedReads), each kept as
+   * the tab's answer to its address, so the screen they drew draws whole on
+   * the click that opens it. They are what a fresh guest reads, so only a
+   * store whose page minted its guest takes them, while that guest reads;
+   * an address the tab already answers keeps its own. */
+  function seedReads(reads) {
+    if (!keepsReads || !servedToReader || !guest()) return;
+    for (const [address, body] of reads) {
+      const url = new URL(address, "https://read.invalid");
+      const [, route, table] = url.pathname.split("/");
+      if (route !== "crud" || table === undefined) throw new Error(`a carried read is no /crud read: ${address}`);
+      const key = memoKey(`${base}${address}`);
+      const select = url.searchParams.get("select") ?? undefined;
+      const tables = readDeps(table, { select });
+      // A document is a fresh guest's, rendered when it was: rows this tab
+      // has written may have moved since, and their writer reads the door.
+      // The rows a read returns, its table's and its embeds'; what decides
+      // who may read them is the guest's own, written by the very mint that
+      // makes this store one a document may seed.
+      const returned = [table, ...embedDeps(select, table, cfg.schema)];
+      if (answered.has(key) || returned.some((t) => (generation.get(t) ?? 0) > 0)) continue;
+      keep(answered, key, { body, tables, refreshing: null });
+    }
+  }
+
   async function readServer(table, order, opts) {
     // A missing optional FK binds an empty UUID. Local views already know
     // that equality cannot match; sending it to Postgres would be a cast error.
     const clauses = parseFilterSpec(opts.filter);
     if (clauses?.some(({ col, op, value }) => op === "eq" && literal(table, col, value) === NOHOLD)) return [];
-    return (await request(`${crud(table)}?${search(order, opts)}`)).json();
+    const url = `${crud(table)}?${search(order, opts)}`;
+    if (!keepsReads || opts.current) return (await fetchServer(url)).rows;
+    const key = memoKey(url);
+    const held = kept(answered, key);
+    // Each answer is its own copy: a reader may sort or edit what it is given.
+    if (held !== undefined) {
+      refresh(key, url, held);
+      return JSON.parse(held.body);
+    }
+    const tables = readDeps(table, opts);
+    const before = generations(tables);
+    const { rows, body } = await fetchServer(url);
+    if (generations(tables) === before) keep(answered, key, { body, tables, refreshing: null });
+    return rows;
   }
 
   async function read(table, order, opts = {}) {
@@ -1201,11 +1340,16 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     // A read the engine already maintains needs no re-derivation: the view is
     // the filter and the order, kept current by the deltas that woke us.
     const held = maintainedView(table, { ...opts, order }, lazy(table));
+    const key = recallKey(table, order, opts);
     if (held !== null) {
       const release = lease(held);
       try {
-        if (!held.complete()) await settled(held);
-        return held.view.toArray;
+        if (!held.complete()) {
+          const shown = standIn(key, table, order, opts);
+          if (shown !== undefined) return shown;
+          await settled(held);
+        }
+        return recall(key, table, opts, held.view.toArray);
       } finally {
         release();
       }
@@ -1222,12 +1366,15 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     if (c !== undefined) {
       const releases = [];
       try {
+        const demands = snapshotDemands(table, opts);
+        for (const entry of demands) releases.push(lease(entry));
+        if (demands.some(entry => !entry.complete())) {
+          const shown = standIn(key, table, order, opts);
+          if (shown !== undefined) return shown;
+        }
         await Promise.all([
           ...snapshotTables(table, opts).filter(t => !lazy(t)).map(t => wholeCollection(t, `a read of ${table}`)),
-          ...snapshotDemands(table, opts).map(entry => {
-            releases.push(lease(entry));
-            return settled(entry);
-          }),
+          ...demands.map(entry => settled(entry)),
         ]);
         const all = c.toArray;
         // The snapshot is a fresh array, so it is sorted in place, and copied
@@ -1238,8 +1385,8 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
         if (order) rows.sort(compareBy(order, orderOf(table)));
         const limit = parseLimit(opts.filter);
         const capped = limit === undefined ? rows : rows.slice(0, limit);
-        if (embeds.length === 0) return capped;
-        return capped.map((row) => {
+        if (embeds.length === 0) return recall(key, table, opts, capped);
+        return recall(key, table, opts, capped.map((row) => {
           const out = { ...row };
           for (const { alias, table: rel, cols } of embeds) {
             // A collection is keyed by the same column keyOf names, so the
@@ -1254,7 +1401,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
                 : null;
           }
           return out;
-        });
+        }));
       } finally {
         for (const release of releases) release();
       }
@@ -1272,6 +1419,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   // navigation. Settlement of an own mutation is therefore its own signal.
   const settleListeners = new Map();
   function notifySettled(table, keys) {
+    forget(table);
     for (const fn of settleListeners.get(table) ?? []) fn(keys);
   }
   function onSettled(promise, table, keys) {
@@ -1425,8 +1573,9 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     // the load to end, and go out together then.
     const loading = view === null ? demands : [view];
     const wakes = coalesce(fn, () => loading.some(entry => entry.view.isLoadingSubset));
+    const loaded = () => (stoodIn.has(recallKey(table, opts.order, opts)) ? wakes.widened() : wakes.released());
     const unloads = demands.map(entry => entry.attach(v => v.on("loadingSubset:change", event => {
-      if (!event.isLoadingSubset) wakes.released();
+      if (!event.isLoadingSubset) loaded();
     })));
     if (view !== null) {
       // Through watch, for the same reason a raw collection is: a region
@@ -1439,7 +1588,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
           else wakes.widened();
         });
         const unload = v.on("loadingSubset:change", (event) => {
-          if (!event.isLoadingSubset) wakes.released();
+          if (!event.isLoadingSubset) loaded();
         });
         return () => {
           unwatch();
@@ -1862,6 +2011,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   const writing = (fn) => (...args) => (served.clear(), fn(...args));
   return {
     query,
+    seedReads,
     add: writing(add),
     write: writing(write),
     patch: writing(patch),

@@ -175,7 +175,11 @@ describe("a rendered document's hydration preloads", () => {
     }
     const { document } = parseHTML('<html><head><base href="/shell/"></head><body></body></html>')
     preloadLinkedScreens(document, "https://reader.test/", cfg, "home", ["home", ...skeletonRoutes(html)])
-    expect([...document.querySelectorAll('link[rel="preload"]')].map((link) => link.getAttribute("href"))).toEqual([
+    // Prefetched, not preloaded: a preload is fetched at the page's own
+    // priority and warned about when unused, and golaberto's pages named
+    // hundreds of linked screens' files the reader never opened.
+    expect(document.querySelectorAll('link[rel="preload"]').length).toBe(0)
+    expect([...document.querySelectorAll('link[rel="prefetch"]')].map((link) => link.getAttribute("href"))).toEqual([
       "/shell/screens/players.html", "/shell/screens/players.css",
       "/shell/screens/game.html", "/shell/screens/game.css",
       "/shell/screens/team.html", "/shell/screens/team.css",

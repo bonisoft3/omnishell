@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@test/harness"
-import { admittedOrigin, createRenderer, inhabit, keepGuest, serve, warmEagerTables } from "../server/render.ts"
+import { admittedOrigin, boundedFetch, createRenderer, inhabit, keepGuest, serve, warmEagerTables } from "../server/render.ts"
 import { createStore } from "../interpreter/data-sync.js"
 import { FIXTURE_CARRIERS } from "../interpreter/fixture-types.js"
 
@@ -363,6 +363,30 @@ describe("the server terminal's origin", () => {
     // missing ORIGIN can be what ended it.
     const env: Record<string, string> = { DOOR: "http://127.0.0.1:9", ENTRY: "/nowhere" }
     await expect(serve((name) => env[name])).rejects.toThrow("ORIGIN names no origin")
+  })
+})
+
+describe("the renderer's reads through its door", () => {
+  // A door that never answered held the render, and the request behind it,
+  // until whatever proxied the render gave up on both.
+  it("give up on a door that never answers", async () => {
+    const hung: typeof globalThis.fetch = (_input, init) =>
+      new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal!.reason)))
+    await expect(boundedFetch(hung, 20)("http://door/crud/team")).rejects.toThrow()
+  })
+
+  it("still give up when the caller does, on a Request's own signal too", async () => {
+    const hung: typeof globalThis.fetch = (_input, init) =>
+      new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal!.reason)))
+    const caller = new AbortController()
+    const read = boundedFetch(hung, 60_000)(new Request("http://door/crud/team", { signal: caller.signal }))
+    caller.abort(new Error("the caller left"))
+    await expect(read).rejects.toThrow("the caller left")
+  })
+
+  it("end the renderer at start where no bound is set", async () => {
+    const env: Record<string, string> = { DOOR: "http://127.0.0.1:9", ENTRY: "/nowhere", ORIGIN: "https://gol.example" }
+    await expect(serve((name) => env[name])).rejects.toThrow("DOOR_TIMEOUT_MS")
   })
 })
 

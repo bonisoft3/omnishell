@@ -22,6 +22,7 @@ import { planRelease } from "./release-plan.js";
 import { activateRelease, fetchRelease, prepareRestartRelease, readAsset, startupReleaseId } from "./release-assets.js";
 export { routeAt } from "./fragment.js";
 import { assetURL, preloadLinkedScreens, preloadScreen } from "./preloads.js";
+import { startLinkPrefetch } from "./link-prefetch.js";
 
 const recoveryKey = "pronto-live-update-recovery";
 const sessionOwner = (session) => {
@@ -782,7 +783,7 @@ export async function createShell({ config, mount, liveUpdates = false, preload 
 
     await catalogued;
     if (served !== null) await words.settle(servedWords);
-    const { createStore } = await dataPlane;
+    const { createStore, servedReadsOf } = await dataPlane;
     const store = createStore("", {
       ...cfg,
       appBase,
@@ -790,6 +791,7 @@ export async function createShell({ config, mount, liveUpdates = false, preload 
       mintedGuest,
       ensureSession: guestSession ? () => guestSession : null,
     });
+    const linkPrefetch = liveUpdates ? null : startLinkPrefetch({ addresses, appBase, store, servedReadsOf });
     recovery = liveUpdates ? JSON.parse(sessionStorage.getItem(recoveryKey) ?? "null") : null;
     const owner = liveUpdates ? (session === null ? storedSessionOwner() : sessionOwner(session)) : null;
     if (initialDraftOwner !== owner) initialFields = null;
@@ -980,6 +982,7 @@ export async function createShell({ config, mount, liveUpdates = false, preload 
         await entry.handle?.resume();
         if (!liveUpdates) {
           await catchUp(entry).catch(unheard(entry));
+          linkPrefetch.idle();
           if (preload) {
             preloadLinkedScreens(document, appBase, cfg, route.screen, [
               ...(entry.handle?.links ?? []),
@@ -1075,6 +1078,7 @@ export async function createShell({ config, mount, liveUpdates = false, preload 
       }
       if (!liveUpdates) {
         await catchUp(fresh).catch(unheard(fresh));
+        linkPrefetch.idle();
         if (preload) {
           preloadLinkedScreens(document, appBase, cfg, route.screen, [
             ...(fresh.handle?.links ?? []),

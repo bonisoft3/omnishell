@@ -52,7 +52,7 @@ omnishell check markup   <appDir>    # every screen says what the grammar admits
 omnishell check handlers <appDir>    # every Jessie module loads in its role's compartment
 omnishell check machines <appDir>    # every arrow of every emitted chart fires
 omnishell read  markup   <appDir>    # what one app's screens say, as JSON
-omnishell mode  <appDir> [--local]   # the stanza naming which omnishell the checks run
+omnishell mode  <appDir>             # the stanza naming which omnishell the checks run
 ```
 
 A check takes `--self-test` in the directory's place, and answers on its own
@@ -61,9 +61,8 @@ finding that is not advisory is a non-zero exit.
 
 The deno flags and the permission grants each leaf runs on live behind
 `runtime/cli.ts`, so a caller states the check and the directory and nothing
-else. `omnishell mode` is what `terminal.cue`'s `surface.runtime` reads: a
-checkout beside the program names its launcher by a path, anything else names
-the bare token.
+else. `omnishell mode` is what `terminal.cue`'s `surface.runtime` reads: the bare
+token, the `omnishell` mise resolves.
 
 ## Development
 

@@ -185,7 +185,8 @@ function memoSeat(seat, root, { unit, src, onEvent, store, declared }) {
       if (stamp === asked) return;
       asked = stamp;
       const filter = key.map((k) => `${k}=eq.${encodeURIComponent(props[k])}`).join("&");
-      store.query(table, null, { filter }).then((rows) => {
+      // A lookup acts once on its answer, so the answer is current.
+      store.query(table, null, { filter, current: true }).then((rows) => {
         // A newer question or a dead seat makes this lookup moot.
         if (!alive || asked !== stamp) return;
         const [held] = rows;

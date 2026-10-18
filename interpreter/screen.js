@@ -76,14 +76,25 @@ function releaseStyle(id, css) {
   return entry.ready;
 }
 
-// A screen's files asked for ahead of its mount, each taken once: the next
-// visit fetches again, so a redeployed screen is never served from here.
+// A screen's files asked for ahead of its mount, each taken once. A file the
+// release maps to its content's address is the same bytes for as long as that
+// address is served, so the tab keeps it, markup and modules alike: a screen
+// drawn again mounts in the frame it was asked for, where fetching them anew
+// left the area under the chrome empty for each request. Any other file is
+// fetched for each mount, so a redeployed screen is never served from here.
 const prefetched = new Map();
+const kept = new Map();
 const screenFile = (url) => {
+  const have = kept.get(url.href);
+  if (have !== undefined) return have;
   const ahead = prefetched.get(url.href);
-  if (ahead === undefined) return fetchText(url);
   prefetched.delete(url.href);
-  return ahead;
+  const pending = ahead ?? fetchText(url);
+  if (assetURL(url).pathname !== url.pathname) {
+    kept.set(url.href, pending);
+    pending.catch(() => kept.delete(url.href));
+  }
+  return pending;
 };
 
 /** Starts a route's markup and stylesheet loading before the mount that reads
@@ -94,8 +105,8 @@ export function prefetchScreen(appBase, route) {
   const css = new URL(route.files.css, appBase);
   const styleId = `screen-css-${route.screen}`;
   const ahead = [
-    [html, fetchText(html)],
-    [css, fetchText(css).then((text) => {
+    [html, kept.get(html.href) ?? fetchText(html)],
+    [css, (kept.get(css.href) ?? fetchText(css)).then((text) => {
       if (!document.getElementById(styleId)) {
         const style = document.createElement("style");
         style.id = styleId;
@@ -109,7 +120,7 @@ export function prefetchScreen(appBase, route) {
     // The mount awaits this promise and throws what it threw; the mark only
     // keeps a failure from being reported a second time before then.
     pending.catch(() => {});
-    prefetched.set(url.href, pending);
+    if (!kept.has(url.href)) prefetched.set(url.href, pending);
   }
 }
 
@@ -1190,11 +1201,13 @@ function guardEdits(el) {
 }
 
 function bindAttributes(scope, ctx) {
+  // Renderer output has no bindings; nested regions bind against their own
+  // rows, and a template's markup against the rows it stamps (a DOM without
+  // template content keeps it as children). Prune all three before walking a
+  // potentially large chart or list.
   const visit = (el) => {
     bindElementAttributes(el, ctx);
-    // Renderer output has no bindings; nested regions bind against their own
-    // rows. Prune both before walking a potentially large chart or list.
-    if (el.hasAttribute("data-text-format")) return;
+    if (el.hasAttribute("data-text-format") || el.localName === "template") return;
     for (let child = el.firstElementChild; child !== null; child = child.nextElementSibling) {
       if (!child.hasAttribute("data-live")) visit(child);
     }
@@ -1381,9 +1394,9 @@ function staticOrParam(template, ctx) {
 export async function interpretScreen(mount, appBase, route, store, params = {}, opts = {}) {
   const screenOpts = opts;
   const hostDom = await hostDomScreen(route, appBase, opts.hostDom ?? {}, opts);
-  const read = opts.release ? releaseReader() : fetchText;
+  const read = opts.release ? releaseReader() : screenFile;
   const files = [new URL(route.files.html, appBase), new URL(route.files.css, appBase)];
-  let [html, css] = await Promise.all(files.map(opts.release ? read : screenFile));
+  let [html, css] = await Promise.all(files.map(read));
   const styleId = `screen-css-${route.screen}`;
   // A document the shell was served or kept for this address (document.js): its
   // screen is taken over where it stands rather than drawn again, so nothing
@@ -2101,11 +2114,13 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     const named = [...region.attributes]
       .filter((a) => a.name.startsWith("data-read-"))
       .map((a) => ({ name: a.name.slice("data-read-".length), ...parseReadSpec(a.value) }));
+    // A reduce acts on what it is given, once, and holds no subscription that
+    // would correct a stale answer: its reads are current.
     const worldOf = async () => {
       const rows = {};
-      for (const table of reads) rows[table] = await store.query(table, null, {});
+      for (const table of reads) rows[table] = await store.query(table, null, { current: true });
       for (const r of named) {
-        const opts = {};
+        const opts = { current: true };
         if (r.filter !== undefined) opts.filter = interpolateFilter(r.filter, ctx);
         if (r.order !== undefined) opts.order = r.order;
         rows[r.name] = await store.query(r.table, r.order ?? null, opts);

@@ -32,13 +32,17 @@ export function assetURL(value, doc = globalThis.document) {
   return url;
 }
 
-export function preloadScreen(doc, appBase, route, { template = true } = {}) {
+/** `rel` is "preload" for the screen being shown and "prefetch" for one a link
+ * leads to: a preload is the browser's to fetch at once, at the page's
+ * priority, and warned about when unused, which a screen the reader may never
+ * visit is; a prefetch is for a navigation that may come. */
+export function preloadScreen(doc, appBase, route, { template = true, rel = "preload" } = {}) {
   const app = new URL(appBase);
   const base = new URL(doc.head.querySelector("base[href]")?.getAttribute("href") ?? ".", app);
   const styles = new Set([...doc.head.querySelectorAll('link[rel="stylesheet"]')]
     .map((link) => assetURL(new URL(link.getAttribute("href"), base), doc).href));
   const seen = new Set();
-  for (const link of doc.head.querySelectorAll('link[rel="modulepreload"], link[rel="preload"]')) {
+  for (const link of doc.head.querySelectorAll('link[rel="modulepreload"], link[rel="preload"], link[rel="prefetch"]')) {
     const url = assetURL(new URL(link.getAttribute("href"), base), doc).href;
     if (seen.has(url)) link.remove();
     else seen.add(url);
@@ -53,7 +57,7 @@ export function preloadScreen(doc, appBase, route, { template = true } = {}) {
     if (seen.has(url.href) || (as === "style" && styles.has(url.href))) continue;
     seen.add(url.href);
     const link = doc.createElement("link");
-    link.setAttribute("rel", "preload");
+    link.setAttribute("rel", rel);
     // The renderer's appBase can name its internal door; the reader's own
     // origin serves the same paths, including a prerender's placeholder origin.
     link.setAttribute("href", url.origin === app.origin ? `${url.pathname}${url.search}${url.hash}` : url.href);
@@ -85,7 +89,7 @@ export function preloadLinkedScreens(doc, appBase, cfg, screen, names = []) {
   for (const name of new Set([...generated, ...names])) {
     if (!name || name === screen) continue;
     const target = routes.get(name);
-    if (target) preloadScreen(doc, appBase, target);
+    if (target) preloadScreen(doc, appBase, target, { rel: "prefetch" });
   }
 }
 
