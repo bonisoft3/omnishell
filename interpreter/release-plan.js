@@ -1,19 +1,15 @@
-const screenPaths = (release) => Object.keys(release.screens ?? {}).sort();
-
-export function planRelease(current, next) {
-  if (current?.format !== 1 || next?.format !== 1 ||
-      typeof current.contract !== "string" || typeof next.contract !== "string" ||
-      typeof current.id !== "string" || typeof next.id !== "string") {
-    throw new Error("invalid app release manifest");
-  }
-  if (current.id === next.id) return { kind: "unchanged" };
-  if (current.contract !== next.contract ||
-      JSON.stringify(screenPaths(current)) !== JSON.stringify(screenPaths(next))) {
-    return { kind: "restart" };
-  }
-  const screens = screenPaths(next).filter((path) =>
-    current.screens[path].html !== next.screens[path].html ||
-    current.screens[path].css !== next.screens[path].css
-  );
-  return screens.length > 0 ? { kind: "morph", screens } : { kind: "restart" };
+// How a page takes a release: the difference between the map it runs
+// (#pronto-assets, logical path → content address) and the one served now.
+// A screen's template and style and a catalogue are taken in place; anything
+// else — a handler, the config, a shared stylesheet, the interpreter — is
+// code the page is running, and the page restarts into the new entry.
+export function planRelease(current, next, screens) {
+  const names = new Set([...Object.keys(current), ...Object.keys(next)]);
+  const changed = [...names].filter((name) => current[name] !== next[name]);
+  if (changed.length === 0) return { kind: "unchanged" };
+  const moved = screens.filter((s) => changed.includes(s.html) || changed.includes(s.css));
+  const catalogues = changed.filter((name) => name.startsWith("/messages/"));
+  const taken = new Set([...moved.flatMap((s) => [s.html, s.css]), ...catalogues]);
+  if (changed.some((name) => !taken.has(name))) return { kind: "restart" };
+  return { kind: "morph", screens: moved.map((s) => s.html), catalogues };
 }

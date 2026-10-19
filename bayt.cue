@@ -41,12 +41,13 @@ import (
 // test/design-tokens.test.ts, test/check-parity.test.ts,
 // test/chrome-direction.test.ts, test/entry-document.test.ts,
 // test/document.test.ts, test/locale-resolver.test.ts,
-// test/vendor-bundle.test.ts and test/arbitrary-types.test.ts read the
-// repository root — pronto's schema and its type table, apps/realworld's
-// emitted shell, every app's emitted design.css, every app's entry document,
-// apps/golaberto's served tree, every app's declared locales, and the client
-// source both the vendored bundle and the battery's generator are
-// graded against — which no image here carries, so both
+// test/vendor-bundle.test.ts, test/arbitrary-types.test.ts and
+// test/data-sync-parity.test.ts read the repository root — pronto's schema
+// and its type table, apps/realworld's emitted shell, every app's emitted
+// design.css, every app's entry document, apps/golaberto's served tree, every
+// app's declared locales, the client source both the vendored bundle and the
+// battery's generator are graded against, and every app's declared keys —
+// which no image here carries, so both
 // targets leave them out. The host test verb runs package.json's test
 // script on a full checkout, and that is where they run.
 _smokes: strings.Join([
@@ -60,7 +61,7 @@ _smokeCmd: {
 	}
 	"builtin": {
 		shell: "sh"
-		do:    "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys --ignore=test/design-tokens.test.ts,test/check-parity.test.ts,test/chrome-direction.test.ts,test/entry-document.test.ts,test/document.test.ts,test/locale-resolver.test.ts,test/vendor-bundle.test.ts,test/arbitrary-types.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read \(_smokes)'"
+		do:    "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys --ignore=test/design-tokens.test.ts,test/check-parity.test.ts,test/chrome-direction.test.ts,test/entry-document.test.ts,test/document.test.ts,test/locale-resolver.test.ts,test/vendor-bundle.test.ts,test/arbitrary-types.test.ts,test/data-sync-parity.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read \(_smokes)'"
 	}
 }
 

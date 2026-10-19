@@ -1,5 +1,22 @@
 const assetMaps = new WeakMap();
 
+/** The release a document runs: its map from logical path to content address,
+ * or null for one served without one (a single-file bundle, the storybook). */
+export function releaseOf(doc = globalThis.document) {
+  if (!assetMaps.has(doc)) {
+    const map = doc.getElementById("pronto-assets");
+    assetMaps.set(doc, map ? JSON.parse(map.textContent).imports : null);
+  }
+  return assetMaps.get(doc);
+}
+
+/** The map a page takes in place (shell.js): what it fetches from here on is
+ * the new release's. Its import map stays the one it loaded, which names the
+ * modules it is already running. */
+export function setRelease(doc, imports) {
+  assetMaps.set(doc, imports);
+}
+
 // The release document pins both native imports and fetched screen files to
 // the same bytes. Canonical names still identify roles and endowments.
 export function assetURL(value, doc = globalThis.document) {
@@ -11,13 +28,7 @@ export function assetURL(value, doc = globalThis.document) {
     url = new URL(value, base);
   }
   if (!doc) return url;
-  let imports = assetMaps.get(doc);
-  if (imports === undefined) {
-    const map = doc.getElementById("pronto-assets");
-    imports = map ? JSON.parse(map.textContent).imports : {};
-    assetMaps.set(doc, imports);
-  }
-  const mapped = imports[url.pathname];
+  const mapped = releaseOf(doc)?.[url.pathname];
   if (mapped !== undefined) {
     let sameOrigin = true;
     if (doc.baseURI) {

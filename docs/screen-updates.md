@@ -30,56 +30,50 @@ that. Three mechanisms, each owning one kind of change:
   it brings a screen to a newer template, served or running, and its rows to
   the newer item ([a pre-rendered page](#a-pre-rendered-page)).
 
-## When a served release changes
+## When a deployment lands
 
-An app with `terminal.liveUpdates: true` emits `shell/release.json`. Pronto
-hashes its served app assets and interpreter modules, records the pinned OmniShell runtime and separates
-screen HTML/CSS from the configuration, handlers and other code. On a first
-visit the browser fetches and verifies the manifest and every named asset,
-then establishes a pinned document before creating the store. Drafts entered
-into the initial document survive this bootstrap; its release selector is
-removed from the public URL. On later visits it verifies the retained set before drawing the page; background
-checks fetch past the service worker and promote only complete new sets. An
-interrupted deployment cannot promote a mixture; a returning tab boots from the
-last verified set. The terminal checks for a newer release after the screen
-mounts, every 30 seconds, and on tab return or service-worker activation. A
-control losing focus only retries an update already found while editing. The
-service worker serves cached pages and assets immediately while revalidating
-them in the background. A restarted document and its asset requests are pinned
-to one verified release by the service worker; another tab staging a release
-cannot change that document's runtime. Verified assets from older releases
-remain for an hour before cleanup, and releases pinned by open clients remain
-available until those clients leave. Release downloads time out after 15 seconds
-without progress; a body that keeps arriving may take longer.
+A release is its entry. The door serves every file a page runs or fetches at
+its content address, `_immutable-<sha256>-<name>` beside the file, and every
+entry document carries the map from logical path to address
+(`#pronto-assets`, written by `server/release-addresses.ts`): native imports
+resolve through it as an import map, and everything the terminal fetches —
+templates, stylesheets, handlers, renderers, adapters, validations,
+catalogues — through `assetURL` (`preloads.js`). An address never changes, so a
+page cannot run files from two deployments, and a first visit runs the one it
+loaded without asking anything else.
 
-If only a screen's HTML or CSS changes, the terminal uses the existing screen
-morph to update each retained instance. It retemplates regions and binds new
-sections inside `[data-live]` against the running store. It waits for an
-editable control to lose focus and carries edited native fields through the
-morph, including edits made while asynchronous region work is pending. Handlers,
-adapters, renderers and validations are read from the selected verified release.
-CSS imports remain native so each stylesheet retains its URL base; the service
-worker serves their bytes from the document's pinned release. Shared CSS changes
-require a restart, so compatible screen updates keep those imports unchanged.
-Mounts and style updates wait for the browser to finish loading these imports.
+The service worker (`offline-first-sw.js`) answers an address from its copy
+forever and a navigation from the entry it kept, revalidated behind it: a kept
+entry is a whole earlier release, so painting it is coherent, and offline it is
+the page. It holds no release state of its own.
 
-A changed configuration, handler, screen set, entry asset or runtime pin needs
-a new store or interpreter, so the terminal restarts from the verified entry
-and runtime after the controlling service worker confirms it can serve that
-complete set. It waits
-while an editable control is focused, a file is selected or a form submits;
-before reload it records edited identifiable controls and `tab` rows. Rows
-return only when their schema is identical. Recovery belongs to the account
-that saved it; signing out or switching accounts discards it. A plain-text
-draft stays text when its control becomes a rich editor. Passwords and file
-contents are never serialized. A query that needs no materialized output still
-belongs to [[data]], not to the release mechanism.
+An open page learns of a deployment by asking its own address past the worker,
+when it is shown again and every five minutes, and reads the map the answer
+carries. The difference between the two maps decides what it does
+(`release-plan.js`):
 
-The runtime pin must name immutable interpreter bytes. A tab still running the
-old protocol cannot interpret a release manifest, so enabling this policy
-does not itself migrate already-open old tabs. Offline navigation and a
-restart across an incompatible schema remain bounded by the assets and draft
-state the browser actually has.
+- **a screen's template or stylesheet, or a catalogue**: taken in place. The
+  page swaps the map `assetURL` reads; each held screen whose files moved is
+  morphed to its new template, carrying what the reader typed through the
+  morph, and its stylesheet swapped once the new one has loaded what it
+  imports; the screen on show and the strip are written in the new words at
+  once, and a held screen as it is shown again.
+- **anything else** — a handler, a renderer, a validation, the config, a
+  shared stylesheet, the interpreter — is code the page runs: it restarts into
+  the new entry. It waits while an editable control is focused, a file is
+  selected or a form submits; before the reload it records edited identifiable
+  controls and `tab` rows, and drops the entries the worker kept, each of
+  which names the older release. Rows return only when their schema is
+  identical. Recovery belongs to the account that saved it; signing out or
+  switching accounts discards it. A plain-text draft stays text when its
+  control becomes a rich editor. Passwords and file contents are never
+  serialized.
+
+A template that cannot be taken is a deploy that broke the screen, and the
+shell's banner takes its place, as a boot's that failed does; one the network
+failed to answer is an outage, and the screen on show says `network-error`.
+Templates are taken one at a time in the order they arrive: a later one
+landing first would be morphed back to the earlier.
 
 On a table read lazily a view is a subset still loading until its rows and its
 embeds' have arrived; the store holds its wakes until then, so the keyed loop
@@ -185,7 +179,6 @@ use fetch preloads; shared stylesheet dependencies use style preloads. These
 start alongside the boot modules after first contentful paint, with duplicate
 URLs removed. A SPA starts the selected route's source and shared-style hints
 as soon as its initial route is resolved, beside its existing template fetch.
-Verified-release startup already holds those assets and skips these hints.
 Neither path speculates about other routes, data, or images.
 
 On-request rendering waits for the screen's current reads, derived writes and
@@ -210,37 +203,26 @@ Two callers render one:
 - **On request**, the server terminal renders one with its rows, against the
   deployment's origin ([the terminal](terminal.md#the-server-terminal)).
 
-The service worker paints a navigation from the copy it kept and revalidates
+The service worker paints a navigation from the entry it kept and revalidates
 behind it, so a document on show can be a deploy and any number of row changes
-old. The shell takes it over where it stands, by the two mechanisms that let a
-live screen own markup it did not render
+old; it names its own release, so the files the shell fetches to take it over
+are the ones it was drawn from ([when a deployment lands](#when-a-deployment-lands)).
+The shell takes it over where it stands, by the mechanisms that let a live
+screen own markup it did not render
 ([`served-adoption.test.ts`](../test/served-adoption.test.ts)):
 
 - **The skeleton is kept, or morphed.** The first `show()` hands the served
   screen to `interpretScreen`, which prepares the screen's template as a mount
   would and reads the served tree against it (`adoptTree`): what a render holds
   only in memory — a placeholder attribute's template, a list's item templates
-  — is set on the served node it became, the route's declared host-DOM hatches mount in place,
-  and the words are rewritten only where the catalogue says otherwise. The
-  document and the worker's copies of its template and stylesheet are each any
-  deploy old, and a hash says only that two differ, not which is newer: where
-  `pronto-cas` is not the fetched template's hash, or the stylesheet the
-  document carries inline is not the fetched one, both files are asked again
-  with `cache: "no-cache"`, which the worker answers from the network, and from
-  its copy only offline or when the server fails it (a 5xx). The stylesheet is then the current one, and
-  `morphScreen` brings a skeleton whose template moved on to it, entering
-  slots, which nothing has bound yet, but no list or hatch, and leaving every
-  bound text and attribute as served until its binding writes it; a region's
-  own attributes are its read, and take the template's. A served tree
-  that is not its template's render is a `ProgramError`, not a partial
-  adoption.
-- **The words are the current catalogue's.** The worker's copy of a catalogue
-  is any deploy old too, and the screen writes its words again as it takes the
-  document over: a copy older than the document would write it back to older
-  words. The document names the catalogues it is drawn in, `pronto-words`, each
-  `tag:hash` (`templateHash` of the catalogue's text), and the shell asks the
-  network again, `cache: "no-cache"`, for each it holds otherwise before the
-  first `show()` ([`nav-smoke.js`](../interpreter/nav-smoke.js)).
+  — is set on the served node it became, the route's declared host-DOM hatches
+  mount in place, and the words are rewritten only where the catalogue says
+  otherwise. Where `pronto-cas` is not the fetched template's hash,
+  `morphScreen` brings the skeleton to the template, entering slots, which
+  nothing has bound yet, but no list or hatch, and leaving every bound text and
+  attribute as served until its binding writes it; a region's own attributes
+  are its read, and take the template's. A served tree that is not its
+  template's render is a `ProgramError`, not a partial adoption.
 - **Rows are adopted by key.** On a region's first pass, a child already
   carrying a row's `data-id` becomes that row's node instead of a fresh clone
   (`stamp` in `screen.js`), its bindings read off the item template, and the
@@ -263,42 +245,26 @@ way to a fresh mount. A tab opened offline holds no session, since one lives in
 the tab: the document stays the page, unbound, until a guest session can be
 minted ([`nav-smoke.js`](../interpreter/nav-smoke.js)).
 
-A catalogue the worker revalidates to a newer one is announced as a template
-is, and taken once the shell's own request for it has landed: the screen on
-show and the strip are written in it at once, and a held screen as it is shown
-again.
-
-A template the worker revalidates to a newer one reaches the screen on show
-through the handle's `morph`, once the screen is mounted and on show, and ends
-where a mount of the newer template would, keeping every node it leaves
-standing with the reader's focus and anything typed in it. The skeleton is
-morphed as above, and each region still reading what it read follows: a list
-takes its items from the newer template and morphs the rows it holds to them,
-so a row drawn before and a row stamped after are the newer item's, and a slot
-morphs its own markup down to the regions under it; the regions under either
-follow in turn, and the pass after binds what changed and wires what arrived.
-A region the newer template adds, or whose read (`data-live`, `data-filter`,
-`data-order` and the rest a region reads once) it changes, stands as a fresh
-copy of its markup and is hydrated as a mount would hydrate it; one it drops
-is stopped. The modules the newer markup names are loaded, and the hatches and
-named templates it names are resolved, before the screen or anything it reads
-by name is touched, so a template that cannot be taken is not partly taken.
-The modules are named in the config, which the worker keeps as it keeps a
-template but announces no change of, so before a newer template is taken the
-shell asks the network for the config, `cache: "no-cache"`: one the deploy
-changed is a newer app than the one running, and the document is replaced
-([`nav-smoke.js`](../interpreter/nav-smoke.js)). A module the network fails to
-answer, or answers with a 5xx, is an outage: the screen stays as it was, says
-`network-error`, and takes the template the next time it is shown. Anything
-else is a deploy that broke the screen, and the shell's banner takes its place,
-as a boot's that failed does. Templates are taken one at a time in
-the order they arrive: each waits on its own modules, and a later one landing
-first would be morphed back to the earlier. A screen
-the reader leaves while those load is stopped and morphs no further; one held
-for a back press takes the newer template and listens again as it resumes. Its
-ordinary markup never runs scripts. Declared host-DOM hatches stop before a
-morph and mount again after its regions are ready; a paused screen waits until
-resume.
+A newer template taken in place ([when a deployment
+lands](#when-a-deployment-lands)) reaches a screen through the handle's
+`morph`, once the screen is mounted, and ends where a mount of the newer
+template would, keeping every node it leaves standing with the reader's focus
+and anything typed in it. The skeleton is morphed as above, and each region
+still reading what it read follows: a list takes its items from the newer
+template and morphs the rows it holds to them, so a row drawn before and a row
+stamped after are the newer item's, and a slot morphs its own markup down to
+the regions under it; the regions under either follow in turn, and the pass
+after binds what changed and wires what arrived. A region the newer template
+adds, or whose read (`data-live`, `data-filter`, `data-order` and the rest a
+region reads once) it changes, stands as a fresh copy of its markup and is
+hydrated as a mount would hydrate it; one it drops is stopped. The hatches and
+named templates the newer markup names are resolved before the screen or
+anything it reads by name is touched, so a template that cannot be taken is not
+partly taken. A screen the reader leaves meanwhile is stopped and morphs no
+further; one held for a back press takes the newer template and listens again
+as it resumes. Its ordinary markup never runs scripts. Declared host-DOM
+hatches stop before a morph and mount again after its regions are ready; a
+paused screen waits until resume.
 
 The document names no position in the change log to resume its rows from:
 they become current through the regions' first reads and the live stream, and

@@ -15,7 +15,7 @@
 import { describe, drawStrip, guestBox, hasStrip, localizeStrip } from "./chrome.js";
 import { screenEnv } from "./fragment.js";
 import { interpretScreen } from "./screen.js";
-import { preloadScreen } from "./preloads.js";
+import { assetURL, preloadScreen } from "./preloads.js";
 
 /** Whether a reader of this app arrives as a guest: the session every app with
  * a table of its own hands out, unless it walls itself behind a sign-in. A
@@ -28,10 +28,6 @@ export const servesGuests = (cfg) => !cfg.auth?.required && (cfg.tables?.length 
  * document rendered before any request (no rows to be had) is the screen as it
  * stands before its first read lands, `data-state="loading"`, and says nothing
  * about rows it has not seen — no empty note claims a list is empty.
- *
- * `words` is each catalogue's witness by tag, `templateHash` of its text: the
- * head names the ones the document is drawn in, so the shell taking it over
- * knows whether its own copies are those (shell.js catalogues).
  *
  * `origin` is what the head's canonical, alternates, og:url and a card image
  * named from the root are spelled against: the deployment's, or, for a
@@ -46,7 +42,7 @@ export const servesGuests = (cfg) => !cfg.auth?.required && (cfg.tables?.length 
  * @param {{
  *   entry: string, parse: (html: string) => any, cfg: any, appBase: any, route: any,
  *   params?: object, locale?: string, written?: string, store: any, messages: any,
- *   words?: Record<string, string>, rows: boolean, origin: string, here?: string,
+ *   rows: boolean, origin: string, here?: string,
  * }} options
  */
 export async function renderDocument({
@@ -60,7 +56,6 @@ export async function renderDocument({
   written,
   store,
   messages,
-  words = {},
   rows,
   origin,
   here,
@@ -116,17 +111,6 @@ export async function renderDocument({
       witness.setAttribute("name", "pronto-cas");
       witness.setAttribute("content", handle.cas);
       doc.head.append(witness);
-      // A word missing from the locale's catalogue is the default's.
-      const drawnIn = [...new Set([locale, cfg.i18n?.default])].filter((tag) => tag !== undefined && Object.hasOwn(messages, tag));
-      if (drawnIn.length > 0) {
-        const named = doc.createElement("meta");
-        named.setAttribute("name", "pronto-words");
-        named.setAttribute("content", drawnIn.map((tag) => {
-          if (typeof words[tag] !== "string") throw new Error(`a document drawn in the ${tag} catalogue was given no witness of it`);
-          return `${tag}:${words[tag]}`;
-        }).join(" "));
-        doc.head.append(named);
-      }
       preloadScreen(doc, appBase, route);
       deferBoot(doc);
 
@@ -231,7 +215,7 @@ function deferBoot(doc) {
   if (boot === null) throw new Error("the entry page boots no module");
   const loader = doc.createElement("script");
   loader.setAttribute("type", "module");
-  loader.setAttribute("src", "/omnishell/interpreter/deferred-boot.js");
+  loader.setAttribute("src", assetURL("/omnishell/interpreter/deferred-boot.js", doc).pathname);
   loader.setAttribute("data-pronto-boot", boot.getAttribute("src"));
   loader.setAttribute("data-pronto-preloads", JSON.stringify(ahead));
   boot.replaceWith(loader);

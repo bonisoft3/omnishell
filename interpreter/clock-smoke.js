@@ -229,3 +229,87 @@ Deno.test({
     clock().reset();
   },
 });
+
+// Two reduces that each ask for a draw on a click. Each draws from a stream of
+// its own, so the draw a reduce gets is the same whichever ran first: a draw
+// shared between them would hand the second to whoever the scheduler reached
+// second, and a seeded run would replay only when the scheduling did.
+const DRAWER = (name) =>
+  `const reduce = (state, event) => event.type === "click"
+  ? { updates: [], then: { type: "drawn", seed: true } }
+  : { updates: [{ op: "patch", id: "${name}", row: { n: event.seed } }] };
+reduce;`;
+const DRAWERS_HTML = `<section class="screen" data-screen="draws">
+  <ul id="alpha" data-live="draw" data-filter="id=eq.alpha" data-handler="alpha" data-on-click="alpha">
+    <template data-item><li data-text="{n}"></li></template>
+  </ul>
+  <ul id="beta" data-live="draw" data-filter="id=eq.beta" data-handler="beta" data-on-click="beta">
+    <template data-item><li data-text="{n}"></li></template>
+  </ul>
+</section>`;
+
+// Mounts the two drawers and clicks them in `order`; what each drew.
+async function drawnIn(order) {
+  await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+  const { document, Event } = parseHTML(
+    "<!doctype html><html><head></head><body><div id=shell></div></body></html>",
+  );
+  globalThis.document = document;
+  const tables = { draw: [{ id: "alpha", n: 0 }, { id: "beta", n: 0 }] };
+  const store = batched({
+    query: (table, _order, opts) => {
+      const id = /id=eq\.(\w+)/.exec(opts?.filter ?? "")?.[1];
+      return Promise.resolve(tables[table].filter((r) => id === undefined || r.id === id).map((r) => ({ ...r })));
+    },
+    subscribe: () => () => {},
+    update: (table, id, changes) => {
+      const i = tables[table].findIndex((r) => r.id === id);
+      tables[table][i] = { ...tables[table][i], ...changes };
+      return Promise.resolve();
+    },
+    create: async () => {},
+    put: async () => {},
+    remove: async () => {},
+  });
+  globalThis.fetch = (url) => {
+    const u = String(url);
+    if (u.endsWith(".html")) return Promise.resolve(new Response(DRAWERS_HTML));
+    if (u.endsWith(".css")) return Promise.resolve(new Response(""));
+    const drawer = /\/(alpha|beta)\.js$/.exec(u)?.[1];
+    if (drawer !== undefined) return Promise.resolve(new Response(DRAWER(drawer)));
+    return Promise.reject(new Error(`unexpected fetch ${u}`));
+  };
+  const { interpretScreen } = await import("./screen.js");
+  const mount = document.getElementById("shell");
+  const route = {
+    screen: "draws",
+    files: { html: "shell/screens/draws.html", css: "shell/screens/draws.css", handlers: ["shell/handlers/alpha.js", "shell/handlers/beta.js"] },
+    states: ["loading", "empty", "populated"],
+  };
+  const handle = await interpretScreen(mount, "http://localhost:8080/draws/", route, store, {});
+  await quiet();
+  for (const name of order) {
+    mount.querySelector(`#${name}`).dispatchEvent(new Event("click"));
+    await quiet();
+  }
+  handle.stop();
+  return Object.fromEntries(tables.draw.map((r) => [r.id, r.n]));
+}
+
+Deno.test({
+  name: "each reduce draws from its own stream, so the order they ran in changes no draw",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    clock().reset();
+    const first = await drawnIn(["alpha", "beta"]);
+    clock().reset();
+    const second = await drawnIn(["beta", "alpha"]);
+    assert(typeof first.alpha === "number" && first.alpha !== 0 && typeof first.beta === "number" && first.beta !== 0, `both drew, got ${JSON.stringify(first)}`);
+    assert(first.alpha !== first.beta, `two actors' first draws differ, got ${JSON.stringify(first)}`);
+    assert(
+      JSON.stringify(first) === JSON.stringify(second),
+      `the same seed draws the same for each actor whichever ran first: ${JSON.stringify(first)} then ${JSON.stringify(second)}`,
+    );
+  },
+});

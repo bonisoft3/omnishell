@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@test/harness";
-import { memoryStore, type Schema } from "./screen-harness.ts";
+import { fakeDataSync } from "./data-sync-fake.ts";
+import type { Schema } from "./screen-harness.ts";
 
 const schema: Schema = {
   game_card: { fields: [{ name: "id", type: "uuid", ref: "game" }, { name: "state", type: "string" }] },
@@ -16,7 +17,7 @@ const tables = {
 
 describe("seed queries use declared relationships", () => {
   it("filters aliased joins before projecting and applies inner joins before paging", async () => {
-    const store = memoryStore(tables, { schema });
+    const store = fakeDataSync(tables, { schema });
     expect(await store.query("game_card", "id.asc", {
       select: "id,game:id!inner(slug)", filter: "game.slug=eq.chosen%26game&limit=1",
     })).toEqual([{ id: "match", game: { slug: "chosen&game" } }]);
@@ -29,7 +30,7 @@ describe("seed queries use declared relationships", () => {
   });
 
   it("keeps a base row when an outer join's predicate leaves the embed null", async () => {
-    const store = memoryStore(tables, { schema });
+    const store = fakeDataSync(tables, { schema });
     expect(await store.query("game_card", "id.asc", {
       select: "id,game:id(slug)", filter: "game.slug=eq.chosen%26game",
     })).toEqual([
@@ -40,7 +41,7 @@ describe("seed queries use declared relationships", () => {
   });
 
   it("propagates nested inner joins and filters through aliases", async () => {
-    const store = memoryStore(tables, { schema });
+    const store = fakeDataSync(tables, { schema });
     expect(await store.query("game_card", null, {
       select: "id,game:id!inner(stage:phase!inner(championship!inner(slug)))",
       filter: "game.stage.championship.slug=eq.chosen-season",
@@ -48,7 +49,7 @@ describe("seed queries use declared relationships", () => {
   });
 
   it("refuses invalid queries before inspecting an empty seed", async () => {
-    const store = memoryStore(Object.fromEntries(Object.keys(tables).map((t) => [t, []])), { schema });
+    const store = fakeDataSync(Object.fromEntries(Object.keys(tables).map((t) => [t, []])), { schema });
     const cases = [
       [{ select: "*,championship(slug)" }, /0 declared relationships/],
       [{ select: "*,game:id!inner(slug)", filter: "game.misspelled=eq.x" }, /unknown column game.misspelled/],
@@ -65,9 +66,9 @@ describe("seed queries use declared relationships", () => {
       [{ select: "*,...game:id(slug)" }, /outside the grammar/],
     ] as const;
     for (const [query, error] of cases) await expect(store.query("game_card", null, query)).rejects.toThrow(error);
-    const brokenTarget = memoryStore(tables, { schema: { ...schema, game: { fields: [{ name: "slug", type: "string" }] } } });
+    const brokenTarget = fakeDataSync(tables, { schema: { ...schema, game: { fields: [{ name: "slug", type: "string" }] } } });
     await expect(brokenTarget.query("game_card", null, { select: "*,game:id(slug)" })).rejects.toThrow(/unknown column game.id/);
-    const ambiguous = memoryStore(tables, { schema: { ...schema, game_card: { fields: [
+    const ambiguous = fakeDataSync(tables, { schema: { ...schema, game_card: { fields: [
       ...schema.game_card.fields, { name: "another_game_id", type: "uuid", ref: "game" },
     ] } } });
     await expect(ambiguous.query("game_card", null, { select: "*,game(slug)" })).rejects.toThrow(/2 declared relationships/);

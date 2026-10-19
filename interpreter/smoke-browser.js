@@ -48,7 +48,7 @@ export async function withBrowser({ fetch, storage = {} }, fn) {
     },
   };
   Object.defineProperty(globalThis, "localStorage", { value: local, configurable: true });
-  globalThis.document = { addEventListener: () => {}, removeEventListener: () => {} };
+  globalThis.document = { addEventListener: () => {}, removeEventListener: () => {}, getElementById: () => null };
   const pagehide = [];
   globalThis.window = {
     localStorage: local,

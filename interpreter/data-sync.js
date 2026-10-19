@@ -26,7 +26,7 @@ import {
 import { embedDeps, embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect, ProgramError, routeOf } from "./fragment.js";
 import { evaluateRole } from "./jessie.js";
 import { judge } from "./validate.js";
-import { releaseReader } from "./release-assets.js";
+import { assetURL } from "./preloads.js";
 
 export { embedDeps, embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect, routeOf };
 
@@ -156,7 +156,14 @@ function hasServedRead(url) {
   return served.has(readKey(url, globalThis.location?.href));
 }
 
-async function http(url, init) {
+/** How often a write a serialization conflict aborted is sent, and the first
+ * pause between sends, doubling. The gateway reports the conflict as a 500
+ * naming 40001 and leaves running the transaction again to the writer; one
+ * that never clears is refused, so the outbox does not send it forever. */
+const CONFLICT_SENDS = 5;
+const CONFLICT_FIRST_MS = 25;
+
+export async function http(url, init) {
   if ((init?.method ?? "GET") === "GET") {
     const taken = takeServedReads(globalThis.document);
     if (taken.size > 0) [served, servedAt] = [taken, globalThis.location.href];
@@ -172,8 +179,17 @@ async function http(url, init) {
   const headers = { ...init?.headers };
   const t = token();
   if (t) headers.Authorization = `Bearer ${t}`;
-  const res = await fetch(url, { ...init, headers });
-  if (res.status === 401) {
+  let res;
+  let conflicted = false;
+  for (let sent = 1; ; sent++) {
+    res = await fetch(url, { ...init, headers });
+    conflicted = res.status === 500 && (await res.clone().text()).includes('"code":"40001"');
+    if (!conflicted || sent >= CONFLICT_SENDS) break;
+    await new Promise((resolve) => setTimeout(resolve, CONFLICT_FIRST_MS * 2 ** (sent - 1)));
+  }
+  // PostgREST answers a row security refusal (42501) with 401 too, and that
+  // is the write's refusal, not the session's end.
+  if (res.status === 401 && !(await res.clone().text()).includes('"code":"42501"')) {
     // Expired/invalid token: re-gate through the login screen. The reload
     // tears the page down, so this promise never settles by design. The
     // server terminal's reload is its end (server/render.ts inhabit).
@@ -185,7 +201,7 @@ async function http(url, init) {
     const method = init?.method ?? "GET";
     const detail = await res.text();
     const err = new Error(`${res.status} ${method} ${url}${detail === "" ? "" : `: ${detail}`}`);
-    if (method !== "GET" && res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) {
+    if (method !== "GET" && (conflicted || (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429))) {
       err.name = "NonRetriableError";
     }
     throw err;
@@ -241,6 +257,13 @@ const TXID = { name: "txid", type: "int64" };
 const NOHOLD = Symbol("a literal its column cannot hold");
 // The filter clauses a maintained view states (snapshotDemands).
 const STATED = /^(eq|neq)\.|^is\.null$|^not\.is\.null$/;
+// A page being left takes its requests with it: what fails then failed
+// because the document is going, and is not said. It is still asked again —
+// the timer goes with a page that unloads, and one the back-forward cache
+// gives back rebuilds the view it held.
+let leaving = false;
+globalThis.addEventListener("pagehide", () => { leaving = true; });
+globalThis.addEventListener("pageshow", () => { leaving = false; });
 /** The pause before a view whose subset failed in transit is rebuilt, and the
  * most it doubles to. Electric's own fetch already waits out a 5xx and a
  * dropped connection; what reaches a view is a 4xx a retry answers, so the
@@ -376,7 +399,6 @@ export function othersFor(p, sinkRow, mine, pair, compareTxid) {
 export function createStore(base = "", cfg = {}, { request = http, schedule: enqueue = later } = {}) {
   servedToReader = cfg.mintedGuest === true;
   pendingSession = cfg.ensureSession ?? null;
-  const readCode = cfg.release ? releaseReader() : null;
   // cfg.local names the browser-owned tables (shell.yaml `local:`), which are
   // collections like any other here — read by a region, mutated by a form —
   // but built from a local factory rather than an Electric shape, so they are
@@ -538,14 +560,9 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
             throw new Error(`validation ${table}.${name}: missing lifecycle order for ${op}`);
           }
         }
-        const url = new URL(v.src, cfg.appBase);
-        let source;
-        if (readCode) source = await readCode(url);
-        else {
-          const res = await fetch(url);
-          if (!res.ok) throw new Error(`validation ${table}.${name}: ${v.src} ${res.status}`);
-          source = await res.text();
-        }
+        const res = await fetch(assetURL(new URL(v.src, cfg.appBase)));
+        if (!res.ok) throw new Error(`validation ${table}.${name}: ${v.src} ${res.status}`);
+        const source = await res.text();
         const granted = cfg.endowments?.[v.src] ?? [];
         return { name, on: v.on, order: v.order, edges: v.edges ?? [], test: await evaluateRole(source, "validation", granted) };
       })).catch((e) => {
@@ -1056,7 +1073,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
           return;
         }
         const pause = Math.min(RETRY_FIRST_MS * 2 ** entry.attempts, RETRY_LAST_MS);
-        console.error(`a subset of ${failure.table} failed; asking again in ${pause}ms:`, failure.error);
+        if (!leaving) console.error(`a subset of ${failure.table} failed; asking again in ${pause}ms:`, failure.error);
         entry.retrying = setTimeout(() => {
           entry.retrying = undefined;
           entry.attempts += 1;
@@ -1551,6 +1568,10 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
         let stopped = false;
         let stop = () => {};
         pendingSession().then(() => {
+          // A settled session whose token is gone — a 401 forgot it, and the
+          // page is reloading — would be waited on again at once, and again,
+          // on the microtask queue, until the page ran out of heap.
+          if (!token()) throw new Error(`subscribe ${table}: the session settled without a token`);
           if (!stopped) stop = subscribe(table, fn, opts);
         });
         return () => {
@@ -1912,10 +1933,11 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
       (r) => visible(table, r) && keys.every((c, i) => at(r, c) === wanted[i]),
     );
     if (existing === undefined) {
-      // The key the row will be found by next time, minted here because the
-      // natural key is not the primary one and nothing else will supply it.
-      const id = crypto.randomUUID();
-      return write(table, [{ key: id, row: { [keyOf(table)]: id, ...values } }], onRefused);
+      // The key the row is found by next: the one the form gave it, else
+      // minted here, since nothing else will supply it.
+      const pk = keyOf(table);
+      const id = values[pk] ?? crypto.randomUUID();
+      return write(table, [{ key: id, row: { ...values, [pk]: id } }], onRefused);
     }
     return patch(table, [{ key: existing[keyOf(table)], changes: values }], onRefused);
   }

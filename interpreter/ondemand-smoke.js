@@ -859,6 +859,28 @@ lazy("a subset that failed in transit is asked again while the read waits, and o
   stopG2();
 });
 
+lazy("a subset that fails while the page is hidden is asked again once it shows", async ({ fake, store }) => {
+  // Regression: a failure while the page was being left skipped its retry,
+  // and a page the back-forward cache gave back held a view that never
+  // rebuilt, its reads waiting for good.
+  const ids = (rows) => JSON.stringify(rows.map((r) => r.id).sort());
+  const opts = { filter: "game_id=eq.g1" };
+  const stop = store.subscribe("player_game", () => {}, opts);
+  globalThis.dispatchEvent(new Event("pagehide"));
+  try {
+    fake.fail("player_game", [401, { error: "invalid shape token" }]);
+    const read = store.query("player_game", null, opts).then(ids);
+    await until(() => fake.subsets.some((s) => s.table === "player_game" && s.params["1"] === "g1"), "the subset asked while hidden");
+    await new Promise((r) => setTimeout(r, 50));
+    globalThis.dispatchEvent(new Event("pageshow"));
+    const late = new Promise((r) => setTimeout(() => r("never"), 4000));
+    assert((await Promise.race([read, late])) === `["pg1","pg2"]`, "the read of a view that failed while hidden never settled");
+  } finally {
+    globalThis.dispatchEvent(new Event("pageshow"));
+    stop();
+  }
+});
+
 // Regression: every failure that was no refusal rebuilt the view without end,
 // and the read waited on it all the while: an auth service minting nothing, a
 // gate refusing what it minted, or the page's cluster answering in a body the

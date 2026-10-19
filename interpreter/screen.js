@@ -25,8 +25,6 @@ import {
 } from "./fragment.js";
 import { evaluateRole } from "./jessie.js";
 import { hostDomScreen } from "./host-dom.js";
-import { releaseReader } from "./release-assets.js";
-
 import { assetURL, skeletonRoutes } from "./preloads.js";
 
 export async function fetchText(url, init) {
@@ -39,12 +37,21 @@ export async function fetchText(url, init) {
   return res.text();
 }
 
+// A screen's stylesheet. One replacing another is swapped once it has loaded
+// what it imports, so a screen on show is never drawn between two releases'
+// styles; a first one, or one that imports nothing, applies as it is written.
 const stylesheetLoads = new WeakMap();
-function releaseStyle(id, css) {
+function installStyle(id, css) {
   const prior = document.getElementById(id);
+  if (prior !== null && prior.textContent === css && !stylesheetLoads.has(prior)) return Promise.resolve();
+  if (prior === null || (!css.includes("@import") && !stylesheetLoads.has(prior))) {
+    const style = prior ?? document.head.appendChild(Object.assign(document.createElement("style"), { id }));
+    if (style.textContent !== css) style.textContent = css;
+    return Promise.resolve();
+  }
   const loading = stylesheetLoads.get(prior);
   if (loading?.css === css) return loading.ready;
-  if (loading && !loading.done) return loading.ready.then(() => releaseStyle(id, css));
+  if (loading && !loading.done) return loading.ready.then(() => installStyle(id, css));
   const style = document.createElement("style");
   style.id = id;
   // Populate before insertion: appending an empty sheet first can fire a
@@ -180,13 +187,19 @@ let held = 0;
 // exists only to be discarded.
 let busy = 0;
 globalThis.__prontoBusy = () => ({ regions: busy, waits: pending.size });
-// The seed's generator, declared ahead of the clock because a held clock can
-// rewind it: a replay is the same seed from the same start, and `reset` is
-// what puts the start back.
+// The seed's generators, declared ahead of the clock because a held clock can
+// rewind them: a replay is the same seed from the same start, and `reset` is
+// what puts the start back. Each actor draws from a stream of its own, seeded
+// from the seed and the actor's name, so what one draws never depends on when
+// another ran: two reduces whose first steps race on the network's timing
+// would otherwise swap draws from run to run. The terminal's own keys draw
+// from the unnamed stream, ordered by the gestures that mint them.
 const seeded = params.get("seed");
 const origin = seeded === null ? 0 : Number(seeded) >>> 0;
-let entropy = origin;
+const streams = new Map();
 let drawn = 0;
+// The reduce each draw is made for, by the name the markup calls it.
+const actorOf = new WeakMap();
 if (MANUAL) {
   globalThis.__prontoClock = {
     // Returns how many waits are still outstanding, so a caller can tell a
@@ -210,7 +223,7 @@ if (MANUAL) {
         throw new Error(`reset over ${pending.size} waits, ${busy} regions`);
       }
       held = 0;
-      entropy = origin;
+      streams.clear();
       drawn = 0;
     },
     // What is queued and how far off each is, soonest first, so a driver can
@@ -248,10 +261,22 @@ const now = () => {
   if (epoch === null) throw new Error("a held clock stamps {now} only from an ?epoch");
   return stamp(Date.parse(epoch) + held);
 };
-const draw = () => {
+const streamOf = (actor) => {
+  let stream = streams.get(actor);
+  if (stream === undefined) {
+    let entropy = origin;
+    for (const ch of actor) entropy = Math.imul(entropy ^ ch.codePointAt(0), 0x01000193) >>> 0;
+    stream = { entropy };
+    streams.set(actor, stream);
+  }
+  return stream;
+};
+const draw = (actor = "") => {
   drawn += 1;
   if (seeded === null) return crypto.getRandomValues(new Uint32Array(1))[0];
-  entropy = (entropy + 0x6D2B79F5) >>> 0;
+  const stream = streamOf(actor);
+  stream.entropy = (stream.entropy + 0x6D2B79F5) >>> 0;
+  const entropy = stream.entropy;
   let t = Math.imul(entropy ^ (entropy >>> 15), 1 | entropy);
   t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
   return (t ^ (t >>> 14)) >>> 0;
@@ -367,6 +392,7 @@ async function loadHandlers(screen, appBase, route, endowmentsMap = {}, read = f
       }
     }
   }
+  for (const [name, module] of loaded) actorOf.set(module, name);
   return loaded;
 }
 
@@ -1394,31 +1420,14 @@ function staticOrParam(template, ctx) {
 export async function interpretScreen(mount, appBase, route, store, params = {}, opts = {}) {
   const screenOpts = opts;
   const hostDom = await hostDomScreen(route, appBase, opts.hostDom ?? {}, opts);
-  const read = opts.release ? releaseReader() : screenFile;
   const files = [new URL(route.files.html, appBase), new URL(route.files.css, appBase)];
-  let [html, css] = await Promise.all(files.map(read));
+  const [html, css] = await Promise.all(files.map(screenFile));
   const styleId = `screen-css-${route.screen}`;
   // A document the shell was served or kept for this address (document.js): its
   // screen is taken over where it stands rather than drawn again, so nothing
   // on show is replaced and nothing the reader has done to it is lost.
   const served = opts.served;
-  // The document and the worker's copies of its files are each any deploy
-  // old, and a hash cannot say which of two is the newer. Where they disagree
-  // the network says which is current: a revalidating request, which the
-  // worker answers past its copy (offline-first-sw.js).
-  if (!opts.release && served !== undefined && (served.cas !== templateHash(html) || document.getElementById(styleId)?.textContent !== css)) {
-    [html, css] = await Promise.all(files.map((url) => fetchText(url, { cache: "no-cache" })));
-  }
-  if (opts.release) await releaseStyle(styleId, css);
-  else {
-    let style = document.getElementById(styleId);
-    if (style === null) {
-      style = document.createElement("style");
-      style.id = styleId;
-      document.head.append(style);
-    }
-    if (style.textContent !== css) style.textContent = css;
-  }
+  await installStyle(styleId, css);
 
   // Subscriptions of the previously mounted screen would refresh dead DOM and
   // keep their poll keys hot — stop them before mounting the next one.
@@ -1635,11 +1644,11 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // Keyed by the module's app-relative path, the one spelling every loader
   // and pronto's lint read.
   const endowmentsMap = cfg.endowments ?? {};
-  const handlers = opts.handlers === false ? new Map() : await loadHandlers(markup, appBase, route, endowmentsMap, read);
-  adapters = opts.handlers === false ? null : await loadAdapters(markup, appBase, route, endowmentsMap, read);
+  const handlers = opts.handlers === false ? new Map() : await loadHandlers(markup, appBase, route, endowmentsMap);
+  adapters = opts.handlers === false ? null : await loadAdapters(markup, appBase, route, endowmentsMap);
   const renderers = opts.handlers === false
     ? {}
-    : await loadRenderers(markup, appBase, route, endowmentsMap, read);
+    : await loadRenderers(markup, appBase, route, endowmentsMap);
 
   const units = opts.units ?? {};
   const resolveUnit = (name) => {
@@ -2005,10 +2014,12 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           await store.dropWhere(entity, interpolateFilter(form.dataset.filter, wiring().getCtx()), refused);
         } else if (action === "delete") await store.drop(entity, [wiring().rowId()], refused);
         else throw new Error(`unknown action: ${action}`);
-        // A form that submits on change is not reset: its controls already
-        // show the row the write stated, and a select whose value was bound
-        // (not authored as its default) would reset to its first option.
-        if (edits === editsAtSubmit && !submitsOnChange(form)) form.reset();
+        // Only a create is reset, ready for the next row. Any other form's
+        // controls already show the row the write stated, and a reset would put
+        // each back to its markup's default — an input to its placeholder, a
+        // select whose value was bound to its first option — until the row's
+        // refresh binds them again. So is one that submits on change.
+        if (edits === editsAtSubmit && action === "create" && !submitsOnChange(form)) form.reset();
         setState("success");
         // A late refusal can land inside the flash window; only an
         // undisturbed success may hand back to the base state.
@@ -2338,7 +2349,11 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       // again with it, the same way it says it wants to wait. The terminal
       // owning the draw is also what lets a screen be replayed: with ?seed= it
       // draws from that instead, and the same run comes back.
-      if (next.seed === true) carried.seed = draw();
+      if (next.seed === true) {
+        const actor = actorOf.get(reduce);
+        if (actor === undefined) throw new Error(`a draw asked for by a reduce no name was registered for, at "${next.type}"`);
+        carried.seed = draw(actor);
+      }
       if (next.with !== undefined) carried.with = next.with;
       await step(reduce, carried, depth + 1, pause);
     };
@@ -2859,6 +2874,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         if (row === undefined) return { updates: [] };
         return apply(row, event, candidatesFor(row[machine.field], event));
       };
+      // A chart raises, it never draws; named all the same, so a draw it
+      // ever asked for would be its own.
+      actorOf.set(machineReduce, machine.field);
 
       // Every invocation arms the state its chain ended in; the entered flag
       // is set even on a self-target, which is what re-arms the timer.
@@ -2895,6 +2913,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             event.type === `after:${key}`
               ? apply(machineRow(state), event, list, stateName)
               : machineReduce(state, event);
+          actorOf.set(timerReduce, machine.field);
           // Periodic when every arrow the timer can take lands back in the
           // state that armed it and raises nothing: a metronome re-arms
           // forever, and a driver waiting for the queue to empty would wait
@@ -4095,7 +4114,6 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // (retemplate). A region it adds, or whose read it changes, is hydrated
   // where it stands, as the mount would have, and one it drops is stopped.
   const morph = async (newHtml) => {
-    const read = opts.release ? releaseReader() : fetchText;
     const next = prepare(newHtml);
     // Everything the mount refuses or loads before anything hydrates, before
     // the running screen or anything it reads by name is touched: a template
@@ -4105,9 +4123,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     }
     const named = templatesOf(next);
     const modules = opts.handlers === false ? null : {
-      handlers: await loadHandlers(next, appBase, route, endowmentsMap, read),
-      adapters: await loadAdapters(next, appBase, route, endowmentsMap, read),
-      renderers: await loadRenderers(next, appBase, route, endowmentsMap, read),
+      handlers: await loadHandlers(next, appBase, route, endowmentsMap),
+      adapters: await loadAdapters(next, appBase, route, endowmentsMap),
+      renderers: await loadRenderers(next, appBase, route, endowmentsMap),
     };
     namedTemplates = named;
     links = skeletonRoutes(newHtml);
@@ -4160,11 +4178,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   return {
     settle,
     updateStyle: async (css) => {
-      if (opts.release) await releaseStyle(styleId, css);
-      else {
-        const style = document.getElementById(styleId);
-        if (style.textContent !== css) style.textContent = css;
-      }
+      await installStyle(styleId, css);
     },
     // Which template this screen was drawn from (templateHash).
     cas,

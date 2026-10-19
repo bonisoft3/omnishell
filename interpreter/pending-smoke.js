@@ -33,13 +33,13 @@ const assert = (cond, msg) => {
   if (!cond) throw new Error(`smoke failed: ${msg}`);
 };
 
-function boot(rows) {
+function boot(rows, html = SCREEN_HTML) {
   const { document, Event } = parseHTML(
     "<!doctype html><html><head></head><body><div id=shell></div></body></html>",
   );
   globalThis.document = document;
 
-  const calls = { creates: [] };
+  const calls = { creates: [], upserts: [] };
   let deferred;
   const store = batched({
     query: async () => rows,
@@ -50,11 +50,14 @@ function boot(rows) {
     },
     update: async () => {},
     remove: async () => {},
+    upsertBy: async (table, values) => {
+      calls.upserts.push({ table, values });
+    },
   });
 
   globalThis.fetch = (url) => {
     const u = String(url);
-    if (u.endsWith(".html")) return Promise.resolve(new Response(SCREEN_HTML));
+    if (u.endsWith(".html")) return Promise.resolve(new Response(html));
     if (u.endsWith(".css")) return Promise.resolve(new Response(""));
     return Promise.reject(new Error(`unexpected fetch ${u}`));
   };
@@ -134,6 +137,40 @@ Deno.test({
     assert(screen.dataset.state === "success", "state left form-submit for success");
     await tick(650);
     assert(screen.dataset.state === "empty", "state returned to base after the success beat");
+  },
+});
+
+// A saved name flashed the field's placeholder: the form was reset after its
+// write, which put the input back to its markup's empty default until the
+// row's refresh bound the name again.
+Deno.test({
+  name: "a form writing a row it already shows keeps showing it",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const { document, Event, store, calls } = boot([], `<section class="screen" data-screen="wall">
+  <form data-form="handle" data-entity="player" data-action="upsert">
+    <input type="hidden" name="id" value="you" />
+    <input name="handle" placeholder="Your name" required />
+    <button type="submit">Save</button>
+  </form>
+</section>`);
+    const { interpretScreen } = await import("./screen.js");
+    const mount = document.getElementById("shell");
+    await interpretScreen(mount, "http://localhost:8090/shell/", ROUTE, store, {});
+    const screen = mount.firstElementChild;
+    const form = mount.querySelector("form[data-form=handle]");
+    form.querySelector("input[name=handle]").value = "Davi";
+    let resetCalled = false;
+    form.checkValidity ??= () => true;
+    form.reset ??= () => (resetCalled = true);
+
+    form.dispatchEvent(new Event("submit"));
+    await tick();
+    assert(calls.upserts.length === 1 && calls.upserts[0].values.handle === "Davi", `upserted ${JSON.stringify(calls.upserts)}`);
+    assert(!resetCalled, "the form was reset after writing the row it shows");
+    assert(form.querySelector("input[name=handle]").value === "Davi", "the saved name left the field");
+    assert(screen.dataset.state === "success", `state ${screen.dataset.state}`);
   },
 });
 

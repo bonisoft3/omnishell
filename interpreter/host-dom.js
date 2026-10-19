@@ -1,9 +1,8 @@
-import { releaseModuleURL } from "./release-assets.js";
 import { scriptURL } from "./script-url.js";
 
 // These modules deliberately share the host's authority. Only the manifest
 // selects them; markup cannot introduce executable paths.
-export async function hostDomScreen(route, appBase, declarations, { fixtures = false, mountHostDom = !fixtures, release = false } = {}) {
+export async function hostDomScreen(route, appBase, declarations, { fixtures = false, mountHostDom = !fixtures } = {}) {
   const names = route.hatches ?? [];
   if (new Set(names).size !== names.length) throw new Error("screen repeats a host-DOM hatch");
   const entries = names.map((name) => {
@@ -14,7 +13,7 @@ export async function hostDomScreen(route, appBase, declarations, { fixtures = f
     }
     return new URL(String(scriptURL(new URL(hatch.src, appBase))));
   });
-  const modules = mountHostDom ? await Promise.all(entries.map((url) => import(release ? releaseModuleURL(url) : url.href))) : [];
+  const modules = mountHostDom ? await Promise.all(entries.map((url) => import(url.href))) : [];
   for (const module of modules) {
     if (typeof module.default !== "function") throw new TypeError("host-DOM hatch must export a mount function");
   }

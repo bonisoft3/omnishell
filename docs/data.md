@@ -145,6 +145,13 @@ terminal's clock, so `?clock=manual` holds it; with a draw when it says
 draw; with `with` carried across. A value can be recorded and a promise
 cannot, so a reduce returning one throws.
 
+Under `?seed=` each reduce draws from a stream of its own, seeded from the
+seed and the reduce's name, so what one draws does not depend on when another
+ran: two reduces whose first steps wait on different syncs would otherwise
+swap draws from run to run, and the seed would replay only the scheduling it
+happened to get. The keys the terminal mints for a form's create draw from the
+terminal's own stream, ordered by the gestures that mint them.
+
 A hook makes runaway cascades cheap too, so the terminal owns the depth: 8
 steps, then `handler chain did not settle`. An app cannot bound a cycle it
 cannot see.

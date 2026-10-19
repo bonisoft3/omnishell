@@ -3,7 +3,6 @@ import { carryReads, servedReadsScript } from '../interpreter/data-sync.js'
 import { renderDocument } from '../interpreter/document.js'
 import { acceptedLanguages, routeAt } from '../interpreter/fragment.js'
 import { compileCatalog } from '../interpreter/vendor/messages.js'
-import { templateHash } from '../interpreter/screen.js'
 import { controlProperties } from './linkedom-controls.ts'
 import { snapshotStore } from './snapshot-store.js'
 
@@ -21,11 +20,9 @@ export function appRenderer(assets: Record<string, string>, origin: string) {
     if (url.origin !== origin || !Object.hasOwn(assets, url.pathname)) throw new Error(`unknown render asset: ${url}`)
     return new Response(assets[url.pathname])
   }
-  const messages: Record<string, ReturnType<typeof compileCatalog>> = {}, words: Record<string, string> = {}
+  const messages: Record<string, ReturnType<typeof compileCatalog>> = {}
   for (const tag of Object.keys(cfg.i18n?.locales ?? {})) {
-    const text = assets[`/messages/${tag}.json`]
-    messages[tag] = compileCatalog(JSON.parse(text))
-    words[tag] = templateHash(text)
+    messages[tag] = compileCatalog(JSON.parse(assets[`/messages/${tag}.json`]))
   }
   return async (address: string | Request, reader: { read(path: string): Promise<unknown[]> }) => {
     const url = new URL(typeof address === 'string' ? address : address.url, origin)
@@ -43,7 +40,7 @@ export function appRenderer(assets: Record<string, string>, origin: string) {
           controlProperties(document)
           return document
         },
-        cfg, appBase, ...found, store, messages, words, rows: true, origin,
+        cfg, appBase, ...found, store, messages, rows: true, origin,
         here: url.pathname,
       })
       store.assertHealthy()

@@ -1,7 +1,10 @@
 import { FIXTURE_CARRIERS } from "../interpreter/fixture-types.js"
 import { describe, expect, it, type Page, withPage } from "./harness.ts"
-import { releaseManifest } from "../test/release-fixture.ts"
+import { addressRelease } from "../server/release-addresses.ts"
 
+// The door as it serves a release (server/release-addresses.ts): each
+// deployment's tree addressed, every address any deployment wrote still
+// answered, and the current entry at every route.
 async function serve(authenticated = false, automaticGuest = false, promoteTo?: string) {
   const screen = (name: string) => `<section class="screen" data-screen="${name}"><h1>Release</h1><input name="draft" id="draft"><input name="answer" type="radio" value="no"><input name="answer" type="radio" value="yes"><div data-live="probe"><template data-item><p data-text="{id}"></p></template></div></section>`
   const files = new Map<string, string>([
@@ -10,7 +13,7 @@ async function serve(authenticated = false, automaticGuest = false, promoteTo?: 
     ["shell/design.css", ""],
     ["shell/boot.js", `import { createShell } from "/omnishell/interpreter/shell.js";
       navigator.serviceWorker.register("/offline-first-sw.js");
-      createShell({config:"./shell.json",mount:document.getElementById("app"),liveUpdates:true})
+      createShell({config:"./shell.json",mount:document.getElementById("app")})
         .then(app => { window.appReady = !!app.store; window.navigate = app.navigate; });`],
     ["shell/shell.json", JSON.stringify({ app: "release", tables: automaticGuest ? ["unused"] : [], read: { unused: "lazy" }, ...(authenticated ? { auth: { required: true, service: "/auth", promote: !!promoteTo } } : {}), local: { probe: "tab" }, carriers: FIXTURE_CARRIERS, routes: [
       { path: "/", screen: "home", nav: { label: "Home" }, files: { html: "shell/screens/home.html", css: "shell/screens/home.css", handlers: [] } },
@@ -23,24 +26,38 @@ async function serve(authenticated = false, automaticGuest = false, promoteTo?: 
     ["offline-first-sw.js", await Deno.readTextFile(new URL("../offline-first-sw.js", import.meta.url))],
   ])
   const modules = ["shell.js", "chrome.js", "screen.js", "host-dom.js", "fragment.js", "data-sync.js", "validate.js", "render.js",
-    "release-plan.js", "release-assets.js", "preloads.js", "link-prefetch.js", "markup.js", "script-url.js", "deferred-boot.js", "hatch.js", "hatch-worker.js", "storybook.js", "jessie.js",
-    "kinetic.js", "prng.js", "vendor/mecha-client.js", "vendor/js-yaml.js", "vendor/ses.umd.min.js", "vendor/morphlex.js", "vendor/messages.js"]
+    "release-plan.js", "preloads.js", "link-prefetch.js", "markup.js", "script-url.js", "deferred-boot.js", "hatch.js", "hatch-worker.js", "storybook.js", "jessie.js",
+    "kinetic.js", "prng.js", "vendor/game-inputs.js", "vendor/mecha-client.js", "vendor/js-yaml.js", "vendor/ses.umd.min.js", "vendor/morphlex.js", "vendor/messages.js"]
   for (const module of modules) files.set(`omnishell/interpreter/${module}`, await Deno.readTextFile(new URL(`../interpreter/${module}`, import.meta.url)))
   const shell = files.get("omnishell/interpreter/shell.js")!
   files.set("omnishell/interpreter/shell.js", `globalThis.runtimeRelease = "A";\n${shell}`)
-  let manifest = await releaseManifest("runtime@A", files)
-  let runtime = "A"
+  const served = new Map<string, Uint8Array>()
+  let entry = ""
+  const deployTree = async () => {
+    const dir = await Deno.makeTempDir({ prefix: "recovery-release-" })
+    try {
+      for (const [name, body] of files) {
+        await Deno.mkdir(`${dir}/${name.split("/").slice(0, -1).join("/")}`, { recursive: true })
+        await Deno.writeTextFile(`${dir}/${name}`, body)
+      }
+      const release = await addressRelease(dir)
+      for (const url of Object.values(release.imports)) served.set(url.slice(1), await Deno.readFile(`${dir}${url}`))
+      served.set("offline-first-sw.js", await Deno.readFile(`${dir}/offline-first-sw.js`))
+      entry = await Deno.readTextFile(`${dir}/shell/index.html`)
+    } finally { await Deno.remove(dir, { recursive: true }) }
+  }
+  await deployTree()
   const stop = new AbortController()
   const server = Deno.serve({ port: 0, signal: stop.signal, onListen() {} }, req => {
     const path = new URL(req.url).pathname.slice(1)
     if (path === "auth/login/start") return Response.json({ state: "challenge", challenge: "AA" })
     if (path === "auth/login/verify") return Response.json({ token: "promoted", user: { id: promoteTo, handle: "Promoted", guest: false } })
     if (path === "auth/guest") return Response.json({ token: "userB", user: { id: "B", handle: "User B", guest: true } })
-    if (path === "shell/release.json") return Response.json(manifest)
-    const file = files.get(path) ?? (!path || path === "other" ? files.get("shell/index.html") : undefined)
+    if (!path || path === "other") return new Response(entry, { headers: { "Content-Type": "text/html", "Cache-Control": "no-cache" } })
+    const file = served.get(path)
     if (file === undefined) return new Response("missing", { status: 404 })
     const type = path.endsWith(".js") ? "text/javascript" : path.endsWith(".css") ? "text/css" : path.endsWith(".json") ? "application/json" : "text/html"
-    return new Response(file, { headers: { "Content-Type": type, "Cache-Control": "no-cache" } })
+    return new Response(file, { headers: { "Content-Type": type } })
   })
   return {
     base: `http://localhost:${(server.addr as Deno.NetAddr).port}`,
@@ -51,10 +68,9 @@ async function serve(authenticated = false, automaticGuest = false, promoteTo?: 
           files.set(path, files.get(path)!.replace(/<h1>.*?<\/h1>/, `<h1>Template ${version}</h1>`))
         }
       } else {
-        runtime = version
         files.set("omnishell/interpreter/shell.js", `globalThis.runtimeRelease = "${version}";\n${shell}`)
       }
-      manifest = await releaseManifest(`runtime@${runtime}`, files)
+      await deployTree()
     },
     async editor(rich: boolean) {
       const path = "shell/screens/home.html"
@@ -62,7 +78,7 @@ async function serve(authenticated = false, automaticGuest = false, promoteTo?: 
         /<input name="draft" id="draft">|<div id="draft" contenteditable="true"><\/div>/,
         rich ? '<div id="draft" contenteditable="true"></div>' : '<input name="draft" id="draft">',
       ))
-      manifest = await releaseManifest(`runtime@${runtime}`, files)
+      await deployTree()
     },
     async close() { stop.abort(); await server.finished },
   }
@@ -134,11 +150,10 @@ describe("release draft recovery", () => {
           await refresh(page)
           await ready(page, "B")
           expect(await page.locator('input[name="draft"]').inputValue()).toBe("other draft")
-          expect(await page.evaluate(() => Object.keys(JSON.parse(sessionStorage.getItem("pronto-live-update-recovery")!).screens))).toHaveLength(1)
+          expect(await page.evaluate(() => Object.keys(JSON.parse(sessionStorage.getItem("pronto-release-recovery")!).screens))).toHaveLength(1)
           if (next === "restart") {
             await server.deploy("C")
             await refresh(page)
-            // An in-flight bootstrap check can defer C to the 30s poll; allow its boot to finish.
             await ready(page, "C", 60_000)
           } else {
             await server.deploy("C", true)
@@ -151,7 +166,7 @@ describe("release draft recovery", () => {
           }
           await page.evaluate(() => (window as any).navigate("/").finished)
           expect(await page.locator('[data-screen="home"] input[name="draft"]').inputValue()).toBe("home draft")
-          expect(await page.evaluate(() => sessionStorage.getItem("pronto-live-update-recovery"))).toBe(null)
+          expect(await page.evaluate(() => sessionStorage.getItem("pronto-release-recovery"))).toBe(null)
         })
       } finally { await server.close() }
     })
@@ -183,7 +198,7 @@ describe("release draft recovery", () => {
           if (switchAccount === "signout") {
             await page.locator(".shell-signout").click()
             await page.locator(".login-guest").waitFor()
-            expect(await page.evaluate(() => sessionStorage.getItem("pronto-live-update-recovery"))).toBe(null)
+            expect(await page.evaluate(() => sessionStorage.getItem("pronto-release-recovery"))).toBe(null)
             await page.locator(".login-guest").click()
           } else if (switchAccount.endsWith("promotion")) {
             await page.locator(".shell-signin").click()
@@ -238,8 +253,9 @@ describe("release draft recovery", () => {
       await withPage(async page => {
         let release!: () => void
         const gate = new Promise<void>(resolve => { release = resolve })
-        await page.route("**/shell/release.json", async route => { await gate; await route.continue() })
-        await page.goto(server.base, { waitUntil: "domcontentloaded" })
+        // The shell has not started while the reader types.
+        await page.route("**/_immutable-*-shell.js", async route => { await gate; await route.continue() })
+        await page.goto(server.base, { waitUntil: "commit" })
         await page.locator('input[name="draft"]').fill("guest draft")
         await page.locator('input[name="draft"]').blur()
         release()
@@ -263,12 +279,12 @@ describe("release draft recovery", () => {
         await server.deploy("B")
         await refresh(page)
         await ready(page, "B")
-        expect(await page.evaluate(() => Object.keys(JSON.parse(sessionStorage.getItem("pronto-live-update-recovery")!).screens))).toHaveLength(1)
+        expect(await page.evaluate(() => Object.keys(JSON.parse(sessionStorage.getItem("pronto-release-recovery")!).screens))).toHaveLength(1)
         await page.evaluate(() => sessionStorage.setItem("pronto-token", "{malformed"))
         await page.reload()
         await ready(page, "B")
         expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("pronto-token")!).user.guest)).toBe(true)
-        expect(await page.evaluate(() => sessionStorage.getItem("pronto-live-update-recovery"))).toBe(null)
+        expect(await page.evaluate(() => sessionStorage.getItem("pronto-release-recovery"))).toBe(null)
         await page.evaluate(() => (window as any).navigate("/").finished)
         expect(await page.locator('[data-screen="home"] input[name="draft"]').inputValue()).toBe("")
       })

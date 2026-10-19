@@ -86,6 +86,13 @@ describe("linkLint judges a data-route against the route table", () => {
     ])
   })
 
+  it("a navigate form fills a hole from its named control, and only one it holds", () => {
+    expect(linkLint('<form data-action="navigate" data-route="article"><input name="slug" /><button>Go</button></form>', ROUTES)).toEqual([])
+    expect(linkLint('<form data-action="navigate" data-route="article"><button>Go</button></form><input name="slug" />', ROUTES)).toEqual([
+      'data-route="article" fills no :slug of "/article/:slug"',
+    ])
+  })
+
   it("a hole no data-param fills", () => {
     expect(linkLint('<a data-route="article">x</a>', ROUTES)).toEqual([
       'data-route="article" fills no :slug of "/article/:slug"',

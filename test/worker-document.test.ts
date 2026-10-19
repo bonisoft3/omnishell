@@ -24,7 +24,6 @@ Deno.test('native SSR renders an app without locale configuration and preserves 
     assert.equal(document.documentElement.lang, 'en')
     assert.equal(document.querySelector('[data-served] h1')?.textContent, 'Welcome')
     assert.equal(document.querySelector('link[rel="canonical"]')?.getAttribute('href'), 'https://app.example/')
-    assert.equal(document.querySelector('meta[name="pronto-words"]'), null)
     assert.equal(document.getElementById('pronto-reads'), null)
   } finally {
     for (const [key, descriptor] of saved) {

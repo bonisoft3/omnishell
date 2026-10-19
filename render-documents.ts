@@ -62,16 +62,12 @@ export async function renderDocuments(appDir: URL, origin: string): Promise<Map<
   const { compileCatalog } = await import("./interpreter/vendor/messages.js");
   const { fixtureStore } = await import("./interpreter/storybook.js");
 
-  const { templateHash } = await import("./interpreter/screen.js");
 
   const tags = cfg.i18n === undefined ? [undefined] : Object.keys(cfg.i18n.locales);
   const messages: Record<string, unknown> = {};
-  const words: Record<string, string> = {};
   for (const tag of tags) {
     if (tag === undefined) continue;
-    const text = await read(`messages/${tag}.json`);
-    messages[tag] = compileCatalog(JSON.parse(text));
-    words[tag] = templateHash(text);
+    messages[tag] = compileCatalog(JSON.parse(await read(`messages/${tag}.json`)));
   }
 
   const out = new Map<string, string>();
@@ -98,7 +94,6 @@ export async function renderDocuments(appDir: URL, origin: string): Promise<Map<
         written: tag,
         store: fixtureStore("empty"),
         messages,
-        words,
         rows: false,
         origin,
         here: address,

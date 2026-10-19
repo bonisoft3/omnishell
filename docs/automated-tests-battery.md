@@ -32,8 +32,10 @@ draw:
 
 Inputs are drawn, never accepted-and-discarded. `plugins/pronto/bounds.ts`
 reads each column's CEL into a domain that names no language — `enumValues`,
-or `intMin`/`intMax`, `sizeMin`/`sizeMax`, `regex` — and a conjunct it does not
-recognise leaves the domain wider, never narrower; `derive-cel.ts` renders it
+or `intMin`/`intMax`, `sizeMin`/`sizeMax`, `regex`, and for a json column the
+shape of its value (`kind`, a record's `fields`, a list's `items` and
+`maxItems`) — and a conjunct it does not recognise leaves the domain wider,
+never narrower; `derive-cel.ts` renders it
 into `program_cel.cue`, `emit.cue` carries it into `shell/shell.yaml` beside
 the field, and `arbitrary.ts` builds a fast-check generator per column from
 that. So the terminal generates rows for a program whose constraint language it

@@ -1,9 +1,10 @@
 import { describe, expect, it } from "@test/harness"
-import { memoryStore, mountScreen } from "./screen-harness.ts"
+import { fakeDataSync } from "./data-sync-fake.ts"
+import { mountScreen } from "./screen-harness.ts"
 
 describe("the harness store", () => {
   it("reads through the fragment grammar's own parsers", async () => {
-    const store = memoryStore({
+    const store = fakeDataSync({
       note: [
         { id: "a", title: "alpha", done: false, position: 3 },
         { id: "b", title: "beta", done: true, position: 1 },
@@ -23,7 +24,7 @@ describe("the harness store", () => {
   })
 
   it("sorts nulls last ascending and first descending", async () => {
-    const store = memoryStore({
+    const store = fakeDataSync({
       note: [{ id: "a", at: "2024-01-01" }, { id: "b", at: null }, { id: "c", at: "2023-01-01" }],
     })
     expect((await store.query("note", "at.asc")).map((r) => r.id)).toEqual(["c", "a", "b"])
@@ -31,7 +32,7 @@ describe("the harness store", () => {
   })
 
   it("refuses a fragment the grammar cannot state, rather than widening the read", async () => {
-    const store = memoryStore({ note: [] })
+    const store = fakeDataSync({ note: [] })
     await expect(store.query("note", null, { filter: "title=fts.hello" })).rejects.toThrow(
       /outside the grammar/,
     )
@@ -39,7 +40,7 @@ describe("the harness store", () => {
   })
 
   it("resolves a flat embed through the row's own foreign key", async () => {
-    const store = memoryStore({
+    const store = fakeDataSync({
       note: [{ id: "n1", label_id: "l1" }, { id: "n2", label_id: "gone" }],
       label: [{ id: "l1", name: "urgent" }],
     }, { schema: { note: { fields: [{ name: "id", type: "uuid" }, { name: "label_id", type: "uuid", ref: "label" }] } } })
@@ -54,7 +55,7 @@ describe("the harness store", () => {
     // PostgREST answers both, and the shipped store hands them to it; a
     // harness that refused them failed `check machines` on a screen the
     // browser renders (golaberto's games list, under its tabs machine).
-    const store = memoryStore({
+    const store = fakeDataSync({
       game: [{ id: "g1", home_id: "t1", phase_id: "p1" }],
       team: [{ id: "t1", name: "Bahia-BA" }],
       phase: [{ id: "p1", name: "Turno", championship_id: "c1" }],
@@ -74,7 +75,7 @@ describe("the harness store", () => {
   it("wakes a region whose embed names a foreign-key column when its table moves", async () => {
     // `home:home_id(name)` names a column, not a table: the dependency set
     // dropped it, and a renamed club never reached the game lists showing it.
-    const store = memoryStore({
+    const store = fakeDataSync({
       game: [{ id: "g1", home_id: "t1" }],
       team: [{ id: "t1", name: "Bahia-BA" }],
     }, { schema: { game: { fields: [{ name: "home_id", type: "uuid", ref: "team" }] } } })
@@ -87,7 +88,7 @@ describe("the harness store", () => {
   })
 
   it("wakes with the change set, and never on subscribe itself", async () => {
-    const store = memoryStore({ note: [{ id: "a", title: "alpha" }] })
+    const store = fakeDataSync({ note: [{ id: "a", title: "alpha" }] })
     const seen: unknown[] = []
     const stop = store.subscribe("note", (changes) => seen.push(changes))
     await new Promise((r) => setTimeout(r, 0))
@@ -100,9 +101,12 @@ describe("the harness store", () => {
     expect(seen.length).toBe(0)
     await new Promise((r) => setTimeout(r, 0))
     expect(seen.length).toBe(1)
+    // Each write's change, and the key it settled, as the shipped store names it.
     expect(seen[0]).toEqual([
       { value: { id: "a", title: "ALPHA" }, previousValue: { id: "a", title: "alpha" } },
+      { value: { id: "a" } },
       { value: { id: "b", title: "beta" } },
+      { value: { id: "b" } },
     ])
 
     stop()
@@ -112,7 +116,7 @@ describe("the harness store", () => {
   })
 
   it("states a row without replacing it, and patches one that is there", async () => {
-    const store = memoryStore({ note: [{ id: "a", title: "alpha", body: "kept" }] })
+    const store = fakeDataSync({ note: [{ id: "a", title: "alpha", body: "kept" }] })
     await store.put("note", { id: "a", title: "ALPHA" })
     expect(store.rows("note")[0]).toEqual({ id: "a", title: "ALPHA", body: "kept" })
     await store.update("note", "a", { body: "new" })

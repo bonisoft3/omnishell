@@ -239,27 +239,6 @@ describe("a served screen taken over by the shell", () => {
     handle.stop()
   })
 
-  it("takes a document newer than the worker's copy of its template as it stands", async () => {
-    // Right after a deploy the worker still answers the older template, while
-    // an address it never kept is rendered by the newer one. A witness that
-    // differs was read as the template having moved on: the newer document
-    // was morphed back to the older one, and its rows kept the older item for
-    // the rest of the visit.
-    const html = await served(NEWER, { note: NOTES, pin: PIN })
-    const live = store({ note: NOTES, pin: PIN })
-    const { screen, nodes, handle } = await adopt(html, NEWER, live, undefined, { html: OLDER })
-    expect(revalidated.length).toBe(2)
-    expect([screen, ...screen.querySelectorAll("*")]).toEqual(nodes)
-    expect(screen.querySelector(".added")?.textContent).toBe("Now")
-    expect(screen.querySelector(".retired")).toBe(null)
-    live.rows.note = [...NOTES, { id: "n3", title: "Three", kind: "a", position: 3 }]
-    await live.wake("note")
-    expect([...screen.querySelectorAll(".cards > li")].map((c) => c.querySelector(".flag")?.textContent))
-      .toEqual(["new", "new", "new"])
-    expect(handle.cas).toBe(templateHash(NEWER))
-    handle.stop()
-  })
-
   it("asks nothing of the network when the document and the worker agree", async () => {
     const html = await served(TEMPLATE, { note: NOTES, pin: PIN })
     const { handle } = await adopt(html, TEMPLATE, store({ note: NOTES, pin: PIN }))

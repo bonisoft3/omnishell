@@ -384,7 +384,6 @@ export async function serve(env: (name: string) => string | undefined = (name) =
   const { routeAt } = await import("../interpreter/shell.js");
   const { carryReads, createStore, readKey, servedReadsScript } = await import("../interpreter/data-sync.js");
   const { compileCatalog } = await import("../interpreter/vendor/messages.js");
-  const { templateHash } = await import("../interpreter/screen.js");
 
   const cfg = await (await read("/shell/shell.json")).json();
   // The entry is the one file read off the image rather than through the
@@ -394,11 +393,8 @@ export async function serve(env: (name: string) => string | undefined = (name) =
   if (entryPath === undefined) throw new Error("ENTRY names no entry page to render documents from");
   const entry = await Deno.readTextFile(entryPath);
   const messages: Record<string, unknown> = {};
-  const words: Record<string, string> = {};
   for (const tag of Object.keys(cfg.i18n?.locales ?? {})) {
-    const text = await (await read(`/messages/${tag}.json`)).text();
-    messages[tag] = compileCatalog(JSON.parse(text));
-    words[tag] = templateHash(text);
+    messages[tag] = compileCatalog(JSON.parse(await (await read(`/messages/${tag}.json`)).text()));
   }
   // A guest is who a document is rendered for, minted the way a reader's tab
   // mints one. Its token is the store's, through sessionStorage as in a tab.
@@ -443,7 +439,6 @@ export async function serve(env: (name: string) => string | undefined = (name) =
           written: found.written,
           store: watched,
           messages,
-          words,
           rows: true,
           origin: base.origin,
           here: base.pathname,

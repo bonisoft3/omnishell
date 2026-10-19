@@ -73,6 +73,20 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 	health: "http://127.0.0.1:8090/health"
 }
 
+// The stage that writes a door's served tree as a release
+// (server/release-addresses.ts): omnishell's tree sits at `home`, every
+// static at its URL's path under `tree`; addressing rewrites `tree` in place
+// and writes the inline scripts its documents run to `scripts`, which the
+// door's policy names.
+#Address: {
+	image:   #Render.image
+	home:    "/omnishell"
+	tree:    "/served"
+	scripts: "/served.scripts"
+	cache:   "deno cache --frozen --config \(home)/server/deno.json \(home)/server/address.ts"
+	run:     "deno run --frozen --cached-only --config \(home)/server/deno.json --allow-read=\(tree) --allow-write=\(tree),\(scripts) \(home)/server/address.ts \(tree) \(scripts)"
+}
+
 // cluster.#Static-shaped, not imported: terminal.cue and cluster.cue each
 // define their own copy rather than coupling the two packages together.
 #Static: {
@@ -83,7 +97,6 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 
 #Terminal: T={
 	app: string
-	liveUpdates: *false | bool
 	// Fills the entry page's meta description. Double quotes would close the
 	// attribute they land in.
 	description: string
@@ -299,7 +312,7 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 					"{direction}", T.direction, 1),
 				"{modulepreload}", _preloadHtml, 1), "{sharedstyles}", _sharedStyles, 1)
 			css:  _shellCssAsset
-			boot: *strings.Replace(_bootJsAsset, "liveUpdates: false", "liveUpdates: \(T.liveUpdates)", 1) | string
+			boot: *_bootJsAsset | string
 			sw:   _swJsAsset
 		}
 
@@ -408,8 +421,8 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 
 		modules: [...#Path]
 		modules: [
-			"shell.js", "chrome.js", "screen.js", "fragment.js", "data-sync.js", "hybrid-client.js", "cortex-session.js", "cortex-command.js", "validate.js", "render.js",
-			"release-plan.js", "release-assets.js", "preloads.js", "link-prefetch.js", "markup.js", "script-url.js", "deferred-boot.js",
+			"shell.js", "chrome.js", "screen.js", "fragment.js", "data-sync.js", "validate.js", "render.js",
+			"release-plan.js", "preloads.js", "link-prefetch.js", "markup.js", "script-url.js", "deferred-boot.js",
 			"host-dom.js", "hatch.js", "hatch-worker.js", "storybook.js", "jessie.js", "kinetic.js", "prng.js",
 			"vendor/mecha-client.js", "vendor/js-yaml.js", "vendor/ses.umd.min.js", "vendor/morphlex.js",
 			"vendor/messages.js", "vendor/game-inputs.js",
@@ -549,7 +562,6 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 				{file: "shell/shell.json", target: "/srv/shell/shell.json", watch: true},
 				{file: "shell/design.css", target: "/srv/shell/design.css", watch: true},
 			],
-			[if T.liveUpdates {{file: "shell/release.json", target: "/srv/shell/release.json", watch: true}}],
 			[for s in T.surface.screens for kind in ["html", "css"] {
 				file:   s[kind]
 				target: "/srv/\(s[kind])"

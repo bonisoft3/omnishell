@@ -21,6 +21,13 @@ export type FieldBounds = {
   sizeMin?: number;
   sizeMax?: number;
   regex?: string;
+  // A json column's value, as the shape its constraint states: the kind at
+  // each level, a record's fields, a list's items and cap. A record with no
+  // fields stated is open.
+  kind?: "boolean" | "string" | "integer" | "array" | "object";
+  fields?: Record<string, FieldBounds>;
+  items?: FieldBounds;
+  maxItems?: number;
 };
 
 export type FieldDef = {
@@ -86,7 +93,7 @@ export function arbitraryField(field: FieldDef, bounds: FieldBounds): fc.Arbitra
       .map((parts) => `${parts.map((p) => String(p).padStart(2, "0")).join(":")}.000000`);
   }
   if (field.type === "timezone") return fc.constantFrom("UTC", "America/Sao_Paulo", "Europe/Paris", "Asia/Tokyo");
-  if (field.type === "json") return fc.jsonValue();
+  if (field.type === "json") return bounds.kind === undefined ? fc.jsonValue() : arbitraryShape(bounds);
   if (field.type === "geojson") {
     return fc.tuple(fc.integer({ min: -180, max: 180 }), fc.integer({ min: -90, max: 90 }))
       .map((coordinates) => ({ type: "Point", coordinates }));
@@ -145,6 +152,31 @@ export function arbitraryField(field: FieldDef, bounds: FieldBounds): fc.Arbitra
     return fc.oneof({ arbitrary: strArb, weight: 4 }, { arbitrary: fc.constant(""), weight: 1 });
   }
   return strArb;
+}
+
+/** A value inside the shape a json column states. A list is drawn short as
+ * often as full, since most of what a handler does with one is index it; an
+ * open record is any record, since nothing is stated about its fields. */
+export function arbitraryShape(shape: FieldBounds): fc.Arbitrary<unknown> {
+  switch (shape.kind) {
+    case "boolean":
+      return fc.boolean();
+    case "string":
+      if (shape.enumValues !== undefined && shape.enumValues.length > 0) return fc.constantFrom(...shape.enumValues);
+      return fc.string({ maxLength: shape.sizeMax ?? 32 });
+    case "integer": {
+      const min = shape.intMin ?? -1_000_000, max = shape.intMax ?? 1_000_000;
+      if (min >= -(2 ** 31) && max <= 2 ** 31 - 1) return fc.integer({ min, max });
+      return fc.bigInt({ min: BigInt(min), max: BigInt(max) }).map(Number);
+    }
+    case "array":
+      return fc.array(arbitraryShape(shape.items ?? {}), { maxLength: shape.maxItems ?? 3 });
+    case "object":
+      if (shape.fields === undefined) return fc.dictionary(fc.string({ maxLength: 8 }), fc.jsonValue({ maxDepth: 2 }));
+      return fc.record(Object.fromEntries(Object.entries(shape.fields).map(([k, v]) => [k, arbitraryShape(v)])));
+    default:
+      throw new Error(`a json column's shape names no kind: ${JSON.stringify(shape)}`);
+  }
 }
 
 export function arbitraryRow(entity: EntityDef): fc.Arbitrary<Record<string, unknown>> {
@@ -341,6 +373,18 @@ export function selfTest(): { failures: string[] } {
   const inputs = fc.sample(arbitraryValidationInput(demo, edges, { demo, other }), { numRuns: 40, seed: 3 });
   const correlated = inputs.some((i) => (i.state.rows.other ?? []).some((r) => (r as { demo_id?: unknown }).demo_id === i.event.row.id));
   check("an edge row can carry the judged row's key", correlated, "no sample correlated the edge");
+
+  // A json column's shape draws values inside it: a closed record with a
+  // bounded string and a capped list of ranged integers, and nothing else.
+  const shaped = fc.sample(arbitraryShape({
+    kind: "object",
+    fields: { n: { kind: "string", sizeMax: 4 }, xs: { kind: "array", maxItems: 2, items: { kind: "integer", intMin: 0, intMax: 9 } } },
+  }), 60) as { n: string; xs: number[] }[];
+  for (const v of shaped) {
+    const fits = typeof v === "object" && v !== null && Object.keys(v).length === 2 && typeof v.n === "string" && v.n.length <= 4 &&
+      Array.isArray(v.xs) && v.xs.length <= 2 && v.xs.every((x) => Number.isInteger(x) && x >= 0 && x <= 9);
+    if (!fits) check("shape", false, `drew ${JSON.stringify(v)} outside the shape`);
+  }
 
   return { failures };
 }

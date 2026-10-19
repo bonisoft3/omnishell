@@ -1475,7 +1475,9 @@ const holesOf = (pattern: string): string[] =>
 export function linkLint(html: string, routes: LinkRoute[]): string[] {
   const out: string[] = [];
   const byScreen = new Map(routes.map((r) => [r.screen, r]));
-  for (const [, closing, tag, attrText] of strip(html).matchAll(ANY_TAG)) {
+  const stripped = strip(html);
+  for (const match of stripped.matchAll(ANY_TAG)) {
+    const [whole, closing, tag, attrText] = match;
     if (closing === "/") continue;
     const { attr } = attrsOf(attrText);
     const href = attr("href");
@@ -1502,6 +1504,12 @@ export function linkLint(html: string, routes: LinkRoute[]): string[] {
     const given = new Set<string>();
     for (const [, name] of ` ${attrText}`.matchAll(ATTR)) {
       if (name.startsWith("data-param-")) given.add(name.slice("data-param-".length));
+    }
+    // A navigate form fills the route's holes from its named controls at submit.
+    if (tag.toLowerCase() === "form" && attr("data-action") === "navigate") {
+      const start = match.index! + whole.length;
+      const end = stripped.indexOf("</form", start);
+      for (const m of stripped.slice(start, end < 0 ? undefined : end).matchAll(/<(?:input|select|textarea)\b[^>]*\sname=(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/gi)) given.add(m[1] ?? m[2] ?? m[3]);
     }
     for (const hole of holes) {
       if (!given.has(hole)) out.push(`data-route="${screen}" fills no :${hole} of "${route.path}"`);

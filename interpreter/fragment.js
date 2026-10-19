@@ -799,7 +799,7 @@ function matchRoute(pattern, path) {
   // /note/7?id=9 is note 7. Refusing the pair instead would let any pasted URL
   // take the screen down, which is not a visitor's to do.
   if (queryString) {
-    for (const [k, v] of new URLSearchParams(queryString)) if (k !== "pronto-release") params[k] = v;
+    for (const [k, v] of new URLSearchParams(queryString)) params[k] = v;
   }
   for (let i = 0; i < ps.length; i++) {
     if (ps[i].startsWith(":") && xs[i]) params[ps[i].slice(1)] = decodeURIComponent(xs[i]);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@test/harness"
 import { parseHTML } from "linkedom"
 import { recordReads } from "../server/render.ts"
-import { carryReads, createStore, readKey, servedReadsOf, servedReadsScript } from "../interpreter/data-sync.js"
+import { carryReads, createStore, http, readKey, servedReadsOf, servedReadsScript } from "../interpreter/data-sync.js"
 import { FIXTURE_CARRIERS } from "../interpreter/fixture-types.js"
 
 // A server-rendered document's first paint asked the door again for every
@@ -232,6 +232,47 @@ describe("a document carrying its reads", () => {
       expect(await store.query("team", null, { filter: "slug=eq.flamengo" })).toEqual([{ id: "t1", name: "network" }])
       expect(asked.length).toBe(1)
     }, true)
+  })
+
+  // Regression: a 401 forgot the token after the guest was minted, and every
+  // subscribe then waited on the settled session and subscribed again, on the
+  // microtask queue, until the page ran out of heap ("Aw, Snap").
+  it("refuses a subscribe once the session settled without a token, rather than waiting on it again", async () => {
+    await inDocument(async () => {
+      sessionStorage.removeItem("pronto-token")
+      const settled = Promise.resolve({ token: "t", user: { id: "g1", guest: true } })
+      const refused = new Promise<unknown>((resolve) => {
+        globalThis.addEventListener("unhandledrejection", (event) => { event.preventDefault(); resolve(event.reason) }, { once: true })
+      })
+      const store = createStore("", {
+        tables: ["team"],
+        carriers: FIXTURE_CARRIERS,
+        read: { team: "lazy" as const },
+        schema: { team: { durability: "live", fields: [{ name: "id", type: "string" }, { name: "slug", type: "string" }, { name: "name", type: "string" }] } },
+        mintedGuest: true,
+        ensureSession: () => settled,
+      })
+      const unsub = store.subscribe("team", () => {}, { filter: "slug=eq.flamengo" })
+      try {
+        expect(String(await refused)).toContain("the session settled without a token")
+      } finally {
+        unsub()
+        await store.close()
+      }
+    })
+  })
+
+  // A row security refusal comes back as a 401 too; taking it for an expired
+  // session forgot the token and reloaded the page for one refused write.
+  it("fails a write refused by row security without forgetting the session", async () => {
+    await inDocument(async () => {
+      let reloaded = false
+      Object.defineProperty(globalThis, "location", { value: Object.assign(new URL("https://gol.example/"), { reload: () => { reloaded = true } }), configurable: true })
+      globalThis.fetch = async () => new Response(JSON.stringify({ code: "42501", message: "new row violates row-level security policy" }), { status: 401 })
+      await expect(http("/crud/team", { method: "POST", body: "{}" })).rejects.toThrow("401 POST /crud/team")
+      expect(reloaded).toBe(false)
+      expect(sessionStorage.getItem("pronto-token")).not.toBe(null)
+    })
   })
 
   it("answers a live-durability table from #pronto-reads while guest minting is still in flight", async () => {

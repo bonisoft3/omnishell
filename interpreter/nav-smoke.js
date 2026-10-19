@@ -55,30 +55,32 @@ const screenHtml = (name) => name === "words" ? `<section class="screen" data-sc
 ${name === "home" ? '<form data-action="navigate" data-route="search"><input name="q"></form>' : ""}
 </section>`;
 
+// Every file the page fetches, which its release names.
+const RELEASED = [
+  "/shell/shell.yaml",
+  ...["home", "other", "regras", "manual", "search", "words"].flatMap((s) => [`/shell/screens/${s}.html`, `/shell/screens/${s}.css`]),
+  ...["pt-BR", "es", "en"].map((tag) => `/messages/${tag}.json`),
+];
+
 // A document a renderer served before the shell booted: its strip, its screen
 // in the mount, and in its head the template it was rendered from
 // (interpreter/document.js). Rendered from `template`, the screen's own unless
 // the document is older than the template the shell fetches, and in `words`'s
 // catalogues, each the text it was drawn from by tag.
-const served = (name, template = screenHtml(name), witness = true, words = {}) => ({
-  head: (witness ? `<meta name="pronto-cas" content="${templateHash(template)}">` : "") +
-    (Object.keys(words).length > 0
-      ? `<meta name="pronto-words" content="${Object.entries(words).map(([tag, text]) => `${tag}:${templateHash(text)}`).join(" ")}">`
-      : ""),
+const served = (name, template = screenHtml(name), witness = true) => ({
+  head: witness ? `<meta name="pronto-cas" content="${templateHash(template)}">` : "",
   body: '<nav><a data-route="home" href="/">Início</a><a data-route="other" href="/other">Other</a>' +
     '<a data-route="regras" href="/regras" aria-current="page">Regras</a><a data-route="manual" href="/pt/manual">Manual</a></nav>' +
     `<div id=shell><div class="shell-screen" data-served>${template.replace('data-route="regras"', 'data-route="regras" href="/regras"')}</div></div>`,
 });
 
 // `serving` names the screen a served document carries, `witness` whether its
-// head names its template, `servedWords` the catalogues it was drawn in;
-// `slowCatalogues` answer when released. `catalogues` are the worker's copies
-// by tag, and `deployed` the network's, which answers a request that
-// revalidates; `blips` fail once, as a network that drops. `config` is the
-// worker's copy of the config and `deployedConfig` the network's, and
-// `modules` answer each handler by name, a status at a time until one is
-// left. `tables` makes the app one a guest session is minted for, and
-// `offline` leaves the auth service unreachable.
+// head names its template; `slowCatalogues` answer when released.
+// `catalogues` are the served ones by tag; `blips` fail once, as a network that
+// drops. `config` is the served config, and `modules` answer each handler by
+// name, a status at a time until one is left. `tables` makes the app one a
+// guest session is minted for, and `offline` leaves the auth service
+// unreachable.
 function boot({
   navigationAPI = true,
   at = "/",
@@ -90,18 +92,19 @@ function boot({
   witness = true,
   slowCatalogues = [],
   catalogues = {},
-  deployed = catalogues,
   blips = [],
-  servedWords = {},
   config = CONFIG_YAML,
-  deployedConfig = config,
   modules = {},
   tables = [],
   offline = false,
 } = {}) {
-  const page = serving ? served(serving, servedFrom, witness, servedWords) : {head: "", body: "<div id=shell></div>"};
+  const page = serving ? served(serving, servedFrom, witness) : {head: "", body: "<div id=shell></div>"};
+  // The release the page runs, every file at its own name until a deployment
+  // moves one (`deploy`).
+  let release = Object.fromEntries(RELEASED.map((path) => [path, path]));
+  const entry = () => `<script type="importmap" id="pronto-assets">${JSON.stringify({imports: release})}</script>`;
   const {document, Event, MutationObserver} = parseHTML(
-    `<!doctype html><html><head>${page.head}</head><body>${page.body}</body></html>`,
+    `<!doctype html><html><head>${entry()}${page.head}</head><body>${page.body}</body></html>`,
   );
   globalThis.document = document;
   globalThis.MutationObserver = MutationObserver;
@@ -129,10 +132,7 @@ function boot({
   // The reader's own system, which is the rung under every address here: left
   // to the host runtime it says English and every default-locale case reads as
   // a negotiation instead.
-  // The worker's announcements, delivered by `announce`.
-  const heard = [];
-  const serviceWorker = {addEventListener: (type, fn) => type === "message" && heard.push(fn)};
-  Object.defineProperty(globalThis, "navigator", {value: {languages, serviceWorker}, configurable: true});
+  Object.defineProperty(globalThis, "navigator", {value: {languages}, configurable: true});
 
   let scrollPos = 0;
   globalThis.scrollTo = (_x, y) => (scrollPos = y);
@@ -173,12 +173,16 @@ function boot({
   sessionStorage.clear();
   const held = [];
   const minted = [];
-  const revalidated = [];
+  const addressed = new Map();
+  let deployments = 0;
   globalThis.fetch = (url, init) => {
     const u = String(url);
+    const path = new URL(u, ORIGIN).pathname;
+    // The entry the door serves now, which the shell asks for past the worker.
+    if (init?.cache === "no-store" && path === loc.pathname) return Promise.resolve(new Response(`<!doctype html><html><head>${entry()}</head><body></body></html>`, { headers: { "content-type": "text/html" } }));
+    if (addressed.has(path)) return Promise.resolve(new Response(addressed.get(path)));
     if (u.endsWith("shell.yaml")) {
-      const text = init?.cache === "no-cache" ? deployedConfig : config;
-      return Promise.resolve(new Response(text.replace("tables: []", `tables: [${tables}]`)));
+      return Promise.resolve(new Response(config.replace("tables: []", `tables: [${tables}]`)));
     }
     const handler = u.match(/handlers\/(\w+)\.js$/)?.[1];
     if (handler !== undefined && modules[handler] !== undefined) {
@@ -208,8 +212,7 @@ function boot({
       blips.splice(blips.indexOf(catalogue), 1);
       return Promise.reject(new TypeError("Failed to fetch"));
     }
-    if (init?.cache === "no-cache" && catalogue !== undefined) revalidated.push(catalogue);
-    const copy = (init?.cache === "no-cache" ? deployed : catalogues)[catalogue];
+    const copy = catalogues[catalogue];
     if (copy !== undefined) return Promise.resolve(new Response(copy));
     if (u.includes("/messages/")) return Promise.resolve(new Response("{}", {status: 404}));
     return Promise.reject(new Error(`unexpected fetch ${u}`));
@@ -236,16 +239,22 @@ function boot({
     errored: (error) => (listeners.error ?? []).forEach((fn) => fn({error, preventDefault() {}})),
     // Answers every catalogue held back so far.
     releaseCatalogues: () => held.splice(0).forEach((answer) => answer()),
-    // The service worker telling every window a screen's template changed.
-    announce: (name, html) => {
-      for (const fn of heard) fn({data: {type: "PRONTO_SKELETON_UPDATED", pathname: `/shell/screens/${name}.html`, html}});
+    // A deployment: each file, by its logical path, at an address of its own,
+    // and the entry naming them served at every route.
+    deploy: (files) => {
+      deployments++;
+      release = {...release};
+      for (const [path, body] of Object.entries(files)) {
+        const address = `/_deployment-${deployments}${path}`;
+        addressed.set(address, body);
+        release[path] = address;
+      }
     },
-    // And that a catalogue did.
-    announceWords: (tag, json) => {
-      for (const fn of heard) fn({data: {type: "PRONTO_MESSAGES_UPDATED", pathname: `/messages/${tag}.json`, json}});
+    // The page shown again, which asks whether a deployment landed.
+    check: async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await settle();
     },
-    // The catalogues asked of the network past the worker's copy.
-    revalidated,
     // Every address the document was replaced at.
     reloads,
     mount: document.getElementById("shell"),
@@ -837,26 +846,6 @@ Deno.test({
 });
 
 Deno.test({
-  name: "a template the worker announces before its screen is mounted reaches the screen once it is",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    // The worker answers a screen's fetch from its copy and announces the newer
-    // template as soon as its revalidation lands, which the shell's own
-    // prefetch made sooner than anything was listening.
-    const app = boot({at: "/regras", serving: "regras"});
-    const heading = app.mount.querySelector("h1");
-    const {createShell} = await import("./shell.js");
-    const booting = createShell({config: "./shell/shell.yaml", mount: app.mount});
-    app.announce("regras", screenHtml("regras").replace("<h1>regras</h1>", "<h1>regras</h1><p class=\"deployed\">new</p>"));
-    await booting;
-    await settle();
-    assert(app.mount.querySelector(".deployed")?.textContent === "new", "the announced template never reached the screen");
-    assert(app.mount.querySelector("h1") === heading, "the heading was drawn again");
-  },
-});
-
-Deno.test({
   name: "leaving a served document before it is taken over puts it out of sight",
   sanitizeOps: false,
   sanitizeResources: false,
@@ -890,73 +879,24 @@ Deno.test({
   },
 });
 
-// A catalogue the worker kept is any deploy old, and so is a document. On
-// taking a document over the screen writes its words again in the catalogue
-// the shell holds, so a document newer than the worker's copy was written back
-// to the older words, and stayed so for the visit.
 const OLD_WORDS = JSON.stringify({greet: "Olá"});
 const NEW_WORDS = JSON.stringify({greet: "Olá de novo"});
 const greeting = (app) => app.mount.querySelector(".greet")?.textContent;
 
 Deno.test({
-  name: "a served document in newer words than the worker's catalogue keeps them",
+  name: "a deployment's catalogue is written into the screen on show and the ones held",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const app = boot({
-      at: "/palavras",
-      serving: "words",
-      servedFrom: screenHtml("words").replace("></p>", ">Olá de novo</p>"),
-      servedWords: {"pt-BR": NEW_WORDS},
-      catalogues: {"pt-BR": OLD_WORDS},
-      deployed: {"pt-BR": NEW_WORDS},
-    });
-    const {createShell} = await import("./shell.js");
-    await createShell({config: "./shell/shell.yaml", mount: app.mount});
-    await settle();
-    assert(greeting(app) === "Olá de novo", `the served words were written back to ${JSON.stringify(greeting(app))}`);
-    // The shell holds the newer words from then on, and draws them.
-    await app.goto("/other");
-    await app.goto("/palavras", "traverse");
-    assert(greeting(app) === "Olá de novo", `drawn again as ${JSON.stringify(greeting(app))}`);
-  },
-});
-
-Deno.test({
-  name: "a served document in the worker's words asks nothing of the network",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const app = boot({
-      at: "/palavras",
-      serving: "words",
-      servedFrom: screenHtml("words").replace("></p>", ">Olá</p>"),
-      servedWords: {"pt-BR": OLD_WORDS},
-      catalogues: {"pt-BR": OLD_WORDS},
-    });
-    const {createShell} = await import("./shell.js");
-    await createShell({config: "./shell/shell.yaml", mount: app.mount});
-    await settle();
-    assert(app.revalidated.length === 0, `revalidated ${app.revalidated}`);
-    assert(greeting(app) === "Olá", `drawn as ${JSON.stringify(greeting(app))}`);
-  },
-});
-
-Deno.test({
-  name: "a catalogue the worker announces is written into the screen on show and the ones held",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    // The worker kept catalogues and announced none of their changes, so a
-    // deploy's words reached a reader one page load late.
+    // A deploy's words reached a reader one page load late.
     const app = await start({at: "/palavras", catalogues: {"pt-BR": OLD_WORDS}});
     assert(greeting(app) === "Olá", `drawn as ${JSON.stringify(greeting(app))}`);
-    app.announceWords("pt-BR", NEW_WORDS);
-    await settle();
+    app.deploy({"/messages/pt-BR.json": NEW_WORDS});
+    await app.check();
     assert(greeting(app) === "Olá de novo", `still ${JSON.stringify(greeting(app))}`);
     await app.goto("/other");
-    app.announceWords("pt-BR", OLD_WORDS);
-    await settle();
+    app.deploy({"/messages/pt-BR.json": OLD_WORDS});
+    await app.check();
     await app.goto("/palavras", "traverse");
     assert(greeting(app) === "Olá", `the held screen came back as ${JSON.stringify(greeting(app))}`);
   },
@@ -980,7 +920,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "a template the worker announces that cannot be taken says so",
+  name: "a deployment's template that cannot be taken says so",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -988,8 +928,8 @@ Deno.test({
     // the screen offline and logged it, so a deploy that broke a screen read
     // as a reader's dropped connection.
     const app = await start({at: "/regras"});
-    app.announce("regras", screenHtml("regras").replace("<h1>regras</h1>", "<h1>regras</h1><div data-hatch=\"undeclared\"></div>"));
-    await settle();
+    app.deploy({"/shell/screens/regras.html": screenHtml("regras").replace("<h1>regras</h1>", "<h1>regras</h1><div data-hatch=\"undeclared\"></div>")});
+    await app.check();
     const banner = app.mount.querySelector("pre")?.textContent ?? "";
     assert(banner.includes(`no vendored unit for data-hatch="undeclared"`), `the banner says ${JSON.stringify(banner)}`);
   },
@@ -1034,85 +974,38 @@ Deno.test({
   },
 });
 
-// The strip's words were the config's, which the worker keeps any deploy old
-// and announces no change of: settling the catalogues against a served
-// document, and taking the ones the worker announced, left the strip in older
-// words for the visit.
+// The strip's words were the config's, so a deployment's never reached it.
 const home = (word) => JSON.stringify({nav_home: word});
 
 Deno.test({
-  name: "a served strip in newer words than the worker's keeps them",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const app = boot({
-      at: "/regras",
-      serving: "regras",
-      servedWords: {"pt-BR": home("Começo")},
-      catalogues: {"pt-BR": home("Início")},
-      deployed: {"pt-BR": home("Começo")},
-    });
-    app.link("home").textContent = "Começo";
-    const {createShell} = await import("./shell.js");
-    await createShell({config: "./shell/shell.yaml", mount: app.mount});
-    await settle();
-    assert(app.link("home").textContent === "Começo", `the strip was written back to ${app.link("home").textContent}`);
-  },
-});
-
-Deno.test({
-  name: "a catalogue the worker announces is written into the strip",
+  name: "a deployment's catalogue is written into the strip",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
     const app = await start({at: "/regras", catalogues: {"pt-BR": home("Início")}});
-    app.announceWords("pt-BR", home("Começo"));
-    await settle();
+    app.deploy({"/messages/pt-BR.json": home("Começo")});
+    await app.check();
     assert(app.link("home").textContent === "Começo", `the strip still reads ${app.link("home").textContent}`);
   },
 });
 
-// A newer template names its modules in its own deploy's config, and the
-// shell runs on the config the worker kept, which it never announces: a deploy
-// adding a handler to a screen made the announced template unloadable, and the
-// banner put a stack trace where every screen had been. A module the door
-// failed mid-deploy did the same.
-const withHandler = (handlers) => CONFIG_YAML.replace(
-  "files: {html: shell/screens/regras.html, css: shell/screens/regras.css, handlers: []}",
-  `files: {html: shell/screens/regras.html, css: shell/screens/regras.css, handlers: [${handlers}]}`,
-);
-const handled = screenHtml("regras").replace("<h1>regras</h1>", '<h1>regras</h1><p class="deployed">new</p><button data-on-click="fresh">go</button>');
-
+// A screen whose new template names a module the page does not run comes
+// with a config the deployment changed, which the page runs: it restarts into
+// the new entry rather than morph into markup it cannot take.
 Deno.test({
-  name: "a template the worker announces under a config the deploy changed replaces the document",
+  name: "a deployment that changes the config restarts the page into it",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const app = await start({at: "/regras", deployedConfig: withHandler("shell/handlers/fresh.js"), modules: {fresh: [200]}});
-    app.announce("regras", handled);
-    await settle();
+    const app = await start({at: "/regras"});
+    app.deploy({
+      "/shell/shell.yaml": CONFIG_YAML.replace("files: {html: shell/screens/regras.html, css: shell/screens/regras.css, handlers: []}",
+        "files: {html: shell/screens/regras.html, css: shell/screens/regras.css, handlers: [shell/handlers/fresh.js]}"),
+      "/shell/screens/regras.html": screenHtml("regras").replace("<h1>regras</h1>", '<h1>regras</h1><button data-on-click="fresh">go</button>'),
+    });
+    await app.check();
     assert(app.mount.querySelector("pre") === null, `a banner: ${app.mount.querySelector("pre")?.textContent}`);
     assert(app.reloads.length === 1 && app.reloads[0] === "/regras", `replaced at ${JSON.stringify(app.reloads)}`);
-    assert(shown(app)[0]?.dataset.screen === "regras", `showing ${shown(app).map((s) => s?.dataset.screen)}`);
-  },
-});
-
-Deno.test({
-  name: "a template whose module the network fails leaves the screen as it was, and is taken once it is shown again",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const config = withHandler("shell/handlers/fresh.js");
-    const app = await start({at: "/regras", config, modules: {fresh: [502, 200]}});
-    app.announce("regras", handled);
-    await settle();
-    assert(app.mount.querySelector("pre") === null, `a banner: ${app.mount.querySelector("pre")?.textContent}`);
-    assert(app.reloads.length === 0, `replaced at ${JSON.stringify(app.reloads)}`);
-    const screen = shown(app)[0];
-    assert(screen?.dataset.screen === "regras" && screen.dataset.state === "network-error", `showing ${screen?.dataset.screen} as ${screen?.dataset.state}`);
-    assert(app.mount.querySelector(".deployed") === null, "a template not taken reached the screen");
-    await app.goto("/other");
-    await app.goto("/regras", "traverse");
-    assert(app.mount.querySelector(".deployed")?.textContent === "new", "the template was not asked again");
+    assert(app.mount.querySelector("button") === null, "the template was morphed in before the restart");
   },
 });

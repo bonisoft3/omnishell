@@ -15,7 +15,7 @@
 # Four branches have no screen, for two different reasons.
 #
 # Unobservable: a second mount of a screen enumerates the same list, since
-# memoryStore copies the rows, so nothing reaches the `accounted` floor; and
+# fakeDataSync copies the rows, so nothing reaches the `accounted` floor; and
 # the walk's own `wait` quiets after every stimulus, so it re-raises whatever
 # the quiet() before enumeration would have.
 #

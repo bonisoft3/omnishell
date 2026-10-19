@@ -73,16 +73,6 @@ describe("a prerendered document", () => {
       expect(doc(address).querySelector('meta[name="pronto-cas"]')?.getAttribute("content")).toBe(templateHash(template))
     })
 
-    it(`names the catalogues its words are from at ${address}`, async () => {
-      // The shell takes a document over in whichever catalogue it holds, and
-      // the worker's copy is any deploy old: named, the shell asks the network
-      // where its copy is not the document's (nav-smoke.js).
-      const witness = async (tag: string) => `${tag}:${templateHash(await Deno.readTextFile(new URL(`messages/${tag}.json`, APP)))}`
-      const tags = [...new Set([lang, "pt-BR"])]
-      expect(doc(address).querySelector('meta[name="pronto-words"]')?.getAttribute("content"))
-        .toBe((await Promise.all(tags.map(witness))).join(" "))
-    })
-
     it(`is the screen before its first read lands at ${address}`, () => {
       const d = doc(address)
       const screens = d.querySelectorAll("#app > .shell-screen > section.screen[data-screen]")
