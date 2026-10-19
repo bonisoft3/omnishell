@@ -106,6 +106,48 @@ Deno.test("chart fill is literal six-digit hex paint on paths and rects only", a
   await refuses([{ tag: "svg", children: [{ tag: "circle", attrs: { fill: "#8a2be2" } }] }], "fill is a path and rect attribute");
 });
 
+Deno.test("chart gradients and stroke paint stay local and hex-bounded", async () => {
+  const { buildNodes } = await import("./render.js");
+  const { target } = dom();
+  buildNodes([{
+    tag: "svg",
+    attrs: { viewBox: "0 0 100 40", preserveAspectRatio: "none" },
+    children: [
+      {
+        tag: "defs",
+        children: [{
+          tag: "linearGradient",
+          attrs: { id: "grade-grad", gradientUnits: "userSpaceOnUse", x1: 0, y1: 0, x2: 100, y2: 0 },
+          children: [
+            { tag: "stop", attrs: { offset: "0%", "stop-color": "#22c55e", "stop-opacity": 1 } },
+            { tag: "stop", attrs: { offset: "100%", "stop-color": "#ef4444" } },
+          ],
+        }],
+      },
+      { tag: "g", attrs: { transform: "translate(0, 4)" }, children: [
+        { tag: "path", attrs: { d: "M0,30 L100,10", stroke: "url(#grade-grad)", "stroke-width": 2 } },
+        { tag: "circle", attrs: { cx: 50, cy: 20, r: 3, stroke: "#0f172a", "stroke-width": 2 } },
+      ] },
+    ],
+  }], target);
+  const grad = target.querySelector("linearGradient");
+  assert(grad !== null && grad.namespaceURI === "http://www.w3.org/2000/svg", "linearGradient builds in SVG namespace");
+  assert(grad.getAttribute("gradientUnits") === "userSpaceOnUse", "gradientUnits attribute preserved");
+  assert(target.querySelector("path").getAttribute("stroke") === "url(#grade-grad)", "local url(#id) stroke kept");
+  await refuses(
+    [{ tag: "svg", children: [{ tag: "path", attrs: { d: "M0,0", stroke: "url(https://e.example/p.svg#g)" } }] }],
+    "external url() stroke is refused",
+  );
+  await refuses(
+    [{ tag: "svg", children: [{ tag: "defs", children: [{ tag: "linearGradient", attrs: { id: "bad id" } }] }] }],
+    "malformed linearGradient id is refused",
+  );
+  await refuses(
+    [{ tag: "svg", children: [{ tag: "defs", children: [{ tag: "stop", attrs: { "stop-color": "red" } }] }] }],
+    "non-hex stop-color is refused",
+  );
+});
+
 Deno.test("attributes outside the allowlist are refused, data-* especially", async () => {
   // data-* is the terminal's own binding vocabulary. A renderer that could
   // emit one could forge a live region, a text binding or a hatch mount out
