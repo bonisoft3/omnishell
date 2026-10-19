@@ -771,7 +771,14 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
               f.tables ?? { [regions[0].table]: f.row },
             )
             if (!posed) continue
-            await settle(page, { capMs: 800, stableMs: 60 })
+            const moving = await motion(page)
+            if (moving !== null) {
+              out.push({
+                severity: "major",
+                path: url,
+                message: `${where} [${f.name}:${f.state}]: still moving after ${SETTLE_CAP_MS}ms (${moving}), so everything below measured a moving screen.`,
+              })
+            }
 
             const frameBugs: VisualBug[] = (
               await Promise.all([
