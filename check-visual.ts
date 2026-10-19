@@ -353,6 +353,15 @@ export async function resolveParams(
  * Never wait for networkidle: Electric holds its shape connections open, so
  * that state never arrives and the wait consumes the whole timeout.
  */
+// How long a screen may take to settle, which its deployment bounds: the
+// guest it mints and the reads it makes each answer inside their door's
+// bound, so a wait shorter than theirs fails a page the cluster serves.
+function settleTimeout(): number {
+  const ms = Number(Deno.env.get("SETTLE_TIMEOUT_MS"))
+  if (!(ms > 0)) throw new Error(`SETTLE_TIMEOUT_MS must be a positive number of milliseconds, got ${Deno.env.get("SETTLE_TIMEOUT_MS")}`)
+  return ms
+}
+
 async function openRoute(
   page: PageLike,
   base: string,
@@ -373,7 +382,7 @@ async function openRoute(
         return s && s !== "loading" ? s : null
       },
       undefined,
-      { timeout: 20_000 },
+      { timeout: settleTimeout() },
     )
     .then((h) => h.jsonValue() as Promise<string>)
   return { state, moving: await motion(page) }

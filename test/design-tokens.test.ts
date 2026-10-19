@@ -45,6 +45,11 @@ const VENDOR = new URL("fixtures/daisyui-5.7.32/", HERE);
 // probe is an expression over it, as cue merges no stdin file into a package.
 const SCHEMA = ["./plugins/pronto"];
 const EMITTER = "plugins/pronto/emit.cue";
+// A probe reads through stdin, not -e: Windows bounds a command line at
+// 32K characters, which every theme's body at once overruns. It is a file of
+// its own package importing pronto's, as a stdin file merges into none.
+const probe = (expr: string) =>
+  `package probe\n\nimport pronto "bonisoft.org/plugins/pronto"\n\n#Design: pronto.#Design\n#App: pronto.#App\n\nout: ${expr}\n`;
 
 // The quotation this suite grades, hashed: every vendored theme stylesheet in
 // themeOrder, then each reading's token and the daisyUI meaning it quotes. It
@@ -119,7 +124,7 @@ const cue = async (args: string[], stdin?: string): Promise<{ ok: boolean; out: 
 
 /** Unify `#Design` with one probe body and report what cue actually does. */
 const design = (body: string) =>
-  cue(["export", ...SCHEMA, "--out", "json", "-e", `#Design & {\n${body}\n}\n`]);
+  cue(["export", "-", "-e", "out", "--out", "json"], probe(`#Design & {\n${body}\n}\n`));
 
 const q = (s: string) => JSON.stringify(s);
 const kv = (o: Record<string, string>) =>
@@ -251,7 +256,7 @@ const carriage = async (
     asked.push({ theme: t.name, body: `\t${q(t.name)}: #Design & {\n${lines.join("\n")}\n\t}`, want });
   }
   const r = await cue(
-    ["export", ...SCHEMA, "--out", "json", "-e", `{\n${asked.map((a) => a.body).join("\n")}\n}\n`],
+    ["export", "-", "-e", "out", "--out", "json"], probe(`{\n${asked.map((a) => a.body).join("\n")}\n}\n`),
   );
   if (!r.ok) return { ok: false, out: r.out, rows: [] };
   const out = JSON.parse(r.out) as Record<string, Record<string, Record<string, string>>>;
@@ -517,7 +522,7 @@ Deno.test("a colour the preset does not publish costs a twin, and one it does pu
   // name itself is admitted — case "what the design layer refuses" measures
   // that — so what an app pays for a new colour is exactly one dark value.
   const bad = await cue(
-    ["export", ...SCHEMA, "--out", "json", "-e", `{\n${fresh.map((n) => `${q(n)}: #Design & {colors: {${q(n)}: "#123456"}}`).join("\n")}\n}\n`],
+    ["export", "-", "-e", "out", "--out", "json"], probe(`{\n${fresh.map((n) => `${q(n)}: #Design & {colors: {${q(n)}: "#123456"}}`).join("\n")}\n}\n`),
   );
   assert(!bad.ok, `cue accepted ${fresh.length} untwinned colours:\n${bad.out}`);
   const flat = bad.out.replaceAll('"', "");
@@ -528,9 +533,9 @@ Deno.test("a colour the preset does not publish costs a twin, and one it does pu
   // is simply written into press's role, which is why `maps_to` may not be
   // derived from a shared word and why this suite grades injectivity.
   const ok = await cue(
-    ["export", ...SCHEMA, "--out", "json", "-e", `{\n${
+    ["export", "-", "-e", "out", "--out", "json"], probe(`{\n${
       collides.map((n) => `${q(n)}: #Design & {colors: {${q(n)}: "#123456"}, dark: {${q(n)}: "#123456"}}`).join("\n")
-    }\n}\n`],
+    }\n}\n`),
   );
   assert(ok.ok, `cue refused a colliding name:\n${ok.out}`);
   const out = JSON.parse(ok.out) as Record<string, { colors: Record<string, string> }>;
@@ -571,7 +576,7 @@ Deno.test("one preset, two appearances, no siblings: daisyUI's theme system has 
   // Two identities side by side under one app, which is what [data-theme]
   // selects between. #App.surface.design is one struct.
   const siblings = await cue(
-    ["export", ...SCHEMA, "--out", "json", "-e", `#App.surface & {design: {press: #Design, dracula: #Design}}\n`],
+    ["export", "-", "-e", "out", "--out", "json"], probe(`#App.surface & {design: {press: #Design, dracula: #Design}}\n`),
   );
   if (siblings.ok) problems.push(`#App.surface.design held two identities, so sibling themes are expressible`);
   else if (!/design\.dracula: field not allowed/.test(siblings.out)) {
