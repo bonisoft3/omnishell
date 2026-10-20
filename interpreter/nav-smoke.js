@@ -1009,3 +1009,23 @@ Deno.test({
     assert(app.mount.querySelector("button") === null, "the template was morphed in before the restart");
   },
 });
+
+Deno.test({
+  name: "a guest provider link keeps the current query across localized navigation",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const app = await start({
+      at: "/es?page=2",
+      tables: ["example"],
+      config: CONFIG_YAML + "\nauth: {service: /auth, providers: [google]}\nread: [example]\n",
+    });
+    const returnTo = () => new URL(app.document.querySelector(".shell-provider").getAttribute("href"), location.href).searchParams.get("return");
+    assert(returnTo() === "/es?page=2", `boot return address: ${returnTo()}`);
+    assert(app.link("home").getAttribute("aria-current") === "page", "query does not change the current route");
+    await app.goto("/es/other?filter=active&page=3");
+    assert(returnTo() === "/es/other?filter=active&page=3", `navigation return address: ${returnTo()}`);
+    assert(app.link("other").getAttribute("aria-current") === "page", "localized destination remains current");
+    assert(app.link("home").getAttribute("aria-current") === null, "previous route is no longer current");
+  },
+});

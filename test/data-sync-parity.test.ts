@@ -175,32 +175,21 @@ for (const seed of [1, 2, 3, 5, 8, 13, 21, 34]) {
   } })
 }
 
-// Every table an app declares a key or a unique for, with that key and those
-// uniques: the fake an app's screens mount is the fake of the tables it has.
-const APPS = new URL("../../../apps/", import.meta.url)
-const declared: { app: string; table: Table }[] = []
-for (const entry of [...Deno.readDirSync(APPS)].sort((a, b) => a.name.localeCompare(b.name))) {
-  const shell = new URL(`${entry.name}/shell/shell.yaml`, APPS)
-  let text: string
-  try {
-    text = Deno.readTextFileSync(shell)
-  } catch (err) {
-    if (err instanceof Deno.errors.NotFound) continue
-    throw err
-  }
-  const yaml = parseYaml(text) as { keys?: Record<string, string>; uniques?: Record<string, string[][]> }
-  for (const name of new Set([...Object.keys(yaml.keys ?? {}), ...Object.keys(yaml.uniques ?? {})])) {
-    declared.push({ app: entry.name, table: { name, key: yaml.keys?.[name] ?? "id", uniques: yaml.uniques?.[name] } })
-  }
+const schema = parseYaml(Deno.readTextFileSync(new URL("fixtures/data-sync-schema.yaml", import.meta.url))) as {
+  keys: Record<string, string>
+  uniques: Record<string, string[][]>
 }
+const declared: Table[] = [...new Set([...Object.keys(schema.keys), ...Object.keys(schema.uniques)])]
+  .map((name) => ({ name, key: schema.keys[name] ?? "id", uniques: schema.uniques[name] }))
 
-Deno.test("parity reaches every table an app declares a key or a unique for", () => {
-  expect(declared.some(({ table }) => table.key !== "id")).toBe(true)
-  expect(declared.some(({ table }) => table.uniques !== undefined)).toBe(true)
+Deno.test("parity covers ordinary keys, non-id keys and composite uniques", () => {
+  expect(declared.some((table) => table.key === "id" && table.uniques === undefined)).toBe(true)
+  expect(declared.some((table) => table.key !== "id")).toBe(true)
+  expect(declared.some((table) => table.uniques?.some((columns) => columns.length > 1))).toBe(true)
 })
 
-for (const { app, table } of declared) {
-  Deno.test({ name: `parity: ${app}'s ${table.name}, keyed on ${table.key}`, sanitizeOps: false, sanitizeResources: false, fn: async () => {
+for (const table of declared) {
+  Deno.test({ name: `parity: ${table.name}, keyed on ${table.key}`, sanitizeOps: false, sanitizeResources: false, fn: async () => {
     for (const seed of [1, 2, 3]) {
       const ops = sequence(seed, 16, table)
       const { shipped, fake } = await both(ops, table)

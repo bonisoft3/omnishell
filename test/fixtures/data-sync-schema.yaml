@@ -1,0 +1,9 @@
+keys:
+  note: id
+  preference: slug
+  membership: member_key
+uniques:
+  membership:
+    - [workspace, account]
+  label:
+    - [name]

@@ -12,7 +12,7 @@
 // The interpreter reads the ambient `document`, so a render owns it for its
 // duration and one process renders one document at a time.
 
-import { describe, drawStrip, guestBox, hasStrip, localizeStrip } from "./chrome.js";
+import { describe, drawStrip, guestBox, hasStrip, localizeStrip, offersGuest } from "./chrome.js";
 import { screenEnv } from "./fragment.js";
 import { interpretScreen } from "./screen.js";
 import { assetURL, preloadScreen } from "./preloads.js";
@@ -101,7 +101,7 @@ export async function renderDocument({
 
       if (hasStrip(cfg, servesGuests(cfg))) {
         const nav = drawStrip(doc, cfg);
-        if (servesGuests(cfg) && cfg.auth?.promote) nav.append(guestBox(doc));
+        if (servesGuests(cfg) && offersGuest(cfg)) nav.append(guestBox(doc, cfg));
         localizeStrip(nav, cfg, { locale, here, messages });
         mount.before(nav);
       }

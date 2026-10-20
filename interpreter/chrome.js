@@ -35,11 +35,31 @@ const PROMOTE = {
   chrome_passkey_failed: "sign-in did not go through",
 };
 
+// A provider's way in, one word per provider the auth service knows
+// (auth.providers), drawn at the gate and in a guest's strip.
+const PROVIDERS = {
+  chrome_signin_google: "Continue with Google",
+};
+
+/** The key a provider's way in is spoken under. */
+export const providerKey = (provider) => `chrome_signin_${provider}`;
+
 /** Which copy a reader can reach, by the surface that shows it: an app is asked
  * for the group its own declaration puts on screen, never for the rest. */
-export const CHROME_KEYS = { login: Object.keys(LOGIN), session: Object.keys(SESSION), promote: Object.keys(PROMOTE) };
+export const CHROME_KEYS = { login: Object.keys(LOGIN), session: Object.keys(SESSION), promote: Object.keys(PROMOTE), providers: Object.keys(PROVIDERS) };
 
-export const CHROME = { ...LOGIN, ...SESSION, ...PROMOTE };
+export const CHROME = { ...LOGIN, ...SESSION, ...PROMOTE, ...PROVIDERS };
+
+/** Where a provider's sign-in starts: a navigation, not a fetch, since the
+ * provider's own pages take the reader and the auth service brings them back
+ * to `here` (mecha's services/auth/README.md#provider-sign-in). */
+export function providerHref(service, provider, here) {
+  return `${service}/oidc/${encodeURIComponent(provider)}/start?return=${encodeURIComponent(here)}`;
+}
+
+/** Whether a guest's strip offers a way to sign in: a passkey (auth.promote),
+ * or a provider. */
+export const offersGuest = (cfg) => Boolean(cfg.auth?.promote) || (cfg.auth?.providers?.length ?? 0) > 0;
 
 /** What the chrome says, in the language the page is in. A key no group holds
  * is the terminal asking for copy it never wrote, which no catalogue can
@@ -76,17 +96,27 @@ export function drawStrip(doc, cfg) {
   return nav;
 }
 
-/** A guest's end of the strip where the app offers a passkey (auth.promote):
- * one gesture to sign in, its word the strip's to write in the page's language
+/** A guest's end of the strip where the app offers a way in (offersGuest):
+ * one gesture each, a passkey's and every provider's, their words and the
+ * providers' addresses the strip's to write in the page's language
  * (localizeStrip), the key saying which word. */
-export function guestBox(doc) {
+export function guestBox(doc, cfg) {
   const box = doc.createElement("span");
   box.className = "shell-me";
-  const signIn = doc.createElement("button");
-  signIn.setAttribute("type", "button");
-  signIn.className = "shell-signin";
-  signIn.setAttribute("data-key", "chrome_passkey");
-  box.append(signIn);
+  if (cfg.auth?.promote) {
+    const signIn = doc.createElement("button");
+    signIn.setAttribute("type", "button");
+    signIn.className = "shell-signin";
+    signIn.setAttribute("data-key", "chrome_passkey");
+    box.append(signIn);
+  }
+  for (const provider of cfg.auth?.providers ?? []) {
+    const a = doc.createElement("a");
+    a.className = "shell-provider";
+    a.setAttribute("data-provider", provider);
+    a.setAttribute("data-key", providerKey(provider));
+    box.append(a);
+  }
   return box;
 }
 
@@ -95,7 +125,7 @@ export function guestBox(doc) {
  * label, and aria-current names the link that IS this page — which is the
  * link whose address is this one (`here`, a pathname), not merely a link to
  * the same route with someone else's :params. */
-export function localizeStrip(nav, cfg, { locale, here, messages, explicitLocale = false } = {}) {
+export function localizeStrip(nav, cfg, { locale, here, search = "", messages, explicitLocale = false } = {}) {
   if (!nav) return;
   for (const a of nav.querySelectorAll("a[data-route]")) {
     const href = routeHref(cfg, a.getAttribute("data-route"), routeParams(a), locale, { explicitLocale });
@@ -121,6 +151,11 @@ export function localizeStrip(nav, cfg, { locale, here, messages, explicitLocale
   if (out) out.textContent = chromeText("chrome_signout", { messages, locale });
   const signIn = nav.querySelector(".shell-signin");
   if (signIn) signIn.textContent = chromeText(signIn.getAttribute("data-key"), { messages, locale });
+  // The provider brings the reader back to the page they left, in its language.
+  for (const a of nav.querySelectorAll(".shell-provider")) {
+    a.textContent = chromeText(a.getAttribute("data-key"), { messages, locale });
+    if (here !== undefined) a.setAttribute("href", providerHref(cfg.auth.service, a.getAttribute("data-provider"), here + search));
+  }
 }
 
 /** What a document says it IS. One entry file answers at every address, so its

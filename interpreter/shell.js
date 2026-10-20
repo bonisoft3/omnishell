@@ -8,13 +8,15 @@ import { parseMarkup } from "./markup.js";
 // launch). `?storybook` renders every storyboard state against fixtures
 // instead.
 //
-// Auth (cfg.auth: {required, service}): the login screen is terminal chrome,
-// driving the WebAuthn ceremony or the guest mint against the auth service
-// and stashing {token, user} in sessionStorage["pronto-token"]. Storybook
+// Auth (cfg.auth: {required, service, providers}): the login screen is
+// terminal chrome, driving the WebAuthn ceremony or the guest mint against the
+// auth service and stashing {token, user} in sessionStorage["pronto-token"]. A
+// provider's sign-in leaves the page and comes back to it, so the boot adopts
+// that session from the auth service (adoptProviderSession). Storybook
 // bypasses it entirely: the fixture adapter runs without the cluster, so no auth
 // service exists to sign against.
 
-import { chromeText, describe, drawStrip, guestBox, hasStrip, localizeStrip, stripRoutes } from "./chrome.js";
+import { chromeText, describe, drawStrip, guestBox, hasStrip, localizeStrip, offersGuest, providerHref, providerKey, stripRoutes } from "./chrome.js";
 import { localeAt, localeTable, ProgramError, routeAt, routeHref, screenEnv, Unanswered } from "./fragment.js";
 import { fetchText, interpretScreen, prefetchScreen, templateHash, submitsOnChange } from "./screen.js";
 import { compileCatalog } from "./vendor/messages.js";
@@ -75,6 +77,46 @@ async function accountLives(session) {
   } catch {
     return true;
   }
+}
+
+// The auth service leaves this readable cookie beside the HttpOnly one a
+// provider's sign-in sets (mecha's services/auth/README.md#provider-sign-in),
+// so a tab that has none never asks for a session it does not have.
+const PROVIDER_HINT = "mecha_oidc_hint";
+const providerHinted = () => (globalThis.document?.cookie ?? "").split(";").some((c) => c.trim().startsWith(`${PROVIDER_HINT}=`));
+
+/** The browser's provider sign-in as this tab's session, or null. A redirect
+ * cannot write sessionStorage, so the provider's return lands here, and so
+ * does every tab opened later. A live non-guest session keeps its identity;
+ * an expired bearer can be renewed by the longer-lived cookie. Fails open
+ * as accountLives does: offline, the tab boots as it would have. */
+async function adoptProviderSession(cfg) {
+  if ((cfg.auth?.providers?.length ?? 0) === 0 || !providerHinted()) return null;
+  let held = null;
+  try {
+    held = JSON.parse(sessionStorage.getItem("pronto-token") ?? "null");
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+  }
+  if (held !== null && !held.user?.guest && await accountLives(held)) return null;
+  let res;
+  try {
+    res = await fetch(`${cfg.auth.service}/oidc/session`, { method: "POST", credentials: "same-origin" });
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    return null;
+  }
+  // Signed out elsewhere, or the link revoked: the hint is stale, and the
+  // next boot need not ask.
+  if (res.status === 401) {
+    document.cookie = `${PROVIDER_HINT}=; Path=/; Max-Age=0`;
+    return null;
+  }
+  if (!res.ok) throw new Error(`${res.status} POST ${cfg.auth.service}/oidc/session`);
+  const session = await res.json();
+  if (sessionOwner(session) !== sessionOwner(held)) sessionStorage.removeItem(recoveryKey);
+  sessionStorage.setItem("pronto-token", JSON.stringify(session));
+  return session;
 }
 
 /** A guest session from the auth service. A served or kept document on show
@@ -236,6 +278,18 @@ function renderLogin(mount, cfg, chrome) {
     <button type="submit"></button>
     <button type="button" class="login-guest"></button>
   </form>`));
+  // A provider's way in leaves the page, so it is a link, not a button: the
+  // provider brings the reader back to this address, where the boot adopts
+  // the session (adoptProviderSession).
+  const here = `${location.pathname ?? "/"}${location.search ?? ""}`;
+  for (const provider of cfg.auth.providers ?? []) {
+    const a = document.createElement("a");
+    a.className = "login-provider";
+    a.dataset.provider = provider;
+    a.href = providerHref(cfg.auth.service, provider, here);
+    a.textContent = chrome(providerKey(provider));
+    wrap.querySelector(".login-guest").before(a);
+  }
   wrap.querySelector("h1").textContent = cfg.app;
   wrap.querySelector(".login-hint").textContent = chrome("chrome_signin_hint");
   wrap.querySelector("button[type=submit]").textContent = chrome("chrome_signin");
@@ -281,9 +335,9 @@ function renderLogin(mount, cfg, chrome) {
 // the table and column their chosen name lives in. An app with no page for a
 // person declares no `self`, and the handle stands on its own.
 function renderPromote(ensureSession, cfg, chrome, served = null) {
-  const box = served?.querySelector(".shell-signin") ? served : guestBox(document);
+  const box = served?.querySelector(".shell-signin, .shell-provider") ? served : guestBox(document, cfg);
   const signIn = box.querySelector(".shell-signin");
-  signIn.addEventListener("click", async () => {
+  signIn?.addEventListener("click", async () => {
     let current;
     let next;
     try {
@@ -304,11 +358,12 @@ function renderPromote(ensureSession, cfg, chrome, served = null) {
 
 function renderSession(session, cfg, store, signOut, chrome, served = null) {
 
-  // A guest has nothing to sign out of and a passkey to gain: one gesture
-  // signs in to the passkey's account where the device has one, and otherwise
-  // makes one of this guest, keeping what it wrote. A served document's strip
-  // already holds that box (document.js), and it is the one bound.
-  if (session.user.guest && cfg.auth?.promote) {
+  // A guest has nothing to sign out of and a way in to gain: a passkey's one
+  // gesture signs in to the passkey's account where the device has one, and
+  // otherwise makes one of this guest, keeping what it wrote; a provider's
+  // signs in as the person it links. A served document's strip already holds
+  // that box (document.js), and it is the one bound.
+  if (session.user.guest && offersGuest(cfg)) {
     return renderPromote(() => Promise.resolve(session), cfg, chrome, served);
   }
 
@@ -667,6 +722,7 @@ export async function createShell({ config, mount, preload = true }) {
       } else sessionStorage.removeItem(recoveryKey);
     };
     const hadInitialOwner = initialDraftOwner !== null;
+    if (cfg.auth?.required || (cfg.tables?.length ?? 0) > 0) await adoptProviderSession(cfg);
     if (cfg.auth?.required) {
       const stored = sessionStorage.getItem("pronto-token");
       // A stored token is not a session. The account it names can be gone —
@@ -812,7 +868,14 @@ export async function createShell({ config, mount, preload = true }) {
     // replaced because the screens' subscriptions and the store's token are
     // the session too, and re-gating in place would keep both.
     let nav = null;
-    const signOut = () => {
+    const signOut = async () => {
+      // The provider's cookie first, or the reload adopts the session again;
+      // a sign-out that cannot reach the auth service leaves the reader signed
+      // in, and on screen as they were.
+      if (providerHinted()) {
+        const res = await fetch(`${cfg.auth.service}/oidc/signout`, { method: "POST", credentials: "same-origin" });
+        if (!res.ok) throw new Error(`${res.status} POST ${cfg.auth.service}/oidc/signout`);
+      }
       for (const entry of [...held.values()]) discard(entry);
       current = null;
       nav?.remove();
@@ -839,7 +902,7 @@ export async function createShell({ config, mount, preload = true }) {
           servedBox?.remove();
           nav.append(box);
         }
-      } else if (mintedGuest && cfg.auth?.promote) {
+      } else if (mintedGuest && offersGuest(cfg)) {
         const box = renderPromote(() => guestSession, cfg, chrome, servedBox);
         if (box !== servedBox) {
           servedBox?.remove();
@@ -854,7 +917,7 @@ export async function createShell({ config, mount, preload = true }) {
           }
           if (current !== null) {
             const explicitLocale = Boolean(cfg.i18n && current.locale === cfg.i18n.default && typeof location !== "undefined" && new URLSearchParams(location.search).has("lang"));
-            localizeStrip(nav, cfg, { locale: current.locale, here: location.pathname, messages, explicitLocale });
+            localizeStrip(nav, cfg, { locale: current.locale, here: location.pathname, search: location.search ?? "", messages, explicitLocale });
           }
           return s;
         });
@@ -899,7 +962,7 @@ export async function createShell({ config, mount, preload = true }) {
         if (turn !== showing) return;
       }
       const explicitLocale = Boolean(cfg.i18n && locale === cfg.i18n.default && typeof location !== "undefined" && new URLSearchParams(location.search).has("lang"));
-      localizeStrip(nav, cfg, { locale, here: location.pathname, messages, explicitLocale });
+      localizeStrip(nav, cfg, { locale, here: location.pathname, search: location.search ?? "", messages, explicitLocale });
       const key = keyOf(route, params);
       if (current) {
         current.scrollY = window.scrollY;
@@ -1029,7 +1092,7 @@ export async function createShell({ config, mount, preload = true }) {
       if (entry.handle === undefined || entry.words === words.taken()) return;
       entry.words = words.taken();
       entry.handle.localize();
-      localizeStrip(nav, cfg, { locale: entry.locale, here: location.pathname, messages });
+      localizeStrip(nav, cfg, { locale: entry.locale, here: location.pathname, search: location.search ?? "", messages });
     };
     // A deployment the page could not take. One the network failed to answer
     // is an outage, said as a dropped connection is: the screen stays as it

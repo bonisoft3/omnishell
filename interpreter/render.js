@@ -72,23 +72,29 @@ const TAGS = {
 // embedded images, animation, filters, or external resource references.
 const SVG_NS = "http://www.w3.org/2000/svg";
 const SVG_TAGS = {
-  svg: ["viewBox", "width", "height", "role", "aria-label", "focusable"],
-  g: [], title: [], desc: [],
-  line: ["x1", "y1", "x2", "y2", "stroke-width", "stroke-dasharray"],
-  polyline: ["points", "stroke-width", "stroke-linejoin", "stroke-linecap"],
-  polygon: ["points", "stroke-width"],
-  path: ["d", "stroke-width", "stroke-linejoin", "stroke-linecap", "fill"],
-  circle: ["cx", "cy", "r", "stroke-width", "tabindex"],
-  rect: ["x", "y", "width", "height", "rx", "stroke-width", "fill"],
-  text: ["x", "y", "text-anchor", "dominant-baseline"],
+  svg: ["viewBox", "width", "height", "role", "aria-label", "focusable", "preserveAspectRatio"],
+  defs: [],
+  linearGradient: ["id", "gradientUnits", "x1", "y1", "x2", "y2"],
+  stop: ["offset", "stop-color", "stop-opacity"],
+  g: ["transform"], title: [], desc: [],
+  line: ["x1", "y1", "x2", "y2", "stroke", "stroke-width", "stroke-dasharray"],
+  polyline: ["points", "stroke", "stroke-width", "stroke-linejoin", "stroke-linecap"],
+  polygon: ["points", "stroke", "stroke-width"],
+  path: ["d", "stroke", "stroke-width", "stroke-linejoin", "stroke-linecap", "fill"],
+  circle: ["cx", "cy", "r", "stroke", "stroke-width", "tabindex"],
+  rect: ["x", "y", "width", "height", "rx", "stroke", "stroke-width", "fill"],
+  text: ["x", "y", "dx", "dy", "text-anchor", "dominant-baseline"],
   a: ["href", "target", "rel", "aria-label", "tabindex"],
 };
 
 // A data-owned colour, such as a zone a source defines, is literal paint: six
 // hex digits and nothing else. Any other paint value can name a url() paint
 // server, which is a reference and a fetch, and colours the design names
-// stay in its tokens, reached through a class.
+// stay in its tokens, reached through a class. Stroke additionally admits a
+// same-document #id gradient reference declared in <defs><linearGradient>.
 const HEX_FILL = /^#[0-9a-fA-F]{6}$/;
+const GRADIENT_ID = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
+const STROKE_PAINT = /^(?:#[0-9a-fA-F]{6}|url\(#[A-Za-z_][A-Za-z0-9_.-]*\))$/;
 
 // Every allowlisted attribute that HTML treats as a URL. A URL-valued
 // attribute added to TAGS but not here gives the builder an allowlisted
@@ -122,14 +128,16 @@ function checkAttr(tag, name, svg) {
 // this is the backstop for one that does not, and it is set where a real
 // document never reaches it.
 const MAX_DEPTH = 256;
+let gradientSerial = 0;
 
-function toNode(node, depth = 0, inSvg = false) {
+function toNode(node, depth = 0, inSvg = false, gradients = null) {
   if (typeof node === "string") return document.createTextNode(node);
   if (node === null || typeof node !== "object" || typeof node.tag !== "string") {
     throw new Error(`renderer produced ${JSON.stringify(node)}, not a string or {tag}`);
   }
   if (depth >= MAX_DEPTH) throw new Error(`renderer nested deeper than ${MAX_DEPTH} elements`);
   const { tag, attrs = {}, children = [] } = node;
+  if (tag === "svg") gradients = { ids: new Map(), refs: [] };
   const svg = inSvg || tag === "svg";
   const allowedTags = svg ? SVG_TAGS : TAGS;
   if (!Object.hasOwn(allowedTags, tag)) throw new Error(`renderer may not produce <${tag}>`);
@@ -150,6 +158,28 @@ function toNode(node, depth = 0, inSvg = false) {
     if (name === "fill" && !HEX_FILL.test(String(value))) {
       throw new Error(`renderer fill must be a six-digit hex colour, got ${JSON.stringify(value)}`);
     }
+    if (name === "stop-color" && !HEX_FILL.test(String(value))) {
+      throw new Error(`renderer stop-color must be a six-digit hex colour, got ${JSON.stringify(value)}`);
+    }
+    if (name === "stroke" && !STROKE_PAINT.test(String(value))) {
+      throw new Error(`renderer stroke must be a six-digit hex colour or local url(#id), got ${JSON.stringify(value)}`);
+    }
+    if (tag === "linearGradient" && name === "id" && !GRADIENT_ID.test(String(value))) {
+      throw new Error(`renderer linearGradient id must be an identifier, got ${JSON.stringify(value)}`);
+    }
+    if (tag === "linearGradient" && name === "id") {
+      const id = String(value);
+      if (gradients.ids.has(id)) throw new Error(`renderer repeats gradient ${id}`);
+      let scoped;
+      do { scoped = `pronto-gradient-${++gradientSerial}`; } while (document.getElementById(scoped));
+      gradients.ids.set(id, scoped);
+      el.setAttribute(name, scoped);
+      continue;
+    }
+    if (name === "stroke" && String(value).startsWith("url(")) {
+      gradients.refs.push({ el, id: String(value).slice(5, -1) });
+      continue;
+    }
     if (URL_ATTRS.has(name)) {
       const csv = !svg && tag === "a" && name === "href" && attrs.download !== undefined && attrs.download !== null && CSV_DOWNLOAD.test(String(value));
       const url = csv ? String(value) : safeUrl(value);
@@ -164,7 +194,16 @@ function toNode(node, depth = 0, inSvg = false) {
   // on the element, not the description: any path that puts a target on the
   // DOM is a path this has to see, whatever shape the description had.
   if (tag === "a" && el.hasAttribute("target")) el.setAttribute("rel", "noopener noreferrer");
-  for (const child of children) el.append(toNode(child, depth + 1, svg));
+  for (const child of children) el.append(toNode(child, depth + 1, svg, gradients));
+  // Repeated chart instances share a document, so authored fragment IDs cannot
+  // reach another instance's paint server.
+  if (tag === "svg") {
+    for (const { el: ref, id } of gradients.refs) {
+      const scoped = gradients.ids.get(id);
+      if (!scoped) throw new Error(`renderer references undeclared gradient ${id}`);
+      ref.setAttribute("stroke", `url(#${scoped})`);
+    }
+  }
   return el;
 }
 
