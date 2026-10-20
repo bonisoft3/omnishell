@@ -130,7 +130,10 @@ Deno.test({
     };
     const form = mount.querySelector(".shell-login form");
     assert(form, "login form rendered");
-    assert(form.querySelector("h1").textContent === "smoke", "app title shown");
+    assert(form.getAttribute("aria-labelledby") === "shell-login-title", "the form is named by the app heading");
+    assert(form.querySelector(".login-error").getAttribute("role") === "alert", "ceremony failures are announced");
+    assert(mount.querySelector(".login-mark").getAttribute("aria-hidden") === "true", "the decorative mark is silent");
+    assert(mount.querySelector("h1").textContent === "smoke", "app title shown");
     // Usernameless one-gesture doctrine: a single Continue drives login with
     // registration as the fall-through, and the guest door is always beside it
     // (origin-independent by doctrine) — any other button set is a regression.
@@ -161,12 +164,15 @@ Deno.test({
     };
     const form = mount.querySelector(".shell-login form");
     assert(form, "login form rendered");
+    assert(form.getAttribute("aria-labelledby") === "shell-login-title", "the form is named by the app heading");
+    assert(form.querySelector(".login-error").getAttribute("role") === "alert", "ceremony failures are announced");
+    assert(mount.querySelector(".login-mark").getAttribute("aria-hidden") === "true", "the decorative mark is silent");
     // The gate is up before any route is mounted, so it resolves its own
     // language off the address — and its catalogue has to be in hand before the
     // auth branch runs, not after it beside the screens.
     assert(
-      form.querySelector(".login-hint").textContent === CATALOGUE.chrome_signin_hint,
-      `the hint reads ${JSON.stringify(form.querySelector(".login-hint").textContent)}`,
+      mount.querySelector(".login-hint").textContent === CATALOGUE.chrome_signin_hint,
+      `the hint reads ${JSON.stringify(mount.querySelector(".login-hint").textContent)}`,
     );
     const labels = [...form.querySelectorAll("button")].map((b) => b.textContent);
     assert(
@@ -266,7 +272,11 @@ Deno.test({
     const assert = check(mount);
     const form = mount.querySelector(".shell-login form");
     assert(form, "login form rendered");
+    assert(form.getAttribute("aria-labelledby") === "shell-login-title", "the form is named by the app heading");
+    assert(form.querySelector(".login-error").getAttribute("role") === "alert", "ceremony failures are announced");
+    assert(mount.querySelector(".login-mark").getAttribute("aria-hidden") === "true", "the decorative mark is silent");
     const google = form.querySelector(".login-provider");
+    assert(form.querySelector(".login-actions").firstElementChild.matches(".login-provider"), "providers lead the action hierarchy");
     assert(google?.textContent === "Continue with Google", `the provider's word, got ${google?.textContent}`);
     assert(
       google.getAttribute("href") === "/auth/oidc/google/start?return=%2F%3Fpage%3D2",

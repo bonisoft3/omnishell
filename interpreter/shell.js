@@ -271,12 +271,16 @@ function renderLogin(mount, cfg, chrome) {
   // Every word is written in after the template rather than interpolated into
   // it: a catalogue is app data, and data spliced into markup is an injection
   // seam where a literal was none.
-  wrap.append(parseMarkup(document, `<form>
-    <h1></h1>
-    <p class="login-hint"></p>
-    <p class="login-error" hidden></p>
-    <button type="submit"></button>
-    <button type="button" class="login-guest"></button>
+  wrap.append(parseMarkup(document, `<header class="login-intro">
+    <span class="login-mark" aria-hidden="true"></span>
+    <h1 id="shell-login-title"></h1>
+    <p class="login-hint" id="shell-login-hint"></p>
+  </header><form aria-labelledby="shell-login-title" aria-describedby="shell-login-hint">
+    <p class="login-error" role="alert" hidden></p>
+    <div class="login-actions">
+      <button type="submit" class="login-passkey"></button>
+      <button type="button" class="login-guest"></button>
+    </div>
   </form>`));
   // A provider's way in leaves the page, so it is a link, not a button: the
   // provider brings the reader back to this address, where the boot adopts
@@ -288,9 +292,10 @@ function renderLogin(mount, cfg, chrome) {
     a.dataset.provider = provider;
     a.href = providerHref(cfg.auth.service, provider, here);
     a.textContent = chrome(providerKey(provider));
-    wrap.querySelector(".login-guest").before(a);
+    wrap.querySelector(".login-passkey").before(a);
   }
   wrap.querySelector("h1").textContent = cfg.app;
+  wrap.querySelector(".login-mark").textContent = [...cfg.app][0]?.toLocaleUpperCase() ?? "";
   wrap.querySelector(".login-hint").textContent = chrome("chrome_signin_hint");
   wrap.querySelector("button[type=submit]").textContent = chrome("chrome_signin");
   wrap.querySelector(".login-guest").textContent = chrome("chrome_signin_guest");
