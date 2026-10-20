@@ -45,9 +45,14 @@ const CATALOGUE = {
   nav_home: "Início",
 };
 
+// The same gate offering a provider beside the passkey.
+const PROVIDER_YAML = CONFIG_YAML.replace("  service: /auth\n", "  service: /auth\n  providers: [google]\n");
+
 const SCREEN_HTML = `<section class="screen" data-screen="home"><h2>Home</h2></section>`;
 
-function boot({ config = CONFIG_YAML, catalogue = null, guestFails = false } = {}) {
+// `cookie` is the jar the auth service left; `provider` answers its session
+// exchange with a status, and the requests the boot made are in `asked`.
+function boot({ config = CONFIG_YAML, catalogue = null, guestFails = false, cookie = "", provider = 200 } = {}) {
   const { document, Event } = parseHTML(
     "<!doctype html><html><head></head><body><div id=shell></div></body></html>",
   );
@@ -57,13 +62,32 @@ function boot({ config = CONFIG_YAML, catalogue = null, guestFails = false } = {
   globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
   globalThis.scrollTo = () => {};
   Object.defineProperty(globalThis, "scrollY", { get: () => 0, configurable: true });
+  let jar = cookie;
+  Object.defineProperty(document, "cookie", {
+    get: () => jar,
+    // Only clearing is ever written here, and only the hint.
+    set: (value) => {
+      if (!/^mecha_oidc_hint=; Path=\/; Max-Age=0$/.test(value)) throw new Error(`unexpected cookie write ${value}`);
+      jar = jar.split(";").filter((c) => !c.trim().startsWith("mecha_oidc_hint=")).join(";");
+    },
+    configurable: true,
+  });
+  const asked = [];
+  const reloads = [];
   Object.defineProperty(globalThis, "location", {
-    value: { href: "http://localhost:8080/shell/", search: "", hash: "" },
+    value: { href: "http://localhost:8080/?page=2", pathname: "/", search: "?page=2", hash: "", reload: () => reloads.push(true) },
     configurable: true,
   });
   sessionStorage.clear();
-  globalThis.fetch = (url) => {
+  globalThis.fetch = (url, init) => {
     const u = String(url);
+    asked.push(`${init?.method ?? "GET"} ${u}`);
+    if (u.endsWith("/auth/oidc/session")) {
+      if (provider !== 200) return Promise.resolve(new Response("{}", { status: provider }));
+      return Promise.resolve(new Response(JSON.stringify({ token: "g", user: { id: "u-google", handle: "amber-fox-12" } })));
+    }
+    if (u.endsWith("/auth/oidc/signout")) return Promise.resolve(new Response(null, { status: 204 }));
+    if (u.includes("/crud/app_user")) return Promise.resolve(new Response(JSON.stringify([{ id: "u-google" }])));
     if (u.endsWith("shell.yaml")) return Promise.resolve(new Response(config));
     if (u.endsWith("/auth/guest")) {
       if (guestFails) return Promise.resolve(new Response("the door is bolted", { status: 500 }));
@@ -81,7 +105,7 @@ function boot({ config = CONFIG_YAML, catalogue = null, guestFails = false } = {
     if (u.endsWith(".css")) return Promise.resolve(new Response(""));
     return Promise.reject(new Error(`unexpected fetch ${u}`));
   };
-  return { document, Event, mount: document.getElementById("shell") };
+  return { document, Event, mount: document.getElementById("shell"), asked, reloads, jar: () => jar };
 }
 
 const settle = (ms = 60) => new Promise((r) => setTimeout(r, ms));
@@ -221,4 +245,101 @@ Deno.test({
       throw new Error("smoke failed: session not stored");
     }
   },
+});
+
+const check = (mount) => (cond, msg) => {
+  if (!cond) throw new Error(`smoke failed: ${msg}\n${mount.innerHTML}`);
+};
+
+Deno.test({
+  name: "a provider is a way in at the gate, a link that comes back to this address",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const { mount, asked } = boot({ config: PROVIDER_YAML });
+    const { createShell } = await import("./shell.js");
+    createShell({ config: "./shell.yaml", mount });
+    await settle();
+    const assert = check(mount);
+    const form = mount.querySelector(".shell-login form");
+    assert(form, "login form rendered");
+    const google = form.querySelector(".login-provider");
+    assert(google?.textContent === "Continue with Google", `the provider's word, got ${google?.textContent}`);
+    assert(
+      google.getAttribute("href") === "/auth/oidc/google/start?return=%2F%3Fpage%3D2",
+      `the start, returning here, got ${google.getAttribute("href")}`,
+    );
+    // The passkey's gesture and the guest door are as they were.
+    const labels = [...form.querySelectorAll("button")].map((b) => b.textContent);
+    assert(labels.join("|") === "Continue|Continue as guest", `buttons unchanged, got ${labels}`);
+    // No hint, so nothing was asked of the auth service.
+    assert(!asked.some((a) => a.includes("/oidc/")), `asked ${asked}`);
+  },
+});
+
+Deno.test({
+  name: "a reader sent back by the provider is signed in without the gate, and signs out of the provider too",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const { Event, mount, asked, reloads } = boot({ config: PROVIDER_YAML, cookie: "mecha_oidc_hint=google" });
+    const { createShell } = await import("./shell.js");
+    createShell({ config: "./shell.yaml", mount });
+    await settle(200);
+    const assert = check(mount);
+    assert(!mount.querySelector(".shell-login"), "the gate stayed down");
+    assert(mount.querySelector('[data-screen="home"]'), "the screen is up");
+    assert(JSON.parse(sessionStorage.getItem("pronto-token")).user.id === "u-google", "the provider's session is the tab's");
+    assert(asked.includes("POST /auth/oidc/session"), `asked ${asked}`);
+
+    const out = document.querySelector(".shell-signout");
+    assert(out, "a way out");
+    out.dispatchEvent(new Event("click", { bubbles: true }));
+    await settle();
+    // Without the provider's cookie cleared, the reload adopts the session again.
+    assert(asked.indexOf("POST /auth/oidc/signout") > asked.indexOf("POST /auth/oidc/session"), `asked ${asked}`);
+    assert(reloads.length === 1, "reloaded once");
+    assert(sessionStorage.getItem("pronto-token") === null, "the tab's session forgotten");
+  },
+});
+
+Deno.test({
+  name: "a stale hint gates as before and is cleared, and a passkey's session is never traded",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    {
+      const { mount, jar } = boot({ config: PROVIDER_YAML, cookie: "a=1; mecha_oidc_hint=google", provider: 401 });
+      const { createShell } = await import("./shell.js");
+      createShell({ config: "./shell.yaml", mount });
+      await settle();
+      const assert = check(mount);
+      assert(mount.querySelector(".shell-login form"), "the gate is up");
+      assert(jar() === "a=1", `the hint cleared, the rest kept: ${jar()}`);
+    }
+    {
+      const { mount, asked } = boot({ config: PROVIDER_YAML, cookie: "mecha_oidc_hint=google" });
+      sessionStorage.setItem("pronto-token", JSON.stringify({ token: "p", user: { id: "u-google", handle: "passkey-held" } }));
+      const { createShell } = await import("./shell.js");
+      createShell({ config: "./shell.yaml", mount });
+      await settle(200);
+      const assert = check(mount);
+      assert(!asked.includes("POST /auth/oidc/session"), `asked ${asked}`);
+      assert(JSON.parse(sessionStorage.getItem("pronto-token")).user.handle === "passkey-held", "the passkey's session stands");
+    }
+  },
+});
+
+Deno.test("a guest's strip offers each provider, its address written with the page", async () => {
+  const { document } = parseHTML("<!doctype html><html><body><nav></nav></body></html>");
+  const { guestBox, localizeStrip } = await import("./chrome.js");
+  const cfg = { routes: [], auth: { service: "/auth", providers: ["google"] } };
+  const nav = document.querySelector("nav");
+  nav.append(guestBox(document, cfg));
+  localizeStrip(nav, cfg, { here: "/chapter/8", messages: { "pt-BR": { chrome_signin_google: "Entrar com Google" } }, locale: "pt-BR" });
+  const a = nav.querySelector(".shell-provider");
+  if (a?.textContent !== "Entrar com Google") throw new Error(`smoke failed: the provider's word, got ${a?.textContent}`);
+  if (a.getAttribute("href") !== "/auth/oidc/google/start?return=%2Fchapter%2F8") throw new Error(`smoke failed: got ${a.getAttribute("href")}`);
+  // No passkey was offered, so none is drawn.
+  if (nav.querySelector(".shell-signin")) throw new Error("smoke failed: a passkey nobody offered");
 });

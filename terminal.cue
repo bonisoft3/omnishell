@@ -111,8 +111,10 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 		// mode the terminal does not offer. Users never type identifiers — a
 		// passkey ceremony is one tap with a server-generated display handle,
 		// and a guest mint (always rendered, origin-independent, no ceremony)
-		// issues the same identity shape; social hand-off (firebase) is the
-		// planned third mode.
+		// issues the same identity shape. `providers` are the ones the terminal
+		// draws a way in for, at the gate and in a guest's strip, and adopts
+		// the session of when the provider sends the reader back; the auth
+		// service runs the sign-in itself.
 		// `chrome` is the strip the terminal draws for a signed-in person and
 		// what an app may tell it about that person: `self.route`, the route
 		// that is their own page, whose :params the terminal fills from the
@@ -122,12 +124,14 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 		// `self` and the handle stands alone — but then the one identity a
 		// reader always has on screen leads nowhere.
 		auth: {
-			modes:    [...string]
-			identity: string
+			modes:     [...string]
+			providers: [...string]
+			identity:  string
 			chrome:   string
 		}
 		auth: {
-			modes:    ["passkey", "guest"]
+			modes:     ["passkey", "guest"]
+			providers: ["google"]
 			identity: "generated"
 			chrome:   "<name · handle> · sign out; self.route and self.name are the app's"
 		}

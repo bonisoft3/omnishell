@@ -14,7 +14,7 @@ import { renderStorybook } from "./interpreter/storybook.js";
 import { directionOf, PLACEHOLDER, PLACEHOLDERS } from "./interpreter/fragment.js";
 // The terminal's own copy table, so the keys required here are the keys the
 // terminal actually asks for and cannot drift from them.
-import { CHROME_KEYS } from "./interpreter/chrome.js";
+import { CHROME_KEYS, providerKey } from "./interpreter/chrome.js";
 import { controlProperties } from "./server/linkedom-controls.ts";
 import { type MessageNode, compileCatalog, parseMessage } from "./src/messages.ts";
 
@@ -66,8 +66,8 @@ type ShellConfig = {
   // The facts that decide which of the terminal's own chrome a reader reaches:
   // a required gate draws the login screen, either a gate or a table of the
   // app's own mints the session the strip names, and promote offers a guest
-  // that session's passkey.
-  auth?: { required?: boolean; promote?: boolean };
+  // that session's passkey, and each provider a way in at the gate and to a guest.
+  auth?: { required?: boolean; promote?: boolean; providers?: string[] };
   tables?: string[];
   routes?: Route[];
   units?: Record<string, unknown>;
@@ -503,7 +503,8 @@ export function checkChrome(
   // a session is what puts the person and the way out in the strip.
   const session = gated || (shell.tables?.length ?? 0) > 0;
   const promote = session && shell.auth?.promote === true;
-  for (const key of [...(gated ? CHROME_KEYS.login : []), ...(session ? CHROME_KEYS.session : []), ...(promote ? CHROME_KEYS.promote : [])]) {
+  const providers = session ? (shell.auth?.providers ?? []).map(providerKey) : [];
+  for (const key of [...(gated ? CHROME_KEYS.login : []), ...(session ? CHROME_KEYS.session : []), ...(promote ? CHROME_KEYS.promote : []), ...providers]) {
     for (const tag of tags) {
       if (said(tag, key)) continue;
       report(`messages/${tag}.json`, `chrome key "${key}" is missing: the terminal speaks its own English here`);
@@ -1404,6 +1405,10 @@ function chromeFailures(): string[] {
     shell: { auth: { required: false, promote: true } },
   });
   quiet("an app that offers no passkey", { shell: { auth: { required: false } } });
+  // A provider is a way in at the gate and in a guest's strip alike.
+  grades("a provider offered in no Spanish", `chrome key "chrome_signin_google" is missing`, {
+    shell: { auth: { required: false, providers: ["google"] } },
+  });
 
   // The whole of the built-in copy's point: an app that shows neither surface
   // is asked for none of it.
