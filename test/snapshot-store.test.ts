@@ -100,3 +100,150 @@ Deno.test({
 		});
 	},
 });
+
+Deno.test({
+	name: "an underfull page read answers its next-page probe without a second snapshot read",
+	sanitizeOps: false,
+	sanitizeResources: false,
+	async fn() {
+		await withBrowser({ fetch: () => { throw new Error("snapshot reads must use the supplied reader"); } }, async () => {
+			const paths: string[] = [];
+			const store = snapshotStore(
+				{ tables: ["card"], schema: { card: { durability: "live" } } },
+				new URL("https://snapshot.test/"),
+				{
+					read(path: string) {
+						paths.push(path);
+						return Promise.resolve([{ id: "1", name: "only" }]);
+					},
+				},
+			);
+			try {
+				const [page, probe] = await Promise.all([
+					store.query("card", "id.desc", {
+						filter: "owner_id=eq.1&status=eq.active&offset=0&limit=40",
+						select: "*,owner:owner_id(name)",
+					}),
+					store.query("card", "id.desc", {
+						filter: "status=eq.active&owner_id=eq.1&offset=40&limit=1",
+						select: "id",
+					}),
+				]);
+				assertEquals(page, [{ id: "1", name: "only" }]);
+				assertEquals(probe, []);
+				assertEquals(paths, [
+					"/card?select=*,owner:owner_id(name)&order=id.desc&owner_id=eq.1&status=eq.active&offset=0&limit=40",
+				]);
+				assertEquals(
+					store.reads.get(
+						"/crud/card?select=id&order=id.desc&status=eq.active&owner_id=eq.1&offset=40&limit=1",
+					),
+					"[]",
+				);
+			} finally {
+				await store.close();
+			}
+		});
+	},
+});
+
+Deno.test({
+	name: "full pages, inner embeds, and aggregates still read the next-page probe from the snapshot",
+	sanitizeOps: false,
+	sanitizeResources: false,
+	async fn() {
+		await withBrowser({ fetch: () => { throw new Error("snapshot reads must use the supplied reader"); } }, async () => {
+			const paths: string[] = [];
+			const store = snapshotStore(
+				{ tables: ["card"], schema: { card: { durability: "live" } } },
+				new URL("https://snapshot.test/"),
+				{
+					read(path: string) {
+						paths.push(path);
+						if (path.includes("offset=0&limit=2")) {
+							return Promise.resolve([{ id: "1" }, { id: "2" }]);
+						}
+						if (path.includes("offset=2&limit=1")) {
+							return Promise.resolve([{ id: "3" }]);
+						}
+						return Promise.resolve([{ id: "1" }]);
+					},
+				},
+			);
+			try {
+				const [fullPage, fullProbe] = await Promise.all([
+					store.query("card", "id.desc", {
+						filter: "owner_id=eq.full&offset=0&limit=2",
+						select: "id",
+					}),
+					store.query("card", "id.desc", {
+						filter: "owner_id=eq.full&offset=2&limit=1",
+						select: "id",
+					}),
+				]);
+				assertEquals(fullPage.length, 2);
+				assertEquals(fullProbe, [{ id: "3" }]);
+
+				const [page2, probe2] = await Promise.all([
+					store.query("card", "id.desc", {
+						filter: "owner_id=eq.full&offset=2&limit=2",
+						select: "id",
+					}),
+					store.query("card", "id.desc", {
+						filter: "owner_id=eq.full&offset=4&limit=1",
+						select: "id",
+					}),
+				]);
+				assertEquals(page2, [{ id: "1" }]);
+				assertEquals(probe2, []);
+
+				await Promise.all([
+					store.query("card", "id.desc", {
+						filter: "owner_id=eq.inner&offset=0&limit=40",
+						select: "*,owner!inner(name)",
+					}),
+					store.query("card", "id.desc", {
+						filter: "owner_id=eq.inner&offset=40&limit=1",
+						select: "id",
+					}),
+				]);
+
+				await Promise.all([
+					store.query("card", null, {
+						filter: "owner_id=eq.agg&offset=0&limit=40",
+						select: "total:points.sum()::int",
+					}),
+					store.query("card", null, {
+						filter: "owner_id=eq.agg&offset=40&limit=1",
+						select: "id",
+					}),
+				]);
+
+				await Promise.all([
+					store.query("card", "id.desc", {
+						filter: "a=eq.x%26b%3Deq.y&offset=0&limit=40",
+						select: "id",
+					}),
+					store.query("card", "id.desc", {
+						filter: "a=eq.x&b=eq.y&offset=40&limit=1",
+						select: "id",
+					}),
+				]);
+
+				assertEquals(paths, [
+					"/card?select=id&order=id.desc&owner_id=eq.full&offset=0&limit=2",
+					"/card?select=id&order=id.desc&owner_id=eq.full&offset=2&limit=1",
+					"/card?select=id&order=id.desc&owner_id=eq.full&offset=2&limit=2",
+					"/card?select=*,owner!inner(name)&order=id.desc&owner_id=eq.inner&offset=0&limit=40",
+					"/card?select=id&order=id.desc&owner_id=eq.inner&offset=40&limit=1",
+					"/card?select=total:points.sum()::int&owner_id=eq.agg&offset=0&limit=40",
+					"/card?select=id&owner_id=eq.agg&offset=40&limit=1",
+					"/card?select=id&order=id.desc&a=eq.x%26b%3Deq.y&offset=0&limit=40",
+					"/card?select=id&order=id.desc&a=eq.x&b=eq.y&offset=40&limit=1",
+				]);
+			} finally {
+				await store.close();
+			}
+		});
+	},
+});
