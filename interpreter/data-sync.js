@@ -163,6 +163,33 @@ function hasServedRead(url) {
 const CONFLICT_SENDS = 5;
 const CONFLICT_FIRST_MS = 25;
 
+async function send(url, init) {
+  let res;
+  let conflicted = false;
+  for (let sent = 1; ; sent++) {
+    res = await fetch(url, init);
+    conflicted = res.status === 500 && (await res.clone().text()).includes('"code":"40001"');
+    if (!conflicted || sent >= CONFLICT_SENDS) break;
+    await new Promise((resolve) => setTimeout(resolve, CONFLICT_FIRST_MS * 2 ** (sent - 1)));
+  }
+  // PostgREST answers a row security refusal (42501) with 401 too, and that
+  // is the write's refusal, not the session's end. Electric's /v1/shape
+  // answers an expired shape token with 401 so the stream re-mints at /auth/shape.
+  if (
+    res.status === 401 &&
+    !String(url).includes("/electric/") &&
+    !(await res.clone().text()).includes('"code":"42501"')
+  ) {
+    // Expired/invalid token: re-gate through the login screen. The reload
+    // tears the page down, so this promise never settles by design. The
+    // server terminal's reload is its end (server/render.ts inhabit).
+    sessionStorage.removeItem("pronto-token");
+    location.reload();
+    return new Promise(() => {});
+  }
+  return { res, conflicted };
+}
+
 export async function http(url, init) {
   if ((init?.method ?? "GET") === "GET") {
     const taken = takeServedReads(globalThis.document);
@@ -179,24 +206,7 @@ export async function http(url, init) {
   const headers = { ...init?.headers };
   const t = token();
   if (t) headers.Authorization = `Bearer ${t}`;
-  let res;
-  let conflicted = false;
-  for (let sent = 1; ; sent++) {
-    res = await fetch(url, { ...init, headers });
-    conflicted = res.status === 500 && (await res.clone().text()).includes('"code":"40001"');
-    if (!conflicted || sent >= CONFLICT_SENDS) break;
-    await new Promise((resolve) => setTimeout(resolve, CONFLICT_FIRST_MS * 2 ** (sent - 1)));
-  }
-  // PostgREST answers a row security refusal (42501) with 401 too, and that
-  // is the write's refusal, not the session's end.
-  if (res.status === 401 && !(await res.clone().text()).includes('"code":"42501"')) {
-    // Expired/invalid token: re-gate through the login screen. The reload
-    // tears the page down, so this promise never settles by design. The
-    // server terminal's reload is its end (server/render.ts inhabit).
-    sessionStorage.removeItem("pronto-token");
-    location.reload();
-    return new Promise(() => {});
-  }
+  const { res, conflicted } = await send(url, { ...init, headers });
   if (!res.ok) {
     const method = init?.method ?? "GET";
     const detail = await res.text();
@@ -442,6 +452,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     electricUrl: `${base}/electric`,
     crudUrl: `${base}/crud`,
     authUrl: `${base}/auth`,
+    fetcher: (url, init) => send(url, init).then(({ res }) => res),
     token,
     subject: userId,
   });

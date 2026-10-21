@@ -275,6 +275,31 @@ describe("a document carrying its reads", () => {
     })
   })
 
+  // Regression: createMechaClient used bare fetch for /auth/shape and /crud/*,
+  // so a live-durability table hitting a 401 from an invalidated session token
+  // threw NonRetriableError instead of clearing pronto-token and reloading.
+  it("forgets the session and reloads when a live-durability shape mint returns a session 401", async () => {
+    await inDocument(async () => {
+      let reloaded = false
+      Object.defineProperty(globalThis, "location", { value: Object.assign(new URL("https://gol.example/"), { reload: () => { reloaded = true } }), configurable: true })
+      globalThis.fetch = async () => new Response(JSON.stringify({ error: "invalid token" }), { status: 401 })
+      const store = createStore("", {
+        tables: ["team"],
+        carriers: FIXTURE_CARRIERS,
+        schema: { team: { durability: "live", fields: [{ name: "id", type: "string" }] } },
+      })
+      const unsub = store.subscribe("team", () => {})
+      try {
+        for (let i = 0; i < 20 && !reloaded; i++) await new Promise((r) => setTimeout(r, 5))
+        expect(reloaded).toBe(true)
+        expect(sessionStorage.getItem("pronto-token")).toBe(null)
+      } finally {
+        unsub()
+        await store.close()
+      }
+    })
+  })
+
   it("answers a live-durability table from #pronto-reads while guest minting is still in flight", async () => {
     await inDocument(async (asked) => {
       sessionStorage.removeItem("pronto-token")
