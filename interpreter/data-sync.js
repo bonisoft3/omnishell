@@ -878,17 +878,21 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   // Not every read qualifies; routeOf and isMaintainable hold the
   // disqualifiers.
   const views = new Map();
-  const indexed = new Map();
+  const indexed = new WeakMap();
   // createIndex refuses to choose a type, and the two questions want different
   // ones: equality for a join's key, ordered for an orderBy the engine should
   // be able to stop scanning early.
   const ensureIndex = (table, column, indexType) => {
-    const at = `${table}|${column}`;
     const collection = client.collections[table];
-    const id = indexed.get(at);
-    // Idle collection cleanup discards its indexes while the store survives.
-    if (id !== undefined && collection.indexes.has(id)) return;
-    indexed.set(at, collection.createIndex((r) => r[column], { indexType }).id);
+    let columns = indexed.get(collection);
+    if (columns === undefined) indexed.set(collection, columns = new Map());
+    let types = columns.get(column);
+    if (types === undefined) columns.set(column, types = new Map());
+    const id = types.get(indexType);
+    const existing = id === undefined ? undefined : collection.indexes.get(id);
+    if (existing instanceof indexType) return;
+    const index = collection.createIndex((r) => r[column], { indexType });
+    types.set(indexType, index.id);
   };
   // Debug seam, like the client above: which reads entered the graph, and
   // which fell to the snapshot path, is the first question when a region

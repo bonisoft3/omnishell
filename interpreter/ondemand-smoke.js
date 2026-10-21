@@ -8,6 +8,7 @@ import "./server-mutation-smoke.js";
 import { FIXTURE_CARRIERS } from "./fixture-types.js";
 import { ProgramError } from "./fragment.js";
 import { assert, tick, until, withBrowser } from "./smoke-browser.js";
+import { BasicIndex, BTreeIndex } from "./vendor/mecha-client.js";
 
 // Electric's shape protocol as @electric-sql/client asks it: a lazy
 // shape opens at `offset=now` with only changes logged, each view's rows come
@@ -41,6 +42,7 @@ function electric(server, schema) {
   // join's lazy load compile to.
   const matches = (where, params) => {
     // A key that is null is a row that does not exist.
+    if (where.trim() === "true = true") return () => true;
     if (/^"\w+" IS NULL$/.test(where.trim())) return () => false;
     if (/^"\w+" IS NOT NULL$/.test(where.trim())) return () => true;
     const clauses = where.split(" AND ").map((c) => /^"(\w+)" = (ANY\()?\$(\d+)\)?$/.exec(c.trim()));
@@ -448,17 +450,17 @@ for (const mode of ["eager", "lazy"]) {
 }
 
 /** A test of the store over an Electric serving world(), handed both. */
-const lazy = (name, fn) =>
+const lazy = (name, fn, options = {}) =>
   Deno.test({
     name,
     sanitizeOps: false,
     sanitizeResources: false,
     async fn() {
-      const fake = electric(world(), SCHEMA);
+      const fake = electric(options.server ?? world(), options.electricSchema ?? SCHEMA);
       const online = Object.getOwnPropertyDescriptor(navigator, "onLine");
       Object.defineProperty(navigator, "onLine", { value: true, configurable: true });
       try {
-        await withBrowser({ fetch: fake.fetcher }, (createStore) => fn({ fake, store: createStore(fake.base, config()) }));
+        await withBrowser({ fetch: fake.fetcher }, (createStore) => fn({ fake, store: createStore(fake.base, options.config ?? config()) }));
       } finally {
         if (online) Object.defineProperty(navigator, "onLine", online);
         else delete navigator.onLine;
@@ -513,6 +515,78 @@ lazy("a lazy view answers only once its subset and its join's are in, and wakes 
   }
   stop();
 });
+
+const goalWorld = () => {
+  const rows = world();
+  rows.player = [
+    { id: 1, name: "Ana", txid: "1" }, { id: 2, name: "Bia", txid: "1" },
+    { id: 3, name: "Cris", txid: "1" }, { id: 9, name: "Duda", txid: "1" },
+    { id: 99, name: "Unused", txid: "1" },
+  ];
+  rows.goal = [
+    { id: "goal1", game_id: "match", player_id: 1, minute: "12", txid: "1" },
+    { id: "goal2", game_id: "match", player_id: 2, minute: "31", txid: "1" },
+    { id: "goal3", game_id: "match", player_id: 3, minute: "45", txid: "1" },
+    { id: "goal4", game_id: "match", player_id: 9, minute: "90", txid: "1" },
+  ];
+  return rows;
+};
+const goalSchema = {
+  ...SCHEMA,
+  player: { id: { type: "int4" }, name: { type: "text" }, txid: { type: "int8" } },
+  goal: { id: { type: "text" }, game_id: { type: "text" }, player_id: { type: "int4" }, minute: { type: "int4" }, txid: { type: "int8" } },
+};
+const baseGoalConfig = config();
+const goalConfig = config({
+  tables: ["goal", "player"],
+  schema: {
+    ...baseGoalConfig.schema,
+    player: { fields: [{ name: "id", type: "int32" }, { name: "name", type: "string" }] },
+    goal: { fields: [
+      { name: "id", type: "string" }, { name: "game_id", type: "string" },
+      { name: "player_id", type: "int32", ref: "player" }, { name: "minute", type: "int32" },
+    ] },
+  },
+  read: { goal: "lazy", player: "lazy" },
+});
+
+lazy("join and order indexes on one key retain their distinct types", async ({ store }) => {
+  await store.query("goal", "minute.asc", { filter: "game_id=eq.match", select: "*,player(name)" });
+  await store.query("player", "id.asc", { filter: "id=eq.1&limit=1" });
+  const indexes = [...globalThis.__mechaClient.collections.player.indexes.values()];
+  assert(indexes.some(index => index instanceof BasicIndex), "the join key has its equality index");
+  assert(indexes.some(index => index instanceof BTreeIndex), `the same key also has its ordered index: ${JSON.stringify(indexes.map(index => ({ id: index.id, type: index.constructor.name })))}`);
+}, { server: goalWorld(), electricSchema: goalSchema, config: goalConfig });
+
+lazy("a joined player index is recreated after on-demand collection cleanup", async ({ fake, store }) => {
+  const readGoals = (opts = {}) => store.query("goal", "minute.asc", { filter: "game_id=eq.match", select: "*,player(name)", ...opts });
+  const expected = [["goal1", "Ana"], ["goal2", "Bia"], ["goal3", "Cris"], ["goal4", "Duda"]];
+  const checkRows = (rows, message) => {
+    const actual = rows.map(row => [row.id, row.player?.name]).sort(([a], [b]) => a.localeCompare(b));
+    assert(JSON.stringify(actual) === JSON.stringify(expected), `${message}: ${JSON.stringify(actual)}`);
+  };
+  const checkPlayerSubsets = (subsets, message) => {
+    const expectedIDs = ["1", "2", "3", "9"];
+    assert(subsets.length > 0, `${message}: no player subset was requested`);
+    for (const subset of subsets) {
+      assert(subset.where.includes("ANY"), `${message}: player demand was not keyed: ${JSON.stringify(subset)}`);
+      const ids = subset.params["1"].replace(/[{}\"]/g, "").split(",").sort();
+      assert(JSON.stringify(ids) === JSON.stringify(expectedIDs), `${message}: requested ${JSON.stringify(ids)}`);
+      assert(subset.where.trim() !== "true = true", `${message}: demanded every player`);
+    }
+  };
+  const first = await readGoals();
+  checkRows(first, "the first read joins the four goal scorers");
+  const initialPlayerSubsets = fake.subsets.filter(subset => subset.table === "player");
+  checkPlayerSubsets(initialPlayerSubsets, "the first read asks only for its four referenced players");
+  await tick(5200);
+  assert(globalThis.__mechaClient.collections.player.getIndexMetadata().length === 0, "collection garbage collection removed the join index");
+
+  const second = await readGoals({ current: true });
+  checkRows(second, "the repeated read still joins the four goal scorers");
+  const repeatedPlayerSubsets = fake.subsets.filter(subset => subset.table === "player").slice(initialPlayerSubsets.length);
+  checkPlayerSubsets(repeatedPlayerSubsets, "the repeated read stays scoped to referenced IDs");
+}, { server: goalWorld(), electricSchema: goalSchema, config: goalConfig });
 
 lazy("a typed column's equality is one literal of its type, and no `or`", async ({ fake, store }) => {
   const opts = { filter: "round=eq.3" };
