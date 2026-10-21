@@ -52,6 +52,8 @@ export async function checkContrast(page: Page): Promise<VisualBug[]> {
     claimed: getComputedStyle(document.documentElement).colorScheme,
     dark: matchMedia("(prefers-color-scheme: dark)").matches,
   }))
+  const initialScheme = dark ? "dark" : "light"
+  let currentScheme: "light" | "dark" = initialScheme
   const schemes = (["light", "dark"] as const).filter((s) => claimed.split(/\s+/).includes(s))
   // `normal`, the scheme a page claims by claiming none, is painted light
   // whatever the reader prefers: one appearance.
@@ -59,26 +61,17 @@ export async function checkContrast(page: Page): Promise<VisualBug[]> {
   const bugs: VisualBug[] = []
   try {
     for (const scheme of passes) {
-      await page.emulateMedia({ colorScheme: scheme })
+      const flipped = scheme !== currentScheme
+      if (flipped) {
+        await page.emulateMedia({ colorScheme: scheme })
+        currentScheme = scheme
+      }
       // The flip starts every `transition: color` on the page, and a colour
-      // read mid-way is neither twin. Each finite one on the document's clock
-      // is waited out, up to the cap — not ended, since ending one fires the
-      // events a page acts on; an infinite one is the page's steady state, and
-      // one on a scroll timeline is where the scroll is. settle in
-      // check-visual.ts waits by the same rule.
-      await page.evaluate((cap: number) =>
-        Promise.race([
-          Promise.allSettled(
-            document.getAnimations()
-              .filter((a) =>
-                a.timeline instanceof DocumentTimeline && a.playState === "running" && a.playbackRate !== 0 &&
-                a.effect?.getTiming().iterations !== Infinity
-              )
-              .map((a) => a.finished),
-          ),
-          new Promise((done) => setTimeout(done, cap)),
-        ]), MOTION_CAP_MS)
-      for (const p of await page.evaluate(pairs)) {
+      // read mid-way is neither twin. Cancelling the CSSTransitions started by
+      // the synthetic scheme flip lands immediately on the target computed
+      // colour without firing transitionend handlers; any other finite
+      // animation on the document's clock is waited out up to the cap.
+      for (const p of await page.evaluate(pairs, { cap: MOTION_CAP_MS, flipped })) {
         const ratio = contrastRatio(p.fg, p.bg)
         const floor = contrastFloor(p.size, p.weight)
         if (ratio >= floor) continue
@@ -95,13 +88,41 @@ export async function checkContrast(page: Page): Promise<VisualBug[]> {
   } finally {
     // The appearance the page had, kept as an emulation: the caller's own
     // emulation, if it had one, is not readable back.
-    await page.emulateMedia({ colorScheme: dark ? "dark" : "light" })
+    if (currentScheme !== initialScheme) {
+      await page.emulateMedia({ colorScheme: initialScheme })
+      await page.evaluate(() => {
+        for (const a of document.getAnimations()) {
+          if (a.timeline instanceof DocumentTimeline && a.playState === "running" && "transitionProperty" in a) {
+            a.cancel()
+          }
+        }
+      })
+    }
   }
   return bugs
 }
 
 /** Every text run whose backdrop is decidable, with both colours resolved. */
-function pairs(): Pair[] {
+async function pairs({ cap, flipped }: { cap: number; flipped: boolean }): Promise<Pair[]> {
+  const running = document.getAnimations().filter(
+    (a) =>
+      a.timeline instanceof DocumentTimeline &&
+      a.playState === "running" &&
+      a.playbackRate !== 0 &&
+      a.effect?.getTiming().iterations !== Infinity,
+  )
+  if (flipped) {
+    for (const a of running) {
+      if ("transitionProperty" in a) a.cancel()
+    }
+  }
+  const remaining = running.filter((a) => a.playState === "running")
+  if (remaining.length > 0) {
+    await Promise.race([
+      Promise.allSettled(remaining.map((a) => a.finished)),
+      new Promise((done) => setTimeout(done, cap)),
+    ])
+  }
   type RGBA = [number, number, number, number]
   // A computed colour keeps the space it was mixed in — oklch, oklab,
   // color(srgb) — so it is read as painted: once over white and once over
@@ -142,8 +163,7 @@ function pairs(): Pair[] {
 
   // Each run is judged where a reader would see it, and every scroller —
   // the root among them — is put back where it was.
-  const scrolled = [...document.querySelectorAll<HTMLElement>("*")]
-    .map((e) => [e, e.scrollTop, e.scrollLeft] as const)
+  let scrolled: Array<readonly [HTMLElement, number, number]> | null = null
   // An ancestor's layer is the same for every run under it.
   const layers = new Map<HTMLElement, { flat: boolean; colour: RGBA }>()
   const layerOf = (up: HTMLElement) => {
@@ -204,6 +224,8 @@ function pairs(): Pair[] {
       let line = firstLine()
       if (!line) continue
       if (line.top < 0 || line.left < 0 || line.bottom > innerHeight || line.right > innerWidth) {
+        scrolled ??= [...document.querySelectorAll<HTMLElement>("*")]
+          .map((e) => [e, e.scrollTop, e.scrollLeft] as const)
         el.scrollIntoView({ block: "center", inline: "center" })
         line = firstLine()
         if (!line) continue
@@ -220,7 +242,9 @@ function pairs(): Pair[] {
       out.push({ label: label(el), size: parseFloat(style.fontSize), weight: Number(style.fontWeight), fg, bg })
     }
   } finally {
-    for (const [e, top, left] of scrolled) { e.scrollTop = top; e.scrollLeft = left }
+    if (scrolled !== null) {
+      for (const [e, top, left] of scrolled) { e.scrollTop = top; e.scrollLeft = left }
+    }
   }
   return out
 }

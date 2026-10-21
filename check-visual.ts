@@ -370,8 +370,10 @@ async function openRoute(
   // A route is a real path, so this asks the door for it the way a reader does
   // — the proxy's try_files is what hands back the entry document, and a URL
   // the route table does not answer stays a 404 here rather than a screen that
-  // silently never settles.
-  await page.goto(`${base}${url}`, { waitUntil: "domcontentloaded" })
+  // silently never settles. ?clock=manual holds machine after: timers in
+  // pending so posed states do not transition out from under the linter.
+  const clockUrl = `${url}${url.includes("?") ? "&" : "?"}clock=manual&epoch=2026-01-01T00:00:00Z`
+  await page.goto(`${base}${clockUrl}`, { waitUntil: "domcontentloaded" })
   const state = await page
     .waitForFunction(
       () => {
@@ -386,6 +388,52 @@ async function openRoute(
     )
     .then((h) => h.jsonValue() as Promise<string>)
   return { state, moving: await motion(page) }
+}
+
+/**
+ * Coalesces synchronous `page.evaluate(fn, arg)` checks dispatched in the same
+ * microtask tick (`Promise.all([...])`) into a single CDP `Runtime.evaluate`
+ * round-trip.
+ */
+function batchEvaluates(page: PageLike): PageLike {
+  let queue: Array<{ fn: unknown; arg: unknown; resolve: (v: unknown) => void; reject: (e: unknown) => void }> = []
+  let scheduled = false
+  return {
+    goto: (url, opts) => page.goto(url, opts),
+    waitForFunction: (fn, arg, opts) => page.waitForFunction(fn, arg, opts),
+    close: () => page.close(),
+    evaluate(fn: unknown, arg?: unknown): Promise<unknown> {
+      if (typeof fn !== "function") return page.evaluate(fn, arg)
+      return new Promise((resolve, reject) => {
+        queue.push({ fn, arg, resolve, reject })
+        if (!scheduled) {
+          scheduled = true
+          queueMicrotask(async () => {
+            const batch = queue
+            queue = []
+            scheduled = false
+            if (batch.length === 1) {
+              try {
+                batch[0].resolve(await page.evaluate(batch[0].fn, batch[0].arg))
+              } catch (e) {
+                batch[0].reject(e)
+              }
+              return
+            }
+            const expr = `Promise.all([${
+              batch.map(({ fn: f, arg: a }) => `(${String(f)})(${a === undefined ? "" : JSON.stringify(a)})`).join(",")
+            }])`
+            try {
+              const results = (await page.evaluate(expr)) as unknown[]
+              batch.forEach((item, i) => item.resolve(results[i]))
+            } catch (e) {
+              batch.forEach((item) => item.reject(e))
+            }
+          })
+        }
+      })
+    },
+  }
 }
 
 /**
@@ -679,25 +727,26 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
         })
       }
       const p = page as never
+      const b = batchEvaluates(page) as never
       // theme-stability is absent by design: it toggles a `.dark` class,
       // and pronto themes through prefers-color-scheme plus a `-dark`
       // state suffix, so the toggle changes no computed colour and the
       // check passes without measuring.
       const bugs: VisualBug[] = (
         await Promise.all([
-          checkInteractiveOverlap(p),
-          checkHorizontalOverflow(p),
-          checkClippedContent(p),
-          checkFocusableInvisible(p),
-          checkConstrainedImages(p),
-          checkViewportBounds(p),
-          checkTouchTargets(p, { minSize: floors.touch }),
-          checkFocusOrder(p),
-          checkClippedControls(p),
-          checkAlignmentDrift(p),
-          checkGridBaseline(p),
-          checkWhiteSpace(p),
-          checkCLS(p),
+          checkInteractiveOverlap(b),
+          checkHorizontalOverflow(b),
+          checkClippedContent(b),
+          checkFocusableInvisible(b),
+          checkConstrainedImages(b),
+          checkViewportBounds(b),
+          checkTouchTargets(b, { minSize: floors.touch }),
+          checkFocusOrder(b),
+          checkClippedControls(b),
+          checkAlignmentDrift(b),
+          checkGridBaseline(b),
+          checkWhiteSpace(b),
+          checkCLS(b),
         ])
       ).flat()
       // After the parallel batch: checkContrast says why.
@@ -759,19 +808,81 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
           }
           const frames = generateCoveringArrayFrames(allRegionInfos, baseRows)
           for (const f of frames) {
-            const posed = await page.evaluate(
-              async (tables: Record<string, Record<string, unknown>>) => {
-                const pose = (window as unknown as { __prontoPose?: (t: string, r: Record<string, unknown>) => Promise<void> }).__prontoPose
-                if (typeof pose !== "function") return false
-                for (const [table, row] of Object.entries(tables)) {
-                  await pose(table, row)
+            const settled = (await page.evaluate(
+              async ({
+                tables,
+                capMs,
+              }: {
+                tables: Record<string, Record<string, unknown>>
+                capMs: number
+              }) => {
+                const w = window as unknown as {
+                  __prontoPose?: (t: string, r: Record<string, unknown>) => Promise<void>
+                  __prontoBusy?: () => { regions: number; waits: number }
                 }
-                return true
+                if (typeof w.__prontoPose !== "function") return { posed: false, quiet: true }
+                let mutated = false
+                const observer = new MutationObserver(() => {
+                  mutated = true
+                })
+                observer.observe(document.documentElement, {
+                  attributes: true,
+                  characterData: true,
+                  childList: true,
+                  subtree: true,
+                })
+                try {
+                  for (const [table, row] of Object.entries(tables)) {
+                    await w.__prontoPose(table, row)
+                  }
+                  const fastForward = () => {
+                    for (const a of document.getAnimations()) {
+                      if (
+                        a.timeline instanceof DocumentTimeline &&
+                        a.playState === "running" &&
+                        a.playbackRate !== 0 &&
+                        a.effect?.getTiming().iterations !== Infinity
+                      ) {
+                        const target = (a.effect as KeyframeEffect | null)?.target as Element | null
+                        const drivesHandler =
+                          target?.closest?.("[data-on-animationend],[data-machine*='animationend']") !== null
+                        if ("transitionProperty" in a || drivesHandler) a.cancel()
+                        else {
+                          try {
+                            a.finish()
+                          } catch {
+                            a.cancel()
+                          }
+                        }
+                      }
+                    }
+                  }
+                  const deadline = performance.now() + capMs
+                  let calmFrames = 0
+                  while (performance.now() < deadline) {
+                    fastForward()
+                    if ((w.__prontoBusy?.().regions ?? 0) === 0 && !mutated) {
+                      calmFrames += 1
+                      if (calmFrames >= 2) break
+                    } else {
+                      calmFrames = 0
+                    }
+                    mutated = false
+                    await new Promise((r) => requestAnimationFrame(() => r(undefined)))
+                  }
+                  fastForward()
+                } finally {
+                  observer.disconnect()
+                }
+                const busy = (w.__prontoBusy?.().regions ?? 0) > 0
+                const loading = [...document.images].some((img) => !img.complete)
+                const entering = document.querySelector(".shell-screen[data-entering]") !== null
+                return { posed: true, quiet: !busy && !loading && !entering }
               },
-              f.tables ?? { [regions[0].table]: f.row },
-            )
-            if (!posed) continue
-            const moving = await motion(page)
+              { tables: f.tables ?? { [regions[0].table]: f.row }, capMs: SETTLE_CAP_MS },
+            )) as { posed: boolean; quiet: boolean }
+            if (!settled.posed) continue
+            const moving = settled.quiet ? null : await motion(page)
             if (moving !== null) {
               out.push({
                 severity: "major",
@@ -782,18 +893,18 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
 
             const frameBugs: VisualBug[] = (
               await Promise.all([
-                checkInteractiveOverlap(p),
-                checkHorizontalOverflow(p),
-                checkClippedContent(p),
-                checkFocusableInvisible(p),
-                checkConstrainedImages(p),
-                checkViewportBounds(p),
-                checkTouchTargets(p, { minSize: floors.touch }),
-                checkFocusOrder(p),
-                checkClippedControls(p),
-                checkAlignmentDrift(p),
-                checkGridBaseline(p),
-                checkWhiteSpace(p),
+                checkInteractiveOverlap(b),
+                checkHorizontalOverflow(b),
+                checkClippedContent(b),
+                checkFocusableInvisible(b),
+                checkConstrainedImages(b),
+                checkViewportBounds(b),
+                checkTouchTargets(b, { minSize: floors.touch }),
+                checkFocusOrder(b),
+                checkClippedControls(b),
+                checkAlignmentDrift(b),
+                checkGridBaseline(b),
+                checkWhiteSpace(b),
               ])
             ).flat()
             frameBugs.push(...await checkContrast(p))
@@ -1012,13 +1123,32 @@ function selfTest() {
   eq(parseViewports().length, 4, "default has 4 viewports")
   eq(parseViewports("baseline").length, 3, "baseline has 3 viewports")
   eq(parseViewports("phone,desktop").map((v) => v.name), ["phone", "desktop"], "comma-separated")
-  console.log("check-visual: self-test ok")
+
+  const batchExprs: string[] = []
+  const batched = batchEvaluates({
+    goto: () => Promise.resolve(null),
+    waitForFunction: () => Promise.resolve({ jsonValue: () => Promise.resolve(null) }),
+    close: () => Promise.resolve(),
+    evaluate: (fn: unknown) => {
+      batchExprs.push(String(fn))
+      return Promise.resolve([10, 20])
+    },
+  })
+  return Promise.all([
+    batched.evaluate((x: number) => x + 1, 9),
+    batched.evaluate((y = 20) => y),
+  ]).then((res) => {
+    eq(res, [10, 20], "batchEvaluates resolves each caller in order")
+    eq(batchExprs.length, 1, "batchEvaluates coalesces synchronous calls into one round-trip")
+    eq(batchExprs[0].includes("undefined"), false, "batchEvaluates omits undefined argument")
+    console.log("check-visual: self-test ok")
+  })
 }
 
 if (import.meta.main) {
   const args = [...Deno.args]
   if (args.includes("--self-test")) {
-    selfTest()
+    await selfTest()
     Deno.exit(0)
   }
 

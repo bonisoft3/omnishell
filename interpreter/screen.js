@@ -155,6 +155,17 @@ const params = new URLSearchParams(globalThis.location?.search ?? "");
 // a chain waits is the whole shape of the bug this bounds, and it still lands
 // inside a tenth of a beat. Removing the wait would take the window with it.
 const TEMPO = Math.min(50, Math.max(1, Number(params.get("tempo")) || 1));
+if (TEMPO > 1 && typeof globalThis.document?.addEventListener === "function") {
+  const scaleAnimations = () => {
+    for (const a of globalThis.document.getAnimations?.() ?? []) {
+      if (a.timeline instanceof globalThis.DocumentTimeline && a.playbackRate === 1) {
+        a.playbackRate = TEMPO;
+      }
+    }
+  };
+  globalThis.document.addEventListener("transitionrun", scaleAnimations, true);
+  globalThis.document.addEventListener("animationstart", scaleAnimations, true);
+}
 
 // A clock something else can hold. Under ?clock=manual no wait comes due on
 // its own: it joins a queue, and whoever holds the clock says when time has
@@ -1549,7 +1560,10 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     let pause;
     const waiting = new Promise((resolve) => (pause = resolve));
     const running = run(pause);
-    track(Promise.race([running, waiting])).catch(failed);
+    busy += 1;
+    track(Promise.race([running, waiting]).finally(() => {
+      busy -= 1;
+    })).catch(failed);
     return running;
   };
   const checkSettlement = (region) => {
