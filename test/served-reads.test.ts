@@ -275,9 +275,8 @@ describe("a document carrying its reads", () => {
     })
   })
 
-  // Regression: createMechaClient used bare fetch for /auth/shape and /crud/*,
-  // so a live-durability table hitting a 401 from an invalidated session token
-  // threw NonRetriableError instead of clearing pronto-token and reloading.
+  // Live-durability tables route /auth/shape and /crud/* through the session
+  // gate so an invalidated session token clears pronto-token and reloads.
   it("forgets the session and reloads when a live-durability shape mint returns a session 401", async () => {
     await inDocument(async () => {
       let reloaded = false
