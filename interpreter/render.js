@@ -130,6 +130,38 @@ function checkAttr(tag, name, svg) {
 const MAX_DEPTH = 256;
 let gradientSerial = 0;
 
+function followSvgTooltips(svg) {
+  if (typeof svg.querySelectorAll !== "function") return;
+  for (const tooltip of svg.querySelectorAll('g[role="tooltip"]')) {
+    if (tooltip.closest("svg") !== svg) continue;
+    const trigger = tooltip.parentElement;
+    trigger.addEventListener("pointermove", (event) => {
+      const pointer = svg.createSVGPoint();
+      pointer.x = event.clientX;
+      pointer.y = event.clientY;
+      const { x, y } = pointer.matrixTransform(svg.getScreenCTM().inverse());
+      const box = tooltip.getBBox();
+      const view = svg.viewBox.baseVal;
+      const left = view.x + 8;
+      const top = view.y + 8;
+      const right = view.x + view.width - 8;
+      const bottom = view.y + view.height - 8;
+      const nextX = Math.max(left, Math.min(
+        x + 12 + box.width <= right ? x + 12 : x - 12 - box.width,
+        right - box.width,
+      ));
+      const nextY = Math.max(top, Math.min(
+        y + 12 + box.height <= bottom ? y + 12 : y - 12 - box.height,
+        bottom - box.height,
+      ));
+      tooltip.setAttribute("transform", `translate(${nextX - box.x} ${nextY - box.y})`);
+    });
+    const reset = () => tooltip.removeAttribute("transform");
+    trigger.addEventListener("pointerleave", reset);
+    trigger.addEventListener("focusin", reset);
+  }
+}
+
 function toNode(node, depth = 0, inSvg = false, gradients = null) {
   if (typeof node === "string") return document.createTextNode(node);
   if (node === null || typeof node !== "object" || typeof node.tag !== "string") {
@@ -198,6 +230,7 @@ function toNode(node, depth = 0, inSvg = false, gradients = null) {
   // Repeated chart instances share a document, so authored fragment IDs cannot
   // reach another instance's paint server.
   if (tag === "svg") {
+    followSvgTooltips(el);
     for (const { el: ref, id } of gradients.refs) {
       const scoped = gradients.ids.get(id);
       if (!scoped) throw new Error(`renderer references undeclared gradient ${id}`);

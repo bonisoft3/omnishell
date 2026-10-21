@@ -6,6 +6,15 @@ import { describe, expect, it } from "@test/harness"
 import { parseProjection } from "../interpreter/screen.js"
 
 describe("the clause parser, read directly", () => {
+  it("requires a nonempty list of named boundary columns", () => {
+    expect(parseProjection('{"start":{"changed":["day","competition"]}}', "t"))
+      .toEqual([{ name: "start", kind: "changed", columns: ["day", "competition"] }])
+    for (const changed of [[], "day", [3], [""], null]) {
+      expect(() => parseProjection(JSON.stringify({ start: { changed } }), "t")).toThrow(/a boundary clause is/)
+    }
+    expect(() => parseProjection('{"start":{"changed":["day"],"eq":["id","a"]}}', "t"))
+      .toThrow(/a boundary clause is/)
+  })
   // Exported so the clause set can be pinned without hydrating a screen, the
   // way formatDatetime is. Reaching it through a mount only ever exercises the
   // shapes a fixture happens to spell.

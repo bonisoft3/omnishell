@@ -105,7 +105,7 @@ describe("formatLint", () => {
   it("holds no other format to a declaration", () => {
     // datetime formats any text, plain formats none, and a renderer is the
     // app's own module.
-    for (const format of ["plain", "datetime", "markdown"]) {
+    for (const format of ["plain", "datetime", "date", "time", "markdown"]) {
       expect(formatLint({ format, expr: "note", table: "expense" }, ledger)).toBe(null)
     }
   })

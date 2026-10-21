@@ -32,6 +32,7 @@ const SESSION = {
 // A guest's way to a passkey, drawn where the app offers one (auth.promote).
 const PROMOTE = {
   chrome_passkey: "sign in",
+  chrome_passkey_create: "create a passkey",
   chrome_passkey_failed: "sign-in did not go through",
 };
 
@@ -97,20 +98,24 @@ export function drawStrip(doc, cfg) {
 }
 
 /** A guest's end of the strip where the app offers a way in (offersGuest):
- * one gesture each, a passkey's and every provider's, their words and the
- * providers' addresses the strip's to write in the page's language
- * (localizeStrip), the key saying which word. */
+ * one gesture each, a passkey's (sign-in or create) and every provider's,
+ * their words and the providers' addresses the strip's to write in the page's
+ * language (localizeStrip), the key saying which word. */
 export function guestBox(doc, cfg) {
   const box = doc.createElement("span");
   box.className = "shell-me";
-  if (cfg.auth?.promote) {
+  if (cfg?.auth?.promote) {
     const signIn = doc.createElement("button");
     signIn.setAttribute("type", "button");
     signIn.className = "shell-signin";
     signIn.setAttribute("data-key", "chrome_passkey");
-    box.append(signIn);
+    const create = doc.createElement("button");
+    create.setAttribute("type", "button");
+    create.className = "shell-register";
+    create.setAttribute("data-key", "chrome_passkey_create");
+    box.append(signIn, create);
   }
-  for (const provider of cfg.auth?.providers ?? []) {
+  for (const provider of cfg?.auth?.providers ?? []) {
     const a = doc.createElement("a");
     a.className = "shell-provider";
     a.setAttribute("data-provider", provider);
@@ -149,12 +154,13 @@ export function localizeStrip(nav, cfg, { locale, here, search = "", messages, e
   }
   const out = nav.querySelector(".shell-signout");
   if (out) out.textContent = chromeText("chrome_signout", { messages, locale });
-  const signIn = nav.querySelector(".shell-signin");
-  if (signIn) signIn.textContent = chromeText(signIn.getAttribute("data-key"), { messages, locale });
+  for (const button of nav.querySelectorAll(".shell-signin, .shell-register")) {
+    button.textContent = chromeText(button.getAttribute("data-key"), { messages, locale });
+  }
   // The provider brings the reader back to the page they left, in its language.
   for (const a of nav.querySelectorAll(".shell-provider")) {
     a.textContent = chromeText(a.getAttribute("data-key"), { messages, locale });
-    if (here !== undefined) a.setAttribute("href", providerHref(cfg.auth.service, a.getAttribute("data-provider"), here + search));
+    if (here !== undefined) a.setAttribute("href", providerHref(cfg.auth?.service, a.getAttribute("data-provider"), here + search));
   }
 }
 

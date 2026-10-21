@@ -381,7 +381,7 @@ Deno.test({
 
     // Silently losing to a built-in is the failure worth refusing: the screen
     // would keep rendering, just never with the module the app shipped.
-    for (const name of ["datetime", "plain"]) {
+    for (const name of ["datetime", "date", "time", "plain"]) {
       let threw = null;
       await interpretScreen(document.getElementById("shell"), "https://app.example/", {
         screen: "a",

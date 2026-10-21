@@ -44,6 +44,23 @@ describe("machineWrites", () => {
     ])
   })
 
+  it("does not mistake a typed fallback placeholder for a string write", () => {
+    const assignment: { hand_no: string | number } = { hand_no: 0 }
+    const machine = {
+      field: "variant", initial: "mineiro",
+      states: { mineiro: { on: { reset: { assign: assignment } } } },
+    }
+    const writes = machineWrites(machine, '{"hand_no":"{start_offset}","id":"page-{id}"}')
+    expect(writes).toEqual([
+      { col: "id", value: "page-{id}" },
+      { col: "variant", value: "mineiro" },
+      { col: "hand_no", value: 0 },
+    ])
+    expect(writeLint(writes, match())).toBe(null)
+    assignment.hand_no = "{start_offset}"
+    expect(machineWrites(machine)).toContainEqual({ col: "hand_no", value: "{start_offset}" })
+  })
+
   // apps/truco assigns {"type":"stake0"} to stake; the module returns "1" or
   // "2" and nothing in #Machine declares a return type. An undecidable write
   // must pass, not fail.

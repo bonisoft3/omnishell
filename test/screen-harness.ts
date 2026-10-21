@@ -355,6 +355,7 @@ export type MountSpec = {
   mountHostDom?: boolean;
   messages?: Catalogs;
   locale?: string;
+  timeZone?: string;
   /** The whole route table, because a link names a route and the binder
    * composes its href from that table — the screen under test links to screens
    * it is not. mountApp reads it from the app's own shell.yaml; a hand-built
@@ -613,7 +614,7 @@ export async function mountScreen(spec: MountSpec): Promise<Mounted> {
       locale: spec.locale,
       // A case asserts on rendered text, so the zone is the harness's and not
       // the machine's — see storybook.js for the same pin.
-      timeZone: "UTC",
+      timeZone: spec.timeZone ?? "UTC",
     }));
   } catch (err) {
     disarm();

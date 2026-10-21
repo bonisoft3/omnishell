@@ -1360,6 +1360,7 @@ export function machineLint(machine: Machine, available: Set<string>, reach: Rea
 }
 
 export type Write = { col: string; value: string | number | boolean };
+const WHOLE_PLACEHOLDER = new RegExp(`^${PLACEHOLDER.source}$`);
 
 /** Every literal a machine region persists into a column: the machine's
  * initial, its assign literals, and the data-empty-row — a transition
@@ -1375,7 +1376,11 @@ export function machineWrites(machine: Machine, emptyRow?: string): Write[] {
     }
   };
   if (emptyRow !== undefined) {
-    for (const [k, v] of Object.entries(JSON.parse(emptyRow) as Record<string, unknown>)) push(k, v);
+    for (const [k, v] of Object.entries(JSON.parse(emptyRow) as Record<string, unknown>)) {
+      // Whole placeholders retain their enclosing value's type in screen.js.
+      if (typeof v === "string" && WHOLE_PLACEHOLDER.test(v)) continue;
+      push(k, v);
+    }
   }
   const values: unknown[] = [
     ...Object.values(machine.on ?? {}),

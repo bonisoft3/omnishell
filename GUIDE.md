@@ -16,6 +16,16 @@ i18n, testing, release, the build loop — is
 If you have written Elm, React with `useReducer`, or htmx, you already know the
 shape; [Lineage](#lineage-and-mappings) at the foot is the translation table.
 
+## Guest passkeys
+
+Apps that declare `auth.promote` show separate Sign in and Create a passkey
+actions in the navigation strip. Creation uses the current guest session, so
+its identity and existing rows are retained. A server-refused login does not
+start registration. Both actions are disabled during a ceremony.
+
+The chrome classes are `.shell-signin` and `.shell-register`; catalogue copy
+includes `chrome_passkey`, `chrome_passkey_create` and `chrome_passkey_failed`.
+
 ## What you are writing
 
 A screen is **HTML**. You author it as a CUE string in `<app>/screens.cue`, and

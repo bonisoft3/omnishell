@@ -158,6 +158,8 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 		"text-formats": [Name=string]: {renders: string, note: string}
 		"text-formats": plain:    {renders: "the column's text, placeholders interpolated", note: "the default when data-text-format is absent"}
 		"text-formats": datetime: {renders: "the moment in the reader's own language and clock (\"Aug 2, 09:00\" to an American, \"2 de ago., 09:00\" to a Brazilian)", note: "raw ISO / postgres timestamptz never reaches a reader; the zone is the reader's, except in the storybook, which pins UTC for the checks and for prerendered documents"}
+		"text-formats": date: {renders: "numeric year, two-digit month and day in the reader's language and timezone", note: "date-only YYYY-MM-DD is a civil date and never shifts; missing values are blank"}
+		"text-formats": time: {renders: "HH:mm in the reader's language and timezone", note: "h23 renders midnight as 00:00; missing values are blank"}
 		"text-formats": number:   {renders: "the number in the reader's own digits and grouping (\"1.234,5\" to a Brazilian)", note: "the column's ASCII spelling is nobody's"}
 
 

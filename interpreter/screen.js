@@ -407,15 +407,15 @@ const withTemplates = (screen) => {
   return scopes;
 };
 
-// data-text-format names one of two things. plain, datetime, number and money
+// data-text-format names one of two things. plain, datetime, date, time, number and money
 // are value formatting — text in, text out, no DOM. Any other name is a
 // renderer: a Jessie module the app declared in files.renderers, resolved by
 // basename exactly as a handler is.
-const TEXT_FORMATS = new Set(["plain", "datetime", "number"]);
+const TEXT_FORMATS = new Set(["plain", "datetime", "date", "time", "number"]);
 
 // The built-ins that format the looked-up VALUE rather than interpolate a
 // sentence around it. plain is not one: it is the default spelled out.
-const VALUE_FORMATS = new Set(["datetime", "number"]);
+const VALUE_FORMATS = new Set(["datetime", "date", "time", "number"]);
 
 async function loadRenderers(screen, appBase, route, endowmentsMap = {}, read = fetchText) {
   const declared = route.files.renderers ?? [];
@@ -450,13 +450,13 @@ async function loadRenderers(screen, appBase, route, endowmentsMap = {}, read = 
 // first key forever, which is a sort that never sorts again.
 const REGION_ATTRS = new Set([
   "data-text", "data-filter", "data-select", "data-empty", "data-empty-row", "data-when",
-  "data-project", "data-order", "data-exit-motion", "data-machine",
+  "data-project", "data-order", "data-display-order", "data-exit-motion", "data-machine",
 ]);
 
 // What hydrating a region reads off its own element once, and holds for as
 // long as the region runs.
 const READ_ATTRS = new Set([
-  "data-live", "data-template", "data-filter", "data-select", "data-order", "data-project",
+  "data-live", "data-template", "data-filter", "data-select", "data-order", "data-display-order", "data-project",
   "data-exit-motion", "data-machine", "data-empty-row", "data-reads", "data-handler", "data-on-mutation",
 ]);
 /** A region's read as its element states it. A newer template stating another
@@ -681,6 +681,8 @@ function formattersFor(locale, timeZone) {
   let pair = FORMATTERS.get(key);
   if (pair === undefined) {
     pair = {
+      numericDate: new Intl.DateTimeFormat(locale, { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }),
+      civilDate: new Intl.DateTimeFormat("en-US-u-ca-iso8601-nu-latn", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }),
       date: new Intl.DateTimeFormat(locale, { timeZone, month: "short", day: "numeric" }),
       // h23, because the adjacent h24 cycle renders midnight "24:00" and
       // omitting the cycle gives an en-US reader "12:00 AM".
@@ -709,6 +711,48 @@ export function formatDatetime(value, ctx) {
   // so by declaring one.
   const { date, time } = formattersFor(localeOf(ctx) ?? "en-US", ctx?.timeZone);
   return `${date.format(d)}, ${time.format(d)}`;
+}
+
+const CIVIL_DATE = /^\d{4}-\d{2}-\d{2}$/;
+function calendarValue(value) {
+  const text = String(value);
+  const civil = CIVIL_DATE.test(text);
+  if (!civil && !/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}(?::?\d{2})?)$/.test(text)) return undefined;
+  const day = text.slice(0, 10);
+  const calendar = new Date(`${day}T00:00:00Z`);
+  if (isNaN(calendar.getTime()) || calendar.toISOString().slice(0, 10) !== day) return undefined;
+  const date = new Date(civil ? `${text}T00:00:00Z` : text.replace(" ", "T").replace(/([+-]\d{2})$/, "$1:00"));
+  if (isNaN(date.getTime()) || (civil && date.toISOString().slice(0, 10) !== text)) return undefined;
+  return { date, civil };
+}
+
+export function formatTime(value, ctx) {
+  if (value == null || value === "") return "";
+  const parsed = calendarValue(value);
+  if (parsed === undefined) return String(value);
+  if (parsed.civil) return "";
+  return formattersFor(localeOf(ctx) ?? "en-US", ctx?.timeZone).time.format(parsed.date);
+}
+
+export function formatDate(value, ctx) {
+  if (value == null || value === "") return "";
+  const parsed = calendarValue(value);
+  if (parsed === undefined) return String(value);
+  return formattersFor(localeOf(ctx) ?? "en-US", parsed.civil ? "UTC" : ctx?.timeZone).numericDate.format(parsed.date);
+}
+
+/** Civil dates are labels; only instants cross the reader's timezone. */
+export function localDate(value, ctx) {
+  if (value == null || value === "") return "";
+  const parsed = calendarValue(value);
+  if (parsed === undefined) {
+    if (ctx?.inert === true) return String(value);
+    throw new ProjectionError(`invalid date ${JSON.stringify(value)}`);
+  }
+  if (parsed.civil) return String(value);
+  const parts = Object.fromEntries(formattersFor("en-US", ctx?.timeZone).civilDate.formatToParts(parsed.date)
+    .map(({ type, value }) => [type, value]));
+  return `${parts.year.padStart(4, "0")}-${parts.month}-${parts.day}`;
 }
 
 // The reader's own digits behind data-text-format="number" and "money" — a
@@ -776,6 +820,17 @@ export function parseProjection(spec, table) {
     if (clause === "index" || clause === "count") return { name, kind: clause };
     if (LANE_KINDS.has(clause)) return { name, kind: clause, by: undefined };
     const obj = clause === null || typeof clause !== "object" || Array.isArray(clause) ? undefined : clause;
+    if (obj !== undefined && ("changed" in obj || "date" in obj)) {
+      const kind = "date" in obj ? "date" : "changed";
+      const columns = obj[kind];
+      if (Object.keys(obj).length !== 1 || !Array.isArray(columns) || columns.length === 0 ||
+        columns.some((column) => typeof column !== "string" || column.trim().length === 0)) {
+        throw new ProjectionError(
+          `region "${table}": data-project "${name}" is ${JSON.stringify(clause)}; a ${kind === "date" ? "date" : "boundary"} clause is {"${kind}": [column, ...]}`,
+        );
+      }
+      return { name, kind, columns };
+    }
     // A lane clause's partition, in the same key-is-the-kind shape `eq` uses:
     // {"next": "col"} is the neighbour among the rows sharing this row's `col`.
     // A minor axis walked without one runs off the end of its lane into the
@@ -797,10 +852,38 @@ export function parseProjection(spec, table) {
       throw new ProjectionError(
         `region "${table}": data-project "${name}" is ${JSON.stringify(clause)}; a clause is "index", "count", ${
           [...LANE_KINDS].map((k) => `"${k}"`).join(", ")
-        }, {"<lane>": column} or {"eq": [column, value]}`,
+        }, {"<lane>": column}, {"changed": [column, ...]}, {"date": [column, ...]} or {"eq": [column, value]}`,
       );
     }
     return { name, kind: "eq", column: eq[0], value: eq[1] };
+  });
+}
+
+function parseDisplayOrder(spec, table) {
+  return spec.split(",").map((term) => {
+    const match = /^([a-z_][a-z0-9_]*)(?:\.(asc|desc))?(?:\.(nullsfirst|nullslast))?$/i.exec(term.trim());
+    if (match === null) throw new OrderError(`region "${table}": invalid data-display-order term ${JSON.stringify(term)}`);
+    return { column: match[1], sign: match[2]?.toLowerCase() === "desc" ? -1 : 1, nulls: match[3]?.toLowerCase() };
+  });
+}
+
+function displayRows(rows, order, table) {
+  if (order.length === 0) return rows;
+  for (const row of rows) for (const { column } of order) {
+    if (!(column in row)) throw new OrderError(`region "${table}": data-display-order reads {${column}}, not in row [${Object.keys(row)}]`);
+  }
+  // Stable sort retains fetched order for ties and never mutates the store's window.
+  return [...rows].sort((a, b) => {
+    for (const { column, sign, nulls } of order) {
+      const x = a[column], y = b[column];
+      if (x == null && y == null) continue;
+      const missing = nulls === "nullsfirst" ? -1 : nulls === "nullslast" ? 1 : sign;
+      if (x == null) return missing;
+      if (y == null) return -missing;
+      if (x < y) return -sign;
+      if (x > y) return sign;
+    }
+    return 0;
   });
 }
 
@@ -1194,9 +1277,7 @@ function bindTexts(scope, ctx, renderers = {}) {
     };
     if (VALUE_FORMATS.has(format)) {
       write(el.dataset.text.replace(PLACEHOLDERS, (_, expr) =>
-        format === "datetime"
-          ? formatDatetime(lookup(expr, ctx), ctx)
-          : formatNumber(lookup(expr, ctx), ctx),
+        ({ datetime: formatDatetime, date: formatDate, time: formatTime, number: formatNumber })[format](lookup(expr, ctx), ctx),
       ));
       continue;
     }
@@ -3159,6 +3240,10 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         `region "${table}" is a slot and declares data-project; a projection states facts about a set of rows`,
       );
     }
+    const displayOrder = region.dataset.displayOrder === undefined ? [] : parseDisplayOrder(region.dataset.displayOrder, table);
+    if (region.dataset.displayOrder !== undefined && templates.length === 0) {
+      throw new OrderError(`region "${table}" is a slot and declares data-display-order`);
+    }
     // data-exit-motion="none": this list's rows leave in the pass that loses
     // them, with no exit motion.
     const exitMotion = region.getAttribute("data-exit-motion");
@@ -3274,8 +3359,29 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
      * without the node being rebuilt.
      */
     const projected = (rows) => {
-      if (projection.length === 0) return rows;
-      const answers = projection.map((p) => {
+      if (projection.length === 0 && displayOrder.length === 0) return rows;
+      const merge = (row, derived) => ctx.inert === true
+        ? new Proxy(row, { get: (t, f) => (Object.hasOwn(derived, f) ? derived[f] : t[f]) })
+        : { ...row, ...derived };
+      for (const row of rows) for (const p of projection) {
+        if (ctx.inert !== true && p.name in row) {
+          throw new ProjectionError(`region "${table}": data-project "${p.name}" is already a column of row ${JSON.stringify(row.id)}`);
+        }
+      }
+      const dates = projection.filter((p) => p.kind === "date");
+      if (dates.length > 0) rows = rows.map((row) => {
+        const derived = {};
+        for (const p of dates) {
+          for (const column of p.columns) {
+            if (!(column in row)) throw new ProjectionError(`region "${table}": data-project "${p.name}" reads {${column}}, not in row [${Object.keys(row)}]`);
+          }
+          const value = p.columns.map((column) => row[column]).find((value) => value != null && String(value).trim() !== "");
+          derived[p.name] = localDate(value, ctx);
+        }
+        return merge(row, derived);
+      });
+      rows = displayRows(rows, displayOrder, table);
+      const answers = projection.filter((p) => p.kind !== "date").map((p) => {
         if (p.kind !== "eq") return p;
         try {
           return { ...p, want: interpolate(p.value, ctx) };
@@ -3329,17 +3435,16 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       return rows.map((row, i) => {
         const derived = {};
         for (const p of answers) {
-          // A fixture row answers `has` for every name by construction, so the
-          // collision this guards cannot be told from a name the row simply
-          // does not carry — and asking would refuse every projected region in
-          // the storybook.
-          if (ctx.inert !== true && p.name in row) {
-            throw new ProjectionError(
-              `region "${table}": data-project "${p.name}" is already a column of row ${JSON.stringify(row.id)}`,
-            );
-          }
           if (p.kind === "index") derived[p.name] = i + 1;
           else if (p.kind === "count") derived[p.name] = rows.length;
+          else if (p.kind === "changed") {
+            for (const column of p.columns) {
+              if (!(column in row)) {
+                throw new ProjectionError(`region "${table}": data-project "${p.name}" reads {${column}}, not in row [${Object.keys(row)}]`);
+              }
+            }
+            derived[p.name] = i === 0 || p.columns.some((column) => !Object.is(row[column], rows[i - 1][column])) ? "true" : "false";
+          }
           else if (LANE_KINDS.has(p.kind)) derived[p.name] = lane(p, row, i);
           else if (p.kind === "eq") derived[p.name] = eqAnswer(row, p, table);
           // A kind parseProjection admits and this does not answer would
@@ -3347,9 +3452,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           else throw new ProjectionError(`region "${table}": no answer for clause kind "${p.kind}"`);
         }
         // A fixture row owns no keys, so a spread of one keeps nothing of it.
-        return ctx.inert === true
-          ? new Proxy(row, { get: (t, f) => (Object.hasOwn(derived, f) ? derived[f] : t[f]) })
-          : { ...row, ...derived };
+        return merge(row, derived);
       });
     };
 

@@ -334,35 +334,36 @@ function renderLogin(mount, cfg, chrome) {
   });
 }
 
-// The signed-in person, at the end of the nav strip: who they are, the way to
-// their own page, and the way out. `cfg.auth.self` is the app naming that page
-// — `route` names it, its :params are filled from the session user, `name` is
-// the table and column their chosen name lives in. An app with no page for a
-// person declares no `self`, and the handle stands on its own.
 function renderPromote(ensureSession, cfg, chrome, served = null) {
   const box = served?.querySelector(".shell-signin, .shell-provider") ? served : guestBox(document, cfg);
   const signIn = box.querySelector(".shell-signin");
-  signIn?.addEventListener("click", async () => {
+  const create = box.querySelector(".shell-register");
+  const authenticate = async (button, ceremony) => {
+    if (signIn) signIn.disabled = true;
+    if (create) create.disabled = true;
     let current;
     let next;
     try {
       current = await ensureSession();
-      next = await passkeyCeremony(cfg.auth.service, current.token);
+      next = await ceremony(current);
     } catch (err) {
       console.error(err);
-      signIn.dataset.key = "chrome_passkey_failed";
-      signIn.textContent = chrome(signIn.dataset.key, document.documentElement.lang);
+      button.dataset.key = "chrome_passkey_failed";
+      button.textContent = chrome(button.dataset.key, document.documentElement.lang);
       return;
+    } finally {
+      if (signIn) signIn.disabled = false;
+      if (create) create.disabled = false;
     }
     if (sessionOwner(next) !== sessionOwner(current)) sessionStorage.removeItem(recoveryKey);
     sessionStorage.setItem("pronto-token", JSON.stringify(next));
     location.reload();
-  });
+  };
+  signIn?.addEventListener("click", () => authenticate(signIn, (session) => passkeyCeremony(cfg.auth.service, session.token)));
+  create?.addEventListener("click", () => authenticate(create, (session) => registerCeremony(cfg.auth.service, session.token)));
   return box;
 }
-
 function renderSession(session, cfg, store, signOut, chrome, served = null) {
-
   // A guest has nothing to sign out of and a way in to gain: a passkey's one
   // gesture signs in to the passkey's account where the device has one, and
   // otherwise makes one of this guest, keeping what it wrote; a provider's

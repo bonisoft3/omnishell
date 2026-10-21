@@ -30,12 +30,7 @@ carrying a count and a gender, or two counts, cannot be one message. A vendored
 standard syntax translators and their tools already speak, once per pattern,
 and format it in the interpreter, the one place `Intl` is endowed.
 
-**`date`, `time` and `relative-time` are not value formats.** `TEXT_FORMATS` in
-`screen.js` is `plain`, `datetime`, `number` and `money`. A date is not a
-moment, and neither format shows one in the reader's language: `plain` shows a
-`date` column as raw `2026-08-02`, and so does `datetime`, whose offset repair
-reads the `-02` as a zone and leaves no instant to format.
-`relative-time` ("há 3 minutos") is formatting against now, which only the
+**`relative-time` is not a value format.** `relative-time` ("há 3 minutos") is formatting against now, which only the
 terminal's clock can supply, since no compartment has one, so it can only ever
 be a built-in.
 

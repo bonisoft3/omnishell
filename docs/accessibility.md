@@ -39,6 +39,10 @@ group already binds (`test/radio-bind.test.ts`).
   because a grid's minor axis otherwise runs off one lane into the next, and a
   caret walking down a Monday lands on a Tuesday; prefer the clause that
   corrects a wrong answer to one that supplies a missing one.
+- **A group boundary follows the region's order.** `changed` compares a row's
+  declared columns with the preceding row, so shared headings move with a
+  filtered, reordered or corrected list. Storing those flags would make one
+  presentation's neighbours an authority over every other presentation.
 
 ## What the projection refuses
 

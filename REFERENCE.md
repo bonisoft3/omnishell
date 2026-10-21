@@ -126,13 +126,24 @@ The clause set is closed:
 | `{"eq": [column, value]}` | `"true"` or `"false"`; `value` may carry placeholders, resolved against the enclosing row |
 | `"next"`, `"prev"`, `"first"`, `"last"` | the key of the neighbouring or end row along the region's order; an end names itself, never wraps |
 | `{"next": column}`, any lane kind | the same among the rows sharing `column` — a grid's minor axis |
+| `{"date": [column, ...]}` | canonical `YYYY-MM-DD` from the first nonblank source in the reader's timezone; a date-only source stays unchanged, and all-blank sources answer blank |
+| `{"changed": [column, ...]}` | `"true"` on the first row or when any named column differs from the previous row in the region's order; `"false"` within a consecutive group |
+
+`data-display-order="reader_day.asc,competition.asc,kickoff.asc,id.asc"` orders
+only the fetched window: scalar `date` clauses run first, then this order, then
+boundaries, indices and lanes. `data-order` still controls the stored query and
+paging. Display terms accept `column[.asc|.desc][.nullsfirst|.nullslast]`; defaults
+are ascending with nulls last (descending has nulls first), and ties retain
+fetched order. Missing columns, malformed terms and display order on a slot
+are errors. Date sources must be a nonempty list of nonempty column names;
+missing columns and invalid dates are errors, except inert fixture values.
 
 Answers are merged into each row before binding and never into the stored
 rows, so no guard or assign sees them, and a region with a projection re-binds
 every row on every pass. Refused at hydration as a `ProjectionError`: an
 unknown clause kind; a derived name a stored column already carries; a
 projection on a slot; an `eq` naming a column no row carries (a row still in
-flight excepted); a spec that is not JSON or not a map of clauses. Refused by
+flight excepted); a boundary naming a missing column or no columns; a spec that is not JSON or not a map of clauses. Refused by
 design: a predicate over any rows but the region's and its enclosing row's; an
 aggregate (`sum`, `min`, `max` — a fold is a reduce on `data-on-mutation` or a
 `#Pipeline`); and an expression in markup, where the answer is another derived
@@ -144,11 +155,19 @@ column ([focus and ARIA](docs/accessibility.md)).
 |---|---|
 | `data-text-format="plain"` | the default spelled out: the looked-up value as text |
 | `data-text-format="datetime"` | the value as a moment in the reader's language and clock — `Aug 2, 09:00` to an American, `2 de ago., 09:00` to a Brazilian. A storybook render pins UTC — the checks' frames and pronto's prerendered documents alike — since an ambient zone would make each differ by where it was rendered |
+| `data-text-format="time"` | the timestamp as `HH:mm` in the reader's timezone and language, with midnight `00:00`; missing and date-only values have no clock and are blank |
+| `data-text-format="date"` | numeric year, two-digit month and day in the reader's language and timezone; `YYYY-MM-DD` is a civil date and never shifts; missing values are blank |
 | `data-text-format="number"` | grouped and punctuated for the reader's language — `1.234,5` to a Brazilian, `1,234.5` to an American |
 | `data-text-format="money"` | the same, with the currency the bound column declares (`#Field.money`). The column is an integer count of minor units and the code and scale are the column's, never the attribute's; a column declaring none is refused at hydration and by `check markup` |
 | `data-text-format="<name>"` | an app renderer, resolved by basename out of the route's `files.renderers` — a pure `(value) => nodes` Jessie module. `interpreter/render.js` owns the node schema, the tag and attribute allowlists, the URL-scheme check and the DOM write, so a renderer emits no markup it was not granted. A name colliding with a built-in is refused |
 | `data-value` | bind a form control's value from the row. A control the reader has touched is left alone until its form submits or resets — regions re-bind on any change to their table, so binding through would wipe an unsent edit. Checkboxes are exempt: their value is the state, and a refused toggle must roll back where the reader can see it. In a hidden input, `{now}` is the terminal's clock and `null` is JSON null |
 | `data-value-adapter="<module>"` | the [adapter](#adapters) a control's value crosses |
+
+An SVG `g[role="tooltip"]` follows pointer movement over its parent group.
+The terminal translates it beside the pointer, flips at the viewBox edges and
+keeps an eight-unit inset. Pointer leave and keyboard focus restore its authored
+position. Visibility and appearance remain CSS; pointer placement holds no row
+state and grants the renderer no event or DOM authority.
 
 ### Adapters
 
