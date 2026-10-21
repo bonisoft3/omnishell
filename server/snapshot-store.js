@@ -23,7 +23,9 @@ function pageWindow(url) {
 		if (k.includes(".")) return null;
 		filters.push([k, v]);
 	}
-	filters.sort(([a, av], [b, bv]) => a.localeCompare(b) || av.localeCompare(bv));
+	filters.sort(([a, av], [b, bv]) =>
+		a.localeCompare(b) || av.localeCompare(bv)
+	);
 	const limitRaw = url.searchParams.get("limit");
 	const offsetRaw = url.searchParams.get("offset") ?? "0";
 	if (
@@ -31,10 +33,27 @@ function pageWindow(url) {
 	) {
 		return null;
 	}
+	const limit = Number(limitRaw);
+	const offset = Number(offsetRaw);
+	if (
+		!Number.isSafeInteger(limit + 1) || !Number.isSafeInteger(offset + limit)
+	) return null;
+	if ([...CONTROLS].some((key) => url.searchParams.getAll(key).length > 1)) {
+		return null;
+	}
+	const select = url.searchParams.get("select") ?? "*";
+	const tree = parseEmbeds(select);
+	const cols = tree.cols;
 	return {
+		select,
+		order: url.searchParams.get("order"),
+		widen: /[?&]limit=\d+(?:&|$)/.test(url.search) && limit > 1 &&
+			(cols.includes("*") || cols.includes("id")) &&
+			!cols.some((col) => /^id\s*:/.test(col)) &&
+			!tree.embeds.some((embed) => embed.spread || embed.alias === "id"),
 		key: `${url.pathname}?${JSON.stringify(filters)}`,
-		offset: Number(offsetRaw),
-		limit: Number(limitRaw),
+		offset,
+		limit,
 	};
 }
 
@@ -74,23 +93,32 @@ export function snapshotStore(cfg, appBase, reader) {
 				const win = pageWindow(url);
 				const priors = win ? (pages.get(win.key) ?? []) : [];
 				const task = (async () => {
-					for (const prior of priors) {
+					for (const prior of priors.slice()) {
+						if (win.offset < prior.offset + prior.limit) continue;
+						const rows = await prior.promise;
+						if (rows.length < prior.limit) return [];
 						if (
-							win.offset >= prior.offset + prior.limit &&
-							(await prior.promise).length < prior.limit
+							prior.widen && win.limit === 1 && win.select === "id" &&
+							win.offset === prior.offset + prior.limit &&
+							win.order === prior.order
 						) {
-							return [];
+							const extra = rows[prior.limit];
+							if (extra === undefined) return [];
+							if (Object.hasOwn(extra, "id")) return [{ id: extra.id }];
 						}
 					}
-					return await reader.read(
-						url.pathname.slice("/crud".length) + url.search,
-					);
+					// Preserve the original query spelling for carried reads and filter values.
+					const search = win?.widen
+						? url.search.replace(/([?&]limit=)\d+(?=&|$)/, `$1${win.limit + 1}`)
+						: url.search;
+					return await reader.read(url.pathname.slice("/crud".length) + search);
 				})();
 				if (win && win.limit > 1) {
-					priors.push({ offset: win.offset, limit: win.limit, promise: task });
+					priors.push({ ...win, promise: task });
 					pages.set(win.key, priors);
 				}
-				const rows = await task;
+				const result = await task;
+				const rows = win?.widen ? result.slice(0, win.limit) : result;
 				const body = JSON.stringify(rows);
 				reads.set(url.pathname + url.search, body);
 				return new Response(body, {
