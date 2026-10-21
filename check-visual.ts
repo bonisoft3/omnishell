@@ -436,6 +436,73 @@ function batchEvaluates(page: PageLike): PageLike {
   }
 }
 
+// A screen that locks vertical scrolling (overflow-y: hidden|clip on html,
+// body, or [data-screen]) is a viewport-fitted board rather than a scrolling
+// document: the document itself must not exceed the viewport height, and every
+// visible interactive control outside a scrollable container must sit within
+// 0..innerHeight.
+export async function checkVerticalFit(page: { evaluate(fn: unknown, arg?: unknown): Promise<unknown> }): Promise<VisualBug[]> {
+  return (await page.evaluate(() => {
+    const bugs: Array<{ rule: string; description: string; severity: "critical" | "major" | "minor"; element?: string }> = []
+    const screenEl = document.querySelector<HTMLElement>("[data-screen]")
+    const locked = [document.documentElement, document.body, screenEl]
+      .filter((el): el is HTMLElement => el !== null)
+      .some((el) => {
+        const y = getComputedStyle(el).overflowY
+        return y === "hidden" || y === "clip"
+      })
+    if (!locked) return bugs
+
+    const viewportH = window.innerHeight
+    const docHeight = (document.scrollingElement ?? document.documentElement).scrollHeight
+    if (docHeight > viewportH + 1) {
+      bugs.push({
+        rule: "vertical-overflow",
+        description: `Document height (${docHeight}px) exceeds locked viewport (${viewportH}px) by ${docHeight - viewportH}px`,
+        severity: "critical",
+      })
+    }
+
+    const clippedAway = (el: Element): boolean => {
+      for (let a: Element | null = el; a; a = a.parentElement) {
+        const box = a.getBoundingClientRect()
+        if (box.width > 1 && box.height > 1) continue
+        const s = getComputedStyle(a)
+        if (s.overflow !== "visible" || s.clipPath !== "none") return true
+      }
+      return false
+    }
+    const inScrollableY = (el: Element): boolean => {
+      for (let a = el.parentElement; a && a !== document.body && a !== document.documentElement; a = a.parentElement) {
+        const y = getComputedStyle(a).overflowY
+        if ((y === "auto" || y === "scroll") && a.scrollHeight > a.clientHeight + 1) return true
+      }
+      return false
+    }
+    const name = (el: Element) =>
+      el.getAttribute("data-testid") || el.getAttribute("aria-label") ||
+      el.textContent?.trim().slice(0, 30) || el.tagName.toLowerCase()
+
+    for (const el of document.querySelectorAll('button, a[href], input, textarea, select, [role="button"], [tabindex="0"]')) {
+      const htmlEl = el as HTMLElement
+      if (!htmlEl.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true, contentVisibilityAuto: true })) continue
+      if (htmlEl.closest('[inert],[aria-hidden="true"]') || clippedAway(htmlEl) || inScrollableY(htmlEl)) continue
+      const rect = htmlEl.getBoundingClientRect()
+      if (rect.width * rect.height === 0) continue
+      if (rect.top < -1 || rect.bottom > viewportH + 1) {
+        const id = name(htmlEl)
+        bugs.push({
+          rule: "vertical-overflow",
+          description: `"${id}" overflows locked viewport vertically (${Math.round(rect.top)}..${Math.round(rect.bottom)} against 0..${viewportH})`,
+          severity: "critical",
+          element: id,
+        })
+      }
+    }
+    return bugs
+  })) as VisualBug[]
+}
+
 /**
  * Hold until the screen stops becoming itself: no DOM mutation, no geometry
  * change, no image still loading, for one quiet interval.
@@ -736,6 +803,7 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
         await Promise.all([
           checkInteractiveOverlap(b),
           checkHorizontalOverflow(b),
+          checkVerticalFit(b),
           checkClippedContent(b),
           checkFocusableInvisible(b),
           checkConstrainedImages(b),
@@ -895,6 +963,7 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
               await Promise.all([
                 checkInteractiveOverlap(b),
                 checkHorizontalOverflow(b),
+                checkVerticalFit(b),
                 checkClippedContent(b),
                 checkFocusableInvisible(b),
                 checkConstrainedImages(b),

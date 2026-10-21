@@ -5,6 +5,7 @@
 // safe reason to call a box constrained.
 import { describe, expect, it, withPage, asCheckPage } from "./harness.ts"
 import { assertVisualLint, visualLint } from "../src/lint/playwright/visual-lint.ts"
+import { checkVerticalFit } from "../check-visual.ts"
 import { checkClippedControls } from "../src/lint/playwright/checks/clipped-controls.ts"
 import { checkContrast } from "../src/lint/playwright/checks/contrast.ts"
 import { checkFocusOrder } from "../src/lint/playwright/checks/focus-order.ts"
@@ -343,5 +344,42 @@ describe("checkWhiteSpace", () => {
       expect(bugs[0].severity).toBe("minor")
       expect(bugs[0].description).toContain("Screen is overcrowded")
     }))
+})
+
+describe("checkVerticalFit", () => {
+  it("ignores scrolling documents whose controls sit below the fold", () =>
+    withPage(async (page) => {
+      await page.setContent(`
+        <!DOCTYPE html>
+        <html><body style="margin: 0">
+          <div data-screen="doc" style="min-height: 2000px">
+            <button style="margin-top: 1500px">Below fold</button>
+          </div>
+        </body></html>
+      `)
+      expect(await checkVerticalFit(asCheckPage(page))).toEqual([])
+    }))
+
+  it("catches controls pushed outside a locked-viewport board while allowing inner scroll containers", () =>
+    withPage(
+      async (page) => {
+        await page.setContent(`
+          <!DOCTYPE html>
+          <html><body style="margin: 0; height: 100dvh; overflow: hidden">
+            <div data-screen="arena" style="height: 100%; overflow: hidden; position: relative">
+              <div style="height: 100px; overflow-y: auto">
+                <button style="margin-top: 300px">In scroller</button>
+              </div>
+              <button style="position: absolute; top: 820px; height: 40px">Pushed off board</button>
+            </div>
+          </body></html>
+        `)
+        const bugs = await checkVerticalFit(asCheckPage(page))
+        expect(bugs.map((b) => [b.rule, b.severity, b.element])).toEqual([
+          ["vertical-overflow", "critical", "Pushed off board"],
+        ])
+      },
+      { viewport: { width: 1280, height: 800 } },
+    ))
 })
 
