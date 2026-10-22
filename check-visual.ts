@@ -862,7 +862,9 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
           for (const reg of regions) {
             const parsedMachine: Machine = JSON.parse(reg.machine)
             const emptyObj = reg.emptyRow ? JSON.parse(reg.emptyRow) : {}
-            if (emptyObj.id === "") delete emptyObj.id
+            for (const [k, v] of Object.entries(emptyObj)) {
+              if (v === "") delete emptyObj[k]
+            }
             if (!baseRows[reg.table]) {
               baseRows[reg.table] = {
                 ...(tiers.seed[reg.table]?.[0] ?? {}),
@@ -875,6 +877,7 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
             allRegionInfos.push(...infos)
           }
           const frames = generateCoveringArrayFrames(allRegionInfos, baseRows)
+          const contrastChecked = new Set<string>()
           for (const f of frames) {
             const settled = (await page.evaluate(
               async ({
@@ -976,7 +979,14 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
                 checkWhiteSpace(b),
               ])
             ).flat()
-            frameBugs.push(...await checkContrast(p))
+            // Geometry checks run on every pairwise interaction; checkContrast
+            // flips color-scheme and rasterizes via CDP, so it runs once per
+            // distinct (field, state) invariant on each route and viewport.
+            const invariantKeys = Object.entries(f.visualInvariants).map(([k, v]) => `${k}=${v}`)
+            if (invariantKeys.some((k) => !contrastChecked.has(k))) {
+              for (const k of invariantKeys) contrastChecked.add(k)
+              frameBugs.push(...await checkContrast(p))
+            }
 
             for (const b of frameBugs) {
               out.push({

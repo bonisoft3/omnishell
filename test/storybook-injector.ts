@@ -20,20 +20,84 @@ export type MachineRegionInfo = {
   states: string[];
   table?: string;
   assigns?: Record<string, Record<string, unknown>>;
+  dynamicAssigns?: Record<string, string[]>;
 };
 
-function extractAssigns(node: StateNode): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  const entries = Array.isArray(node.entry) ? node.entry : node.entry ? [node.entry] : [];
-  for (const item of entries) {
-    if (item && typeof item === "object" && "assign" in item && typeof (item as { assign: unknown }).assign === "object") {
-      Object.assign(out, (item as { assign: Record<string, unknown> }).assign);
+function splitAssignRecord(
+  assignObj: Record<string, unknown>,
+  literals: Record<string, unknown>,
+  dynamic: Set<string>,
+) {
+  for (const [k, v] of Object.entries(assignObj)) {
+    if (v !== null && typeof v === "object") {
+      dynamic.add(k);
+    } else if (!(k in literals)) {
+      literals[k] = v;
     }
   }
-  return out;
 }
 
-/** Extracts region fields, initial states, state names, and entry assigns from a machine. */
+function collectActionAssigns(
+  raw: unknown,
+  literals: Record<string, unknown>,
+  dynamic: Set<string>,
+) {
+  const items = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  for (const item of items) {
+    if (!item || typeof item !== "object") continue;
+    const a = (item as { assign?: unknown }).assign;
+    if (a && typeof a === "object") {
+      splitAssignRecord(a as Record<string, unknown>, literals, dynamic);
+    }
+    const actions = (item as { actions?: unknown }).actions;
+    if (actions) collectActionAssigns(actions, literals, dynamic);
+  }
+}
+
+function extractRegionAssigns(
+  containerNode: { on?: Record<string, unknown>; states?: Record<string, StateNode> },
+): {
+  assigns: Record<string, Record<string, unknown>>;
+  dynamicAssigns: Record<string, string[]>;
+} {
+  const assigns: Record<string, Record<string, unknown>> = {};
+  const dynamicSets: Record<string, Set<string>> = {};
+  const states = containerNode.states ?? {};
+
+  for (const [stName, stNode] of Object.entries(states)) {
+    assigns[stName] = {};
+    dynamicSets[stName] = new Set<string>();
+    collectActionAssigns(stNode.entry, assigns[stName], dynamicSets[stName]);
+  }
+
+  const collectTransitions = (onMap?: Record<string, unknown>) => {
+    if (!onMap || typeof onMap !== "object") return;
+    for (const raw of Object.values(onMap)) {
+      const list = Array.isArray(raw) ? raw : [raw];
+      for (const t of list) {
+        if (!t || typeof t !== "object") continue;
+        const target = typeof (t as { target?: unknown }).target === "string"
+          ? ((t as { target: string }).target.split(".").pop() ?? "")
+          : "";
+        if (target && target in assigns) {
+          collectActionAssigns(t, assigns[target], dynamicSets[target]);
+        }
+      }
+    }
+  };
+
+  collectTransitions(containerNode.on);
+  for (const stNode of Object.values(states)) {
+    collectTransitions(stNode.on);
+  }
+
+  const dynamicAssigns: Record<string, string[]> = {};
+  for (const [stName, set] of Object.entries(dynamicSets)) {
+    if (set.size > 0) dynamicAssigns[stName] = [...set];
+  }
+  return { assigns, dynamicAssigns };
+}
+
 export function extractRegions(machine: Machine, table?: string): MachineRegionInfo[] {
   if (machine.type === "parallel") {
     const out: MachineRegionInfo[] = [];
@@ -41,22 +105,74 @@ export function extractRegions(machine: Machine, table?: string): MachineRegionI
       const field = regionNode.field ?? regionName;
       const initial = regionNode.initial ?? Object.keys(regionNode.states ?? {})[0] ?? "";
       const states = Object.keys(regionNode.states ?? {});
-      const assigns: Record<string, Record<string, unknown>> = {};
-      for (const [stName, stNode] of Object.entries(regionNode.states ?? {})) {
-        assigns[stName] = extractAssigns(stNode as StateNode);
-      }
-      out.push({ name: regionName, field, initial, states, table, assigns });
+      const { assigns, dynamicAssigns } = extractRegionAssigns(regionNode);
+      out.push({ name: regionName, field, initial, states, table, assigns, dynamicAssigns });
     }
     return out;
   }
   const field = machine.field ?? "state";
   const initial = machine.initial ?? Object.keys(machine.states)[0] ?? "";
   const states = Object.keys(machine.states);
-  const assigns: Record<string, Record<string, unknown>> = {};
-  for (const [stName, stNode] of Object.entries(machine.states)) {
-    assigns[stName] = extractAssigns(stNode as StateNode);
+  const { assigns, dynamicAssigns } = extractRegionAssigns(machine);
+  return [{ name: "root", field, initial, states, table, assigns, dynamicAssigns }];
+}
+
+export type Constraint = (assignment: Record<string, string>) => boolean;
+
+/**
+ * When a region's transitions pin another region's field to a literal in some states
+ * and delegate that field to a dynamic handler in others, the literal values partition
+ * the two regions' valid state combinations.
+ */
+function deriveAssignConstraint(regions: MachineRegionInfo[]): Constraint {
+  type Rule = {
+    sourceField: string;
+    targetField: string;
+    literalByState: Map<string, string>;
+    dynamicStates: Set<string>;
+    pinnedValues: Set<string>;
+  };
+  const rules: Rule[] = [];
+  const regionFields = new Set(regions.map((r) => r.field));
+
+  for (const r of regions) {
+    for (const targetField of regionFields) {
+      if (targetField === r.field) continue;
+      const literalByState = new Map<string, string>();
+      const dynamicStates = new Set<string>();
+      const pinnedValues = new Set<string>();
+
+      for (const st of r.states) {
+        const lit = r.assigns?.[st]?.[targetField];
+        if (lit !== undefined) {
+          const str = String(lit);
+          literalByState.set(st, str);
+          pinnedValues.add(str);
+        }
+        if (r.dynamicAssigns?.[st]?.includes(targetField)) {
+          dynamicStates.add(st);
+        }
+      }
+
+      if (literalByState.size > 0 && dynamicStates.size > 0) {
+        rules.push({ sourceField: r.field, targetField, literalByState, dynamicStates, pinnedValues });
+      }
+    }
   }
-  return [{ name: "root", field, initial, states, table, assigns }];
+
+  if (rules.length === 0) return () => true;
+
+  return (assignment: Record<string, string>) => {
+    for (const rule of rules) {
+      const sVal = assignment[rule.sourceField];
+      const tVal = assignment[rule.targetField];
+      if (sVal === undefined || tVal === undefined) continue;
+      const requiredLiteral = rule.literalByState.get(sVal);
+      if (requiredLiteral !== undefined && tVal !== requiredLiteral) return false;
+      if (rule.dynamicStates.has(sVal) && rule.pinnedValues.has(tVal)) return false;
+    }
+    return true;
+  };
 }
 
 /**
@@ -68,15 +184,28 @@ export function generateIsolatedFrames(
   baseRow: Record<string, unknown> = {},
 ): PosedFrame[] {
   const frames: PosedFrame[] = [];
-  const initialRow: Record<string, unknown> = { ...baseRow };
+  const valid = deriveAssignConstraint(regions);
+  const initialStates: Record<string, string> = {};
   for (const r of regions) {
-    initialRow[r.field] = r.initial;
+    initialStates[r.field] = r.initial;
   }
 
   for (const r of regions) {
     for (const state of r.states) {
       const stateAssign = r.assigns?.[state] ?? {};
-      const row = { ...initialRow, [r.field]: state, ...stateAssign };
+      const row: Record<string, unknown> = { ...baseRow, ...initialStates, ...stateAssign, [r.field]: state };
+      for (const other of regions) {
+        if (other.field === r.field) continue;
+        const curOther = String(row[other.field] ?? other.initial);
+        if (!valid({ [r.field]: state, [other.field]: curOther })) {
+          const compatible = other.states.find((s) => valid({ [r.field]: state, [other.field]: s }));
+          if (compatible !== undefined) {
+            Object.assign(row, other.assigns?.[compatible] ?? {});
+            row[other.field] = compatible;
+            row[r.field] = state;
+          }
+        }
+      }
       frames.push({
         name: `${r.name}-${state}`,
         targetRegion: r.name,
@@ -88,8 +217,6 @@ export function generateIsolatedFrames(
   }
   return frames;
 }
-
-export type Constraint = (assignment: Record<string, string>) => boolean;
 
 /**
  * Generates a Pairwise (strength t=2) Constrained Covering Array across multiple regions.
@@ -114,6 +241,9 @@ export function generateCoveringArrayFrames(
     return generateIsolatedFrames(distinctRegions, baseRows[table] ?? {});
   }
 
+  const derivedValid = deriveAssignConstraint(distinctRegions);
+  const valid: Constraint = (a) => derivedValid(a) && isValid(a);
+
   type PairKey = string;
   const pairKey = (f1: string, v1: string, f2: string, v2: string): PairKey =>
     f1 < f2 ? `${f1}=${v1}&${f2}=${v2}` : `${f2}=${v2}&${f1}=${v1}`;
@@ -125,7 +255,7 @@ export function generateCoveringArrayFrames(
       const rB = distinctRegions[j];
       for (const sA of rA.states) {
         for (const sB of rB.states) {
-          if (isValid({ [rA.field]: sA, [rB.field]: sB })) {
+          if (valid({ [rA.field]: sA, [rB.field]: sB })) {
             uncoveredPairs.add(pairKey(rA.field, sA, rB.field, sB));
           }
         }
@@ -134,7 +264,6 @@ export function generateCoveringArrayFrames(
   }
 
   const frames: PosedFrame[] = [];
-  let frameIdx = 0;
 
   while (uncoveredPairs.size > 0) {
     const nextPairStr = uncoveredPairs.values().next().value as string;
@@ -151,7 +280,7 @@ export function generateCoveringArrayFrames(
 
       for (const st of r.states) {
         const candidate = { ...currentAssign, [r.field]: st };
-        if (!isValid(candidate)) continue;
+        if (!valid(candidate)) continue;
 
         let coveredCount = 0;
         for (const [setField, setVal] of Object.entries(currentAssign)) {
@@ -182,22 +311,36 @@ export function generateCoveringArrayFrames(
       const table = r.table ?? "item";
       if (!tables[table]) tables[table] = { ...(baseRows[table] ?? {}) };
       const st = currentAssign[r.field];
-      tables[table][r.field] = st;
-      invariants[r.field] = st;
       const stateAssign = r.assigns?.[st];
       if (stateAssign) Object.assign(tables[table], stateAssign);
     }
+    for (const r of distinctRegions) {
+      const table = r.table ?? "item";
+      const st = currentAssign[r.field];
+      tables[table][r.field] = st;
+      invariants[r.field] = st;
+    }
 
     const primaryTable = distinctRegions[0].table ?? "item";
-    frameIdx++;
     frames.push({
-      name: `ca-frame-${frameIdx}`,
+      name: "",
       targetRegion: "all",
-      state: Object.entries(currentAssign).map(([k, v]) => `${k}:${v}`).join(","),
+      state: distinctRegions.map((r) => `${r.field}:${currentAssign[r.field]}`).join(","),
       row: tables[primaryTable] ?? {},
       tables,
       visualInvariants: invariants,
     });
+  }
+
+  frames.sort((a, b) => {
+    for (const r of distinctRegions) {
+      const cmp = (a.visualInvariants[r.field] ?? "").localeCompare(b.visualInvariants[r.field] ?? "");
+      if (cmp !== 0) return cmp;
+    }
+    return 0;
+  });
+  for (let i = 0; i < frames.length; i++) {
+    frames[i].name = `ca-frame-${i + 1}`;
   }
 
   return frames;
