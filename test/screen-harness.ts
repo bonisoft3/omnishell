@@ -144,19 +144,36 @@ export type Cluster = {
 };
 
 
+const shellCache = new Map<string, Promise<Record<string, unknown>>>();
+
+function appShell(appDir: URL): Promise<Record<string, unknown>> {
+  const url = new URL("shell/shell.yaml", appDir).href;
+  const hit = shellCache.get(url);
+  if (hit !== undefined) return hit;
+  const loaded = Deno.readTextFile(new URL(url)).then(
+    (text) => parseYaml(text) as Record<string, unknown>,
+    (err) => {
+      shellCache.delete(url);
+      throw err;
+    },
+  );
+  shellCache.set(url, loaded);
+  return loaded;
+}
+
 /** Every route the app ships, in the order shell.yaml lists them — what a
  * driver that has no screen in mind walks. */
 export async function appRoutes(appDir: URL): Promise<Route[]> {
-  const shell = parseYaml(await Deno.readTextFile(new URL("shell/shell.yaml", appDir))) as {
+  const shell = await appShell(appDir) as {
     routes?: Route[];
   };
-  return shell.routes ?? [];
+  return [...(shell.routes ?? [])];
 }
 
 /** The locales the app declares, or undefined where it declares none — which
  * is what decides whether a composed href wears a locale prefix. */
 export async function appI18n(appDir: URL): Promise<I18n | undefined> {
-  const shell = parseYaml(await Deno.readTextFile(new URL("shell/shell.yaml", appDir))) as {
+  const shell = await appShell(appDir) as {
     i18n?: I18n;
   };
   return shell.i18n;
@@ -175,7 +192,7 @@ export async function appRoute(appDir: URL, screen: string): Promise<Route> {
  * so a driver that does not know which collections a screen touches states
  * them all — empty, which is where a visit starts. */
 export async function appCollections(appDir: URL): Promise<string[]> {
-  const shell = parseYaml(await Deno.readTextFile(new URL("shell/shell.yaml", appDir))) as {
+  const shell = await appShell(appDir) as {
     local?: Record<string, unknown>;
     tables?: string[];
   };
@@ -326,8 +343,8 @@ export type MountSpec = {
   tables: Record<string, Row[]>;
   seed: number;
   params?: Record<string, string>;
-  /** Table milliseconds per clock step. A hundred at a time, not a beat at a
-   * time: a screen wears states between its beats. */
+  /** Minimum table milliseconds per clock advance while settling; waits due
+   * further out jump straight to the soonest queued wait. */
   step?: number;
   /** Table milliseconds one settle may spend before the screen is declared
    * unable to stop. */
@@ -545,7 +562,7 @@ export async function mountScreen(spec: MountSpec): Promise<Mounted> {
   const { interpretScreen } = await interpreter(
     `?clock=manual&seed=${spec.seed}${spec.epoch === undefined ? "" : `&epoch=${spec.epoch}`}`,
   );
-  const clock = global.__prontoClock as { advance(ms: number): number };
+  const clock = global.__prontoClock as { advance(ms: number): number; due(): { in: number }[] };
 
   // The Event class has to be linkedom's own: the platform's seals fields
   // linkedom's dispatchEvent assigns.
@@ -666,8 +683,9 @@ export async function mountScreen(spec: MountSpec): Promise<Mounted> {
         if (spent >= cap) {
           throw new Error(`the screen never stopped: waits still queued after ${spent}ms of table time`);
         }
-        clock.advance(step);
-        spent += step;
+        const next = Math.min(Math.max(step, clock.due()[0]?.in ?? 0), cap - spent);
+        clock.advance(next);
+        spent += next;
         continue;
       }
       // An empty queue is not a stopped screen. A machine arms its `after`
@@ -838,7 +856,7 @@ export async function mountApp(
 
 /** The manifest-granted platform endowments an app declares (shell.yaml `endowments:`). */
 export async function appEndowments(appDir: URL): Promise<Record<string, string[]> | undefined> {
-  const shell = parseYaml(await Deno.readTextFile(new URL("shell/shell.yaml", appDir))) as {
+  const shell = await appShell(appDir) as {
     endowments?: Record<string, string[]>;
   };
   return shell.endowments;
@@ -847,14 +865,14 @@ export async function appEndowments(appDir: URL): Promise<Record<string, string[
 /** The entity projection an app emits (shell.yaml `schema:`), which is what a
  * money binding resolves its column's currency and scale against. */
 export async function appSchema(appDir: URL): Promise<Schema | undefined> {
-  const shell = parseYaml(await Deno.readTextFile(new URL("shell/shell.yaml", appDir))) as {
+  const shell = await appShell(appDir) as {
     schema?: Schema;
   };
   return shell.schema;
 }
 
 export async function appHostDom(appDir: URL): Promise<Record<string, { src: string; note: string }>> {
-  const shell = parseYaml(await Deno.readTextFile(new URL("shell/shell.yaml", appDir))) as {
+  const shell = await appShell(appDir) as {
     hostDom?: Record<string, { src: string; note: string }>;
   };
   return shell.hostDom ?? {};
@@ -863,7 +881,7 @@ export async function appHostDom(appDir: URL): Promise<Record<string, { src: str
 /** The vendored units an app declares (shell.yaml `units:`), which is what a
  * `data-hatch` name resolves against. */
 export async function appUnits(appDir: URL): Promise<Record<string, Unit>> {
-  const shell = parseYaml(await Deno.readTextFile(new URL("shell/shell.yaml", appDir))) as {
+  const shell = await appShell(appDir) as {
     units?: Record<string, Unit>;
   };
   return shell.units ?? {};
@@ -874,16 +892,18 @@ export async function appUnits(appDir: URL): Promise<Record<string, Unit>> {
  * A test that states the table itself is stating a later world than the seed's
  * and keeps it whole. */
 export async function appSeed(appDir: URL): Promise<Record<string, Row[]>> {
-  const shell = parseYaml(await Deno.readTextFile(new URL("shell/shell.yaml", appDir))) as {
+  const shell = await appShell(appDir) as {
     seed?: Record<string, Row[]>;
   };
-  return shell.seed ?? {};
+  return Object.fromEntries(
+    Object.entries(shell.seed ?? {}).map(([k, rows]) => [k, rows.map((r) => ({ ...r }))]),
+  );
 }
 
 /** The cluster facts an app declares about itself: the natural keys of
  * `uniques:` and the owner column of each owned entity in `access:`. */
 export async function appCluster(appDir: URL): Promise<Cluster> {
-  const shell = parseYaml(await Deno.readTextFile(new URL("shell/shell.yaml", appDir))) as {
+  const shell = await appShell(appDir) as {
     uniques?: Record<string, string[][]>;
     access?: Cluster["access"];
     keys?: Record<string, string>;
