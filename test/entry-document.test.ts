@@ -37,7 +37,7 @@ describe("the entry document's language", () => {
       (await Deno.readTextFile(new URL(`../../../apps/${app}/shell/index.html`, import.meta.url)))
         .match(/<html lang="([^"]+)"/)?.[1]
     expect(await langOf("truco")).toBe("pt-BR")
-    expect(await langOf("chess")).toBe("en")
+    expect(await langOf("realworld")).toBe("en")
   })
 
   it("says which way that language reads, for the paint before boot", async () => {
@@ -48,7 +48,7 @@ describe("the entry document's language", () => {
       (await Deno.readTextFile(new URL(`../../../apps/${app}/shell/index.html`, import.meta.url)))
         .match(/<html [^>]*dir="([^"]+)"/)?.[1]
     expect(await dirOf("truco")).toBe("ltr")
-    expect(await dirOf("chess")).toBe("ltr")
+    expect(await dirOf("realworld")).toBe("ltr")
   })
 })
 
