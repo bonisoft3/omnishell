@@ -16,6 +16,7 @@ import {
   parseFilterSpec,
   parseOrder,
   parseReadSpec,
+  holdUnboundLoads,
   PLACEHOLDER,
   PLACEHOLDERS,
   ProgramError,
@@ -576,6 +577,7 @@ const BOOL_ATTRS = new Set([
   "disabled", "checked", "readonly", "required", "selected", "hidden", "open", "multiple",
 ]);
 const BLANK_PIXEL = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
+
 
 /** The language a screen is rendering in, from the most explicit thing its
  * context carries. The app's own default at the end and never a literal: a
@@ -3925,6 +3927,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           };
           const progressive = first && served === undefined && screenOpts.fixtures !== true;
           if (progressive) {
+            // A row's nested regions bind after it is in the document, which
+            // fetches what it loads: what they have yet to bind waits.
+            for (const entry of toSync) for (const child of entry.node.querySelectorAll("[data-live]")) holdUnboundLoads(child);
             placeListNodes();
             for (const entry of toSync) markChildRegionsHydrating(entry.node, region);
             if (top) {

@@ -12,6 +12,25 @@ export const PLACEHOLDER = /\{([\w.]+(?:\[\w+\])?)\}/;
 /** The same grammar over a whole text. */
 export const PLACEHOLDERS = new RegExp(PLACEHOLDER.source, "g");
 
+/** The attributes the browser fetches the moment an element is in the
+ * document. */
+const LOADS = ["src", "srcset", "poster"];
+
+/** A child region binds after its parent's row is in the document, so a URL
+ * it has yet to bind would be fetched as written — `{image_url}`, a 404 on the
+ * console. Its template waits in the stash the binding reads
+ * (screen.js's bindElementAttributes), and the attribute is set when the region binds. */
+export function holdUnboundLoads(root) {
+  for (const el of [root, ...root.querySelectorAll(LOADS.map((a) => `[${a}]`).join(","))]) {
+    for (const name of LOADS) {
+      const value = el.getAttribute(name);
+      if (value === null || !PLACEHOLDER.test(value)) continue;
+      (el._prontoAttrs ??= {})[name] = value;
+      el.removeAttribute(name);
+    }
+  }
+}
+
 /** What `binding` answers for a key the row does not carry: the caller's to
  * judge, since a pending optimistic row and a seed are allowed to lack one. */
 export const ABSENT = Symbol("absent");
