@@ -40,8 +40,17 @@ export async function fetchText(url, init) {
 // A screen's stylesheet. One replacing another is swapped once it has loaded
 // what it imports, so a screen on show is never drawn between two releases'
 // styles; a first one, or one that imports nothing, applies as it is written.
-const TOP_DOWN_HYDRATION_CSS =
-  "\n.screen [data-hydrating] > * { display: none !important; }\n";
+const TOP_DOWN_HYDRATION_CSS = ".screen [data-hydrating] > * { display: none !important; }";
+const hydrationDocs = new WeakSet();
+function ensureHydrationStyle(doc) {
+  if (hydrationDocs.has(doc)) return;
+  if (typeof CSSStyleSheet === "function" && Array.isArray(doc.adoptedStyleSheets)) {
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(TOP_DOWN_HYDRATION_CSS);
+    doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, sheet];
+    hydrationDocs.add(doc);
+  }
+}
 const stylesheetLoads = new WeakMap();
 function installStyle(id, css) {
   const prior = document.getElementById(id);
@@ -1578,8 +1587,8 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // screen is taken over where it stands rather than drawn again, so nothing
   // on show is replaced and nothing the reader has done to it is lost.
   const served = opts.served;
-  const styleCss = (raw) => opts.mountHostDom === false ? raw : raw + TOP_DOWN_HYDRATION_CSS;
-  await installStyle(styleId, styleCss(css));
+  if (opts.mountHostDom !== false) ensureHydrationStyle(document);
+  await installStyle(styleId, css);
 
   // Subscriptions of the previously mounted screen would refresh dead DOM and
   // keep their poll keys hot — stop them before mounting the next one.
@@ -4424,7 +4433,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   return {
     settle,
     updateStyle: async (css) => {
-      await installStyle(styleId, styleCss(css));
+      await installStyle(styleId, css);
     },
     // Which template this screen was drawn from (templateHash).
     cas,

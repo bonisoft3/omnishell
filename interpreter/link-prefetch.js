@@ -20,7 +20,8 @@
 // module costs the first paint nothing of it.
 import { prefetchScreen } from "./screen.js";
 
-export function startLinkPrefetch({ addresses, appBase, store, servedReadsOf, takeProgressiveReads = undefined }) {
+/** @param {{ addresses: any, appBase: any, store: any, servedReadsOf: any, takeProgressiveReads?: any }} opts */
+export function startLinkPrefetch({ addresses, appBase, store, servedReadsOf, takeProgressiveReads }) {
   const asked = new Map();
 
   const saving = () => {

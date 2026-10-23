@@ -1877,7 +1877,6 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
       const own = (changes) => {
         if (touches(preds, changes)) wakes.widened();
       };
-      const url = `${crud(table)}?${search(opts.order, opts)}`;
       let uncaught = deps.filter((t) => local[t] === undefined).length;
       // Which tables a served read not yet asked for depends on is not known
       // here, so a change that would wake any server read drops them all.
@@ -1889,7 +1888,8 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
         return client.subscribeInvalidation(t, (changes) => {
           if (!caughtUp && changes === undefined) {
             caughtUp = true;
-            if (--uncaught > 0 || answered.get(memoKey(url))?.served) return;
+            if (--uncaught === 0) wake(changes);
+            return;
           }
           moved(wake)(changes);
         });
