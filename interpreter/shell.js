@@ -16,7 +16,7 @@ import { parseMarkup } from "./markup.js";
 // bypasses it entirely: the fixture adapter runs without the cluster, so no auth
 // service exists to sign against.
 
-import { chromeText, describe, drawStrip, guestBox, hasStrip, localizeStrip, offersGuest, providerHref, providerKey, stripRoutes } from "./chrome.js";
+import { chromeText, describe, drawStrip, guestBox, hasStrip, localizeStrip, offersGuest, providerHref, providerKey, stripRoutes, supportsPasskeys } from "./chrome.js";
 import { localeAt, localeTable, ProgramError, routeAt, routeHref, screenEnv, Unanswered } from "./fragment.js";
 import { fetchText, interpretScreen, prefetchScreen, templateHash, submitsOnChange } from "./screen.js";
 import { compileCatalog } from "./vendor/messages.js";
@@ -338,6 +338,11 @@ function renderPromote(ensureSession, cfg, chrome, served = null) {
   const box = served?.querySelector(".shell-signin, .shell-provider") ? served : guestBox(document, cfg);
   const signIn = box.querySelector(".shell-signin");
   const create = box.querySelector(".shell-register");
+  if (!supportsPasskeys()) {
+    signIn?.remove();
+    create?.remove();
+    return box;
+  }
   const authenticate = async (button, ceremony) => {
     if (signIn) signIn.disabled = true;
     if (create) create.disabled = true;

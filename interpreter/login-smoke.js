@@ -358,6 +358,43 @@ Deno.test("a guest's strip offers each provider, its address written with the pa
 });
 
 Deno.test({
+  name: "a guest's strip passkey buttons are conditional to passkey support",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const origCred = globalThis.PublicKeyCredential;
+    const PROMOTE_YAML = CONFIG_YAML.replace("  required: true\n", "  required: false\n  promote: true\n").replace("tables: []", "tables: [note]\nread: [note]");
+    try {
+      const { document: doc } = parseHTML("<!doctype html><html><body></body></html>");
+      const { guestBox } = await import("./chrome.js");
+      const box = guestBox(doc, { auth: { service: "/auth", promote: true } });
+      if (!box.querySelector(".shell-signin") || !box.querySelector(".shell-register")) {
+        throw new Error("expected guestBox to emit passkey buttons for SSG");
+      }
+
+      delete globalThis.PublicKeyCredential;
+      const { document: doc1, mount: mount1 } = boot({ config: PROMOTE_YAML });
+      const { createShell } = await import("./shell.js");
+      createShell({ config: "./shell.yaml", mount: mount1 });
+      await settle(150);
+      if (doc1.querySelector(".shell-signin") || doc1.querySelector(".shell-register")) {
+        throw new Error("expected no passkey buttons in shell strip when PublicKeyCredential is not supported");
+      }
+
+      globalThis.PublicKeyCredential = class {};
+      const { document: doc2, mount: mount2 } = boot({ config: PROMOTE_YAML });
+      createShell({ config: "./shell.yaml", mount: mount2 });
+      await settle(150);
+      if (!doc2.querySelector(".shell-signin") || !doc2.querySelector(".shell-register")) {
+        throw new Error("expected passkey buttons in shell strip when PublicKeyCredential is supported");
+      }
+    } finally {
+      globalThis.PublicKeyCredential = origCred;
+    }
+  },
+});
+
+Deno.test({
   name: "a provider cookie renews an expired bearer before the first boot gates or mints a guest",
   sanitizeOps: false,
   sanitizeResources: false,

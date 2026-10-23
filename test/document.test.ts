@@ -91,11 +91,12 @@ describe("a prerendered document", () => {
       expect(d.querySelectorAll("style#screen-css-regras").length).toBe(1)
     })
 
-    it(`draws the strip a guest sees, which is empty for this app, at ${address}`, () => {
-      // truco puts no route on its strip and offers no sign-in to promote.
+    it(`draws the strip a guest sees at ${address}`, () => {
+      // truco puts no route on its strip but offers sign-in to promote.
       const strip = doc(address).querySelectorAll("body > nav")
       expect(strip.length).toBe(1)
-      expect(strip[0].children.length).toBe(0)
+      expect(strip[0].querySelector(".shell-me .shell-signin")).not.toBe(null)
+      expect(strip[0].querySelector(".shell-me .shell-register")).not.toBe(null)
     })
 
     it(`boots only after it has painted, at ${address}`, () => {

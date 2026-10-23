@@ -97,6 +97,11 @@ export function drawStrip(doc, cfg) {
   return nav;
 }
 
+export const supportsPasskeys = () =>
+  typeof globalThis.window !== "undefined" &&
+  Boolean(globalThis.PublicKeyCredential) &&
+  globalThis.window.isSecureContext !== false;
+
 /** A guest's end of the strip where the app offers a way in (offersGuest):
  * one gesture each, a passkey's (sign-in or create) and every provider's,
  * their words and the providers' addresses the strip's to write in the page's
