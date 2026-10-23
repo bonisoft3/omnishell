@@ -171,6 +171,7 @@ function boot({
   };
 
   sessionStorage.clear();
+  Object.defineProperty(globalThis, "caches", {value: {delete: () => Promise.resolve(true)}, configurable: true});
   const held = [];
   const minted = [];
   const addressed = new Map();
