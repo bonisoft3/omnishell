@@ -380,7 +380,7 @@ export async function checkApp(
 
   // An app declares native targets via `native: true` or `native: { ... }` in shell.yaml,
   // matching the symmetry of `server: true` for backends.
-  // Apps that omit `native` or set `native: false` are web-only (like truco, chess).
+  // Apps that omit `native` or set `native: false` are web-only (like truco).
   const hasNativeTarget = shell.native === true || (typeof shell.native === "object" && shell.native.enabled !== false);
   if (!hasNativeTarget) {
     return {

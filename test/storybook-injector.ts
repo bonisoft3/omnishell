@@ -200,7 +200,7 @@ export function generateIsolatedFrames(
         if (!valid({ [r.field]: state, [other.field]: curOther })) {
           const compatible = other.states.find((s) => valid({ [r.field]: state, [other.field]: s }));
           if (compatible !== undefined) {
-            Object.assign(row, other.assigns?.[compatible] ?? {});
+            Object.assign(row, other.assigns?.[compatible] ?? {}, stateAssign);
             row[other.field] = compatible;
             row[r.field] = state;
           }
