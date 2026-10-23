@@ -20,29 +20,72 @@
 // module costs the first paint nothing of it.
 import { prefetchScreen } from "./screen.js";
 
-export function startLinkPrefetch({ addresses, appBase, store, servedReadsOf }) {
-  const asked = new Set();
+export function startLinkPrefetch({ addresses, appBase, store, servedReadsOf, takeProgressiveReads = undefined }) {
+  const asked = new Map();
 
   const saving = () => {
     const c = globalThis.navigator?.connection;
     return c?.saveData === true || /(^|-)2g$/.test(c?.effectiveType ?? "");
   };
 
-  async function prefetch(url) {
+  async function prefetch(url, speculative = true, idle = false) {
     const found = addresses(url);
     prefetchScreen(appBase, found.route);
     // A route the terminal draws on its own is served a shell that carries
     // nothing; only a rendered one is worth its document.
-    if (found.route.ssr !== "ssr" && found.route.ssr !== "ssg") return;
+    if (found.route.ssr !== "ssr" && found.route.ssr !== "ssg") return false;
+    const init = speculative
+      ? {
+          headers: {
+            Accept: "text/html",
+            Purpose: "prefetch",
+            "X-Pronto-Prefetch": "1",
+            ...(idle ? { "X-Pronto-Speculative": "1" } : {}),
+          },
+          ...(idle ? { priority: "low" } : {}),
+        }
+      : {
+          headers: { Accept: "text/html", "X-Pronto-Prefetch": "1" },
+        };
     // A document that did not come leaves the click to ask, as it always
     // did; one that came with reads no store can take is a program's fault,
     // and says so.
-    const res = await fetch(url.href, { headers: { Accept: "text/html", Purpose: "prefetch" }, priority: "low" }).catch(() => null);
-    if (res === null || !res.ok) return;
-    store.seedReads(servedReadsOf(await res.text()));
+    const res = await fetch(url.href, init).catch(() => null);
+    if (res === null || res.status !== 200) return false;
+    const fresh = res.headers.get("x-edge-cache") !== "stale" && (!speculative || res.headers.has("x-edge-cache"));
+    const seedOpts = fresh ? { at: url.href } : undefined;
+    if (takeProgressiveReads && res.body?.getReader) {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      const parts = [];
+      let tail = "";
+      for (;;) {
+        let step;
+        try {
+          step = await reader.read();
+        } catch {
+          return false;
+        }
+        const { done, value } = step;
+        const chunk = done ? decoder.decode() : decoder.decode(value, { stream: true });
+        if (chunk) {
+          parts.push(chunk);
+          const { reads, rest } = takeProgressiveReads(tail + chunk);
+          tail = rest;
+          if (reads.size > 0) store.seedReads(reads, seedOpts);
+        }
+        if (done) break;
+      }
+      store.seedReads(servedReadsOf(parts.join("")), seedOpts);
+      return true;
+    }
+    const text = await res.text().catch(() => null);
+    if (text === null) return false;
+    store.seedReads(servedReadsOf(text), seedOpts);
+    return true;
   }
 
-  function want(href) {
+  function want(href, idle = false) {
     if (saving() || document.visibilityState !== "visible") return;
     const url = new URL(href, location.href);
     if (url.origin !== location.origin) return;
@@ -56,15 +99,18 @@ export function startLinkPrefetch({ addresses, appBase, store, servedReadsOf }) 
     const same = here !== null && target !== null && target.route.screen === here.route.screen &&
       JSON.stringify(target.params) === JSON.stringify(here.params);
     if (asked.has(key) || target === null || same) return;
-    asked.add(key);
-    prefetch(url);
+    const p = prefetch(url, true, idle);
+    p.catch(() => {});
+    asked.set(key, p);
+    return p;
   }
 
   const intent = (e) => {
     const a = e.target?.closest?.("a[href]");
-    if (a && !a.target && !a.hasAttribute("download") && !a.getAttribute("href").startsWith("#")) want(a.href);
+    if (a && !a.target && !a.hasAttribute("download") && !a.getAttribute("href").startsWith("#")) want(a.href, false);
   };
   addEventListener("pointerover", intent, { passive: true });
+  addEventListener("pointerdown", intent, { passive: true });
   addEventListener("focusin", intent);
 
   return {
@@ -73,8 +119,29 @@ export function startLinkPrefetch({ addresses, appBase, store, servedReadsOf }) 
     idle() {
       if (globalThis.requestIdleCallback === undefined) return;
       requestIdleCallback(() => {
-        for (const a of document.querySelectorAll("body > nav a[href]")) want(a.href);
+        const links = [...document.querySelectorAll("body > nav a[href]")].map((a) => a.href);
+        const step = (i) => {
+          if (i >= links.length) return;
+          Promise.resolve(want(links[i], true)).finally(() => {
+            requestIdleCallback(() => step(i + 1));
+          });
+        };
+        step(0);
       });
+    },
+    /** Joins an in-flight prefetch on navigation or asks the SSR document
+     * once when speculation did not run or answered 204. */
+    async seed(href) {
+      const url = new URL(href, location.href);
+      const found = addresses(url);
+      if (found === null || found.route.ssr !== "ssr") return;
+      const key = url.pathname + url.search;
+      const prior = asked.get(key);
+      if (prior !== undefined && await prior) return;
+      if (saving()) return;
+      const run = prefetch(url, false);
+      asked.set(key, run);
+      await run;
     },
   };
 }

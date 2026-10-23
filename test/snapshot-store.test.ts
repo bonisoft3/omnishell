@@ -415,3 +415,475 @@ Deno.test({
 		});
 	},
 });
+
+Deno.test({
+	name: "concurrent single-tick eq reads coalesce into one in.(...) snapshot query while recording per-item #pronto-reads keys",
+	sanitizeOps: false,
+	sanitizeResources: false,
+	async fn() {
+		await withBrowser({ fetch: () => { throw new Error("snapshot reads must use the supplied reader"); } }, async () => {
+			const paths: string[] = [];
+			const store = snapshotStore(
+				{
+					tables: ["standing", "chance"],
+					carriers: FIXTURE_CARRIERS,
+					schema: {
+						standing: {
+							durability: "live",
+							fields: [
+								{ name: "id", type: "string" },
+								{ name: "group_id", type: "string" },
+								{ name: "points", type: "number" },
+							],
+						},
+						chance: {
+							durability: "live",
+							fields: [
+								{ name: "id", type: "string" },
+								{ name: "group_id", type: "string" },
+								{ name: "tier", type: "string" },
+								{ name: "pct", type: "number" },
+							],
+						},
+					},
+				},
+				new URL("https://snapshot.test/"),
+				{
+					read(path: string) {
+						paths.push(path);
+						if (path.startsWith("/standing?")) {
+							return Promise.resolve([
+								{ id: "s1", group_id: "g1", points: 9 },
+								{ id: "s2", group_id: "g1", points: 6 },
+								{ id: "s3", group_id: "g2", points: 7 },
+							]);
+						}
+						if (path.startsWith("/chance?")) {
+							return Promise.resolve([
+								{ id: "c1", group_id: "g1", tier: "1", pct: 80 },
+								{ id: "c2", group_id: "g2", tier: "1", pct: 65 },
+								{ id: "c3", group_id: "g1", tier: "2", pct: 20 },
+								{ id: "c4", group_id: "g2", tier: "2", pct: 35 },
+							]);
+						}
+						return Promise.resolve([]);
+					},
+				},
+			);
+			try {
+				const [g1, g1Dup, g2, g3, c1, c4] = await Promise.all([
+					store.query("standing", "points.desc", { filter: "group_id=eq.g1" }),
+					store.query("standing", "points.desc", { filter: "group_id=eq.g1" }),
+					store.query("standing", "points.desc", { filter: "group_id=eq.g2" }),
+					store.query("standing", "points.desc", { filter: "group_id=eq.g3" }),
+					store.query("chance", null, { filter: "group_id=eq.g1&tier=eq.1" }),
+					store.query("chance", null, { filter: "group_id=eq.g2&tier=eq.2" }),
+				]);
+				assertEquals(g1, [
+					{ id: "s1", group_id: "g1", points: 9 },
+					{ id: "s2", group_id: "g1", points: 6 },
+				]);
+				assertEquals(g1Dup, g1);
+				assertEquals(g2, [{ id: "s3", group_id: "g2", points: 7 }]);
+				assertEquals(g3, []);
+				assertEquals(c1, [{ id: "c1", group_id: "g1", tier: "1", pct: 80 }]);
+				assertEquals(c4, [{ id: "c4", group_id: "g2", tier: "2", pct: 35 }]);
+				assertEquals(paths, [
+					'/standing?select=*&order=points.desc&group_id=in.%28%22g1%22%2C%22g2%22%2C%22g3%22%29',
+					'/chance?select=*&group_id=in.%28%22g1%22%2C%22g2%22%29&tier=in.%28%221%22%2C%222%22%29',
+				]);
+				assertEquals(
+					JSON.parse(store.reads.get("/crud/standing?select=*&order=points.desc&group_id=eq.g1")!),
+					g1,
+				);
+				assertEquals(
+					JSON.parse(store.reads.get("/crud/standing?select=*&order=points.desc&group_id=eq.g2")!),
+					g2,
+				);
+				assertEquals(
+					JSON.parse(store.reads.get("/crud/standing?select=*&order=points.desc&group_id=eq.g3")!),
+					[],
+				);
+				assertEquals(
+					JSON.parse(store.reads.get("/crud/chance?select=*&group_id=eq.g1&tier=eq.1")!),
+					c1,
+				);
+			} finally {
+				await store.close();
+			}
+		});
+	},
+});
+
+Deno.test({
+	name:
+		"overlapping window, superset-embed, single-value in.(...), and complete-rowset re-sort reads coalesce while recording per-query #pronto-reads keys",
+	sanitizeOps: false,
+	sanitizeResources: false,
+	async fn() {
+		await withBrowser({ fetch: () => { throw new Error("snapshot reads must use the supplied reader"); } }, async () => {
+			const paths: string[] = [];
+			const store = snapshotStore(
+				{
+					tables: ["zone", "team_campaign_point", "standing"],
+					carriers: FIXTURE_CARRIERS,
+					schema: {
+						zone: {
+							durability: "live",
+							fields: [
+								{ name: "id", type: "string" },
+								{ name: "group_id", type: "string" },
+								{ name: "first", type: "number" },
+								{ name: "last", type: "number" },
+							],
+						},
+						team_campaign_point: {
+							durability: "live",
+							fields: [
+								{ name: "id", type: "string" },
+								{ name: "group_id", type: "string" },
+								{ name: "team_id", type: "string" },
+								{ name: "sequence", type: "number" },
+							],
+						},
+						standing: {
+							durability: "live",
+							fields: [
+								{ name: "id", type: "string" },
+								{ name: "group_id", type: "string" },
+								{ name: "position", type: "number" },
+								{ name: "team_id", type: "string" },
+								{ name: "team_name", type: "string" },
+							],
+						},
+					},
+				},
+				new URL("https://snapshot.test/"),
+				{
+					read(path: string) {
+						paths.push(path);
+						if (path.startsWith("/zone?")) {
+							return Promise.resolve([
+								{ id: "z1", group_id: "g1", first: 1, last: 4 },
+								{ id: "z2", group_id: "g1", first: 5, last: 6 },
+							]);
+						}
+						if (path.startsWith("/team_campaign_point?")) {
+							return Promise.resolve([
+								{
+									id: "p1",
+									group_id: "g1",
+									team_id: "t1",
+									sequence: 1,
+									team: { name: "Talleres" },
+									game: { slug: "game-1" },
+								},
+								{
+									id: "p2",
+									group_id: "g1",
+									team_id: "t1",
+									sequence: 2,
+									team: { name: "Talleres" },
+									game: { slug: "game-2" },
+								},
+							]);
+						}
+						if (path.startsWith("/standing?")) {
+							return Promise.resolve([
+								{
+									id: "s1",
+									group_id: "g1",
+									position: 1,
+									team_id: "t-boca",
+									team_name: "Boca Juniors",
+									team: { slug: "boca", logo_key: "b" },
+								},
+								{
+									id: "s2",
+									group_id: "g1",
+									position: 2,
+									team_id: "t-aldosivi",
+									team_name: "Aldosivi",
+									team: { slug: "aldosivi", logo_key: "a" },
+								},
+							]);
+						}
+						return Promise.resolve([]);
+					},
+				},
+			);
+			try {
+				const [
+					zones50,
+					zones250,
+					campaignChart,
+					campaignTable,
+					campaignProbe,
+					standingByPos,
+					standingByName,
+				] = await Promise.all([
+					store.query("zone", "first.asc,last.asc,id.asc", {
+						filter: "group_id=eq.g1&limit=50",
+					}),
+					store.query("zone", "first.asc,last.asc,id.asc", {
+						filter: "group_id=eq.g1&limit=250",
+					}),
+					store.query("team_campaign_point", "sequence.asc,team_id.asc", {
+						select: "*,team(name),game(slug)",
+						filter: "group_id=eq.g1&team_id=in.(t1,t1)&limit=800",
+					}),
+					store.query("team_campaign_point", "sequence.asc", {
+						select: "*,game(slug)",
+						filter: "group_id=eq.g1&team_id=eq.t1&offset=0&limit=40",
+					}),
+					store.query("team_campaign_point", "sequence.asc", {
+						select: "id",
+						filter: "group_id=eq.g1&team_id=eq.t1&offset=40&limit=1",
+					}),
+					store.query("standing", "position.asc,id.asc", {
+						select: "*,team(slug,logo_key)",
+						filter: "group_id=eq.g1",
+					}),
+					store.query("standing", "team_name.asc,team_id.asc", {
+						select: "*,team(slug,logo_key)",
+						filter: "group_id=eq.g1&limit=250",
+					}),
+				]);
+				assertEquals(zones50.length, 2);
+				assertEquals(zones250.length, 2);
+				assertEquals(campaignChart.length, 2);
+				assertEquals(campaignTable, [
+					{
+						id: "p1",
+						group_id: "g1",
+						team_id: "t1",
+						sequence: 1,
+						game: { slug: "game-1" },
+					},
+					{
+						id: "p2",
+						group_id: "g1",
+						team_id: "t1",
+						sequence: 2,
+						game: { slug: "game-2" },
+					},
+				]);
+				assertEquals(campaignProbe, []);
+				assertEquals(standingByPos.map((r: { id: string }) => r.id), ["s1", "s2"]);
+				assertEquals(standingByName.map((r: { id: string }) => r.id), ["s2", "s1"]);
+				assertEquals(paths, [
+					"/zone?select=*&order=first.asc,last.asc,id.asc&group_id=eq.g1&limit=251",
+					"/team_campaign_point?select=*,team(name),game(slug)&order=sequence.asc,team_id.asc&group_id=eq.g1&team_id=in.(t1,t1)&limit=801",
+					"/standing?select=*,team(slug,logo_key)&order=position.asc,id.asc&group_id=eq.g1",
+				]);
+				assertEquals(
+					JSON.parse(
+						store.reads.get(
+							"/crud/team_campaign_point?select=*,game(slug)&order=sequence.asc&group_id=eq.g1&team_id=eq.t1&offset=0&limit=40",
+						)!,
+					),
+					campaignTable,
+				);
+				assertEquals(
+					JSON.parse(
+						store.reads.get(
+							"/crud/standing?select=*,team(slug,logo_key)&order=team_name.asc,team_id.asc&group_id=eq.g1&limit=250",
+						)!,
+					),
+					standingByName,
+				);
+				store.assertHealthy();
+			} finally {
+				await store.close();
+			}
+		});
+	},
+});
+
+Deno.test({
+	name: "embeds with the same alias but different embedded columns do not reuse a narrower projection",
+	sanitizeOps: false,
+	sanitizeResources: false,
+	async fn() {
+		await withBrowser({ fetch: () => { throw new Error("snapshot reads must use the supplied reader"); } }, async () => {
+			const paths: string[] = [];
+			const store = snapshotStore(
+				{
+					tables: ["standing"],
+					carriers: FIXTURE_CARRIERS,
+					schema: {
+						standing: {
+							durability: "live",
+							fields: [
+								{ name: "id", type: "string" },
+								{ name: "group_id", type: "string" },
+							],
+						},
+					},
+				},
+				new URL("https://snapshot.test/"),
+				{
+					read(path: string) {
+						paths.push(path);
+						if (path.includes("team(name)")) {
+							return Promise.resolve([{ id: "s1", group_id: "g1", team: { name: "Talleres" } }]);
+						}
+						return Promise.resolve([{ id: "s1", group_id: "g1", team: { slug: "talleres" } }]);
+					},
+				},
+			);
+			try {
+				const [byName, bySlug] = await Promise.all([
+					store.query("standing", "id.asc", {
+						select: "*,team(name)",
+						filter: "group_id=eq.g1",
+					}),
+					store.query("standing", "id.asc", {
+						select: "*,team(slug)",
+						filter: "group_id=eq.g1",
+					}),
+				]);
+				assertEquals(byName, [{ id: "s1", group_id: "g1", team: { name: "Talleres" } }]);
+				assertEquals(bySlug, [{ id: "s1", group_id: "g1", team: { slug: "talleres" } }]);
+				assertEquals(paths.length, 2);
+				store.assertHealthy();
+			} finally {
+				await store.close();
+			}
+		});
+	},
+});
+
+Deno.test({
+	name:
+		"snapshot store treats a widened query returning fewer than limit + 1 rows as exhausted for local re-sorting",
+	sanitizeOps: false,
+	sanitizeResources: false,
+	async fn() {
+		await withBrowser({
+			fetch: () => {
+				throw new Error("unexpected fetch");
+			},
+		}, async () => {
+			const paths: string[] = [];
+			const storeExact = snapshotStore(
+				{
+					tables: ["standing"],
+					carriers: FIXTURE_CARRIERS,
+					schema: {
+						standing: {
+							durability: "live",
+							fields: [
+								{ name: "id", type: "string" },
+								{ name: "group_id", type: "string" },
+								{ name: "position", type: "number" },
+								{ name: "team_name", type: "string" },
+							],
+						},
+					},
+				},
+				new URL("https://snapshot.test/"),
+				{
+					read(path: string) {
+						paths.push(path);
+						return Promise.resolve([
+							{ id: "s1", group_id: "g1", position: 1, team_name: "Boca" },
+							{ id: "s2", group_id: "g1", position: 2, team_name: "Aldosivi" },
+						]);
+					},
+				},
+			);
+			try {
+				const [byPos, secondPage, byPosCopy] = await Promise.all([
+					storeExact.query("standing", "position.asc,id.asc", {
+						filter: "group_id=eq.g1&offset=0&limit=2",
+					}),
+					storeExact.query("standing", "position.asc,id.asc", {
+						filter: "group_id=eq.g1&offset=2&limit=2",
+					}),
+					storeExact.query("standing", "position.asc,id.asc", {
+						filter: "group_id=eq.g1&offset=0&limit=2",
+					}),
+				]);
+				byPosCopy.reverse();
+				byPosCopy[0].team_name = "mutated";
+				const byName = await storeExact.query("standing", "team_name.asc,id.asc", {
+					filter: "group_id=eq.g1&offset=0&limit=2",
+				});
+				assertEquals(byPos.map((r: { id: string }) => r.id), ["s1", "s2"]);
+				assertEquals(byPos[0].team_name, "Boca");
+				assertEquals(secondPage, []);
+				assertEquals(byName.map((r: { id: string }) => r.id), ["s2", "s1"]);
+				assertEquals(paths.length, 1);
+				storeExact.assertHealthy();
+			} finally {
+				await storeExact.close();
+			}
+		});
+	},
+});
+
+Deno.test({
+	name: "snapshot store does not coalesce eq queries carrying limit across distinct keys and does not locally re-sort server-durability tables",
+	sanitizeOps: false,
+	sanitizeResources: false,
+	async fn() {
+		await withBrowser({ fetch: () => { throw new Error("unexpected fetch"); } }, async () => {
+			const paths: string[] = [];
+			const store = snapshotStore(
+				{
+					tables: ["standing"],
+					carriers: FIXTURE_CARRIERS,
+					schema: {
+						standing: {
+							durability: "server",
+							fields: [
+								{ name: "id", type: "string" },
+								{ name: "group_id", type: "string" },
+								{ name: "team_name", type: "string" },
+								{ name: "position", type: "number" },
+							],
+						},
+					},
+				},
+				new URL("https://snapshot.test/"),
+				{
+					read(path: string) {
+						paths.push(path);
+						if (path.includes("group_id=eq.g1") && path.includes("limit=1")) {
+							return Promise.resolve([{ id: "s1", group_id: "g1", position: 1, team_name: "Boca" }]);
+						}
+						if (path.includes("group_id=eq.g2") && path.includes("limit=1")) {
+							return Promise.resolve([{ id: "s2", group_id: "g2", position: 1, team_name: "River" }]);
+						}
+						return Promise.resolve([
+							{ id: "s1", group_id: "g1", position: 1, team_name: "Boca" },
+							{ id: "s3", group_id: "g1", position: 2, team_name: "Aldosivi" },
+						]);
+					},
+				},
+			);
+			try {
+				const [g1Top, g2Top, byPos, byName] = await Promise.all([
+					store.query("standing", "position.asc", { filter: "group_id=eq.g1&limit=1" }),
+					store.query("standing", "position.asc", { filter: "group_id=eq.g2&limit=1" }),
+					store.query("standing", "position.asc,id.asc", { filter: "group_id=eq.g3" }),
+					store.query("standing", "team_name.asc,id.asc", { filter: "group_id=eq.g3" }),
+				]);
+				assertEquals(g1Top.length, 1);
+				assertEquals(g2Top.length, 1);
+				assertEquals(byPos.length, 2);
+				assertEquals(byName.length, 2);
+				assertEquals(paths, [
+					"/standing?select=*&order=position.asc&group_id=eq.g1&limit=1",
+					"/standing?select=*&order=position.asc&group_id=eq.g2&limit=1",
+					"/standing?select=*&order=position.asc,id.asc&group_id=eq.g3",
+					"/standing?select=*&order=team_name.asc,id.asc&group_id=eq.g3",
+				]);
+				store.assertHealthy();
+			} finally {
+				await store.close();
+			}
+		});
+	},
+});

@@ -221,11 +221,11 @@ reload, which gates a page's reader again, is the renderer's exit.
 A document carries the request-only reads its render made, each /crud GET's
 body under its path and query, in `<script type="application/json"
 id="pronto-reads">`; the shell taking it over answers each of those addresses
-from it once, for a guest the page minted, while it shows the address it was served at and has
-written nothing, and asks the network for the rest. Nothing of how a
-read was asked, a token least of all, is carried. The service worker keeps its
-copy of a document without them, so a copy it paints, any number of changes
-old, reads from the network.
+from it for a guest the page minted, while it shows the address it was served
+at and has written no remote table, and asks the network for the rest. Nothing
+of how a read was asked, a token least of all, is carried. The service worker
+keeps its copy of a document without them, so a copy it paints, any number of
+changes old, reads from the network.
 
 A document containing a `server` read is rendered for each request, including
 when that read is a named input rather than a region. Existing schema durability

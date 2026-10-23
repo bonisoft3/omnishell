@@ -788,14 +788,14 @@ export async function createShell({ config, mount, preload = true }) {
     }
 
     await catalogued;
-    const { createStore, servedReadsOf } = await dataPlane;
+    const { createStore, servedReadsOf, takeProgressiveReads } = await dataPlane;
     const store = createStore("", {
       ...cfg,
       appBase,
       mintedGuest,
       ensureSession: guestSession ? () => guestSession : null,
     });
-    const linkPrefetch = startLinkPrefetch({ addresses, appBase, store, servedReadsOf });
+    const linkPrefetch = startLinkPrefetch({ addresses, appBase, store, servedReadsOf, takeProgressiveReads });
     recovery = JSON.parse(sessionStorage.getItem(recoveryKey) ?? "null");
     const owner = session === null ? storedSessionOwner() : sessionOwner(session);
     if (initialDraftOwner !== owner) initialFields = null;
@@ -1034,6 +1034,7 @@ export async function createShell({ config, mount, preload = true }) {
       // a screen nobody can see.
       const capped = adopting ? undefined : setTimeout(() => release(el), SCREEN_LOAD_CAP_MS);
       try {
+        const seeded = !adopting && mintedGuest && route.ssr === "ssr" ? linkPrefetch.seed(location.href) : undefined;
         // A screen composes its own links and hands the move back: the stack is
         // the terminal's, and a screen that pushed its own entry would be
         // deciding scroll and history for a back button it does not own.
@@ -1042,6 +1043,7 @@ export async function createShell({ config, mount, preload = true }) {
           ensureMessages,
           locale,
           navigate,
+          ...(seeded ? { seeded } : {}),
           ...(adopting ? { served: { screen: adopting.firstElementChild, cas: servedCas } } : {}),
         }));
         fresh.handle = await fresh.loading;

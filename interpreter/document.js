@@ -14,7 +14,7 @@
 
 import { describe, drawStrip, guestBox, hasStrip, localizeStrip, offersGuest } from "./chrome.js";
 import { screenEnv } from "./fragment.js";
-import { interpretScreen } from "./screen.js";
+import { hasOnMutation, interpretScreen } from "./screen.js";
 import { assetURL, preloadScreen } from "./preloads.js";
 
 /** Whether a reader of this app arrives as a guest: the session every app with
@@ -59,11 +59,37 @@ export async function renderDocument({
   rows,
   origin,
   here,
+  onHead,
+  onChunk,
 }) {
   if (typeof origin !== "string") throw new Error("a document's links are absolute, and no origin was given to spell them against");
   const doc = parse(entry);
   const ambient = globalThis.document;
   globalThis.document = doc;
+  const decorateDoc = (screen, cas) => {
+    if (hasStrip(cfg, servesGuests(cfg))) {
+      const nav = drawStrip(doc, cfg);
+      if (servesGuests(cfg) && offersGuest(cfg)) nav.append(guestBox(doc, cfg));
+      localizeStrip(nav, cfg, { locale, here, messages });
+      doc.getElementById("app").before(nav);
+    }
+    describe(doc, cfg, { route, params, locale, written, el: screen, origin });
+    openGraph(doc, { locale, origin });
+    const witness = doc.createElement("meta");
+    witness.setAttribute("name", "pronto-cas");
+    witness.setAttribute("content", cas);
+    doc.head.append(witness);
+    preloadScreen(doc, appBase, route);
+    deferBoot(doc);
+  };
+  const uncomment = (node) => {
+    for (let child = node.firstChild; child !== null;) {
+      const next = child.nextSibling;
+      if (child.nodeType === 8) child.remove();
+      else if (child.nodeType === 1) uncomment(child);
+      child = next;
+    }
+  };
   try {
     const mount = doc.getElementById("app");
     if (mount === null) throw new Error("the entry page has no #app to render into");
@@ -73,6 +99,16 @@ export async function renderDocument({
     // screen a reader can use, can tell the two apart.
     slot.setAttribute("data-served", "");
     mount.append(slot);
+    let headGone = false;
+    let decorated = false;
+    let resolveSettled;
+    let rejectSettled;
+    const settled = new Promise((resolve, reject) => {
+      resolveSettled = resolve;
+      rejectSettled = reject;
+    });
+    settled.catch(() => {});
+    let streamPromise = null;
     const handle = await interpretScreen(slot, appBase, route, store, params, screenEnv(cfg, {
       messages,
       locale,
@@ -86,45 +122,67 @@ export async function renderDocument({
       navigate: () => {
         throw new Error("a rendered document navigates by its links");
       },
+      ...(rows && onChunk
+        ? {
+            onHeadReady: (screen, cas) => {
+              const startStream = () => {
+                store.assertHealthy?.();
+                headGone = gone(screen, cfg);
+                if (!headGone) {
+                  decorateDoc(screen, cas);
+                  decorated = true;
+                }
+                onHead?.({ status: headGone ? 404 : 200, gone: headGone });
+                if (!headGone) {
+                  return streamDocument(doc, settled, onChunk);
+                }
+              };
+              if (hasOnMutation(screen)) {
+                streamPromise = settled.then(startStream);
+                return;
+              }
+              streamPromise = startStream() ?? null;
+            },
+          }
+        : {}),
       ...(rows ? {} : { handlers: false, fixtures: true }),
     }));
     // Whatever throws from here leaves the handle standing with no caller to
     // stop it, and its regions listening to a store for a document nobody holds.
     let drawn = false;
     try {
-      if (rows) await handle.settle();
+      if (rows) {
+        try {
+          await handle.settle();
+          store.assertHealthy?.();
+          resolveSettled();
+        } catch (err) {
+          rejectSettled(err);
+          await streamPromise?.catch(() => {});
+          throw err;
+        }
+      } else {
+        resolveSettled();
+      }
+      if (streamPromise !== null) await streamPromise;
       const screen = slot.firstElementChild;
       if (!rows) {
         for (const region of screen.querySelectorAll("[data-live]")) region._prontoEmpty?.remove();
         screen.setAttribute("data-state", "loading");
       }
 
-      if (hasStrip(cfg, servesGuests(cfg))) {
-        const nav = drawStrip(doc, cfg);
-        if (servesGuests(cfg) && offersGuest(cfg)) nav.append(guestBox(doc, cfg));
-        localizeStrip(nav, cfg, { locale, here, messages });
-        mount.before(nav);
+      if (!decorated) {
+        decorateDoc(screen, handle.cas);
       }
-      describe(doc, cfg, { route, params, locale, written, el: screen, origin });
-      openGraph(doc, { locale, origin });
-      const witness = doc.createElement("meta");
-      witness.setAttribute("name", "pronto-cas");
-      witness.setAttribute("content", handle.cas);
-      doc.head.append(witness);
-      preloadScreen(doc, appBase, route);
-      deferBoot(doc);
 
       // The entry's comments explain the entry to whoever edits it, and the
       // screen's explain the screen; a document is read by a browser and a
       // crawler, neither of whom can act on them.
-      const uncomment = (node) => {
-        for (const child of [...node.childNodes]) {
-          if (child.nodeType === 8) child.remove();
-          else uncomment(child);
-        }
-      };
       uncomment(doc.documentElement);
-      const answer = { html: serialize(doc), handle, gone: rows && gone(screen, cfg) };
+      const isGone = rows && (decorated ? headGone : gone(screen, cfg));
+      const html = serialize(doc);
+      if (onChunk && isGone) onChunk(html);
+      const answer = { html, handle, gone: isGone };
       drawn = true;
       return answer;
     } finally {
@@ -133,6 +191,105 @@ export async function renderDocument({
   } finally {
     globalThis.document = ambient;
   }
+}
+
+const VOID_ELEMENTS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
+
+function openTagOf(el) {
+  const outer = el.cloneNode(false).outerHTML;
+  if (VOID_ELEMENTS.has(el.localName)) return outer;
+  const close = `</${el.localName}>`;
+  return outer.endsWith(close) ? outer.slice(0, -close.length) : outer;
+}
+
+async function streamDocument(doc, settled, onChunk) {
+  let buf = "<!doctype html>\n";
+  const flush = () => {
+    if (buf.length > 0) {
+      onChunk(buf);
+      buf = "";
+    }
+  };
+  flush();
+  const screenNeedsSettled = hasOnMutation(doc.documentElement);
+  const walkChildren = (parent, children = [...parent.childNodes], index = 0) => {
+    for (let i = index; i < children.length; i++) {
+      const child = children[i];
+      if (child.parentNode !== parent) {
+        throw new Error("streamed DOM node was detached before completion");
+      }
+      const p = walk(child);
+      if (p !== undefined) {
+        return (async () => {
+          await p;
+          if (child.parentNode !== parent) {
+            throw new Error("streamed DOM node was detached before completion");
+          }
+          const next = walkChildren(parent, children, i + 1);
+          if (next !== undefined) await next;
+        })();
+      }
+    }
+    return undefined;
+  };
+  const finishElement = (node) => {
+    if (node.localName === "body") {
+      flush();
+      return settled.then(() => {
+        onChunk("", { beforeBodyClose: true });
+        buf += `</${node.localName}>`;
+      });
+    }
+    buf += `</${node.localName}>`;
+    return undefined;
+  };
+  const walkBody = (node) => {
+    buf += openTagOf(node);
+    if (VOID_ELEMENTS.has(node.localName)) return undefined;
+    const p = walkChildren(node);
+    if (p !== undefined) return p.then(() => finishElement(node));
+    return finishElement(node);
+  };
+  const walk = (node) => {
+    if (node.nodeType === 8) return undefined;
+    if (node.nodeType === 3) {
+      const parentTag = node.parentNode?.localName;
+      if (parentTag === "script" || parentTag === "style") {
+        buf += node.data;
+      } else if (parentTag === "title" || parentTag === "textarea") {
+        buf += node.data.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+      } else {
+        buf += node.cloneNode(false).toString();
+      }
+      return undefined;
+    }
+    if (node.nodeType !== 1) return undefined;
+    if (node.localName === "template") {
+      buf += node.outerHTML;
+      return undefined;
+    }
+    if (node.hasAttribute("data-live")) {
+      if (screenNeedsSettled || hasOnMutation(node)) {
+        flush();
+        return settled.then(() => walkBody(node));
+      }
+      if (node.hasAttribute("data-hydrating")) {
+        flush();
+        return Promise.race([
+          node._prontoOwnReady,
+          settled.then(() => Promise.resolve()).then(() => {
+            if (node.hasAttribute("data-hydrating")) {
+              throw new Error("region stayed hydrating after screen settled");
+            }
+          }),
+        ]).then(() => walkBody(node));
+      }
+    }
+    return walkBody(node);
+  };
+  await walk(doc.documentElement);
+  buf += "\n";
+  flush();
 }
 
 /** The document as HTML. linkedom writes the text of a `<title>` or a
@@ -218,5 +375,7 @@ function deferBoot(doc) {
   loader.setAttribute("src", assetURL("/omnishell/interpreter/deferred-boot.js", doc).pathname);
   loader.setAttribute("data-pronto-boot", boot.getAttribute("src"));
   loader.setAttribute("data-pronto-preloads", JSON.stringify(ahead));
+  const map = doc.getElementById("pronto-assets");
+  if (map !== null) boot.before(map);
   boot.replaceWith(loader);
 }

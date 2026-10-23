@@ -23,7 +23,8 @@ import {
   not,
   or,
 } from "./vendor/mecha-client.js";
-import { embedDeps, embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect, ProgramError, routeOf } from "./fragment.js";
+import { canCoalesceSchemaEq, coalesceReads, embedDeps, embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect, ProgramError, progressiveReadsComment, routeOf, stripProgressiveReads, takeProgressiveReads } from "./fragment.js";
+export { progressiveReadsComment, stripProgressiveReads, takeProgressiveReads };
 import { evaluateRole } from "./jessie.js";
 import { judge } from "./validate.js";
 import { assetURL } from "./preloads.js";
@@ -76,8 +77,9 @@ function guest() {
 
 // The request-only reads a server-rendered document was drawn from, carried in
 // it: the server terminal records each /crud GET it made as a guest, and the
-// shell taking the document over answers the same address from it once, so
-// its first paint asks the door again only for what it never had. A
+// shell taking the document over answers the same address from it while the
+// page stands at that address and has written no remote table, so its first
+// paint and initial reduces ask the door again only for what it never had. A
 // request-only read has no live sync to resume: its body is its whole state.
 //
 // The document is current while it carries them. The server terminal draws a
@@ -134,26 +136,51 @@ export function takeServedReads(doc) {
 
 /** The address a read is recorded and answered under: its path and query. */
 export function readKey(url, base) {
-  const u = new URL(url, base);
+  const u = new URL(url, base || "https://read.invalid");
   return u.pathname + u.search;
 }
 
 // What the document was served with, taken out of it by the first request
-// after it arrived, and the address it was served at. They are its first
-// screen's: a write, or the shell moving to another address, may move a read
-// they answer, so either drops them.
+// after it arrived, and the address it was served at. A remote write, or the
+// shell moving to another address, may move a read they answer, so either
+// drops them; writes to browser-owned tables (`cfg.local`) do not.
 let served = new Map();
 let servedAt = null;
+const prefetchedPages = new Map();
 let servedToReader = false;
 let pendingSession = null;
 
-function hasServedRead(url) {
-  if (!servedToReader || !guest()) return false;
+function peekServedBody(url) {
+  if (!servedToReader || !guest()) return undefined;
+  const here = globalThis.location?.href;
   const taken = takeServedReads(globalThis.document);
-  if (taken.size > 0) [served, servedAt] = [taken, globalThis.location.href];
-  if (globalThis.location?.href !== servedAt) served.clear();
-  if (served.size === 0) return false;
-  return served.has(readKey(url, globalThis.location?.href));
+  if (taken.size > 0) [served, servedAt] = [taken, here];
+  if (here !== servedAt) served.clear();
+  const rKey = readKey(url, here);
+  return served.get(rKey) ?? (here ? prefetchedPages.get(here)?.get(rKey) : undefined);
+}
+
+function takeServedBody(url) {
+  const body = peekServedBody(url);
+  if (body !== undefined) queueMicrotask(() => dropServedRead(url));
+  return body;
+}
+
+function hasServedRead(url) {
+  return peekServedBody(url) !== undefined;
+}
+
+function dropServedRead(url) {
+  const here = globalThis.location?.href;
+  const rKey = readKey(url, here);
+  served.delete(rKey);
+  if (here) prefetchedPages.get(here)?.delete(rKey);
+}
+
+function clearAllServed() {
+  served.clear();
+  servedAt = null;
+  prefetchedPages.clear();
 }
 
 /** How often a write a serialization conflict aborted is sent, and the first
@@ -162,8 +189,12 @@ function hasServedRead(url) {
  * that never clears is refused, so the outbox does not send it forever. */
 const CONFLICT_SENDS = 5;
 const CONFLICT_FIRST_MS = 25;
+const reloading = new Set();
 
 async function send(url, init) {
+  if (init?.signal?.aborted) {
+    throw init.signal.reason ?? new DOMException("aborted", "AbortError");
+  }
   let res;
   let conflicted = false;
   for (let sent = 1; ; sent++) {
@@ -181,24 +212,26 @@ async function send(url, init) {
     !(await res.clone().text()).includes('"code":"42501"')
   ) {
     // Expired/invalid token: re-gate through the login screen. The reload
-    // tears the page down, so this promise never settles by design. The
-    // server terminal's reload is its end (server/render.ts inhabit).
+    // tears the page down, so this promise never settles while the store is
+    // open. The server terminal's reload is its end (server/render.ts inhabit).
     sessionStorage.removeItem("pronto-token");
     location.reload();
-    return new Promise(() => {});
+    return new Promise((resolve) => {
+      reloading.add(() =>
+        resolve({
+          res: new Response(JSON.stringify({ token: "closed", where: "true", expires_in: 900 }), { status: 200 }),
+          conflicted: false,
+        })
+      );
+    });
   }
   return { res, conflicted };
 }
 
 export async function http(url, init) {
   if ((init?.method ?? "GET") === "GET") {
-    const taken = takeServedReads(globalThis.document);
-    if (taken.size > 0) [served, servedAt] = [taken, globalThis.location.href];
-    if (globalThis.location?.href !== servedAt) served.clear();
-    const key = readKey(url, globalThis.location?.href);
-    const body = served.get(key);
-    if (body !== undefined && servedToReader && guest()) {
-      served.delete(key);
+    const body = takeServedBody(url);
+    if (body !== undefined) {
       return new Response(body, { status: 200, headers: { "Content-Type": "application/json" } });
     }
   }
@@ -304,16 +337,18 @@ export function columnOrder(compare, fields = []) {
 /** @param {(col: string, a: unknown, b: unknown) => number | undefined} [compare] */
 export function compareBy(order, compare = () => undefined) {
   const keys = (order ?? "").split(",").filter(Boolean).map((k) => {
-    const [col, dir] = k.split(".");
-    return { col, sign: dir === "desc" ? -1 : 1 };
+    const [col, dir, mod] = k.split(".");
+    const sign = dir === "desc" ? -1 : 1;
+    const nullSign = mod === "nullsfirst" ? -1 : mod === "nullslast" ? 1 : sign;
+    return { col, sign, nullSign };
   });
   return (a, b) => {
-    for (const { col, sign } of keys) {
+    for (const { col, sign, nullSign } of keys) {
       const x = a[col];
       const y = b[col];
       if (x == null && y == null) continue;
-      if (x == null) return sign;
-      if (y == null) return -sign;
+      if (x == null) return nullSign;
+      if (y == null) return -nullSign;
       const typed = compare(col, x, y);
       if (typed !== undefined) {
         if (typed !== 0) return typed * sign;
@@ -409,6 +444,7 @@ export function othersFor(p, sinkRow, mine, pair, compareTxid) {
 export function createStore(base = "", cfg = {}, { request = http, schedule: enqueue = later } = {}) {
   servedToReader = cfg.mintedGuest === true;
   pendingSession = cfg.ensureSession ?? null;
+  prefetchedPages.clear();
   // cfg.local names the browser-owned tables (shell.yaml `local:`), which are
   // collections like any other here — read by a region, mutated by a form —
   // but built from a local factory rather than an Electric shape, so they are
@@ -449,7 +485,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
       // mecha's client names the two modes in Electric's words.
       sync: lazy(t) ? "on-demand" : "eager",
     })),
-    electricUrl: `${base}/electric`,
+    electricUrl: `${base || globalThis.location?.origin || ""}/electric`,
     crudUrl: `${base}/crud`,
     authUrl: `${base}/auth`,
     fetcher: (url, init) => send(url, init).then(({ res }) => res),
@@ -1250,7 +1286,19 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   // its subset to load again. While it loads, the read answers what the view
   // last held; the view's own subscription wakes the readers when it is whole.
   const recalled = new Map();
-  const recallKey = (table, order, opts) => `${token() ?? ""} ${table} ${JSON.stringify([order ?? null, opts.filter ?? null, opts.select ?? null])}`;
+  // A guest session minted while adopting a served document is the same reader
+  // before and after its token settles: keying on token() alone would orphan
+  // every read answered from #pronto-reads before POST /auth/guest returned.
+  let initialGuestToken = null;
+  const readerKey = () => {
+    const t = token();
+    if (servedToReader && guest()) {
+      if (t && initialGuestToken === null) initialGuestToken = t;
+      if (!t || t === initialGuestToken) return "guest";
+    }
+    return t ?? "";
+  };
+  const recallKey = (table, order, opts) => `${readerKey()} ${table} ${JSON.stringify([order ?? null, opts.filter ?? null, opts.select ?? null])}`;
   function keep(memo, key, entry) {
     memo.delete(key);
     memo.set(key, entry);
@@ -1286,12 +1334,14 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   // One spelling per address, the one a carried read is recorded under
   // (readKey): search() writes a query as the program stated it, a recorded
   // one is URL-serialized, and a non-ASCII value spells the two differently.
-  const memoKey = (url) => `${token() ?? ""} ${readKey(url, "https://read.invalid")}`;
+  const memoKey = (url) => `${readerKey()} ${readKey(url, "https://read.invalid")}`;
   // A read whose order the program leaves to Postgres comes back in heap
   // order, so the same rows in another order are no change: waking its
   // readers for one would refresh it again, and again.
-  const canon = (body) => JSON.parse(body).map((row) => JSON.stringify(row)).sort().join("\n");
-  const unchanged = (url, a, b) => a === b || (!/[?&]order=/.test(url) && canon(a) === canon(b));
+  const cleanRow = (row) => Object.fromEntries(Object.entries(row).filter(([k]) => !k.startsWith("$")).sort(([a], [b]) => a.localeCompare(b)));
+  const canon = (body) => JSON.parse(body).map((row) => JSON.stringify(cleanRow(row))).sort().join("\n");
+  const sameOrdered = (a, b) => JSON.stringify(JSON.parse(a).map(cleanRow)) === JSON.stringify(JSON.parse(b).map(cleanRow));
+  const unchanged = (url, a, b) => a === b || (/[?&]order=/.test(url) ? sameOrdered(a, b) : canon(a) === canon(b));
   // Bumped by each write this tab settles, so a read in flight across one
   // keeps nothing of what it brings back.
   const generation = new Map();
@@ -1300,12 +1350,32 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     for (const memo of [answered, recalled]) for (const [key, entry] of memo) if (entry.tables.has(table)) memo.delete(key);
   }
   const generations = (tables) => [...tables].map((t) => generation.get(t) ?? 0).join(",");
+  const requestRows = async (url) => (await request(url)).json();
+  const coalescedRows = coalesceReads(requestRows, canCoalesceSchemaEq(cfg.schema, cfg.carriers));
   async function fetchServer(url) {
-    const rows = await (await request(url)).json();
+    const rows = await (!keepsReads || hasServedRead(url) ? requestRows(url) : coalescedRows(url));
     return { rows, body: JSON.stringify(rows) };
+  }
+  function dropHeldServed(url) {
+    const held = answered.get(memoKey(url));
+    if (held?.served) {
+      held.served = false;
+      held.servedAt = null;
+    }
+    dropServedRead(url);
+  }
+  function clearRemoteServed() {
+    clearAllServed();
+    for (const entry of answered.values()) {
+      if (entry.served) {
+        entry.served = false;
+        entry.servedAt = null;
+      }
+    }
   }
   function refresh(key, url, held) {
     if (held.refreshing) return;
+    dropHeldServed(url);
     held.refreshing = fetchServer(url).then(({ body }) => {
       if (answered.get(key) !== held || unchanged(url, body, held.body)) return;
       held.body = body;
@@ -1317,13 +1387,72 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     }).finally(() => { held.refreshing = null; });
   }
 
+  let activeSeed = null;
+  const seedWaiters = new Map();
+  function notifySeeded(key) {
+    const list = seedWaiters.get(key);
+    if (list !== undefined) {
+      seedWaiters.delete(key);
+      for (const { resolve } of list) resolve();
+    }
+  }
+  function notifyAllSeedWaiters(error) {
+    const waiters = [...seedWaiters.values()].flat();
+    seedWaiters.clear();
+    for (const { resolve, reject } of waiters) {
+      if (error !== undefined) reject(error);
+      else resolve();
+    }
+    return waiters.length > 0;
+  }
+  function waitSeed(promise) {
+    if (!promise) return;
+    const p = Promise.resolve(promise).then(
+      () => {
+        if (activeSeed === p) {
+          activeSeed = null;
+          notifyAllSeedWaiters();
+        }
+      },
+      (error) => {
+        if (activeSeed === p) {
+          activeSeed = null;
+          if (!notifyAllSeedWaiters(error)) throw error;
+        } else {
+          throw error;
+        }
+      },
+    );
+    activeSeed = p;
+  }
+  function awaitSeedForUrl(url) {
+    if (activeSeed === null) return Promise.resolve();
+    const key = memoKey(url);
+    if (hasServedRead(url) || (keepsReads && answered.has(key))) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const list = seedWaiters.get(key) ?? [];
+      list.push({ resolve, reject });
+      seedWaiters.set(key, list);
+    });
+  }
+
   /** The reads a prefetched document carries (takeServedReads), each kept as
    * the tab's answer to its address, so the screen they drew draws whole on
    * the click that opens it. They are what a fresh guest reads, so only a
    * store whose page minted its guest takes them, while that guest reads;
    * an address the tab already answers keeps its own. */
-  function seedReads(reads) {
+  function seedReads(reads, opts) {
     if (!keepsReads || !servedToReader || !guest()) return;
+    const at = opts?.at;
+    let pageReads;
+    if (at !== undefined && reads.size > 0) {
+      pageReads = prefetchedPages.get(at);
+      if (pageReads === undefined) {
+        pageReads = new Map();
+        prefetchedPages.set(at, pageReads);
+        if (prefetchedPages.size > 16) prefetchedPages.delete(prefetchedPages.keys().next().value);
+      }
+    }
     for (const [address, body] of reads) {
       const url = new URL(address, "https://read.invalid");
       const [, route, table] = url.pathname.split("/");
@@ -1337,10 +1466,19 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
       // who may read them is the guest's own, written by the very mint that
       // makes this store one a document may seed.
       const returned = [table, ...embedDeps(select, table, cfg.schema)];
-      if (answered.has(key) || returned.some((t) => (generation.get(t) ?? 0) > 0)) continue;
-      keep(answered, key, { body, tables, refreshing: null });
+      if (returned.some((t) => (generation.get(t) ?? 0) > 0)) continue;
+      if (pageReads !== undefined) {
+        pageReads.set(readKey(address, at), body);
+        if (globalThis.location?.href === at) answered.delete(key);
+      } else if (!answered.has(key)) {
+        keep(answered, key, { body, tables, refreshing: null, served: false, servedAt: null });
+      }
+      notifySeeded(key);
     }
   }
+
+  const isServedAtPage = (at) =>
+    Boolean(at && servedToReader && guest() && at === globalThis.location?.href && (at === servedAt || prefetchedPages.has(at)));
 
   async function readServer(table, order, opts) {
     // A missing optional FK binds an empty UUID. Local views already know
@@ -1348,31 +1486,59 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     const clauses = parseFilterSpec(opts.filter);
     if (clauses?.some(({ col, op, value }) => op === "eq" && literal(table, col, value) === NOHOLD)) return [];
     const url = `${crud(table)}?${search(order, opts)}`;
-    if (!keepsReads || opts.current) return (await fetchServer(url)).rows;
     const key = memoKey(url);
-    const held = kept(answered, key);
+    if (!hasServedRead(url) && !(keepsReads && answered.has(key))) {
+      await awaitSeedForUrl(url);
+    }
+    const fromServed = hasServedRead(url);
+    const held = keepsReads ? kept(answered, key) : undefined;
+    if (!keepsReads || opts.current) {
+      if (held?.served && isServedAtPage(held.servedAt) && !fromServed) {
+        held.served = false;
+        held.servedAt = null;
+        return JSON.parse(held.body);
+      }
+      return (await fetchServer(url)).rows;
+    }
     // Each answer is its own copy: a reader may sort or edit what it is given.
-    if (held !== undefined) {
-      refresh(key, url, held);
+    if (held !== undefined && (!fromServed || isServedAtPage(held.servedAt))) {
+      if (requestOnly(table) || !held.served || !isServedAtPage(held.servedAt)) {
+        refresh(key, url, held);
+      }
       return JSON.parse(held.body);
     }
+    const at = fromServed ? globalThis.location?.href ?? null : null;
     const tables = readDeps(table, opts);
     const before = generations(tables);
     const { rows, body } = await fetchServer(url);
-    if (generations(tables) === before) keep(answered, key, { body, tables, refreshing: null });
+    if (generations(tables) === before) keep(answered, key, { body, tables, refreshing: null, served: fromServed, servedAt: at });
     return rows;
   }
 
   async function read(table, order, opts = {}) {
     order ??= opts.order;
-    if (requestOnly(table) || hasServedRead(`${crud(table)}?${search(order, opts)}`)) {
+    const url = `${crud(table)}?${search(order, opts)}`;
+    const rKey = recallKey(table, order, opts);
+    const isLocalReady = () => {
+      if (maintainedView(table, { ...opts, order }, false)?.complete()) return true;
+      const tables = snapshotTables(table, opts);
+      return tables.length > 0 && tables.every((t) => !lazy(t) && client.collections[t]?.isReady?.());
+    };
+    if (!requestOnly(table) && local[table] === undefined && !recalled.has(rKey) &&
+        !hasServedRead(url) && !(keepsReads && answered.has(memoKey(url))) &&
+        !isLocalReady()) {
+      await awaitSeedForUrl(url);
+    }
+    const heldAnswer = keepsReads ? kept(answered, memoKey(url)) : undefined;
+    const servedForPage = hasServedRead(url) || Boolean(heldAnswer?.served && isServedAtPage(heldAnswer.servedAt));
+    if (requestOnly(table) || (servedForPage && !recalled.has(rKey))) {
       return readServer(table, order, opts);
     }
     await ensurePrepared(table);
     // A read the engine already maintains needs no re-derivation: the view is
     // the filter and the order, kept current by the deltas that woke us.
     const held = maintainedView(table, { ...opts, order }, lazy(table));
-    const key = recallKey(table, order, opts);
+    const key = rKey;
     if (held !== null) {
       const release = lease(held);
       try {
@@ -1553,6 +1719,14 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
       },
       /** What held the wake has let go of it. */
       released: () => schedule(),
+      /** Drops buffered changes when an initial subset matches what #pronto-reads already painted. */
+      discard: () => {
+        batch = [];
+        unattributed = false;
+        cancel?.();
+        notifications.delete(wake);
+        scheduled = false;
+      },
       stop: () => {
         stopped = true;
         cancel?.();
@@ -1618,14 +1792,44 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
       // joining a view another already holds subscribes after the view has
       // its rows, and would otherwise never hear one of them go.
       // The view a rebuild replaces is the one listened to from then on.
+      const url = `${crud(table)}?${search(opts.order, opts)}`;
+      let initialSubset = true;
+      const settleServed = (v) => {
+        if (!initialSubset) return false;
+        initialSubset = false;
+        const held = answered.get(memoKey(url));
+        if (held?.served) {
+          dropHeldServed(url);
+          const rows = v.toArray;
+          recall(recallKey(table, opts.order, opts), table, opts, rows);
+          if (unchanged(url, JSON.stringify(rows), held.body)) {
+            wakes.discard();
+            return true;
+          }
+          clearRemoteServed();
+          return false;
+        }
+        return false;
+      };
       const stop = view.attach((v) => {
         const unwatch = watch(v, (changes) => {
           if (Array.isArray(changes)) wakes.named(changes);
           else wakes.widened();
+          if (!v.isLoadingSubset) {
+            if (!settleServed(v)) clearRemoteServed();
+          }
         });
         const unload = v.on("loadingSubset:change", (event) => {
-          if (!event.isLoadingSubset) loaded();
+          if (event.isLoadingSubset) return;
+          if (settleServed(v)) return;
+          loaded();
         });
+        if (!v.isLoadingSubset && view.complete()) {
+          const hadServed = Boolean(answered.get(memoKey(url))?.served);
+          if (!settleServed(v) && hadServed) {
+            wakes.widened();
+          }
+        }
         return () => {
           unwatch();
           unload();
@@ -1635,13 +1839,20 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
       // applied after it, so the source's changes have to arrive separately.
       const sourceStops = foldSourceOf(table)
         .filter((t) => client.collections[t] !== undefined)
-        .map((t) => watch(client.collections[t], wakes.widened));
-      settleListeners.set(table, (settleListeners.get(table) ?? new Set()).add(wakes.settled));
+        .map((t) => watch(client.collections[t], () => {
+          clearRemoteServed();
+          wakes.widened();
+        }));
+      const settle = (keys) => {
+        dropHeldServed(url);
+        wakes.settled(keys);
+      };
+      settleListeners.set(table, (settleListeners.get(table) ?? new Set()).add(settle));
       return () => {
         wakes.stop();
         stop();
         for (const s of sourceStops) s();
-        settleListeners.get(table).delete(wakes.settled);
+        settleListeners.get(table).delete(settle);
         view.release();
       };
     }
@@ -1666,12 +1877,23 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
       const own = (changes) => {
         if (touches(preds, changes)) wakes.widened();
       };
+      const url = `${crud(table)}?${search(opts.order, opts)}`;
+      let uncaught = deps.filter((t) => local[t] === undefined).length;
       // Which tables a served read not yet asked for depends on is not known
       // here, so a change that would wake any server read drops them all.
-      const moved = (wake) => (changes) => (served.clear(), wake(changes));
-      const stops = deps.map(t => local[t] === undefined
-        ? client.subscribeInvalidation(t, moved(filtered(t) ? own : wakes.widened))
-        : watch(client.collections[t], moved(filtered(t) ? own : wakes.widened)));
+      const moved = (wake) => (changes) => (clearRemoteServed(), wake(changes));
+      const stops = deps.map((t) => {
+        const wake = filtered(t) ? own : wakes.widened;
+        if (local[t] !== undefined) return watch(client.collections[t], moved(wake));
+        let caughtUp = false;
+        return client.subscribeInvalidation(t, (changes) => {
+          if (!caughtUp && changes === undefined) {
+            caughtUp = true;
+            if (--uncaught > 0 || answered.get(memoKey(url))?.served) return;
+          }
+          moved(wake)(changes);
+        });
+      });
       for (const t of deps) {
         settleListeners.set(t, (settleListeners.get(t) ?? new Set()).add(wakes.widened));
       }
@@ -1696,24 +1918,34 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     // Anything the read cannot reason about — another dependency's table, an
     // untranslatable filter — is unconditionally the region's input changing.
     // Being unsure costs a re-read, never a miss.
+    const url = `${crud(table)}?${search(opts.order, opts)}`;
     const wakeMatching = (changes) => {
       if (!touches(preds, changes)) return;
+      clearRemoteServed();
       if (attributable && Array.isArray(changes)) wakes.named(changes);
       else wakes.widened();
     };
-    const settle = attributable ? wakes.settled : wakes.widened;
+    const wakeAll = () => {
+      clearRemoteServed();
+      wakes.widened();
+    };
+    const settle = (keys) => {
+      dropHeldServed(url);
+      if (attributable) wakes.settled(keys);
+      else wakes.widened();
+    };
     const stops = deps.map((t) =>
-      watch(client.collections[t], filtered(t) && preds !== null ? wakeMatching : wakes.widened)
+      watch(client.collections[t], filtered(t) && preds !== null ? wakeMatching : wakeAll)
     );
     for (const t of deps) {
-      settleListeners.set(t, (settleListeners.get(t) ?? new Set()).add(t === table ? settle : wakes.widened));
+      settleListeners.set(t, (settleListeners.get(t) ?? new Set()).add(t === table ? settle : wakeAll));
     }
     return () => {
       wakes.stop();
       for (const stop of stops) stop();
       for (const off of unloads) off();
       for (const release of releaseDemands) release();
-      for (const t of deps) settleListeners.get(t).delete(t === table ? settle : wakes.widened);
+      for (const t of deps) settleListeners.get(t).delete(t === table ? settle : wakeAll);
     };
   }
 
@@ -2045,10 +2277,14 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     return request(`${base}/blobs/mecha-objects/${encodeURIComponent(key)}`, { method: "PUT", body: file });
   }
 
-  const writing = (fn) => (...args) => (served.clear(), fn(...args));
+  const writing = (fn) => (table, ...rest) => {
+    if (local[table] === undefined) clearAllServed();
+    return fn(table, ...rest);
+  };
   return {
     query,
     seedReads,
+    waitSeed,
     add: writing(add),
     write: writing(write),
     patch: writing(patch),
@@ -2056,11 +2292,14 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     dropWhere: writing(dropWhere),
     upsertBy: writing(upsertBy),
     subscribe,
-    upload: writing(upload),
+    upload: (...args) => (clearAllServed(), upload(...args)),
     flushNotifications,
     tabSnapshot,
     restoreTabs,
     async close() {
+      activeSeed = null;
+      notifyAllSeedWaiters();
+      await client.ready;
       for (const entry of views.values()) {
         while (entry.refs > 0) entry.release();
       }
@@ -2068,6 +2307,9 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
         while (entry.refs > 0) entry.release();
       }
       await Promise.all(Object.values(client.collections).map(c => c.cleanup()));
+      for (const abort of reloading) abort();
+      reloading.clear();
+      await new Promise((r) => setTimeout(r, 0));
     },
   };
 }

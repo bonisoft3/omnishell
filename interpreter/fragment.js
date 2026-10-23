@@ -873,3 +873,307 @@ export function routeAt(cfg, pathname, search, preferred) {
   }
   return null;
 }
+
+export const COALESCE_CONTROLS = new Set(["select", "order", "limit", "offset"]);
+const COALESCE_AGGREGATE = /\b(?:count|sum|avg|max|min)\(\)/;
+const PROGRESSIVE_READ_PREFIX = "<!--pronto-read:";
+const PROGRESSIVE_READ_SUFFIX = "-->";
+
+export function progressiveReadsComment(reads) {
+  if (reads.size === 0) return "";
+  const json = JSON.stringify(Object.fromEntries(reads))
+    .replace(/--/g, "\\u002d\\u002d")
+    .replace(/>/g, "\\u003e");
+  return `${PROGRESSIVE_READ_PREFIX}${json}${PROGRESSIVE_READ_SUFFIX}`;
+}
+
+export function takeProgressiveReads(buf) {
+  const reads = new Map();
+  let cursor = 0;
+  for (;;) {
+    const start = buf.indexOf(PROGRESSIVE_READ_PREFIX, cursor);
+    if (start < 0) break;
+    const end = buf.indexOf(PROGRESSIVE_READ_SUFFIX, start + PROGRESSIVE_READ_PREFIX.length);
+    if (end < 0) {
+      return { reads, rest: buf.slice(start) };
+    }
+    const obj = JSON.parse(buf.slice(start + PROGRESSIVE_READ_PREFIX.length, end));
+    for (const [k, v] of Object.entries(obj)) reads.set(k, v);
+    cursor = end + PROGRESSIVE_READ_SUFFIX.length;
+  }
+  const tailStart = Math.max(cursor, buf.length - PROGRESSIVE_READ_PREFIX.length);
+  return { reads, rest: buf.slice(tailStart) };
+}
+
+export function stripProgressiveReads(html) {
+  return html.replace(/<!--pronto-read:[\s\S]*?-->/g, "");
+}
+
+export function preservesRows(select) {
+  const tree = parseEmbeds(select ?? "*");
+  if (tree === null || tree.cols.some((c) => COALESCE_AGGREGATE.test(c))) return false;
+  const walk = (embeds) =>
+    embeds.every((e) =>
+      !e.hints.includes("inner") && !e.cols.some((c) => COALESCE_AGGREGATE.test(c)) &&
+      walk(e.embeds)
+    );
+  return walk(tree.embeds);
+}
+
+export function normalizeFilterValue(v) {
+  if (!v.startsWith("in.(") || !v.endsWith(")")) return v;
+  const inner = v.slice(4, -1);
+  if (inner === "") return v;
+  const items = [];
+  let i = 0;
+  while (i < inner.length) {
+    if (inner[i] === '"') {
+      let val = "";
+      i++;
+      while (i < inner.length && inner[i] !== '"') {
+        if (inner[i] === "\\" && i + 1 < inner.length) i++;
+        val += inner[i++];
+      }
+      if (inner[i] !== '"') return v;
+      i++;
+      if (i < inner.length && inner[i] !== ",") return v;
+      if (inner[i] === ",") i++;
+      items.push(val);
+    } else {
+      const next = inner.indexOf(",", i);
+      const token = next < 0 ? inner.slice(i) : inner.slice(i, next);
+      if (token === "" || /[()"\\]/.test(token)) return v;
+      items.push(token);
+      i = next < 0 ? inner.length : next + 1;
+    }
+  }
+  if (items.length === 0 || new Set(items).size !== 1) return v;
+  return `eq.${items[0]}`;
+}
+
+function limitCapKey(url) {
+  const offsetRaw = url.searchParams.get("offset");
+  if (offsetRaw !== null && offsetRaw !== "0") return null;
+  if ([...COALESCE_CONTROLS].some((k) => url.searchParams.getAll(k).length > 1)) return null;
+  const limitRaw = url.searchParams.get("limit");
+  if (limitRaw !== null && (!/^\d+$/.test(limitRaw) || Number(limitRaw) <= 0)) return null;
+  const limit = limitRaw === null ? Infinity : Number(limitRaw);
+  const selectRaw = url.searchParams.get("select");
+  if (!preservesRows(selectRaw ?? "*")) return null;
+  const filters = [];
+  for (const [k, rawV] of url.searchParams) {
+    if (COALESCE_CONTROLS.has(k)) continue;
+    filters.push([k, normalizeFilterValue(rawV)]);
+  }
+  filters.sort(([a, av], [b, bv]) => a.localeCompare(b) || av.localeCompare(bv));
+  const sig = JSON.stringify([url.pathname, selectRaw, url.searchParams.get("order"), filters]);
+  return { sig, limit };
+}
+
+export function canCoalesceSchemaEq(schema, carriers) {
+  return (table, col, val) => {
+    const fields = schema?.[table]?.fields;
+    if (!fields) return false;
+    const field = fields.find((f) => f.name === col);
+    if (!field || carriers?.aliases?.[field.type] !== undefined) return false;
+    if (field.type === "text" || field.type === "string") return true;
+    if (field.type === "uuid") return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(val);
+    return false;
+  };
+}
+
+function coalesceCandidate(url, canCoalesceEq) {
+  if (url.searchParams.has("offset") || url.searchParams.has("limit")) return null;
+  const selectRaw = url.searchParams.get("select");
+  if (!preservesRows(selectRaw ?? "*")) return null;
+  const tree = parseEmbeds(selectRaw ?? "*");
+  if (tree === null || !tree.cols.includes("*")) return null;
+  if (tree.cols.some((c) => c.includes(":")) || tree.embeds.some((e) => e.spread)) return null;
+  const shadowed = new Set(tree.embeds.map((e) => e.alias));
+  const table = url.pathname.startsWith("/crud/") ? url.pathname.slice(6) : url.pathname.slice(1);
+  const fixed = [];
+  const eqs = [];
+  const seen = new Set();
+  for (const [k, rawV] of url.searchParams) {
+    if (COALESCE_CONTROLS.has(k)) continue;
+    if (k.includes(".") || seen.has(k)) return null;
+    seen.add(k);
+    const v = normalizeFilterValue(rawV);
+    if (v.startsWith("eq.") && !shadowed.has(k)) {
+      const val = v.slice(3);
+      if (val !== "" && !/[\r\n\0]/.test(val) && !/^0\d+$/.test(val) && (canCoalesceEq === undefined || canCoalesceEq(table, k, val))) {
+        eqs.push([k, val]);
+        continue;
+      }
+    }
+    fixed.push([k, v]);
+  }
+  if (eqs.length === 0) return null;
+  fixed.sort(([a, av], [b, bv]) => a.localeCompare(b) || av.localeCompare(bv));
+  eqs.sort(([a], [b]) => a.localeCompare(b));
+  const eqCols = eqs.map(([k]) => k);
+  const eqVals = eqs.map(([, v]) => v);
+  const orders = url.searchParams.getAll("order");
+  const sig = JSON.stringify([url.pathname, selectRaw, orders, fixed, eqCols]);
+  return { sig, eqCols, eqVals, key: eqVals.join("\u0000") };
+}
+
+// Per-item nested regions queued in the same microtask ask `/crud` for one key
+// each; coalescing them into one `in.(...)` or widest-limit read keeps a
+// list's child wave to one query per table while answering each caller's own
+// slice and order.
+export function coalesceReads(readRows, canCoalesceEq) {
+  let queue = [];
+  let scheduled = false;
+  const resolveGroup = (group, rows) => {
+    for (const caller of group.callers) caller.resolve([...rows]);
+    for (const { group: narrow, limit } of group.narrower ?? []) {
+      const sliced = Number.isFinite(limit) ? rows.slice(0, limit) : rows;
+      for (const caller of narrow.callers) caller.resolve([...sliced]);
+    }
+  };
+  const rejectGroup = (group, err) => {
+    for (const caller of group.callers) caller.reject(err);
+    for (const { group: narrow } of group.narrower ?? []) {
+      for (const caller of narrow.callers) caller.reject(err);
+    }
+  };
+  const flush = () => {
+    const batch = queue;
+    queue = [];
+    scheduled = false;
+    const byHref = new Map();
+    for (const item of batch) {
+      let group = byHref.get(item.url.href);
+      if (group === undefined) {
+        group = {
+          raw: item.raw,
+          url: item.url,
+          callers: [],
+          narrower: [],
+          candidate: coalesceCandidate(item.url, canCoalesceEq),
+          cap: limitCapKey(item.url),
+        };
+        byHref.set(item.url.href, group);
+      }
+      group.callers.push(item);
+    }
+    const byCap = new Map();
+    for (const group of byHref.values()) {
+      if (group.cap === null) continue;
+      const list = byCap.get(group.cap.sig) ?? [];
+      list.push(group);
+      byCap.set(group.cap.sig, list);
+    }
+    const capWidest = new Map();
+    for (const [sig, list] of byCap.entries()) {
+      list.sort((a, b) => (b.cap.limit === a.cap.limit ? 0 : b.cap.limit > a.cap.limit ? 1 : -1));
+      const widest = list[0];
+      for (let i = 1; i < list.length; i++) {
+        widest.narrower.push({ group: list[i], limit: list[i].cap.limit });
+      }
+      capWidest.set(sig, widest);
+    }
+    const activeGroups = [];
+    for (const group of byHref.values()) {
+      if (group.cap === null) {
+        activeGroups.push(group);
+        continue;
+      }
+      const widest = capWidest.get(group.cap.sig);
+      if (widest !== undefined) {
+        capWidest.delete(group.cap.sig);
+        activeGroups.push(widest);
+      }
+    }
+    const buckets = new Map();
+    const singles = [];
+    for (const group of activeGroups) {
+      const c = group.candidate;
+      if (c === null) {
+        singles.push(group);
+        continue;
+      }
+      let bucket = buckets.get(c.sig);
+      if (bucket === undefined) {
+        bucket = { eqCols: c.eqCols, groups: [] };
+        buckets.set(c.sig, bucket);
+      }
+      bucket.groups.push({ group, eqVals: c.eqVals, key: c.key });
+    }
+    for (const bucket of buckets.values()) {
+      if (bucket.groups.length < 2) {
+        singles.push(bucket.groups[0].group);
+        continue;
+      }
+      const { eqCols, groups } = bucket;
+      const colSets = eqCols.map((_, idx) => new Set(groups.map((g) => g.eqVals[idx])));
+      const byCol = new Map(eqCols.map((col, idx) => [col, colSets[idx]]));
+      const first = groups[0].group;
+      const batchUrl = new URL(first.url.href);
+      const nextParams = new URLSearchParams();
+      for (const [k, v] of first.url.searchParams) {
+        const set = byCol.get(k);
+        if (set !== undefined && set.size > 1) {
+          const list = [...set].map((val) => `"${val.replace(/[\\"]/g, "\\$&")}"`).join(",");
+          nextParams.append(k, `in.(${list})`);
+        } else {
+          nextParams.append(k, v);
+        }
+      }
+      batchUrl.search = nextParams.toString();
+      const target = typeof first.raw === "string" && first.raw.startsWith("/")
+        ? batchUrl.pathname + batchUrl.search
+        : first.raw instanceof URL ? batchUrl : batchUrl.href;
+      Promise.resolve(target).then(readRows).then((rows) => {
+        const partitioned = new Map(groups.map(({ key }) => [key, []]));
+        for (const row of rows) {
+          let rowKey = "";
+          let valid = true;
+          for (let i = 0; i < eqCols.length; i++) {
+            const v = row?.[eqCols[i]];
+            if (v === null || v === undefined) {
+              valid = false;
+              break;
+            }
+            const s = String(v);
+            if (!colSets[i].has(s)) {
+              valid = false;
+              break;
+            }
+            rowKey += (i === 0 ? "" : "\u0000") + s;
+          }
+          if (!valid) {
+            throw new Error(`coalesced read on ${batchUrl.pathname} returned a row whose (${eqCols.join(",")}) value did not match any requested eq filter`);
+          }
+          const dest = partitioned.get(rowKey);
+          if (dest !== undefined) dest.push(row);
+        }
+        for (const { group, key } of groups) {
+          const matched = partitioned.get(key) ?? [];
+          resolveGroup(group, matched);
+        }
+      }).catch((err) => {
+        for (const { group } of groups) {
+          rejectGroup(group, err);
+        }
+      });
+    }
+    for (const group of singles) {
+      Promise.resolve(group.raw).then(readRows).then((rows) => {
+        resolveGroup(group, rows);
+      }, (err) => {
+        rejectGroup(group, err);
+      });
+    }
+  };
+  return (raw) =>
+    new Promise((resolve, reject) => {
+      const url = raw instanceof URL ? raw : new URL(String(raw), "https://read.invalid");
+      queue.push({ raw, url, resolve, reject });
+      if (!scheduled) {
+        scheduled = true;
+        queueMicrotask(flush);
+      }
+    });
+}

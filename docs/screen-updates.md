@@ -182,12 +182,17 @@ as soon as its initial route is resolved, beside its existing template fetch.
 Neither path speculates about other routes, data, or images.
 
 On-request rendering waits for the screen's current reads, derived writes and
-resulting region refreshes before serializing. A derived region's declared
-auxiliary reads are revisited when another initial derivation writes their
-tables. Long-poll streams and future
-machine timers do not belong to that finite work. A failed read or derivation,
-or a derivation that does not converge, fails the render rather than caching
-an incomplete document. Browser mounting remains incremental.
+resulting region refreshes before closing `</body>`. When a caller supplies
+`onChunk` (`document.js`), the `<head>` and regions on screens without a fold
+(`data-on-mutation`) stream in document order as each region's own read
+settles, while screens with a fold hold the stream until their derivations
+settle. Browser mounting hides children inside an unsettled region
+(`[data-hydrating] > *`) so progressive hydration paints without placeholder
+flicker. A derived region's declared auxiliary reads are revisited
+when another initial derivation writes their tables. Long-poll streams and
+future machine timers do not belong to that finite work. A failed read or
+derivation, or a derivation that does not converge, fails the render rather than
+caching an incomplete document.
 
 Two callers render one:
 

@@ -40,6 +40,8 @@ export async function fetchText(url, init) {
 // A screen's stylesheet. One replacing another is swapped once it has loaded
 // what it imports, so a screen on show is never drawn between two releases'
 // styles; a first one, or one that imports nothing, applies as it is written.
+const TOP_DOWN_HYDRATION_CSS =
+  "\n.screen [data-hydrating] > * { display: none !important; }\n";
 const stylesheetLoads = new WeakMap();
 function installStyle(id, css) {
   const prior = document.getElementById(id);
@@ -112,8 +114,8 @@ export function prefetchScreen(appBase, route) {
   const css = new URL(route.files.css, appBase);
   const styleId = `screen-css-${route.screen}`;
   const ahead = [
-    [html, kept.get(html.href) ?? fetchText(html)],
-    [css, (kept.get(css.href) ?? fetchText(css)).then((text) => {
+    [html, kept.get(html.href) ?? prefetched.get(html.href) ?? fetchText(html)],
+    [css, (kept.get(css.href) ?? prefetched.get(css.href) ?? fetchText(css)).then((text) => {
       if (!document.getElementById(styleId)) {
         const style = document.createElement("style");
         style.id = styleId;
@@ -122,6 +124,12 @@ export function prefetchScreen(appBase, route) {
       }
       return text;
     })],
+    ...["handlers", "renderers", "adapters"].flatMap((kind) =>
+      (route.files[kind] ?? []).map((path) => {
+        const url = new URL(path, appBase);
+        return [url, kept.get(url.href) ?? prefetched.get(url.href) ?? fetchText(url)];
+      }),
+    ),
   ];
   for (const [url, pending] of ahead) {
     // The mount awaits this promise and throws what it threw; the mark only
@@ -305,17 +313,36 @@ const mintUuid = () => {
 // Every role resolves the same way: the attribute names the role, its value
 // names the module, and route.files.handlers is the app's list of Jessie
 // sources whatever role each one plays.
-async function loadRole(screen, appBase, route, attr, role, listed = "handlers", endowmentsMap = {}, read = fetchText) {
-  const loaded = new Map();
+function loadModule(appBase, path, role, endowmentsMap) {
+  const url = new URL(path, appBase);
+  const granted = endowmentsMap[path] ?? [];
+  return screenFile(url).then((source) => evaluateRole(source, role, granted));
+}
+
+export function hasOnMutation(root) {
+  if (root.hasAttribute?.("data-on-mutation")) return true;
+  if ((root.querySelectorAll?.("[data-on-mutation]") ?? []).length > 0) return true;
+  for (const el of [root, ...(root.querySelectorAll?.("[data-live]") ?? [])]) {
+    for (const tmpl of el._prontoItemTemplates ?? []) {
+      const itemRoot = tmpl.content?.firstElementChild;
+      if (itemRoot && hasOnMutation(itemRoot)) return true;
+    }
+  }
+  return false;
+}
+
+async function loadRole(screen, appBase, route, attr, role, listed = "handlers", endowmentsMap = {}) {
+  const entries = [];
+  const seen = new Set();
   for (const el of screen.querySelectorAll(`[${attr}]`)) {
     const name = el.getAttribute(attr);
-    if (loaded.has(name)) continue;
+    if (seen.has(name)) continue;
+    seen.add(name);
     const path = (route.files[listed] ?? []).find((p) => p.split("/").pop() === `${name}.js`);
     if (!path) throw new Error(`no Jessie module for ${attr}="${name}"`);
-    const granted = endowmentsMap[path] ?? [];
-    loaded.set(name, await evaluateRole(await read(new URL(path, appBase)), role, granted));
+    entries.push(loadModule(appBase, path, role, endowmentsMap).then((m) => [name, m]));
   }
-  return loaded;
+  return new Map(await Promise.all(entries));
 }
 
 // data-on-<dom-event>="<declared handler>". The event name is the DOM's, so
@@ -342,36 +369,44 @@ function adapterOf(el, ctx) {
   return adapter;
 }
 
-async function loadAdapters(screen, appBase, route, endowmentsMap = {}, read = fetchText) {
-  const loaded = await loadRole(screen, appBase, route, "data-value-adapter", "adapter", "adapters", endowmentsMap, read);
+async function loadAdapters(screen, appBase, route, endowmentsMap = {}) {
+  const loaded = await loadRole(screen, appBase, route, "data-value-adapter", "adapter", "adapters", endowmentsMap);
   // A control in an item template is bound per row, and its markup is not in
   // the screen's own tree — the same reason loadHandlers and loadRenderers
   // walk withTemplates.
+  const entries = [];
+  const seen = new Set(loaded.keys());
   for (const scope of withTemplates(screen)) {
     for (const el of scope.querySelectorAll("[data-value-adapter]")) {
       const name = el.getAttribute("data-value-adapter");
-      if (loaded.has(name)) continue;
+      if (seen.has(name)) continue;
+      seen.add(name);
       const path = (route.files.adapters ?? []).find((p) => p.split("/").pop() === `${name}.js`);
       if (!path) throw new Error(`no Jessie module for data-value-adapter="${name}"`);
-      const granted = endowmentsMap[path] ?? [];
-      loaded.set(name, await evaluateRole(await read(new URL(path, appBase)), "adapter", granted));
+      entries.push(loadModule(appBase, path, "adapter", endowmentsMap).then((m) => [name, m]));
     }
   }
+  for (const [name, m] of await Promise.all(entries)) loaded.set(name, m);
   return loaded;
 }
 
-async function loadHandlers(screen, appBase, route, endowmentsMap = {}, read = fetchText) {
-  const loaded = await loadRole(screen, appBase, route, "data-handler", "handler", "handlers", endowmentsMap, read);
+async function loadHandlers(screen, appBase, route, endowmentsMap = {}) {
+  const loaded = await loadRole(screen, appBase, route, "data-handler", "handler", "handlers", endowmentsMap);
+  const entries = [];
+  const seen = new Set(loaded.keys());
+  const add = (name, path) => {
+    seen.add(name);
+    entries.push(loadModule(appBase, path, "handler", endowmentsMap).then((m) => [name, m]));
+  };
   // The same modules, reached by the other spelling. An item's handler lives in
   // a template, whose markup is never in the screen's own tree.
   for (const scope of withTemplates(screen)) {
     for (const el of scope.querySelectorAll("*")) {
       for (const { name } of onAttrs(el)) {
-        if (loaded.has(name)) continue;
+        if (seen.has(name)) continue;
         const path = route.files.handlers.find((f) => f.split("/").pop() === `${name}.js`);
         if (!path) throw new Error(`no Jessie module for data-on-* handler "${name}"`);
-        const granted = endowmentsMap[path] ?? [];
-        loaded.set(name, await evaluateRole(await read(new URL(path, appBase)), "handler", granted));
+        add(name, path);
       }
     }
   }
@@ -386,23 +421,20 @@ async function loadHandlers(screen, appBase, route, endowmentsMap = {}, read = f
       const where = el.dataset.live ?? el.id ?? el.localName;
       for (const shape of declaredCharts(el.getAttribute("data-machine"), where).map(machineShape)) {
         for (const name of shape.refs) {
-          if (loaded.has(name)) continue;
+          if (seen.has(name)) continue;
           const path = route.files.handlers.find((f) => f.split("/").pop() === `${name}.js`);
           if (!path) throw new Error(`no Jessie module for machine reference "${name}"`);
-          const granted = endowmentsMap[path] ?? [];
-          loaded.set(name, await evaluateRole(await read(new URL(path, appBase)), "handler", granted));
+          add(name, path);
         }
         for (const name of shape.assignStrings) {
-          if (loaded.has(name)) continue;
+          if (seen.has(name)) continue;
           const path = route.files.handlers.find((f) => f.split("/").pop() === `${name}.js`);
-          if (path) {
-            const granted = endowmentsMap[path] ?? [];
-            loaded.set(name, await evaluateRole(await read(new URL(path, appBase)), "handler", granted));
-          }
+          if (path) add(name, path);
         }
       }
     }
   }
+  for (const [name, m] of await Promise.all(entries)) loaded.set(name, m);
   for (const [name, module] of loaded) actorOf.set(module, name);
   return loaded;
 }
@@ -428,7 +460,7 @@ const TEXT_FORMATS = new Set(["plain", "datetime", "date", "time", "number"]);
 // sentence around it. plain is not one: it is the default spelled out.
 const VALUE_FORMATS = new Set(["datetime", "date", "time", "number"]);
 
-async function loadRenderers(screen, appBase, route, endowmentsMap = {}, read = fetchText) {
+async function loadRenderers(screen, appBase, route, endowmentsMap = {}) {
   const declared = route.files.renderers ?? [];
   for (const path of declared) {
     const name = path.split("/").pop().replace(/\.js$/, "");
@@ -438,18 +470,19 @@ async function loadRenderers(screen, appBase, route, endowmentsMap = {}, read = 
       throw new Error(`renderer "${name}" collides with a built-in data-text-format`);
     }
   }
-  const loaded = {};
+  const entries = [];
+  const seen = new Set();
   for (const scope of withTemplates(screen)) {
     for (const el of scope.querySelectorAll("[data-text-format]")) {
       const name = el.dataset.textFormat;
-      if (TEXT_FORMATS.has(name) || Object.hasOwn(loaded, name)) continue;
+      if (TEXT_FORMATS.has(name) || seen.has(name)) continue;
+      seen.add(name);
       const path = declared.find((p) => p.split("/").pop() === `${name}.js`);
       if (!path) throw new Error(`no renderer module for data-text-format="${name}"`);
-      const granted = endowmentsMap[path] ?? [];
-      loaded[name] = await evaluateRole(await read(new URL(path, appBase)), "renderer", granted);
+      entries.push(loadModule(appBase, path, "renderer", endowmentsMap).then((m) => [name, m]));
     }
   }
-  return loaded;
+  return Object.fromEntries(await Promise.all(entries));
 }
 
 // Attributes the hydrator itself consumes; never interpolated in place, so
@@ -1276,33 +1309,36 @@ function emptyNote(region, copy, ctx, item) {
 }
 
 function bindTexts(scope, ctx, renderers = {}) {
-  const targets = scope.matches?.("[data-text]") ? [scope] : [];
-  targets.push(...scope.querySelectorAll("[data-text]"));
-  for (const el of targets) {
-    if (!ownedBy(el, scope)) continue;
-    const format = el.dataset.textFormat;
-    // Written only where it differs: a served row already saying it keeps
-    // its text node, and the reader's selection in it.
-    const write = (text) => {
-      if (el.textContent !== text) el.textContent = text;
-    };
-    if (VALUE_FORMATS.has(format)) {
-      write(el.dataset.text.replace(PLACEHOLDERS, (_, expr) =>
-        ({ datetime: formatDatetime, date: formatDate, time: formatTime, number: formatNumber })[format](lookup(expr, ctx), ctx),
-      ));
-      continue;
+  const visit = (el) => {
+    const textAttr = el.getAttribute("data-text");
+    if (textAttr !== null) {
+      const format = el.getAttribute("data-text-format") ?? undefined;
+      // Written only where it differs: a served row already saying it keeps
+      // its text node, and the reader's selection in it.
+      const write = (text) => {
+        if (el.textContent !== text) el.textContent = text;
+      };
+      if (VALUE_FORMATS.has(format)) {
+        write(textAttr.replace(PLACEHOLDERS, (_, expr) =>
+          ({ datetime: formatDatetime, date: formatDate, time: formatTime, number: formatNumber })[format](lookup(expr, ctx), ctx),
+        ));
+      } else if (format !== undefined && format !== "plain") {
+        const render = renderers[format];
+        // Every format resolves at hydration, so an unresolved one can only be
+        // the fixture adapter, which evaluates no Jessie. It shows the value as
+        // text there, the way it shows a widget's markup unenhanced.
+        if (render === undefined) write(interpolate(textAttr, ctx));
+        else renderInto(render, interpolate(textAttr, ctx), el);
+      } else {
+        write(interpolate(textAttr, ctx));
+      }
     }
-    if (format !== undefined && format !== "plain") {
-      const render = renderers[format];
-      // Every format resolves at hydration, so an unresolved one can only be
-      // the fixture adapter, which evaluates no Jessie. It shows the value as
-      // text there, the way it shows a widget's markup unenhanced.
-      if (render === undefined) write(interpolate(el.dataset.text, ctx));
-      else renderInto(render, interpolate(el.dataset.text, ctx), el);
-      continue;
+    if (el.hasAttribute("data-text-format") || el.localName === "template") return;
+    for (let child = el.firstElementChild; child !== null; child = child.nextElementSibling) {
+      if (!child.hasAttribute("data-live")) visit(child);
     }
-    write(interpolate(el.dataset.text, ctx));
-  }
+  };
+  visit(scope);
 }
 
 /** Marks a control edited once the reader types into it, until its form
@@ -1319,12 +1355,15 @@ function guardEdits(el) {
 }
 
 function bindAttributes(scope, ctx) {
+  for (let parent = scope.parentElement; parent !== null; parent = parent.parentElement) {
+    if (parent.hasAttribute("data-text-format")) return;
+  }
   // Renderer output has no bindings; nested regions bind against their own
   // rows, and a template's markup against the rows it stamps (a DOM without
   // template content keeps it as children). Prune all three before walking a
   // potentially large chart or list.
   const visit = (el) => {
-    bindElementAttributes(el, ctx);
+    bindElementAttributes(el, ctx, true);
     if (el.hasAttribute("data-text-format") || el.localName === "template") return;
     for (let child = el.firstElementChild; child !== null; child = child.nextElementSibling) {
       if (!child.hasAttribute("data-live")) visit(child);
@@ -1341,22 +1380,37 @@ function bindAttributes(scope, ctx) {
  * thing for the branch that renders rows, and it is what lets a container hold
  * aria-activedescendant naming a row of the list inside it.
  */
-function bindElementAttributes(el, ctx) {
+function bindElementAttributes(el, ctx, insideWalk = false) {
   // Nodes a renderer produced are the row's own content, not authored
   // markup: nothing in them is a binding, and the braces an author wrote
   // name no column.
-  for (let parent = el.parentElement; parent !== null; parent = parent.parentElement) {
-    if (parent.hasAttribute("data-text-format")) return;
+  if (!insideWalk) {
+    for (let parent = el.parentElement; parent !== null; parent = parent.parentElement) {
+      if (parent.hasAttribute("data-text-format")) return;
+    }
   }
   // setAttribute would consume the placeholder template; persistent regions
   // (singletons) re-bind on every refresh, so originals are stashed.
-  const stash = (el._prontoAttrs ??= {});
+  let stash = el._prontoAttrs;
+  const attrs = el.attributes ?? [];
+  if (stash === undefined) {
+    let hasBound = false;
+    for (let i = 0; i < attrs.length; i++) {
+      const a = attrs[i];
+      if (!regionAttr(a.name) && PLACEHOLDER.test(a.value)) {
+        hasBound = true;
+        break;
+      }
+    }
+    if (!hasBound) return;
+    stash = el._prontoAttrs = {};
+  }
   // The names to consider are the element's attributes AND every name already
   // stashed. A binding that resolved to nothing had its attribute removed —
   // an empty boolean is absent, an empty href is not a URL — and iterating
   // only what is present would never visit it again, leaving it dead at the
   // first empty value it ever took.
-  const names = new Set([...(el.attributes ?? [])].map((a) => a.name));
+  const names = new Set([...attrs].map((a) => a.name));
   for (const name of Object.keys(stash)) names.add(name);
   for (const name of names) {
     if (regionAttr(name)) continue;
@@ -1524,7 +1578,8 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // screen is taken over where it stands rather than drawn again, so nothing
   // on show is replaced and nothing the reader has done to it is lost.
   const served = opts.served;
-  await installStyle(styleId, css);
+  const styleCss = (raw) => opts.mountHostDom === false ? raw : raw + TOP_DOWN_HYDRATION_CSS;
+  await installStyle(styleId, styleCss(css));
 
   // Subscriptions of the previously mounted screen would refresh dead DOM and
   // keep their poll keys hot — stop them before mounting the next one.
@@ -1591,7 +1646,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         // parent's fallback and stored row bind identically, so no ordinary
         // nested rebind wakes that auxiliary read.
         const readers = new Set(changed.flatMap((table) => [...(derived.get(table) ?? [])]));
-        for (const refresh of readers) refresh();
+        for (const refresh of readers) refresh([]);
         if (failure !== undefined) throw failure;
         if (work.size === 0 && wakes === 0 && dirty.size === 0) return;
       }
@@ -1744,11 +1799,19 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // Keyed by the module's app-relative path, the one spelling every loader
   // and pronto's lint read.
   const endowmentsMap = cfg.endowments ?? {};
-  const handlers = opts.handlers === false ? new Map() : await loadHandlers(markup, appBase, route, endowmentsMap);
-  adapters = opts.handlers === false ? null : await loadAdapters(markup, appBase, route, endowmentsMap);
-  const renderers = opts.handlers === false
-    ? {}
-    : await loadRenderers(markup, appBase, route, endowmentsMap);
+  if (opts.seeded) {
+    if (store.waitSeed) store.waitSeed(opts.seeded);
+    else if (opts.handlers === false) await opts.seeded;
+  }
+  const [handlers, loadedAdapters, renderers] = opts.handlers === false
+    ? [new Map(), null, {}]
+    : await Promise.all([
+      loadHandlers(markup, appBase, route, endowmentsMap),
+      loadAdapters(markup, appBase, route, endowmentsMap),
+      loadRenderers(markup, appBase, route, endowmentsMap),
+      ...(store.waitSeed ? [] : [opts.seeded]),
+    ]);
+  adapters = loadedAdapters;
 
   const units = opts.units ?? {};
   const resolveUnit = (name) => {
@@ -2228,15 +2291,16 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // A reduce acts on what it is given, once, and holds no subscription that
     // would correct a stale answer: its reads are current.
     const worldOf = async () => {
-      const rows = {};
-      for (const table of reads) rows[table] = await store.query(table, null, { current: true });
-      for (const r of named) {
-        const opts = { current: true };
-        if (r.filter !== undefined) opts.filter = interpolateFilter(r.filter, ctx);
-        if (r.order !== undefined) opts.order = r.order;
-        rows[r.name] = await store.query(r.table, r.order ?? null, opts);
-      }
-      return rows;
+      const entries = await Promise.all([
+        ...reads.map(async (table) => [table, await store.query(table, null, { current: true })]),
+        ...named.map(async (r) => {
+          const opts = { current: true };
+          if (r.filter !== undefined) opts.filter = interpolateFilter(r.filter, ctx);
+          if (r.order !== undefined) opts.order = r.order;
+          return [r.name, await store.query(r.table, r.order ?? null, opts)];
+        }),
+      ]);
+      return Object.fromEntries(entries);
     };
 
     const rowsReduce = region.dataset.onMutation && handlers.get(region.dataset.onMutation);
@@ -2459,6 +2523,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     };
 
     const bind = (el, id) => {
+      if (handlers.size === 0) return;
       for (const { event, name } of onAttrs(el)) {
         if (!handlers.get(name)) continue;
         // Item nodes outlive a refresh, so each is wired once — re-wiring would
@@ -2505,6 +2570,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // its id; outside one it acts on what the region read. The walk stops at
     // the next [data-live], which binds its own.
     const bindTree = (root, id) => {
+      if (handlers.size === 0) return;
       bind(root, id);
       for (const el of root.querySelectorAll("*")) {
         if (!ownedBy(el, root)) continue;
@@ -3189,9 +3255,39 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     return { deliver, apply: applyUpdates };
   }
 
+  const ensureOwnReady = (el) => {
+    if (!el._prontoOwnReady) {
+      el._prontoOwnReady = new Promise((r) => {
+        el._prontoOwnResolve = r;
+      });
+    }
+    if (served === undefined && screenOpts.fixtures !== true && !el._prontoOwnDone) {
+      el.setAttribute("data-hydrating", "");
+    }
+  };
+  const markChildRegionsHydrating = (root, parentRegion) => {
+    for (const child of root.querySelectorAll("[data-live]")) {
+      if (child.parentElement.closest("[data-live]") === parentRegion) {
+        ensureOwnReady(child);
+      }
+    }
+  };
+  let resolveHeadFlushed;
+  const headFlushed = screenOpts.onHeadReady
+    ? new Promise((r) => {
+        resolveHeadFlushed = r;
+      })
+    : null;
+
   // top: only top-level regions drive the screen state machine; nested regions
   // (inside a parent's template item) bind silently.
   function hydrateRegion(region, ctx, top) {
+    ensureOwnReady(region);
+    const finishOwn = () => {
+      region._prontoOwnDone = true;
+      if (region.hasAttribute("data-hydrating")) region.removeAttribute("data-hydrating");
+      region._prontoOwnResolve?.();
+    };
     const table = region.dataset.live;
     // data-template references a named template instead of containing one; a
     // region carrying both would leave its own templates silently unused.
@@ -3220,6 +3316,11 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           `region "${table}" has a template with ${el.content.children.length} elements; an item is exactly one`,
         );
       }
+      const root = el.content.firstElementChild;
+      el._prontoHasForms = formsIn(root).length > 0;
+      el._prontoHasHatches = Boolean(root.matches?.("[data-hatch]") || root.querySelector("[data-hatch]") !== null);
+      el._prontoHasNested = root.querySelector("[data-live]") !== null;
+      el._prontoHasKeys = Boolean(root.matches?.("[data-key]") || root.querySelector("[data-key]") !== null);
       const when = el.getAttribute("data-when");
       if (when === null) return { el, admits: null };
       // A data-when is matched against the row itself, so its values are
@@ -3595,8 +3696,10 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         node = tmpl.content.firstElementChild.cloneNode(true);
         node.dataset.id = entry.ctx.row.id;
       }
-      for (const form of formsIn(node)) {
-        if (ownedBy(form, node)) wireForm(form, () => node.dataset.id, () => entry.ctx, region);
+      if (tmpl._prontoHasForms) {
+        for (const form of formsIn(node)) {
+          if (ownedBy(form, node)) wireForm(form, () => node.dataset.id, () => entry.ctx, region);
+        }
       }
       entry.node = node;
       entry.tmpl = tmpl;
@@ -3663,6 +3766,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       if (templates.length > 0) {
         {
           const ready = [];
+          const toSync = [];
           const order = [];
           // The nodes not yet wired, which are the ones with anything left
           // to attach.
@@ -3734,11 +3838,11 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
               // undefined — the DOMStringMap setter stringifies, so the badge
               // would stick on the literal "undefined" and never clear.
               if (row.$synced === false) entry.node.dataset.pending = "true";
-              else delete entry.node.dataset.pending;
+              else if (entry.node.hasAttribute("data-pending")) delete entry.node.dataset.pending;
               bindAttributes(entry.node, entry.ctx);
               bindTexts(entry.node, entry.ctx, renderers);
-              bindHatches(entry.node, entry.ctx);
-              syncNested(entry, ready);
+              if (entry.tmpl._prontoHasHatches) bindHatches(entry.node, entry.ctx);
+              if (entry.tmpl._prontoHasNested || entry.nested.size > 0) toSync.push(entry);
               if (!entry.wired) fresh.push(entry);
             }
             order.push(entry.node);
@@ -3773,70 +3877,66 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             } else release(entry.node);
             live.delete(key);
           }
+          const placeListNodes = () => {
+            if (wholesale) region.replaceChildren();
+            else {
+              const keep = new Set(order);
+              for (const child of [...region.childNodes]) {
+                if (keep.has(child) || child.dataset?.exit !== undefined) continue;
+                child.remove();
+              }
+            }
+            let cursor = region.firstElementChild;
+            for (const node of order) {
+              while (cursor && cursor.dataset?.exit !== undefined) cursor = cursor.nextElementSibling;
+              if (cursor === node) {
+                cursor = cursor.nextElementSibling;
+                continue;
+              }
+              if (HAS_MOVE_BEFORE && node.isConnected) region.moveBefore(node, cursor);
+              else region.insertBefore(node, cursor);
+            }
+            emptyNote(region, order.length === 0 ? region.dataset.empty : undefined, ctx, templates[0]?.el);
+            const select = region.closest("select");
+            if (select?._prontoBound !== undefined) {
+              select.value = select._prontoBound;
+              if (select.value === select._prontoBound) select._prontoBound = undefined;
+            }
+            fromEnclosing(() => bindElementAttributes(region, ctx), table, "own element");
+          };
+          const wireListNodes = () => {
+            wireKeysOn(region);
+            const nodes = fresh.map((f) => f.node);
+            for (const f of fresh) if (f.tmpl._prontoHasKeys) wireKeysIn(f.node);
+            const { deliver, apply } = wireEvents(region, nodes, () => currentRows, handlers, ctx);
+            const reduce = handlers.get(region.dataset.handler);
+            if (reduce && dragging) wireDrag(region, nodes, () => currentRows, reduce, deliver, apply);
+            for (const f of fresh) f.wired = true;
+            first = false;
+          };
+          const progressive = first && served === undefined && screenOpts.fixtures !== true;
+          if (progressive) {
+            placeListNodes();
+            for (const entry of toSync) markChildRegionsHydrating(entry.node, region);
+            if (top) {
+              base = rows.length === 0 ? "empty" : "populated";
+              if (["loading", "empty", "populated"].includes(screen.dataset.state)) setState(base);
+            }
+            finishOwn();
+            if (screenOpts.onHeadReady && toSync.length > 0) {
+              if (top && headFlushed) await headFlushed;
+              else await Promise.resolve();
+              if (stopped) return;
+            }
+          }
+          for (const entry of toSync) syncNested(entry, ready);
           await Promise.all(ready);
           if (stopped) return;
-          // Anything neither current nor mid-exit is stale chrome — the
-          // empty-state paragraph on the way back to populated.
-          //
-          // Text nodes go too, and that is load-bearing rather than tidiness:
-          // a screen says "this region rendered nothing" with `:empty`, and
-          // `:empty` does not match an element holding whitespace. The newline
-          // between a probe's tags and its <template> is enough to make a
-          // region that rendered no rows read as full.
-          if (wholesale) region.replaceChildren();
-          else {
-            const keep = new Set(order);
-            for (const child of [...region.childNodes]) {
-              if (keep.has(child) || child.dataset?.exit !== undefined) continue;
-              child.remove();
-            }
+          if (!progressive) {
+            placeListNodes();
+            finishOwn();
           }
-          // Minimal moves, stepping over nodes on their way out: a node already
-          // in position is left where it is. Where moveBefore is absent that is
-          // the only thing protecting its state (see HAS_MOVE_BEFORE); where it
-          // is present, it still spares the layout work.
-          let cursor = region.firstElementChild;
-          for (const node of order) {
-            while (cursor && cursor.dataset?.exit !== undefined) cursor = cursor.nextElementSibling;
-            if (cursor === node) {
-              cursor = cursor.nextElementSibling;
-              continue;
-            }
-            // moveBefore requires a node that is already in the document; a row
-            // stamped from the template this pass has never been in one.
-            if (HAS_MOVE_BEFORE && node.isConnected) region.moveBefore(node, cursor);
-            else region.insertBefore(node, cursor);
-          }
-          emptyNote(region, order.length === 0 ? region.dataset.empty : undefined, ctx, templates[0]?.el);
-          // A list of options landing under a select whose bound value had no
-          // option to take yet.
-          const select = region.closest("select");
-          if (select?._prontoBound !== undefined) {
-            select.value = select._prontoBound;
-            if (select.value === select._prontoBound) select._prontoBound = undefined;
-          }
-          // The region's own element, from the ENCLOSING row rather than any
-          // of its rows: a container naming one of them — a listbox's
-          // aria-activedescendant — states a fact about the choice, not about
-          // an option, and the choice is the row this region hangs under. A
-          // slot has always bound its own element; the branch that renders
-          // rows did not, so the one element between a container and the list
-          // inside it was the only one nobody bound.
-          // Bound from a row that is not this region's, so a placeholder naming
-          // a column that row lacks is the same program error its
-          // change-signature raises.
-          fromEnclosing(() => bindElementAttributes(region, ctx), table, "own element");
-          // The region's own element, and the items not yet wired: a key on
-          // a surviving node was wired when the node arrived, and nothing
-          // else of the region's markup survives the sweep.
-          wireKeysOn(region);
-          const nodes = fresh.map((f) => f.node);
-          for (const node of nodes) wireKeysIn(node);
-          const { deliver, apply } = wireEvents(region, nodes, () => currentRows, handlers, ctx);
-          const reduce = handlers.get(region.dataset.handler);
-          if (reduce && dragging) wireDrag(region, nodes, () => currentRows, reduce, deliver, apply);
-          for (const f of fresh) f.wired = true;
-          first = false;
+          wireListNodes();
         }
         if (top) {
           base = rows.length === 0 ? "empty" : "populated";
@@ -3888,6 +3988,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           // painting the last row's children under the note.
           dropAll();
           emptyNote(region, region.dataset.empty, slotCtx);
+          finishOwn();
           return;
         }
         emptyNote(region, undefined);
@@ -3925,9 +4026,19 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         let slot = live.get(SLOT);
         if (slot === undefined) live.set(SLOT, slot = { node: region, ctx: slotCtx, nested: new Map() });
         const ready = [];
+        if (first && served === undefined && screenOpts.fixtures !== true) {
+          markChildRegionsHydrating(region, region);
+          finishOwn();
+          if (screenOpts.onHeadReady && region.querySelector("[data-live]") !== null) {
+            if (top && headFlushed) await headFlushed;
+            else await Promise.resolve();
+            if (stopped) return;
+          }
+        }
         syncNested(slot, ready);
         await Promise.all(ready);
         if (stopped) return;
+        finishOwn();
       }
     };
     let retryTimer;
@@ -4035,6 +4146,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           outages.add(guarded);
           setState("network-error");
         }
+        finishOwn();
         paint?.resolve();
         retryTimer = setTimeout(guarded, retryMs);
         retryMs = Math.min(retryMs * 2, 15000);
@@ -4070,6 +4182,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       for (const dependency of dependencies) derived.get(dependency).delete(guarded);
       detach();
       dropAll();
+      finishOwn();
       paint?.resolve();
       recovered(false);
     };
@@ -4206,6 +4319,17 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   };
   wireScreen();
 
+  if (opts.onHeadReady) {
+    (async () => {
+      await Promise.all(regions.map((r) => r.el._prontoOwnReady));
+      await opts.onHeadReady(screen, cas);
+      setTimeout(resolveHeadFlushed, 0);
+    })().catch((err) => {
+      resolveHeadFlushed?.();
+      failed(err);
+    });
+  }
+
   await Promise.all(pending);
   if (regions.length === 0) {
     screen.dataset.state = route.states?.[0] ?? "populated";
@@ -4300,7 +4424,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   return {
     settle,
     updateStyle: async (css) => {
-      await installStyle(styleId, css);
+      await installStyle(styleId, styleCss(css));
     },
     // Which template this screen was drawn from (templateHash).
     cas,
