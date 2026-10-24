@@ -15,6 +15,7 @@
 // one name the terminal performs itself; everything else is handed to onEvent,
 // its detail parsed here first.
 import { ProgramError } from "./fragment.js";
+import { mountPresenterUnit } from "./hatch-presenter.js";
 import { mountWorkerUnit } from "./hatch-worker.js";
 
 export const PROPS = "pronto:props";
@@ -99,6 +100,9 @@ const SEATS = { realm: mountFrameUnit, agent: mountWorkerUnit };
 // dead gateway; an answer runs inside the port's message listener, where
 // anything else is a console line and the question stands forever.
 export function mountHatch(root, { unit, src, onEvent, store } = {}) {
+  // An agent without a memo is a presenter (pronto's `role`): its worker only
+  // paints, and its seat is the presenter's.
+  if (unit.role === "presenter") return mountPresenterUnit(root, { unit, src });
   const seat = SEATS[unit.isolation];
   // The schema offers three isolation boundaries and the terminal implements
   // two. A unit asking for a boundary that does not exist must not quietly get

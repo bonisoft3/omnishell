@@ -77,10 +77,14 @@ export function stripRoutes(cfg) {
   return cfg.routes.filter((r) => !r.path.includes(":") && r.nav.strip !== false);
 }
 
-/** Whether a page carries a strip: one link is no choice, but a session is
- * always someone the reader should see. */
-export function hasStrip(cfg, session) {
-  return stripRoutes(cfg).length > 1 || Boolean(session);
+/** Whether a page carries a strip: one link is no choice, but a person is
+ * always someone the reader should see. A guest the app offers no sign-in to
+ * is not one: there is nothing to gain, and signing out only mints another.
+ * `session` is the restored one; `mintedGuest`, one minted on first write. */
+export function hasStrip(cfg, session, mintedGuest = false) {
+  const guest = session ? Boolean(session.user?.guest) : mintedGuest;
+  const person = guest ? offersGuest(cfg) : Boolean(session);
+  return stripRoutes(cfg).length > 1 || person;
 }
 
 /** The strip, before any locale is resolved. Its addresses change with the

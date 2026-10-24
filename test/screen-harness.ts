@@ -364,6 +364,9 @@ export type MountSpec = {
    * itself still needs its boundary faked — a real Worker answers off the held
    * clock, where settle() cannot see it. */
   units?: Record<string, Unit>;
+  /** The kinetic children a `data-kinetic` may name (shell.yaml `kinetic:`),
+   * resolved at mount as a unit is; mounted only where units are. */
+  kinetic?: Record<string, unknown>;
   /** Whether a resolved unit is also mounted. The machine walker declares
    * false: linkedom has neither a Worker nor a frame, and a unit renders
    * nothing and declares no machine, so mounting one adds nothing to a walk. */
@@ -848,6 +851,7 @@ export async function mountApp(
     tables: { ...(await appSeed(spec.appDir)), ...spec.tables },
     cluster: { ...declared, ...spec.cluster },
     units: { ...(await appUnits(spec.appDir)), ...spec.units },
+    kinetic: spec.kinetic ?? await appKinetic(spec.appDir),
     hostDom: { ...(await appHostDom(spec.appDir)), ...spec.hostDom },
     schema: spec.schema ?? await appSchema(spec.appDir),
     endowments: spec.endowments ?? await appEndowments(spec.appDir),
@@ -885,6 +889,14 @@ export async function appUnits(appDir: URL): Promise<Record<string, Unit>> {
     units?: Record<string, Unit>;
   };
   return shell.units ?? {};
+}
+
+/** The kinetic children an app declares (shell.yaml `kinetic:`). */
+export async function appKinetic(appDir: URL): Promise<Record<string, unknown>> {
+  const shell = await appShell(appDir) as {
+    kinetic?: Record<string, unknown>;
+  };
+  return shell.kinetic ?? {};
 }
 
 /** The rows a browser tier holds before anyone writes one (shell.yaml

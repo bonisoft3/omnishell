@@ -1838,6 +1838,22 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   for (const scope of withTemplates(markup)) {
     for (const el of scope.querySelectorAll("[data-hatch]")) resolveUnit(el.dataset.hatch);
   }
+  // A kinetic child's actor, resolved as a hatch's unit is and for the same
+  // reason. Its props are a row's, so it sits in a slot, never an item.
+  const kinetics = opts.kinetic ?? {};
+  const resolveKinetic = (el) => {
+    const name = el.dataset.kinetic;
+    const decl = kinetics[name];
+    if (decl === undefined) throw new ProgramError(`no kinetic actor for data-kinetic="${name}"`);
+    if (el.closest("template") !== null) throw new ProgramError(`data-kinetic="${name}" sits in an item template; a race takes one row`);
+    if (el.closest("[data-live]") === null) throw new ProgramError(`data-kinetic="${name}" sits outside every [data-live]; its props and its events are a row's`);
+    const unit = units[decl.presenter];
+    if (unit === undefined) throw new ProgramError(`kinetic actor ${name} names presenter ${decl.presenter}, which no vendored unit declares`);
+    return { name, decl, unit };
+  };
+  for (const scope of withTemplates(markup)) {
+    for (const el of scope.querySelectorAll("[data-kinetic]")) resolveKinetic(el);
+  }
 
   // Named templates are screen-scoped, collected once here. A region inside a
   // named template may reference the very template it sits in — recursion,
@@ -1954,6 +1970,55 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         cleanups.push(() => el._prontoHatch.destroy());
       }
       el._prontoHatch.update(props);
+    }
+  }
+
+  // data-kinetic="<actor>" hosts the actor's race here (kinetic-mount.js),
+  // fed the slot's data-prop-* as hatches are; a [data-kinetic-controls] of
+  // the same name gets the host's own time-travel controls.
+  function bindKinetics(scope, ctx) {
+    for (const el of scope.querySelectorAll("[data-kinetic]")) {
+      if (!ownedBy(el, scope) || ctx.inert || opts.mountUnits === false) continue;
+      const props = {};
+      for (const [key, value] of Object.entries(el.dataset)) {
+        if (key.startsWith("prop") && key.length > 4) props[key[4].toLowerCase() + key.slice(5)] = value;
+      }
+      if (el._prontoKinetic === undefined) {
+        const { name, decl, unit } = resolveKinetic(el);
+        // The race loads off the first paint's path: its graphs, its mappers
+        // and its sound seat arrive with the mount. Props wait for it.
+        const presenter = mountHatch(el, { unit, src: new URL(unit.src, appBase).href });
+        let child = null;
+        let pending = null;
+        let stopped = false;
+        const handle = {
+          ready: import("./kinetic-mount.js").then(({ loadKinetic }) => loadKinetic(el, { name, decl, presenter, appBase, iceServers: opts.iceServers })).then((loaded) => {
+            if (stopped) return loaded.destroy();
+            child = loaded;
+            if (pending !== null) child.update(pending);
+            const controls = screen.querySelector(`[data-kinetic-controls="${name}"]`);
+            if (controls !== null) cleanups.push(child.host.mountControls(controls));
+          }),
+          get host() {
+            return child?.host;
+          },
+          get frames() {
+            return child?.frames ?? 0;
+          },
+          update(next) {
+            if (child === null) pending = next;
+            else child.update(next);
+          },
+          destroy() {
+            stopped = true;
+            if (child !== null) child.destroy();
+            else presenter.destroy();
+          },
+        };
+        el._prontoKinetic = handle;
+        cleanups.push(() => handle.destroy());
+      }
+      el._prontoKinetic.update(props);
     }
   }
 
@@ -4035,6 +4100,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         wireKeysIn(region);
         bindTexts(region, slotCtx, renderers);
         bindHatches(region, slotCtx);
+        bindKinetics(region, slotCtx);
         // The lists a slot holds — an editor's choices, its goals — are
         // hydrated from its row as an item's are from its own.
         let slot = live.get(SLOT);

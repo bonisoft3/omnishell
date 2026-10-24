@@ -28,6 +28,7 @@ async function loadAppSeeds(appDir: string): Promise<TableRows> {
 }
 import {
   appMessages,
+  appKinetic,
   appUnits,
   appRoutes,
   appI18n,
@@ -129,6 +130,7 @@ export async function runStorybookBatteryForApp(
   const discoveredMessages = await appMessages(appUrl);
   const messages = createProxyMessages(discoveredMessages);
   const units = await appUnits(appUrl);
+  const kinetic = await appKinetic(appUrl);
   const schema = await appSchema(appUrl);
   const routes = await appRoutes(appUrl);
   const i18n = await appI18n(appUrl);
@@ -346,6 +348,7 @@ export async function runStorybookBatteryForApp(
         const env = screenEnv(
           {
             units,
+            kinetic,
             routes,
             i18n,
             schema,

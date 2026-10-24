@@ -46,6 +46,7 @@ _shellCssAsset:  _ @embed(file="shell.css", type=text)
 _bootJsAsset:    _ @embed(file="boot.js", type=text)
 _swJsAsset:      _ @embed(file="offline-first-sw.js", type=text)
 _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
+_presenterPolicy: _ @embed(file="presenter-security-policy.txt", type=text)
 
 // The server terminal (server/render.ts): a route's document rendered on
 // request, with its rows, by a process that reads the app through the door it
@@ -281,6 +282,31 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 			grants: []
 			note: "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox, never allow-same-origin — the unit runs in an opaque origin and cannot reach this one. Props are delivered with targetOrigin \"*\", which an opaque origin leaves no alternative to, so a hatch is never given a secret"
 		}
+		// The agent seat's second role: a presenter, a worker that only
+		// paints. `policy` is the worker script's own Content-Security-Policy,
+		// sent with interpreter/presenter.js by both doors: it refuses every
+		// connection but blob: and every script not of this origin, so the
+		// network and stray code are the browser's to refuse;
+		// interpreter/presenter-realm.js prunes what a policy cannot reach —
+		// storage, locks, channels between contexts, and a nested worker, as
+		// its worker-src is 'self' for the worker's own imports. What the policy's
+		// script-src 'self' still admits is a GET of this origin by a module
+		// import, which arrives as a `Sec-Fetch-Dest` in `scripted`: both doors
+		// answer one from a static file only, never from an upstream, whose
+		// GET may act (a session's sign-in callback). `scripts` are the pinned
+		// libraries a presenter may name, each with its Subresource Integrity:
+		// the terminal fetches them against it, so the page's connect-src
+		// names each file a presenter uses, and the worker evaluates them
+		// before the prune.
+		presenter: {
+			policy: strings.TrimSpace(_presenterPolicy)
+			scripted: ["script", "worker", "sharedworker", "serviceworker"]
+			scripts: [URL=string]: =~"^sha(256|384|512)-"
+			scripts: {
+				"https://cdn.jsdelivr.net/npm/babylonjs@9.31.0/babylon.js":                       "sha384-GbwOam+gaf7GWvN708CvUiGqRFPFMS/lpYod2JfIip04KMa4TIJ8HXRjhwvT9DMC"
+				"https://cdn.jsdelivr.net/npm/babylonjs-loaders@9.31.0/babylonjs.loaders.min.js": "sha384-4Lrx0JNQdcaB2SaX4xPoA2b15Fnq+ZEdBNyjRNds6RUVsA5oVRIh9GoVvIQLwBJ4"
+			}
+		}
 		hatch: agent: {
 			mount: "data-hatch=\"<unit>\", naming an #App.capabilities.vendored entry — the element renders nothing"
 			props: "data-prop-* attributes, delivered as one current-value object, withheld until the unit says it is ready"
@@ -410,16 +436,27 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 		// What stays off loads only on a path a first paint does not take:
 		// storybook.js under ?storybook, ses when a handler first runs,
 		// js-yaml for a shell.yaml config, morphlex when a template changes
-		// under a mounted screen, kinetic, prng and game-inputs for a kinetic unit.
+		// under a mounted screen, kinetic, prng and game-inputs for a kinetic
+		// child and its mount, its sound seat, the rollback session, its channel and GGRS for
+		// a duel, and the
+		// presenter's worker script, which no page runs.
 		_preloadSkip: {
-			"deferred-boot.js":       true
-			"storybook.js":          true
-			"vendor/ses.umd.min.js": true
-			"vendor/js-yaml.js":     true
-			"vendor/morphlex.js":    true
-			"kinetic.js":            true
-			"prng.js":               true
-			"vendor/game-inputs.js": true
+			"presenter.js":                  true
+			"deferred-boot.js":              true
+			"storybook.js":                  true
+			"vendor/ses.umd.min.js":         true
+			"vendor/js-yaml.js":             true
+			"vendor/morphlex.js":            true
+			"kinetic.js":                    true
+			"kinetic-session.js":            true
+			"kinetic-sound.js":              true
+			"kinetic-milestones.js":         true
+			"kinetic-mount.js":              true
+			"rtc-channel.js":                true
+			"vendor/ggrs/ggrs_wasm.js":      true
+			"vendor/ggrs/ggrs_wasm_bg.wasm": true
+			"prng.js":                       true
+			"vendor/game-inputs.js":         true
 		}
 		_preloadHtml: strings.Join([for m in modules if _preloadSkip[m] == _|_ {
 			"<link rel=\"modulepreload\" href=\"/omnishell/interpreter/\(m)\">"
@@ -429,9 +466,10 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 		modules: [
 			"shell.js", "chrome.js", "screen.js", "fragment.js", "data-sync.js", "validate.js", "render.js",
 			"release-plan.js", "preloads.js", "link-prefetch.js", "markup.js", "script-url.js", "deferred-boot.js",
-			"host-dom.js", "hatch.js", "hatch-worker.js", "storybook.js", "jessie.js", "kinetic.js", "prng.js",
+			"host-dom.js", "hatch.js", "hatch-worker.js", "hatch-presenter.js", "presenter-realm.js", "presenter.js",
+			"storybook.js", "jessie.js", "kinetic.js", "kinetic-milestones.js", "kinetic-session.js", "kinetic-sound.js", "kinetic-mount.js", "rtc-channel.js", "prng.js",
 			"vendor/mecha-client.js", "vendor/js-yaml.js", "vendor/ses.umd.min.js", "vendor/morphlex.js",
-			"vendor/messages.js", "vendor/game-inputs.js",
+			"vendor/messages.js", "vendor/game-inputs.js", "vendor/ggrs/ggrs_wasm.js", "vendor/ggrs/ggrs_wasm_bg.wasm",
 		]
 
 		screens: [...{name: string, html: #Path, css: #Path, shared: *[] | [...#Path]}]
@@ -469,6 +507,11 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 		validations: *[] | [...#Jessie]
 
 		hostDom: *[] | [...#Path]
+
+		// Each kinetic engine's module graph, linked at build time (pronto's
+		// engine-link.ts) and imported by the cage (interpreter/jessie.js
+		// evaluateEngine).
+		engines: *[] | [...#Path]
 
 		// Every file a vendored unit needs served, its own `src` among them:
 		// the wrapper an engineer audited, and whatever that wrapper loads. A
@@ -599,6 +642,7 @@ _cspAsset:       _ @embed(file="content-security-policy.txt", type=text)
 				watch:  true
 			}],
 			[for f in T.surface.hostDom {file: f, target: "/srv/\(f)", watch: true}],
+			[for f in T.surface.engines {file: f, target: "/srv/\(f)", watch: true}],
 			// Unwatched, unlike every other app-authored file here: the watch
 			// list becomes compose develop sync+restart entries, and a unit's
 			// unaudited half is megabytes that would restart the proxy on every

@@ -324,6 +324,66 @@ export async function evaluateRole(source, role = "handler", requestedEndowments
   return value;
 }
 
+// What a kinetic graph's entry exports, by its role (docs/kinetic.md): an
+// engine's contract, or a sound role's factory over the context it is handed.
+const EXPORTS = {
+  engine: ["initState", "advanceFrame", "saveState", "loadState"],
+  sound: ["createSound"],
+};
+
+/** The key a specifier names from its importer's, both `./`-rooted app paths:
+ * what pronto's engine-link.ts resolved when it linked the graph. */
+function resolveLinked(specifier, referrer) {
+  const parts = referrer.split("/").slice(0, -1);
+  for (const part of specifier.split("/")) {
+    if (part === "..") parts.pop();
+    else if (part !== ".") parts.push(part);
+  }
+  return parts.join("/");
+}
+
+/**
+ * A kinetic engine, from the graph pronto linked at build time: every module a
+ * record Endo's ModuleSource precompiled, imported by the cage's own module
+ * system. One compartment holds the graph, so each module evaluates once and
+ * the engine's cage — no endowments — is the ceiling for all of them. `role`
+ * names what the entry exports: an engine's contract, or a sound role's
+ * factory, whose one authority is the context the terminal hands it.
+ */
+export async function evaluateEngine(graph, role = "engine") {
+  const required = EXPORTS[role];
+  if (required === undefined) throw new Error(`engine: unknown role ${JSON.stringify(role)}`);
+  await ensureSes();
+  const modules = Object.fromEntries(Object.entries(graph.modules).map(([key, record]) => [key, { source: record }]));
+  const cage = new Compartment({
+    __options__: true,
+    modules,
+    resolveHook: resolveLinked,
+    importNowHook: (specifier) => {
+      throw new Error(`engine: ${specifier} is not a module of the linked graph`);
+    },
+  });
+  for (const name of Object.keys(SAFE_ENDOWMENTS)) {
+    Object.defineProperty(cage.globalThis, name, {
+      get: () => {
+        throw new TypeError(`engine: ${name} is not endowed; an engine is endowed with nothing`);
+      },
+      enumerable: false,
+      configurable: false,
+    });
+  }
+  let namespace;
+  evaluating++;
+  try {
+    namespace = cage.importNow(graph.entry);
+  } finally {
+    evaluating--;
+  }
+  const missing = required.filter((name) => typeof namespace[name] !== "function");
+  if (missing.length > 0) throw new Error(`${role} ${graph.entry} must export ${missing.join(", ")}`);
+  return namespace;
+}
+
 export const evaluateHandler = (source, requestedEndowments = []) => evaluateRole(source, "handler", requestedEndowments);
 export const evaluateFold = (source, requestedEndowments = []) => evaluateRole(source, "fold", requestedEndowments);
 

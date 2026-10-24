@@ -43,7 +43,7 @@ export async function prepareWorker(publicDir: string, generated: string) {
   for (const expected of ['export async function evaluateCaged(', 'export async function evaluateRole(', 'await evaluateCaged(', 'new URL("./vendor/ses.umd.min.js", import.meta.url).href']) {
     if (jessie.split(expected).length !== 2) throw new Error(`Jessie changed: expected exactly one ${expected}`)
   }
-  if (jessie.split('await ensureSes();').length !== 3) throw new Error('Jessie changed: expected two SES guards')
+  if (jessie.split('await ensureSes();').length !== 4) throw new Error('Jessie changed: expected three SES guards')
   const sync = jessie.replace('export async function evaluateCaged(', 'export function evaluateCaged(')
     .replace('new URL("./vendor/ses.umd.min.js", import.meta.url).href', '"startup-compiled-ses"')
     .replace('export async function evaluateRole(', 'export function evaluateRole(')

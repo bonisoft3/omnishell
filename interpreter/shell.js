@@ -712,6 +712,7 @@ export async function createShell({ config, mount, preload = true }) {
       const { route, params, locale } = currentRoute();
       await renderStorybook(mount, appBase, route, params, cfg.units ?? {}, {
         hostDom: cfg.hostDom ?? {},
+        kinetic: cfg.kinetic ?? {},
         messages,
         locale,
         routes: cfg.routes,
@@ -895,7 +896,7 @@ export async function createShell({ config, mount, preload = true }) {
       location.reload();
     };
 
-    if (hasStrip(cfg, session || mintedGuest)) {
+    if (hasStrip(cfg, session, mintedGuest)) {
       nav = drawStrip(document, cfg);
       // A served strip naming this strip's routes is this strip: kept, with
       // the link the reader may be on, and its words and addresses rewritten
@@ -1001,7 +1002,7 @@ export async function createShell({ config, mount, preload = true }) {
         if (preload) {
           preloadLinkedScreens(document, appBase, cfg, route.screen, [
             ...(entry.handle?.links ?? []),
-            ...(hasStrip(cfg, session || mintedGuest) ? stripRoutes(cfg).map((r) => r.screen) : []),
+            ...(hasStrip(cfg, session, mintedGuest) ? stripRoutes(cfg).map((r) => r.screen) : []),
           ]);
         }
         return;
@@ -1095,7 +1096,7 @@ export async function createShell({ config, mount, preload = true }) {
       if (preload) {
         preloadLinkedScreens(document, appBase, cfg, route.screen, [
           ...(fresh.handle?.links ?? []),
-          ...(hasStrip(cfg, session || mintedGuest) ? stripRoutes(cfg).map((r) => r.screen) : []),
+          ...(hasStrip(cfg, session, mintedGuest) ? stripRoutes(cfg).map((r) => r.screen) : []),
         ]);
       }
     };

@@ -27,7 +27,7 @@
 // What the sharing is worth, measured on this suite: six trivial tests take
 // 0.96s against 1.52s, and the whole browser suite 16.2s against 17.1s. It
 // removes a fixed cost per test; it does not transform the tier.
-import { type Browser, chromium, type Page } from "npm:playwright@1.61.1"
+import { type Browser, chromium, firefox, type Page, webkit } from "npm:playwright@1.61.1"
 import { afterAll as bddAfterAll, describe as bddDescribe, it as bddIt } from "jsr:@std/testing@1/bdd"
 
 export { afterAll, afterEach, beforeAll, beforeEach } from "jsr:@std/testing@1/bdd"
@@ -38,10 +38,20 @@ export type PageOptions = { viewport?: { width: number; height: number }; locale
 
 let shared: Browser | null = null
 
+/** The engine a run drives, chromium unless PW_BROWSER names another. Headless
+ * Firefox has no GPU adapter on macOS, so PW_HEADED=1 opens a window; on Linux
+ * it has no WebGL at all ("Exhausted GL driver options"), so it always opens
+ * one there, on whatever display the run has (CI's is xvfb-run's). */
+const engines = { chromium, firefox, webkit }
+const engineName = Deno.env.get("PW_BROWSER") ?? "chromium"
+const engine = engines[engineName as keyof typeof engines]
+if (engine === undefined) throw new Error(`PW_BROWSER=${engineName}: not one of ${Object.keys(engines).join(", ")}`)
+export const browserName = engineName
+
 /** Launched on the first page that wants one, so a block that opens none pays
  * nothing. */
 async function browser(): Promise<Browser> {
-  if (shared === null) shared = await chromium.launch()
+  if (shared === null) shared = await engine.launch({ headless: Deno.env.get("PW_HEADED") !== "1" && !(engineName === "firefox" && Deno.build.os === "linux") })
   return shared
 }
 

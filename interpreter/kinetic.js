@@ -1,3 +1,4 @@
+import { createMilestoneLift, loadMilestone } from "./kinetic-milestones.js";
 import { parseMarkup } from "./markup.js";
 // Kinetic Host: Fixed-step deterministic tick engine, snapshot history,
 // and time-travel controller for Omnishell.
@@ -20,6 +21,28 @@ export function lerpAngle(a, b, alpha) {
 
 const MAX_FRAME_MS = 250.0;
 
+/** A snapshot as one string: object keys sorted, so two equal states that
+ * built their objects in a different order still agree. */
+export function canonical(value) {
+  return JSON.stringify(value, (_, v) => (v !== null && typeof v === "object" && !Array.isArray(v)
+    ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, v[k]]))
+    : v));
+}
+
+/** cyrb53: a 53-bit hash of a string, a checksum and not a defence. */
+export function checksum(text) {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 2654435761);
+    h2 = Math.imul(h2 ^ c, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return 4294967296 * (2097151 & h2) + (h1 >>> 0);
+}
+
 export function createKineticHost(options) {
   const engine = options.engine;
   if (!engine) throw new Error("createKineticHost: engine is required");
@@ -41,6 +64,15 @@ export function createKineticHost(options) {
     throw new RangeError(`createKineticHost: invalid historyLimit ${historyLimit}`);
   }
 
+  // Sync test (GGPO's SyncTestSession): after every tick, roll back this many
+  // frames, load that snapshot, re-simulate the logged commands, and hold
+  // each frame's checksum to the forward run's. Off at 0.
+  const syncFrames = options.syncTest ?? 0;
+  if (!Number.isInteger(syncFrames) || syncFrames < 0 || syncFrames >= historyLimit) {
+    throw new RangeError(`createKineticHost: syncTest must be an integer in [0, ${historyLimit}), got ${syncFrames}`);
+  }
+  const sums = new Map();
+
   const seed = options.seed !== undefined ? options.seed : 0x1337;
   if (options.schedule && !options.cancel) {
     throw new Error("createKineticHost: cancel function is required when schedule is provided");
@@ -51,6 +83,12 @@ export function createKineticHost(options) {
   const onFault = options.onFault ?? null;
   const onBranch = options.onBranch ?? null;
   const onReset = options.onReset ?? null;
+  // `milestones: {width, encode, decode, onLift, snapshots}` lifts the engine's
+  // milestones (kinetic-milestones.js): a host steps one seat with all its
+  // input here, so every committed frame is confirmed as it is taken.
+  const lifting = options.milestones ?? null;
+  const lift = (from) => lifting && createMilestoneLift({ engine, width: lifting.width, onLift: lifting.onLift, snapshots: lifting.snapshots, from });
+  let lifter = lift(0);
   const getInput = options.getInput ?? (() => ({}));
   const schedule = options.schedule ?? (typeof requestAnimationFrame === "function" ? requestAnimationFrame : null);
   const cancel = options.cancel ?? (typeof cancelAnimationFrame === "function" ? cancelAnimationFrame : null);
@@ -70,11 +108,28 @@ export function createKineticHost(options) {
   function commitSnapshot(tick, snap, input) {
     snapshots.set(tick, snap);
     if (input !== undefined) inputLog.set(tick, { ...input });
+    if (syncFrames) sums.set(tick, checksum(canonical(snap)));
 
     if (snapshots.size > historyLimit) {
       const oldest = minTick();
       snapshots.delete(oldest);
       inputLog.delete(oldest);
+      sums.delete(oldest);
+    }
+  }
+
+  /** The sync test over the frames up to `tick`, which fails on the first
+   * frame whose re-simulation the forward run disagrees with. */
+  function syncTest(tick) {
+    const from = tick - syncFrames;
+    if (!snapshots.has(from)) return;
+    let state = engine.loadState(snapshots.get(from));
+    for (let t = from + 1; t <= tick; t++) {
+      state = engine.advanceFrame(state, inputLog.get(t));
+      const again = checksum(canonical(engine.saveState(state)));
+      if (again !== sums.get(t)) {
+        throw new Error(`kinetic sync test: frame ${t}, re-simulated from ${from}, has checksum ${again}; the forward run had ${sums.get(t)}`);
+      }
     }
   }
 
@@ -93,11 +148,16 @@ export function createKineticHost(options) {
 
   function stepOnce(input) {
     const next = engine.advanceFrame(currentState, input);
+    if (lifter) {
+      lifter.observe(currentTick + 1, next, lifting.encode(input));
+      lifter.confirm(currentTick + 1);
+    }
     const snap = engine.saveState(next);
     onStep?.(next, currentTick + 1);
     previousState = currentState;
     currentTick++;
     commitSnapshot(currentTick, snap, input);
+    if (syncFrames) syncTest(currentTick);
     currentState = engine.loadState(snap);
     displayTick = currentTick;
     onCommit?.(currentState, currentTick);
@@ -107,10 +167,12 @@ export function createKineticHost(options) {
   function pump(elapsedMs) {
     if (!isPlaying) return;
     accumulator += Math.min(MAX_FRAME_MS, elapsedMs);
-    while (accumulator >= tickDurationMs) {
+    // A commit may pause the host, which zeroes what is still due; the tick
+    // is spent first, so that zero stands and the render takes no alpha < 0.
+    while (isPlaying && accumulator >= tickDurationMs) {
       const input = getInput();
-      stepOnce(input);
       accumulator -= tickDurationMs;
+      stepOnce(input);
     }
     const alpha = accumulator / tickDurationMs;
     onRender(previousState, currentState, alpha, currentTick, false);
@@ -268,6 +330,7 @@ export function createKineticHost(options) {
     },
 
     branch(tick) {
+      lifter?.rewind(tick);
       onBranch?.(tick);
       this.pause();
       const restored = this.seek(tick);
@@ -279,6 +342,7 @@ export function createKineticHost(options) {
         if (k > currentTick) {
           snapshots.delete(k);
           inputLog.delete(k);
+          sums.delete(k);
         }
       }
       controlsSyncFn?.();
@@ -342,10 +406,37 @@ export function createKineticHost(options) {
       isPlaying = false;
       snapshots.clear();
       inputLog.clear();
+      sums.clear();
       currentState = engine.loadState(snap);
       previousState = currentState;
       commitSnapshot(0, snap, {});
+      lifter = lift(0);
       onRender(currentState, currentState, 1.0, 0, false);
+      controlsSyncFn?.();
+      return currentState;
+    },
+
+    /** The race at lifted milestone `rows[i]` (of a run begun at `seed`),
+     * its snapshot or the replay of every milestone's commands up to it, held
+     * to the row's checksum: the head, and the ring's only frame. */
+    loadMilestone(rows, i, newSeed = seed, newOptions = initOptions) {
+      if (!lifting) throw new Error("loadMilestone: this host lifts no milestones");
+      const at = loadMilestone(engine, { seed: newSeed, initOptions: newOptions, decode: lifting.decode }, rows, i);
+      const snap = engine.saveState(at);
+      this.stop();
+      initOptions = newOptions;
+      currentTick = rows[i].frame;
+      displayTick = currentTick;
+      accumulator = 0;
+      lastTime = null;
+      snapshots.clear();
+      inputLog.clear();
+      sums.clear();
+      currentState = engine.loadState(snap);
+      previousState = currentState;
+      commitSnapshot(currentTick, snap, {});
+      lifter = lift(currentTick);
+      onRender(currentState, currentState, 1.0, currentTick, false);
       controlsSyncFn?.();
       return currentState;
     },

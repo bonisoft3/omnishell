@@ -17,6 +17,8 @@ import { simple } from 'npm:acorn-walk@8.3.4'
 import * as cssTree from 'npm:css-tree@3.1.0'
 
 import { skeletonRoutes } from '../interpreter/preloads.js'
+import { hasStrip, stripRoutes } from '../interpreter/chrome.js'
+import { servesGuests } from '../interpreter/document.js'
 
 const origin = 'https://release.invalid'
 const encoder = new TextEncoder()
@@ -39,13 +41,35 @@ export interface Release {
   screens: Record<string, string[]>
   entries: string[]
   scripts: string[]
-  cfg: { routes: { path: string; screen?: string; paths?: Record<string, string>; access?: 'public' | 'private'; ssr?: 'spa' | 'ssg' | 'ssr'; files: Record<string, string | string[]>; nav?: { strip?: boolean } }[]; auth?: { required?: boolean }; tables?: unknown[]; i18n?: { locales?: Record<string, unknown> }; prefix?: string }
+  cfg: { routes: { path: string; screen?: string; paths?: Record<string, string>; access?: 'public' | 'private'; ssr?: 'spa' | 'ssg' | 'ssr'; files: Record<string, string | string[]>; nav: { label: string; strip?: boolean } }[]; auth?: { required?: boolean }; tables?: unknown[]; i18n?: { locales?: Record<string, unknown> }; prefix?: string }
+}
+
+/** An RTCIceServer: a STUN server's `urls`, and a TURN relay's credentials. */
+export interface IceServer {
+  urls: string | string[]
+  username?: string
+  credential?: string
 }
 
 export interface AddressOptions {
   /** A host that answers `.html` by other rules (Cloudflare's assets) is
    * given addressed templates under another suffix. */
   htmlSuffix?: string
+  /** The ICE servers the release target hands an online race's
+   * RTCPeerConnection, written into the terminal config before it is
+   * addressed; without them the tree keeps the config's own. */
+  iceServers?: IceServer[]
+}
+
+/** The ICE servers a release names, refused unless each is an RTCIceServer. */
+export function parseIceServers(text: string): IceServer[] {
+  const servers = JSON.parse(text)
+  const valid = (s: Record<string, unknown>) =>
+    s !== null && typeof s === 'object' &&
+    (typeof s.urls === 'string' || (Array.isArray(s.urls) && s.urls.length > 0 && s.urls.every(u => typeof u === 'string'))) &&
+    Object.keys(s).every(k => ['urls', 'username', 'credential'].includes(k) && (k === 'urls' || typeof s[k] === 'string'))
+  if (!Array.isArray(servers) || !servers.every(valid)) throw new Error(`ice servers ${text} are not a list of RTCIceServer`)
+  return servers
 }
 
 // A document a reader navigates to, which loads the runtime itself.
@@ -71,6 +95,14 @@ export async function addressRelease(out: string, options: AddressOptions = {}):
   }
   await collect('')
   if (!entries.includes('shell/index.html')) throw new Error('a release has no shell/index.html')
+  if (options.iceServers) {
+    const written = files.get('/shell/shell.json')
+    if (!written) throw new Error('a release has no shell/shell.json to write its ICE servers into')
+    const config = JSON.parse(decoder.decode(written))
+    const bytes = encoder.encode(JSON.stringify({ ...config, iceServers: options.iceServers }))
+    await Deno.writeFile(path.join(out, 'shell/shell.json'), bytes)
+    files.set('/shell/shell.json', bytes)
+  }
   const imports: Record<string, string> = {}
   const active = new Set<string>()
   async function address(name: string): Promise<string> {
@@ -140,10 +172,10 @@ export async function addressRelease(out: string, options: AddressOptions = {}):
   }
 
   const cfg = JSON.parse(decoder.decode(files.get('/shell/shell.json')!)) as Release['cfg']
-  const strip = cfg.routes
-    .filter(r => !r.path.includes(':') && r.nav?.strip !== false)
-    .map(r => r.screen ?? path.posix.basename(String(r.files.html), '.html'))
-  const stripTargets = strip.length > 1 || Boolean(cfg.auth?.required) || (cfg.tables?.length ?? 0) > 0 ? strip : []
+  // The strip a reader may meet: the served page's, or a signed-in person's.
+  const stripTargets = hasStrip(cfg, null, servesGuests(cfg)) || Boolean(cfg.auth?.required)
+    ? stripRoutes(cfg).map(r => r.screen ?? path.posix.basename(String(r.files.html), '.html'))
+    : []
   const screens: Record<string, string[]> = {}
   for (const route of cfg.routes) {
     const name = route.screen ?? path.posix.basename(String(route.files.html), '.html')

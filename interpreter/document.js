@@ -67,7 +67,7 @@ export async function renderDocument({
   const ambient = globalThis.document;
   globalThis.document = doc;
   const decorateDoc = (screen, cas) => {
-    if (hasStrip(cfg, servesGuests(cfg))) {
+    if (hasStrip(cfg, null, servesGuests(cfg))) {
       const nav = drawStrip(doc, cfg);
       if (servesGuests(cfg) && offersGuest(cfg)) nav.append(guestBox(doc, cfg));
       localizeStrip(nav, cfg, { locale, here, messages });

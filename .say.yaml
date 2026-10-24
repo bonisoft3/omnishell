@@ -49,13 +49,23 @@ say:
         cmds:
           - do: integrate
             use: ./integrate.nu
+      # One rule of closed steps, so integrate's own flags (`--docker-bridge-port`
+      # and the rest) stay the builtin's and never reach a browser runner.
       browser:
         cmds:
           - do: mise exec -- pnpm run test:browser
-      # The deno-driven browser suites: visual lint's checks over their fixture
-      # pages, settle, CLS, the picker and select-change. package.json's test:pw
-      # is their one roster, in the browser playwright installed at the version
-      # harness.ts imports.
-      visual:
-        cmds:
+          # The deno-driven browser suites: visual lint's checks over their
+          # fixture pages, settle, CLS, the picker and select-change.
+          # package.json's test:pw is their one roster, in the browser
+          # playwright installed at the version harness.ts imports.
           - do: pnpm run test:pw
+          # The presenter's escape probes again under Firefox and WebKit, whose
+          # workers read their own policy differently (a module worker's
+          # imports answer to worker-src there). The probes paint with WebGL,
+          # so a build without WebGPU still runs them; `pnpm dlx
+          # playwright@1.61.1 install firefox webkit` puts both engines where
+          # harness.ts finds them. WebKit runs on macOS only: Playwright's
+          # Linux WebKit is the GTK port, which gives a worker's OffscreenCanvas
+          # no WebGL and an element no currentCSSZoom, and so is not the
+          # Safari these probes stand for.
+          - do: pnpm run test:pw:engines

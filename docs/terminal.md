@@ -1,7 +1,7 @@
 ---
 type: concept
 title: The terminal and its units
-description: What the terminal owns and what a unit may do — the surfaces it hands in, the unit ladder, the compartment, realm and agent seats, and the server terminal that renders documents on request.
+description: What the terminal owns and what a unit may do — the surfaces it hands in, the unit ladder, the compartment, realm and agent seats with the agent's question and presenter roles, and the server terminal that renders documents on request.
 ---
 
 # The terminal and its units
@@ -130,6 +130,47 @@ shares the renderer process and blocks the parent as completely as inline code.
   and event loop, same origin, so it keeps `fetch`, IndexedDB and the cache
   API: more authority than the realm. For a hash-pinned binary vendored at
   build time, trusted by the app's audit and the pin.
+
+The boundary does not say what a unit is for, which is pronto's derived
+`role`: an agent with a memo is a **question** (below), and an agent without
+one is a **presenter**.
+
+| role | seat | what stands behind it | it may |
+| --- | --- | --- | --- |
+| question | `hatch-worker.js` | the app's audit and the pin | ask, and land its answer in the memo |
+| presenter | `hatch-presenter.js` | the worker's realm | paint the frames it is handed, and nothing else |
+
+**A presenter's worker can only paint.** `hatch-presenter.js` transfers a
+canvas it puts in the mount, fetches the pinned scripts the unit names
+(`terminal.cue` `presenter.scripts`) against their integrity, and starts
+`presenter.js` as a module worker. That script is served by both doors with
+its own Content-Security-Policy (`presenter-security-policy.txt`), which
+governs the worker: `connect-src blob:`, `worker-src 'self'` (Firefox and
+WebKit check a module worker's own imports against it),
+`script-src 'self' 'unsafe-eval'`, so the network and stray code are the
+browser's to refuse. What `script-src 'self'` still admits is a module import
+of this origin, a credentialed GET; it arrives as a script's
+(`Sec-Fetch-Dest`, `terminal.cue` `presenter.scripted`), and both doors answer
+one from a static file only, never from an upstream, whose GET may act. The
+worker evaluates the pinned scripts, then prunes its
+globals to `presenter-realm.js`'s allow-list, each entry with its reason —
+storage, locks and the channels between contexts are what a policy cannot
+reach — and only then imports the unit, whose default export
+`present(canvas, env)` returns `{frame, props?, resize?}`. A presenter is a
+view, GGPO's rule: the frames a host hands it may run backwards on a rewind or
+a seek, so it keeps only cosmetic state, survives a jump with at worst a snap,
+and sends no state or input back. The worker draws each frame as it arrives,
+the newest of any that queued. Nothing is sealed:
+Babylon writes onto `Array.prototype.push`, which SES refuses
+([pronto's record](../../pronto/docs/decisions/2026-10-22-endowed-babylon.md)),
+so the realm, not the code, is what holds. The port carries `pronto:frame`,
+`pronto:props` and `pronto:resize` in, `pronto:ready` out, and `pronto:read`
+both ways for the bytes of a file the unit declares or an object a blob seed
+ships; the seat refuses anything else as a `ProgramError`, and a presenter
+declares no raise. The one way past the realm is the policy's `'self'`: a
+module import of a path on the app's own origin is a GET carrying whatever its
+query says to the app's own door, which `playwright-tests/presenter.pw.ts`
+pins beside the probes that fail.
 
 `mountHatch` throws for any other isolation rather than substituting a
 boundary. A hatch speaks `pronto:props` in and `pronto:ready`/`pronto:event`

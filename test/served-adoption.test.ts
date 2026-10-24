@@ -37,7 +37,8 @@ const ROUTES = [
   { path: "/note/:id", screen: "note", nav: { label: "Note", strip: false }, files: { html: "screens/note.html", css: "screens/note.css", handlers: [] } },
 ]
 const ROUTE = ROUTES[0]
-const CFG = { app: "wall", routes: ROUTES, tables: ["note", "pin"] }
+// A guest app offering a passkey, so its one-link strip still has a person on it.
+const CFG = { app: "wall", routes: ROUTES, tables: ["note", "pin"], auth: { promote: true } }
 const ENTRY = `<!doctype html><html><head><title>wall</title></head><body><main id="app"></main><script type="module" src="./boot.js"></script></body></html>`
 
 type Row = Record<string, unknown>

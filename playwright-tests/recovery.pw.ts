@@ -1,6 +1,30 @@
 import { FIXTURE_CARRIERS } from "../interpreter/fixture-types.js"
 import { describe, expect, it, type Page, withPage } from "./harness.ts"
 import { addressRelease } from "../server/release-addresses.ts"
+import { posix } from "node:path"
+import { parse } from "npm:acorn@8.14.0"
+import { simple } from "npm:acorn-walk@8.3.4"
+
+async function importClosure(roots: string[]): Promise<string[]> {
+  const seen = new Set<string>()
+  const pending = [...roots]
+  while (pending.length) {
+    const module = pending.pop()!
+    if (seen.has(module)) continue
+    seen.add(module)
+    const ast = parse(await Deno.readTextFile(new URL(`../interpreter/${module}`, import.meta.url)), { ecmaVersion: "latest", sourceType: "module" })
+    const take = (source: { value?: unknown } | null | undefined) => {
+      if (typeof source?.value === "string" && source.value.startsWith(".")) pending.push(posix.join(posix.dirname(module), source.value))
+    }
+    simple(ast, {
+      ImportDeclaration: (node) => take(node.source),
+      ExportNamedDeclaration: (node) => take(node.source),
+      ExportAllDeclaration: (node) => take(node.source),
+      ImportExpression: (node) => take(node.source as { value?: unknown }),
+    })
+  }
+  return [...seen]
+}
 
 // The door as it serves a release (server/release-addresses.ts): each
 // deployment's tree addressed, every address any deployment wrote still
@@ -25,10 +49,11 @@ async function serve(authenticated = false, automaticGuest = false, promoteTo?: 
     ["shell/screens/home.css", ""],
     ["offline-first-sw.js", await Deno.readTextFile(new URL("../offline-first-sw.js", import.meta.url))],
   ])
-  const modules = ["shell.js", "chrome.js", "screen.js", "host-dom.js", "fragment.js", "data-sync.js", "validate.js", "render.js",
-    "release-plan.js", "preloads.js", "link-prefetch.js", "markup.js", "script-url.js", "deferred-boot.js", "hatch.js", "hatch-worker.js", "storybook.js", "jessie.js",
-    "kinetic.js", "prng.js", "vendor/game-inputs.js", "vendor/mecha-client.js", "vendor/js-yaml.js", "vendor/ses.umd.min.js", "vendor/morphlex.js", "vendor/messages.js"]
-  for (const module of modules) files.set(`omnishell/interpreter/${module}`, await Deno.readTextFile(new URL(`../interpreter/${module}`, import.meta.url)))
+  // The modules the page reaches other than by an import naming them; what
+  // they import follows, as the release's addressing requires of every
+  // module a served one imports.
+  const roots = ["shell.js", "deferred-boot.js", "presenter.js", "vendor/ses.umd.min.js", "vendor/js-yaml.js", "vendor/morphlex.js"]
+  for (const module of await importClosure(roots)) files.set(`omnishell/interpreter/${module}`, await Deno.readTextFile(new URL(`../interpreter/${module}`, import.meta.url)))
   const shell = files.get("omnishell/interpreter/shell.js")!
   files.set("omnishell/interpreter/shell.js", `globalThis.runtimeRelease = "A";\n${shell}`)
   const served = new Map<string, Uint8Array>()
