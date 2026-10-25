@@ -302,14 +302,33 @@ export async function resolveParams(
     params.set(plan.route, held)
   }
   const hole = (plan: ParamPlan) => unresolved.push({ route: plan.route, param: plan.param })
+  const pinnedContext = (plan: ParamPlan): string => {
+    if (!plan.filter) return ""
+    const held = params.get(plan.route) ?? {}
+    const clauses: string[] = []
+    for (const part of plan.filter.split("&")) {
+      if (!part || part.startsWith("limit=") || part.startsWith("offset=")) continue
+      if (part.includes(`{param.${plan.param}}`)) continue
+      const filled = part.replace(/\{param\.(\w+)\}/g, (m, p) => (p in held ? encodeURIComponent(held[p]) : m))
+      if (!/\{/.test(filled)) clauses.push(filled)
+    }
+    return clauses.join("&")
+  }
   for (const plan of plans) {
     const table = plan.table
+    const ctxFilter = pinnedContext(plan)
     if (onDevice(plan, tiers)) {
       // The seeded values, and for a cursor the one whose own predicate admits
       // the most other rows: the interpreter's parseFilter orders the rows, so
       // the lint never carries a comparison of its own that could disagree
       // with it. Any read a value answers by itself takes the first.
-      const rows = tiers.seed[table] ?? []
+      const allRows = tiers.seed[table] ?? []
+      let rows = allRows
+      if (ctxFilter) {
+        const ctxPreds = parseFilter(ctxFilter) as ((row: Row) => boolean)[] | null
+        if (ctxPreds === null) { hole(plan); continue }
+        rows = allRows.filter((r) => ctxPreds.every((p) => p(r)))
+      }
       const values = rows
         .map((r) => r[plan.column] as number | string | null | undefined)
         .filter((v): v is number | string => v !== undefined && v !== null)
@@ -336,7 +355,7 @@ export async function resolveParams(
     }
     const select = embedSelect(plan.column)
     const order = plan.op === "lt" ? `&order=${plan.column}.desc` : plan.op === "gt" ? `&order=${plan.column}.asc` : ""
-    const rows = await api(`${table}?select=${select}${order}&limit=1`)
+    const rows = await api(`${table}?select=${select}${ctxFilter ? `&${ctxFilter}` : ""}${order}&limit=1`)
     const row = rows[0]
     if (!row) { hole(plan); continue }
     const raw = embedValue(row, plan.column)
@@ -590,6 +609,8 @@ export async function motion(
             a.effect?.getTiming().iterations !== Infinity
           )
         const entering = () => document.querySelector(".shell-screen[data-entering]")
+        const busyRegions = () =>
+          (window as unknown as { __prontoBusy?: () => { regions?: number } }).__prontoBusy?.().regions ?? 0
 
         let previous = boxes()
         let stableSince = performance.now()
@@ -602,9 +623,12 @@ export async function motion(
           const image = loading()
           const animation = fading()
           const screen = entering()
+          const busy = busyRegions()
           const why = mutated ??
             (moved >= 0 || current.length !== previous.length
               ? `a box moved: ${moved >= 0 ? named(all[moved]) : "the element count changed"}`
+              : busy > 0
+              ? `${busy} region(s) still hydrating or reducing`
               : image
               ? `an image still loading: ${image.currentSrc || image.src}`
               : animation
@@ -669,14 +693,14 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
   // param nothing plans for is that hole one step earlier.
   for (const hole of unplanned) {
     findings.push({
-      severity: "major",
+      severity: "critical",
       path: hole.route,
       message: `no read filters on :${hole.param}, so no fixture can be resolved and this route went unlinted. Give the screen a region whose data-filter pins the param.`,
     })
   }
   for (const hole of unresolved) {
     findings.push({
-      severity: "major",
+      severity: "critical",
       path: hole.route,
       message: `no fixture value for :${hole.param} — this route went unlinted. Seed a row the param's read can match.`,
     })
@@ -820,6 +844,7 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
       // After the parallel batch: checkContrast says why.
       bugs.push(...await checkContrast(p))
       bugs.push(...analyzeConsole(console_, { ignore: IGNORE }))
+      let consoleCursor = console_.messages.length
       // The sampler above and this settled read are one scan over one projection,
       // taken at two times: it catches braces painted during hydration, this
       // catches braces still standing. Neither can tell a leak from an app that
@@ -987,6 +1012,9 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
               for (const k of invariantKeys) contrastChecked.add(k)
               frameBugs.push(...await checkContrast(p))
             }
+            const frameConsole = console_.messages.slice(consoleCursor)
+            consoleCursor = console_.messages.length
+            frameBugs.push(...analyzeConsole({ messages: frameConsole, dispose: () => {} }, { ignore: IGNORE }))
 
             for (const b of frameBugs) {
               out.push({
@@ -1178,6 +1206,16 @@ function selfTest() {
     [{ route: "/profile/:handle", param: "handle" }],
     "a param nothing filters on is reported, not dropped",
   )
+  const namedReadPlan = paramPlans(
+    [{ path: "/study/:id" }],
+    { "/study/:id": `<div data-live="study_session" data-read-deck="deck?id=eq.{param.id}"></div>` },
+  )
+  eq(
+    namedReadPlan.plans,
+    [plan("/study/:id", { param: "id", table: "deck", column: "id", op: "eq" })],
+    "a param pinned via data-read-* is planned from that named read's table",
+  )
+  eq(namedReadPlan.unplanned, [], "a param planned via data-read-* is not unplanned")
   eq(fillRoute("/article/:slug", { slug: "a b" }), "/article/a%20b", "fillRoute encodes")
   eq(embedSelect("slug"), "slug", "plain column selects itself")
   eq(embedSelect("article_tag.tag"), "article_tag(tag)", "one hop")

@@ -25,23 +25,35 @@ export async function checkClippedContent(page: Page): Promise<VisualBug[]> {
       if (el.scrollWidth <= el.clientWidth + 1 && el.scrollHeight <= el.clientHeight + 1) continue
       const cs = getComputedStyle(el)
       if (cs.overflowX !== "hidden" && cs.overflowY !== "hidden") continue
-      if (cs.textOverflow === "ellipsis") continue
       if (cs.webkitLineClamp !== undefined && cs.webkitLineClamp !== "none") continue
       // The screen-reader idiom and anything else the reader was never shown.
       if (el.clientWidth <= 1 || el.clientHeight <= 1) continue
       if (!el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true, contentVisibilityAuto: true })) continue
+      const id = el.getAttribute("data-testid") || el.className.toString().trim().split(/\s+/)[0] ||
+        el.tagName.toLowerCase()
+      if (cs.textOverflow === "ellipsis") {
+        // Below the 48px touch/pill width floor, an ellipsis box whose content
+        // is over twice its width shows at most a character or two plus "…".
+        if (el.clientWidth < 48 && el.scrollWidth > el.clientWidth * 2) {
+          bugs.push({
+            rule: "clipped-content",
+            description: `"${id}" is crushed to ${el.clientWidth}px with ellipsis (${el.scrollWidth}px content)`,
+            severity: "major",
+            element: id,
+          })
+        }
+        continue
+      }
       const overX = cs.overflowX === "hidden" && el.scrollWidth > el.clientWidth + 1
       const overY = cs.overflowY === "hidden" && el.scrollHeight > el.clientHeight + 1
       if (!overX && !overY) continue
-      const id = el.getAttribute("data-testid") || el.className.toString().trim().split(/\s+/)[0] ||
-        el.tagName.toLowerCase()
       const lost = overX
         ? `${el.scrollWidth - el.clientWidth}px of width`
         : `${el.scrollHeight - el.clientHeight}px of height`
       bugs.push({
         rule: "clipped-content",
         description: `"${id}" hides ${lost} with no ellipsis and no way to scroll to it`,
-        severity: "major",
+        severity: "critical",
         element: id,
       })
     }

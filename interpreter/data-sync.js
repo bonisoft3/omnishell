@@ -23,13 +23,13 @@ import {
   not,
   or,
 } from "./vendor/mecha-client.js";
-import { canCoalesceSchemaEq, coalesceReads, embedDeps, embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect, ProgramError, progressiveReadsComment, routeOf, stripProgressiveReads, takeProgressiveReads } from "./fragment.js";
+import { canCoalesceSchemaEq, coalesceReads, columnOrder, compareBy, embedDeps, embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect, ProgramError, progressiveReadsComment, routeOf, stripProgressiveReads, takeProgressiveReads } from "./fragment.js";
 export { progressiveReadsComment, stripProgressiveReads, takeProgressiveReads };
 import { evaluateRole } from "./jessie.js";
 import { judge } from "./validate.js";
 import { assetURL } from "./preloads.js";
 
-export { embedDeps, embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect, routeOf };
+export { columnOrder, compareBy, embedDeps, embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect, routeOf };
 
 const HEADERS = { "Content-Type": "application/json" };
 
@@ -316,50 +316,6 @@ globalThis.addEventListener("pageshow", () => { leaving = false; });
 const RETRY_FIRST_MS = 100;
 const RETRY_LAST_MS = 5000;
 const RETRY_ATTEMPTS = 6;
-
-/** The value order of one table's columns, for parseFilter and compareBy:
- * undefined for a column the schema does not type. The comparator is the
- * store's, bound to the carrier table the shell was served.
- *
- * @param {(field: object, a: unknown, b: unknown) => number | void} compare
- *
- * @returns {(col: string, a: unknown, b: unknown) => number | undefined}
- */
-export function columnOrder(compare, fields = []) {
-  const byName = new Map(fields.map((f) => [f.name, f]));
-  byName.set(TXID.name, TXID);
-  return (col, a, b) => {
-    const field = byName.get(col);
-    return field === undefined ? undefined : compare(field, a, b);
-  };
-}
-
-/** @param {(col: string, a: unknown, b: unknown) => number | undefined} [compare] */
-export function compareBy(order, compare = () => undefined) {
-  const keys = (order ?? "").split(",").filter(Boolean).map((k) => {
-    const [col, dir, mod] = k.split(".");
-    const sign = dir === "desc" ? -1 : 1;
-    const nullSign = mod === "nullsfirst" ? -1 : mod === "nullslast" ? 1 : sign;
-    return { col, sign, nullSign };
-  });
-  return (a, b) => {
-    for (const { col, sign, nullSign } of keys) {
-      const x = a[col];
-      const y = b[col];
-      if (x == null && y == null) continue;
-      if (x == null) return nullSign;
-      if (y == null) return -nullSign;
-      const typed = compare(col, x, y);
-      if (typed !== undefined) {
-        if (typed !== 0) return typed * sign;
-        continue;
-      }
-      if (x < y) return -sign;
-      if (x > y) return sign;
-    }
-    return 0;
-  };
-}
 
 // Mutations resolve on confirmation OR on durable queueing: the client's
 // promise settles only when the write's txid is seen in the shape stream,
@@ -794,7 +750,10 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
       }
     }
   }
+  const posed = new Map();
+  const posedServerBase = new Map();
   function visible(table, row) {
+    if (posed.get(table)?.has(String(row?.[keyOf(table)]))) return true;
     const a = access[table];
     if (!a) return true;
     // Optimistic rows are this session's own writes; their DB-defaulted
@@ -1481,6 +1440,22 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     Boolean(at && servedToReader && guest() && at === globalThis.location?.href && (at === servedAt || prefetchedPages.has(at)));
 
   async function readServer(table, order, opts) {
+    if (posed.has(table) && (requestOnly(table) || client.collections[table] === undefined)) {
+      const preds = parseFilter(opts.filter, orderOf(table));
+      if (preds === null) {
+        throw new Error(`unsupported filter on posed table ${table}: ${opts.filter}`);
+      }
+      const merged = new Map([
+        ...(posedServerBase.get(table) ?? []),
+        ...posed.get(table),
+      ]);
+      const rows = [...merged.values()].filter((r) => preds.every((p) => p(r)));
+      if (order) rows.sort(compareBy(order, orderOf(table)));
+      const spec = parseFilterSpec(opts.filter) ?? [];
+      const offset = Number(spec.find((s) => s.op === "offset")?.value ?? 0);
+      const limit = parseLimit(opts.filter);
+      return rows.slice(offset, limit === undefined ? undefined : offset + limit).map((r) => ({ ...r }));
+    }
     // A missing optional FK binds an empty UUID. Local views already know
     // that equality cannot match; sending it to Postgres would be a cast error.
     const clauses = parseFilterSpec(opts.filter);
@@ -1736,11 +1711,12 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   }
 
   function subscribe(table, fn, opts = {}) {
+    const readDeps = [...new Set(opts.reads ?? [])].filter((t) => t !== table);
     if (requestOnly(table)) {
       // A completed local command requests a fresh read. It does not open a
       // remote subscription or react to another session's writes.
       const wakes = coalesce(fn);
-      const deps = [...new Set([table, ...embedDeps(opts.select, table, cfg.schema)])];
+      const deps = [...new Set([table, ...embedDeps(opts.select, table, cfg.schema), ...readDeps])];
       for (const t of deps) settleListeners.set(t, (settleListeners.get(t) ?? new Set()).add(wakes.widened));
       return () => {
         wakes.stop();
@@ -1837,7 +1813,8 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
       });
       // The engine maintains the view over the sink alone; the projection is
       // applied after it, so the source's changes have to arrive separately.
-      const sourceStops = foldSourceOf(table)
+      const sourceTables = [...new Set([...foldSourceOf(table), ...readDeps])];
+      const sourceStops = sourceTables
         .filter((t) => client.collections[t] !== undefined)
         .map((t) => watch(client.collections[t], () => {
           clearRemoteServed();
@@ -1848,11 +1825,15 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
         wakes.settled(keys);
       };
       settleListeners.set(table, (settleListeners.get(table) ?? new Set()).add(settle));
+      for (const t of readDeps) {
+        settleListeners.set(t, (settleListeners.get(t) ?? new Set()).add(wakes.widened));
+      }
       return () => {
         wakes.stop();
         stop();
         for (const s of sourceStops) s();
         settleListeners.get(table).delete(settle);
+        for (const t of readDeps) settleListeners.get(t)?.delete(wakes.widened);
         view.release();
       };
     }
@@ -1860,6 +1841,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
       ...embedDeps(opts.select, table, cfg.schema),
       ...accessDeps(table),
       ...foldSourceOf(table),
+      ...readDeps,
     ]);
     const deps = [...new Set([table, ...others])];
     // The read's own table is judged by its filter only when the table is
@@ -1934,9 +1916,9 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
       if (attributable) wakes.settled(keys);
       else wakes.widened();
     };
-    const stops = deps.map((t) =>
-      watch(client.collections[t], filtered(t) && preds !== null ? wakeMatching : wakeAll)
-    );
+    const stops = deps
+      .filter((t) => client.collections[t] !== undefined)
+      .map((t) => watch(client.collections[t], filtered(t) && preds !== null ? wakeMatching : wakeAll));
     for (const t of deps) {
       settleListeners.set(t, (settleListeners.get(t) ?? new Set()).add(t === table ? settle : wakeAll));
     }
@@ -2277,12 +2259,117 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     return request(`${base}/blobs/mecha-objects/${encodeURIComponent(key)}`, { method: "PUT", body: file });
   }
 
+  async function pose(table, row) {
+    await ensurePrepared(table);
+    const key = keyOf(table);
+    const collection = client.collections[table];
+    if (collection && !collection.isReady?.() && local[table] !== undefined) {
+      await collection.toArrayWhenReady?.();
+    }
+    const existingRows = [];
+    const seenKeys = new Set();
+    const pushRows = (rows) => {
+      if (!Array.isArray(rows)) return;
+      for (const r of rows) {
+        if (!r || typeof r !== "object" || !visible(table, r)) continue;
+        const k = r[key] !== undefined ? String(r[key]) : undefined;
+        if (k !== undefined && seenKeys.has(k)) continue;
+        if (k !== undefined) seenKeys.add(k);
+        existingRows.push(r);
+      }
+    };
+    if (posed.has(table)) pushRows([...posed.get(table).values()]);
+    if (posedServerBase.has(table)) pushRows([...posedServerBase.get(table).values()]);
+    if (collection) pushRows(collection.toArray ?? []);
+    for (const entry of recalled.values()) {
+      if (entry.tables.values().next().value === table) pushRows(entry.rows);
+    }
+    for (const entry of answered.values()) {
+      if (entry.tables.values().next().value === table && entry.body) {
+        pushRows(JSON.parse(entry.body));
+      }
+    }
+    const cleanRow = {};
+    for (const [k, v] of Object.entries(row ?? {})) {
+      if (!k.startsWith("$")) cleanRow[k] = v;
+    }
+    if (cleanRow[key] === "") delete cleanRow[key];
+    const baseRow = cleanRow[key] !== undefined
+      ? (existingRows.find((r) => String(r[key]) === String(cleanRow[key])) ?? {})
+      : (existingRows[0] ?? {});
+    const baseClean = {};
+    for (const [k, v] of Object.entries(baseRow)) {
+      if (!k.startsWith("$")) baseClean[k] = v;
+    }
+    const targetKey = cleanRow[key] !== undefined
+      ? cleanRow[key]
+      : (baseClean[key] ?? `${table}_0001`);
+    const nextRow = blank(table, { ...baseClean, ...cleanRow, [key]: targetKey });
+
+    if ((requestOnly(table) || collection === undefined) && !posedServerBase.has(table)) {
+      const serverBase = new Map();
+      for (const r of existingRows) {
+        if (r[key] !== undefined) {
+          const copy = {};
+          for (const [k, v] of Object.entries(r)) {
+            if (!k.startsWith("$")) copy[k] = v;
+          }
+          serverBase.set(String(r[key]), copy);
+        }
+      }
+      posedServerBase.set(table, serverBase);
+    }
+
+    let tableMap = posed.get(table);
+    if (!tableMap) {
+      tableMap = new Map();
+      posed.set(table, tableMap);
+    }
+    tableMap.set(String(targetKey), nextRow);
+
+    clearRemoteServed();
+    forget(table);
+    for (const [sink, spec] of foldSinks.entries()) {
+      if (spec.from === table || spec.pair?.table === table) forget(sink);
+    }
+
+    if (collection?._state) {
+      const state = collection._state;
+      const actualKey = state.syncedData.has(targetKey)
+        ? targetKey
+        : state.syncedData.has(String(targetKey))
+        ? String(targetKey)
+        : (typeof targetKey === "string" && /^\d+$/.test(targetKey) && state.syncedData.has(Number(targetKey)))
+        ? Number(targetKey)
+        : targetKey;
+      const opType = state.syncedData.has(actualKey) ? "update" : "insert";
+      const rowWithKey = { ...nextRow, [key]: actualKey };
+      state.pendingSyncedTransactions.push({
+        committed: true,
+        immediate: true,
+        layoutChanged: false,
+        operations: [{ type: opType, key: actualKey, value: rowWithKey }],
+        deletedKeys: new Set(),
+        rowMetadataWrites: new Map(),
+        collectionMetadataWrites: new Map(),
+      });
+      state.commitPendingTransactions();
+      if (collection._lifecycle?.status === "loading") {
+        collection._lifecycle.markReady();
+      }
+    }
+
+    notifySettled(table, [String(targetKey)]);
+    flushNotifications();
+  }
+
   const writing = (fn) => (table, ...rest) => {
     if (local[table] === undefined) clearAllServed();
     return fn(table, ...rest);
   };
   return {
     query,
+    orderOf,
     seedReads,
     waitSeed,
     add: writing(add),
@@ -2291,6 +2378,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     drop: writing(drop),
     dropWhere: writing(dropWhere),
     upsertBy: writing(upsertBy),
+    pose,
     subscribe,
     upload: (...args) => (clearAllServed(), upload(...args)),
     flushNotifications,

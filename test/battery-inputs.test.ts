@@ -81,3 +81,27 @@ Deno.test("call sites keep separate compartments, parameters and immutable input
   assert.equal(last.runs, first.runs);
   assert.equal(last.maxFuel, first.maxFuel);
 });
+
+Deno.test("exercise catches a handler that breaks or throws when state.rows order is reversed", async () => {
+  const inputs = fc.record({
+    state: fc.constant({
+      items: [{ id: "1" }],
+      rows: { cards: [{ id: "a" }, { id: "b" }] },
+    }),
+    event: fc.constant({ type: "mutation" }),
+  });
+  const propertyFor = sharedInputs(inputs);
+  const orderFragile = `(state) => {
+    if (state.rows.cards[0].id !== "a") return { updates: "bad" };
+    return { updates: [] };
+  };`;
+  const res = await exercise("fragile", "handler", orderFragile, inputs, { params: {} }, { numRuns: 1 }, propertyFor);
+  assert.match(res.error ?? "", /on reversed row order/);
+
+  const orderThrow = `(state) => {
+    if (state.rows.cards[0].id !== "a") throw new Error("unexpected first row");
+    return { updates: [] };
+  };`;
+  const resThrow = await exercise("thrower", "handler", orderThrow, inputs, { params: {} }, { numRuns: 1 }, propertyFor);
+  assert.match(resThrow.error ?? "", /on reversed row order: unexpected first row/);
+});

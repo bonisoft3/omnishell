@@ -321,28 +321,42 @@ export function paramPlans(
       const param = seg.slice(1);
       const key = `${route.path} ${param}`;
       wanted.set(key, { route: route.path, param });
-      for (const [, closing, , attrText] of strip(markup[route.path] ?? "").matchAll(ANY_TAG)) {
-        if (closing === "/") continue;
-        const { attr } = attrsOf(attrText);
-        const table = attr("data-live");
-        const filter = attr("data-filter");
-        if (table === undefined || filter === undefined) continue;
-        // e.g. `slug=eq.{param.slug}`, `created_at=lt.{param.when}`,
-        // `article_tag.tag=eq.{param.name}`, `search=plfts(simple).{param.q}`
-        // The placeholder must BE the value, not part of one: a composite like
-        // `bucket=eq.{param.month}:{id}` names the param without yielding
-        // anything a route can be filled with, and without the terminator the
-        // winner is whichever region is declared first.
-        const m = filter.match(
-          new RegExp(`([\\w.]+)=([a-z]+(?:\\([^)]*\\))?)\\.\\{param\\.${param}\\}(?=&|$)`),
-        );
-        if (!m) continue;
-        // An `eq` plan is the only one a reader can answer by echoing a row's
-        // value, so it wins over one the markup happened to declare first.
-        const found = { route: route.path, param, table, column: m[1], op: m[2], filter, ...(attr("data-select") === undefined ? {} : { select: attr("data-select") }) };
+      const re = new RegExp(`([\\w.]+)=([a-z]+(?:\\([^)]*\\))?)\\.(?:\\*\\{param\\.${param}\\}\\*|\\{param\\.${param}\\})(?=&|$)`);
+      const consider = (found: ParamPlan) => {
         const held = plans.get(key);
         if (held === undefined || (held.op !== "eq" && found.op === "eq")) plans.set(key, found);
-        if (found.op === "eq") break;
+      };
+      for (const [, closing, , attrText] of strip(markup[route.path] ?? "").matchAll(ANY_TAG)) {
+        if (closing === "/") continue;
+        const attrs = attrMap(attrText);
+        const table = attrs.get("data-live");
+        const filter = attrs.get("data-filter");
+        if (table !== undefined && filter !== undefined) {
+          // e.g. `slug=eq.{param.slug}`, `created_at=lt.{param.when}`,
+          // `article_tag.tag=eq.{param.name}`, `search=plfts(simple).{param.q}`
+          // The placeholder must BE the value, not part of one: a composite like
+          // `bucket=eq.{param.month}:{id}` names the param without yielding
+          // anything a route can be filled with, and without the terminator the
+          // winner is whichever region is declared first.
+          const m = filter.match(re);
+          if (m) {
+            // An `eq` plan is the only one a reader can answer by echoing a row's
+            // value, so it wins over one the markup happened to declare first.
+            const select = attrs.get("data-select");
+            consider({ route: route.path, param, table, column: m[1], op: m[2], filter, ...(select === undefined ? {} : { select }) });
+            if (plans.get(key)?.op === "eq") break;
+          }
+        }
+        for (const [name, value] of attrs) {
+          if (!name.startsWith("data-read-")) continue;
+          const read = parseReadSpec(value);
+          if (read.filter === undefined) continue;
+          const m = read.filter.match(re);
+          if (!m) continue;
+          consider({ route: route.path, param, table: read.table, column: m[1], op: m[2], filter: read.filter });
+          if (plans.get(key)?.op === "eq") break;
+        }
+        if (plans.get(key)?.op === "eq") break;
       }
     }
   }

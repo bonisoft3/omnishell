@@ -7,6 +7,7 @@ import { mountHatch } from "./hatch.js";
 import {
   ABSENT,
   binding,
+  compareBy,
   directionOf,
   fillFilter,
   machineCandidates,
@@ -53,17 +54,42 @@ function ensureHydrationStyle(doc) {
   }
 }
 const stylesheetLoads = new WeakMap();
-function installStyle(id, css) {
+export function activateScreenStyle(activeId) {
+  if (!activeId.startsWith("screen-css-")) return;
+  for (const s of document.head?.querySelectorAll?.('style[id^="screen-css-"]') ?? []) {
+    const off = s.id !== activeId;
+    s.media = off ? "not all" : "";
+    s.disabled = off;
+  }
+}
+const hasVisibleScreen = (screenName) =>
+  [...(document.querySelectorAll?.(`[data-screen="${screenName}"]`) ?? [])]
+    .some((el) => !el.hidden && !el.closest?.("[hidden]"));
+function applyScreenStyle(style, id, isActive) {
+  if (isActive()) {
+    style.media = "";
+    style.disabled = false;
+    activateScreenStyle(id);
+  } else if (!id.startsWith("screen-css-") || !hasVisibleScreen(id.slice(11))) {
+    style.media = "not all";
+    style.disabled = true;
+  }
+}
+function installStyle(id, css, isActive = () => true) {
   const prior = document.getElementById(id);
-  if (prior !== null && prior.textContent === css && !stylesheetLoads.has(prior)) return Promise.resolve();
+  if (prior !== null && prior.textContent === css && !stylesheetLoads.has(prior)) {
+    applyScreenStyle(prior, id, isActive);
+    return Promise.resolve();
+  }
   if (prior === null || (!css.includes("@import") && !stylesheetLoads.has(prior))) {
     const style = prior ?? document.head.appendChild(Object.assign(document.createElement("style"), { id }));
     if (style.textContent !== css) style.textContent = css;
+    applyScreenStyle(style, id, isActive);
     return Promise.resolve();
   }
   const loading = stylesheetLoads.get(prior);
   if (loading?.css === css) return loading.ready;
-  if (loading && !loading.done) return loading.ready.then(() => installStyle(id, css));
+  if (loading && !loading.done) return loading.ready.then(() => installStyle(id, css, isActive));
   const style = document.createElement("style");
   style.id = id;
   // Populate before insertion: appending an empty sheet first can fire a
@@ -77,6 +103,7 @@ function installStyle(id, css) {
       style.removeEventListener("error", finish);
       if (event.type === "load") {
         prior?.remove();
+        applyScreenStyle(style, id, isActive);
         resolve();
       } else {
         style.remove();
@@ -127,10 +154,14 @@ export function prefetchScreen(appBase, route) {
     [html, kept.get(html.href) ?? prefetched.get(html.href) ?? fetchText(html)],
     [css, (kept.get(css.href) ?? prefetched.get(css.href) ?? fetchText(css)).then((text) => {
       if (!document.getElementById(styleId)) {
+        const hasActiveOther = [...(document.head?.querySelectorAll?.('style[id^="screen-css-"]') ?? [])]
+          .some((s) => s.id !== styleId && !s.disabled);
         const style = document.createElement("style");
         style.id = styleId;
         style.textContent = text;
+        if (hasActiveOther) style.media = "not all";
         document.head.append(style);
+        if (hasActiveOther) style.disabled = true;
       }
       return text;
     })],
@@ -1087,7 +1118,7 @@ function nestedBindings(el, ctx) {
   for (const name of Object.keys(stash)) names.add(name);
   const out = [];
   for (const name of [...names].sort()) {
-    if (name !== "data-project" && regionAttr(name)) continue;
+    if (name !== "data-project" && !name.startsWith("data-read-") && regionAttr(name)) continue;
     const template = stash[name] ?? el.getAttribute(name);
     if (template === null || !PLACEHOLDER.test(template)) continue;
     out.push(`${name}=${fromEnclosing(() => interpolate(template, ctx), el.dataset.live, name)}`);
@@ -1590,7 +1621,8 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // on show is replaced and nothing the reader has done to it is lost.
   const served = opts.served;
   if (opts.mountHostDom !== false) ensureHydrationStyle(document);
-  await installStyle(styleId, css);
+  const isMountActive = () => !mount.hidden && (!mount.ownerDocument?.body || mount.ownerDocument.body.contains(mount));
+  await installStyle(styleId, css, isMountActive);
 
   // Subscriptions of the previously mounted screen would refresh dead DOM and
   // keep their poll keys hot — stop them before mounting the next one.
@@ -1603,6 +1635,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   const work = new Set();
   const derived = new Map();
   const dirty = new Set();
+  let held = "shown";
   let failure;
   let settling;
   const failed = (err) => {
@@ -1691,7 +1724,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   let currentLocale = opts.locale ?? params.locale ?? opts.i18n?.default;
   // What a binding reads off the app rather than off its row: the route table
   // and the locales every link's address is composed from (routeHref).
-  const cfg = { routes: opts.routes, i18n: opts.i18n, schema: opts.schema, prefix: opts.prefix, endowments: opts.endowments };
+  const cfg = { routes: opts.routes, i18n: opts.i18n, schema: opts.schema, keys: opts.keys, carriers: opts.carriers, prefix: opts.prefix, endowments: opts.endowments };
   // Loaded below, before anything binds; the ctx carries the map so an adapter
   // is reached the way a message catalogue is, and every derived ctx keeps it.
   let adapters = null;
@@ -2172,7 +2205,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       }
       return out;
     };
-    form.addEventListener("submit", async (e) => {
+    form.addEventListener("submit", (e) => {
       e.preventDefault();
       const entity = form.dataset.entity;
       const action = form.dataset.action;
@@ -2231,45 +2264,46 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         form.querySelector(".store-error")?.removeAttribute("hidden");
         setState(err?.name === "NonRetriableError" ? "validation-error" : "network-error");
       };
-      try {
-        // A form's create mints the key the store now requires of every write:
-        // retries are only idempotent because the key travels with each attempt.
-        if (action === "create") {
-          // The key is minted here because every write now carries one: retries
-          // are idempotent only because the key travels with each attempt.
-          const row = await values();
-          await store.add(entity, [row.id === undefined ? { id: mintUuid(), ...row } : row], refused);
+      track((async () => {
+        try {
+          // A form's create mints the key the store now requires of every write:
+          // retries are only idempotent because the key travels with each attempt.
+          if (action === "create") {
+            const row = await values();
+            await store.add(entity, [row.id === undefined ? { id: mintUuid(), ...row } : row], refused);
+          }
+          // Write the row for this natural key, existing or not. The form says
+          // what the row should be; whether that is an insert or an update is the
+          // store's question, answered against the collection.
+          else if (action === "upsert") await store.upsertBy(entity, await values(), refused);
+          else if (action === "update") {
+            await store.patch(entity, [{ key: wiring().rowId(), changes: await values() }], refused);
+          }
+          else if (action === "delete" && form.dataset.filter !== undefined) {
+            // Filter-scoped bulk delete: the filter, not the row context,
+            // names the rows (SPEC #Form.filter).
+            await store.dropWhere(entity, interpolateFilter(form.dataset.filter, wiring().getCtx()), refused);
+          } else if (action === "delete") await store.drop(entity, [wiring().rowId()], refused);
+          else throw new Error(`unknown action: ${action}`);
+          dirty.add(entity);
+          // Only a create is reset, ready for the next row. Any other form's
+          // controls already show the row the write stated, and a reset would put
+          // each back to its markup's default — an input to its placeholder, a
+          // select whose value was bound to its first option — until the row's
+          // refresh binds them again. So is one that submits on change.
+          if (edits === editsAtSubmit && action === "create" && !submitsOnChange(form)) form.reset();
+          setState("success");
+          // A late refusal can land inside the flash window; only an
+          // undisturbed success may hand back to the base state.
+          rest(600, { kind: "flash" }).then(() => {
+            if (screen.dataset.state === "success") setState(base);
+          });
+        } catch (err) {
+          refused(err);
+        } finally {
+          delete form.dataset.submitting;
         }
-        // Write the row for this natural key, existing or not. The form says
-        // what the row should be; whether that is an insert or an update is the
-        // store's question, answered against the collection.
-        else if (action === "upsert") await store.upsertBy(entity, await values(), refused);
-        else if (action === "update") {
-          await store.patch(entity, [{ key: wiring().rowId(), changes: await values() }], refused);
-        }
-        else if (action === "delete" && form.dataset.filter !== undefined) {
-          // Filter-scoped bulk delete: the filter, not the row context,
-          // names the rows (SPEC #Form.filter).
-          await store.dropWhere(entity, interpolateFilter(form.dataset.filter, wiring().getCtx()), refused);
-        } else if (action === "delete") await store.drop(entity, [wiring().rowId()], refused);
-        else throw new Error(`unknown action: ${action}`);
-        // Only a create is reset, ready for the next row. Any other form's
-        // controls already show the row the write stated, and a reset would put
-        // each back to its markup's default — an input to its placeholder, a
-        // select whose value was bound to its first option — until the row's
-        // refresh binds them again. So is one that submits on change.
-        if (edits === editsAtSubmit && action === "create" && !submitsOnChange(form)) form.reset();
-        setState("success");
-        // A late refusal can land inside the flash window; only an
-        // undisturbed success may hand back to the base state.
-        rest(600, { kind: "flash" }).then(() => {
-          if (screen.dataset.state === "success") setState(base);
-        });
-      } catch (err) {
-        refused(err);
-      } finally {
-        delete form.dataset.submitting;
-      }
+      })());
     });
     form.addEventListener("input", () => {
       edits++;
@@ -2364,16 +2398,25 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     const named = [...region.attributes]
       .filter((a) => a.name.startsWith("data-read-"))
       .map((a) => ({ name: a.name.slice("data-read-".length), ...parseReadSpec(a.value) }));
+    const sortByPk = (table, rows) => {
+      if (!Array.isArray(rows) || rows.length <= 1) return rows;
+      const fields = cfg.schema?.[table]?.fields ?? [];
+      const pks = fields.filter((f) => f.pk).map((f) => f.name);
+      const cols = pks.length > 0 ? pks : [cfg.keys?.[table] ?? "id"];
+      const order = cols.map((col) => `${col}.asc`).join(",");
+      return [...rows].sort(compareBy(order, store.orderOf?.(table)));
+    };
     // A reduce acts on what it is given, once, and holds no subscription that
     // would correct a stale answer: its reads are current.
     const worldOf = async () => {
       const entries = await Promise.all([
-        ...reads.map(async (table) => [table, await store.query(table, null, { current: true })]),
+        ...reads.map(async (table) => [table, sortByPk(table, await store.query(table, null, { current: true }))]),
         ...named.map(async (r) => {
           const opts = { current: true };
           if (r.filter !== undefined) opts.filter = interpolateFilter(r.filter, ctx);
           if (r.order !== undefined) opts.order = r.order;
-          return [r.name, await store.query(r.table, r.order ?? null, opts)];
+          const rows = await store.query(r.table, r.order ?? null, opts);
+          return [r.name, r.order === undefined ? sortByPk(r.table, rows) : rows];
         }),
       ]);
       return Object.fromEntries(entries);
@@ -2562,7 +2605,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     };
 
     const step = async (reduce, event, depth, pause) => {
+      if (held === "stopped") return;
       const next = await track((async () => {
+        if (held === "stopped") return;
         checkSettlement(region);
         const result = reduce({ items: getRows(), rows: await worldOf() }, event);
         // A promise is not a continuation command and cannot be a reduce.
@@ -2621,6 +2666,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             // The DOM id and not the class: the class is how a thing looks,
             // and a reduce that branched on it would be reading the styling.
             if (el.id !== "") fired.from = el.id;
+            if ((event === "input" || event === "change") && typeof el.value === "string") {
+              fired.value = el.value;
+            }
             // Which animation ended, when one did. A screen runs more than one
             // clock — the terminal's own item arrivals among them — and they
             // all bubble to a region that declared this event, so a reduce
@@ -3308,10 +3356,12 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       folds.set(seatKey, seat);
       if (seat.running) seat.again = true;
       else {
+        const mutEvent = region.id ? { type: "mutation", from: region.id } : { type: "mutation" };
         const wake = () => {
+          if (held === "stopped") return;
           seat.running = true;
           let rejected = false;
-          finite((pause) => step(rowsReduce, { type: "mutation" }, 0, pause)
+          finite((pause) => step(rowsReduce, mutEvent, 0, pause)
             .catch((err) => {
               rejected = true;
               failed(err);
@@ -3320,7 +3370,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             })
             .finally(() => {
               seat.running = false;
-              if (!seat.again || rejected) return;
+              if (!seat.again || rejected || held === "stopped") return;
               seat.again = false;
               wake();
             }));
@@ -4118,6 +4168,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         syncNested(slot, ready);
         await Promise.all(ready);
         if (stopped) return;
+        first = false;
         finishOwn();
       }
     };
@@ -4242,7 +4293,8 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       readers.add(guarded);
       derived.set(dependency, readers);
     }
-    let unsub = store.subscribe(table, guarded, opts);
+    const subOpts = dependencies.size > 0 ? { ...opts, reads: [...dependencies] } : opts;
+    let unsub = store.subscribe(table, guarded, subOpts);
     const detach = () => {
       clearTimeout(retryTimer);
       // An armed machine timer dies with the subscriptions — a wait expiring
@@ -4343,7 +4395,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         eachNested((h) => h.pause());
       },
       resume: () => {
-        unsub ??= store.subscribe(table, guarded, opts);
+        unsub ??= store.subscribe(table, guarded, subOpts);
         eachNested((h) => h.resume());
         return guarded();
       },
@@ -4418,7 +4470,6 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // The terminal owns the navigation stack, so it needs more than a teardown:
   // a screen it is holding for a back press is paused, not stopped. A morph
   // waiting on the newer template's modules meets either when it resumes.
-  let held = "shown";
   const stopScreen = () => {
     held = "stopped";
     const errors = [];
@@ -4504,7 +4555,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   return {
     settle,
     updateStyle: async (css) => {
-      await installStyle(styleId, css);
+      await installStyle(styleId, css, isMountActive);
     },
     // Which template this screen was drawn from (templateHash).
     cas,

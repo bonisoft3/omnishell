@@ -930,6 +930,52 @@ export function stripProgressiveReads(html) {
   return html.replace(/<!--pronto-read:[\s\S]*?-->/g, "");
 }
 
+const TXID = { name: "txid", type: "int64" };
+
+/** The value order of one table's columns, for parseFilter and compareBy:
+ * undefined for a column the schema does not type. The comparator is the
+ * store's, bound to the carrier table the shell was served.
+ *
+ * @param {(field: object, a: unknown, b: unknown) => number | void} compare
+ *
+ * @returns {(col: string, a: unknown, b: unknown) => number | undefined}
+ */
+export function columnOrder(compare, fields = []) {
+  const byName = new Map(fields.map((f) => [f.name, f]));
+  byName.set(TXID.name, TXID);
+  return (col, a, b) => {
+    const field = byName.get(col);
+    return field === undefined ? undefined : compare(field, a, b);
+  };
+}
+
+/** @param {(col: string, a: unknown, b: unknown) => number | undefined} [compare] */
+export function compareBy(order, compare = () => undefined) {
+  const keys = (order ?? "").split(",").filter(Boolean).map((k) => {
+    const [col, dir, mod] = k.split(".");
+    const sign = dir === "desc" ? -1 : 1;
+    const nullSign = mod === "nullsfirst" ? -1 : mod === "nullslast" ? 1 : sign;
+    return { col, sign, nullSign };
+  });
+  return (a, b) => {
+    for (const { col, sign, nullSign } of keys) {
+      const x = a[col];
+      const y = b[col];
+      if (x == null && y == null) continue;
+      if (x == null) return nullSign;
+      if (y == null) return -nullSign;
+      const typed = compare(col, x, y);
+      if (typed !== undefined) {
+        if (typed !== 0) return typed * sign;
+        continue;
+      }
+      if (x < y) return -sign;
+      if (x > y) return sign;
+    }
+    return 0;
+  };
+}
+
 export function preservesRows(select) {
   const tree = parseEmbeds(select ?? "*");
   if (tree === null || tree.cols.some((c) => COALESCE_AGGREGATE.test(c))) return false;

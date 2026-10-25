@@ -4,7 +4,7 @@ import "../interpreter/vendor/ses.umd.min.js"
 import { ensureSes } from "../interpreter/jessie.js"
 import { createStore } from "../interpreter/data-sync.js"
 import { FIXTURE_CARRIERS } from "../interpreter/fixture-types.js"
-import { interpretScreen } from "../interpreter/screen.js"
+import { activateScreenStyle, interpretScreen, prefetchScreen } from "../interpreter/screen.js"
 
 await ensureSes()
 
@@ -205,6 +205,187 @@ describe("a screen's present work", () => {
       await app.handle.settle()
       expect(app.document.querySelector("p")?.textContent).toBe("12")
       expect(waits).toBe(1)
+    } finally {
+      globalThis.setTimeout = originalSetTimeout
+      app.stop()
+    }
+  })
+
+  it("poses rows in-memory without HTTP writes, sorts snapshot data-read-* by carrier PK, and isolates screen CSS across prefetch and hidden mounts", async () => {
+    const html = `<section class="screen" data-screen="chart">
+      <div data-live="chart" data-filter="id=eq.c" data-empty-row='{"id":"c","series":"empty"}'
+           data-on-mutation="fold" data-read-points="point?value=ilike.*v*">
+        <p class="series" data-text="{series}"></p>
+        <div class="nested" data-live="point">
+          <template data-item><span class="pt" data-text="{value}"></span></template>
+        </div>
+      </div>
+    </section>`
+    const unorderedFold = `(state) => {
+      const view = state.items[0];
+      const series = state.rows.points.map(p => p.id + ":" + p.value).join(",");
+      return { updates: !view || view.series === series ? [] :
+        [{ op: "put", id: view.id, row: { series } }] };
+    }`
+    const ambientDoc = globalThis.document
+    const { document: preDoc } = parseHTML(
+      "<html><head><style id='screen-css-stale'>.x{color:red}</style></head><body><div id='app'></div><div id='bg' hidden></div></body></html>",
+    )
+    globalThis.document = preDoc as any
+    globalThis.sessionStorage = { getItem: () => null } as any
+    const httpMethods: string[] = []
+    globalThis.fetch = ((url: URL | string, init?: RequestInit) => {
+      const m = init?.method ?? "GET"
+      httpMethods.push(`${m} ${new URL(String(url), "http://localhost/").pathname}`)
+      const name = new URL(String(url), "http://localhost/").pathname.slice(1)
+      const files: Record<string, string> = {
+        "chart.html": html,
+        "chart.css": ".series{color:blue}",
+        "other.html": `<section class="screen" data-screen="other"><p>other</p></section>`,
+        "other.css": ".series{color:green}",
+        "bg.html": `<section class="screen" data-screen="bg"><p>bg</p></section>`,
+        "bg.css": ".series{color:yellow}",
+        "fold.js": unorderedFold,
+      }
+      if (files[name] !== undefined) return Promise.resolve(new Response(files[name]))
+      throw new Error(`unexpected fetch ${m} ${url}`)
+    }) as typeof fetch
+    const store = createStore("", {
+      carriers: FIXTURE_CARRIERS,
+      local: { chart: "tab", point: "tab" },
+      schema: {
+        chart: { fields: [{ name: "id", type: "string", pk: true }, { name: "series", type: "string" }] },
+        point: { fields: [{ name: "id", type: "int64", pk: true }, { name: "value", type: "string" }] },
+      },
+    })
+    // Insert int64 string PK "10" before "2": plain JS string < sorts "10" < "2",
+    // whereas carrier-aware sortByPk via store.orderOf sorts "2" before "10".
+    await store.write("point", [{ key: "10", row: { value: "v10" } }, { key: "2", row: { value: "v2" } }])
+    const route = { screen: "chart", files: { html: "chart.html", css: "chart.css", handlers: ["fold.js"] } }
+    const handle = await interpretScreen(preDoc.getElementById("app"), "http://localhost/", route, store)
+    let bgHandle: any
+    try {
+      await handle.settle()
+      expect(preDoc.querySelector(".series")?.textContent).toBe("2:v2,10:v10")
+      expect(preDoc.querySelector(".nested")?.hasAttribute("data-hydrating")).toBe(false)
+      expect((preDoc.getElementById("screen-css-stale") as any)?.disabled).toBe(true)
+      expect((preDoc.getElementById("screen-css-chart") as any)?.disabled).toBe(false)
+
+      // Prefetching another screen installs its stylesheet disabled.
+      prefetchScreen("http://localhost/", {
+        screen: "other",
+        files: { html: "other.html", css: "other.css", handlers: [] },
+      })
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      expect((preDoc.getElementById("screen-css-other") as any)?.disabled).toBe(true)
+      expect((preDoc.getElementById("screen-css-chart") as any)?.disabled).toBe(false)
+
+      // Interpreting a screen into a hidden mount installs its stylesheet disabled
+      // without disabling the active screen's stylesheet.
+      bgHandle = await interpretScreen(
+        preDoc.getElementById("bg"),
+        "http://localhost/",
+        { screen: "bg", files: { html: "bg.html", css: "bg.css", handlers: [] } },
+        store,
+      )
+      expect((preDoc.getElementById("screen-css-bg") as any)?.disabled).toBe(true)
+      expect((preDoc.getElementById("screen-css-chart") as any)?.disabled).toBe(false)
+
+      // Updating a hidden cached screen's stylesheet keeps it disabled and leaves the active screen's stylesheet enabled.
+      await bgHandle.updateStyle(".series{color:orange}")
+      expect((preDoc.getElementById("screen-css-bg") as any)?.textContent).toBe(".series{color:orange}")
+      expect((preDoc.getElementById("screen-css-bg") as any)?.disabled).toBe(true)
+      expect((preDoc.getElementById("screen-css-chart") as any)?.disabled).toBe(false)
+
+      // Interpreting a second instance of the SAME route.screen ("chart") into a hidden mount
+      // must NOT disable the shared #screen-css-chart stylesheet while a visible "chart" instance is mounted.
+      const hiddenSameScreen = await interpretScreen(
+        preDoc.getElementById("bg"),
+        "http://localhost/",
+        route,
+        store,
+      )
+      expect((preDoc.getElementById("screen-css-chart") as any)?.disabled).toBe(false)
+      hiddenSameScreen.stop()
+
+      // Switching active screen style toggles disabled across screen-css-* sheets.
+      activateScreenStyle("screen-css-other")
+      expect((preDoc.getElementById("screen-css-other") as any)?.disabled).toBe(false)
+      expect((preDoc.getElementById("screen-css-chart") as any)?.disabled).toBe(true)
+      activateScreenStyle("screen-css-chart")
+      expect((preDoc.getElementById("screen-css-chart") as any)?.disabled).toBe(false)
+      expect((preDoc.getElementById("screen-css-other") as any)?.disabled).toBe(true)
+
+      // Posing a row updates the dependent region in-memory without HTTP writes,
+      // and re-rendering the parent singleton slot does not re-stamp data-hydrating on .nested.
+      await store.pose("point", { id: "2", value: "v99" })
+      await handle.settle()
+      expect(preDoc.querySelector(".series")?.textContent).toBe("2:v99,10:v10")
+      expect(preDoc.querySelector(".nested")?.hasAttribute("data-hydrating")).toBe(false)
+      expect(httpMethods.filter(m => m.startsWith("POST ") || m.startsWith("PATCH "))).toEqual([])
+    } finally {
+      bgHandle?.stop()
+      handle.stop()
+      globalThis.document = ambientDoc
+    }
+  })
+
+  it("evaluates posed server-tier queries with offset before limit and throws on unsupported posed filters", async () => {
+    const store = createStore("", {
+      carriers: FIXTURE_CARRIERS,
+      local: {},
+      schema: {
+        item: { fields: [{ name: "id", type: "string", pk: true }, { name: "rank", type: "int64" }] },
+      },
+    })
+    globalThis.fetch = (() => Promise.resolve(new Response(JSON.stringify([
+      { id: "a", rank: 1 },
+      { id: "b", rank: 2 },
+      { id: "c", rank: 3 },
+    ])))) as typeof fetch
+    await store.query("item", "id.asc")
+    await store.pose("item", { id: "b", rank: 20 })
+    const paged = await store.query("item", "id.asc", { filter: "offset=1&limit=1" })
+    expect(paged).toEqual([{ id: "b", rank: 20 }])
+    await expect(store.query("item", undefined, { filter: "tags=cs.{x}" })).rejects.toThrow(/unsupported filter on posed table item/)
+  })
+
+  it("restates nested list regions with data-read-* placeholders and wakes data-read-* dependents on form change", async () => {
+    const originalSetTimeout = globalThis.setTimeout
+    globalThis.setTimeout = ((fn: TimerHandler, ms?: number, ...args: unknown[]) => {
+      if (ms === 600) return 0
+      return originalSetTimeout(fn, ms, ...args)
+    }) as typeof setTimeout
+    const html = `<section class="screen" data-screen="chart">
+      <div data-live="chart" data-filter="id=eq.c" data-empty-row='{"id":"c","series":"12"}'>
+        <form data-entity="chart" data-action="upsert">
+          <input type="hidden" name="id" data-value="{id}">
+          <input class="q" type="text" name="series" data-value="{series}">
+        </form>
+        <div id="pts-region" data-live="point" data-on-mutation="filterFold" data-read-pts="point?value=ilike.*{series}*">
+          <template data-item><span class="pt" data-text="{value}"></span></template>
+        </div>
+      </div>
+    </section>`
+    const filterFold = `(state, event) => {
+      const matched = (event.from ?? "") + ":" + state.rows.pts.map(p => p.id).join(",");
+      return { updates: state.items[0]?.matched === matched ? [] :
+        state.items.map(p => ({ op: "patch", id: p.id, row: { matched } })) };
+    }`
+    const app = await boot(html, { seed, fold: filterFold, filterFold } as any)
+    try {
+      await app.handle.settle()
+      expect((await app.store.query("point", "id.asc"))[0].matched).toBe("pts-region:p1")
+      const form = app.document.querySelector("form") as any
+      form.checkValidity = () => true
+      form.reset = () => {}
+      form.requestSubmit = () => form.dispatchEvent(new (app.document.defaultView?.Event ?? Event)("submit", { bubbles: true, cancelable: true }))
+      const input = app.document.querySelector(".q") as any
+      input.value = "24"
+      input.dispatchEvent(new (app.document.defaultView?.Event ?? Event)("change", { bubbles: true }))
+      await new Promise(resolve => setTimeout(resolve, 10))
+      await app.handle.settle()
+      expect((await app.store.query("point", "id.asc"))[0].matched).toBe("pts-region:p2")
     } finally {
       globalThis.setTimeout = originalSetTimeout
       app.stop()

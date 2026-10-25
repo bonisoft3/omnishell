@@ -268,6 +268,33 @@ export async function exercise(
       if (JSON.stringify(first) !== JSON.stringify(second)) {
         throw new Error("the same input answered twice, differently");
       }
+
+      if (role === "handler" || role === "validation") {
+        const s = state as Record<string, unknown>;
+        const hasMultiRows = s.rows !== null && typeof s.rows === "object" &&
+          Object.values(s.rows as Record<string, unknown>).some((v) => Array.isArray(v) && v.length > 1);
+        if (hasMultiRows) {
+          const revClone = structuredClone(state) as Record<string, unknown>;
+          if (revClone.rows !== null && typeof revClone.rows === "object") {
+            const rowsObj = revClone.rows as Record<string, unknown>;
+            for (const [k, v] of Object.entries(rowsObj)) {
+              if (Array.isArray(v)) rowsObj[k] = [...v].reverse();
+            }
+          }
+          const reversedState = deepFreeze(revClone);
+          meter.reset();
+          let reversed: unknown;
+          try {
+            reversed = target(reversedState, frozenEvent, params);
+          } catch (err) {
+            throw new Error(`on reversed row order: ${said(err)}`);
+          }
+          const revFuel = meter.consumed();
+          if (revFuel > maxFuel) maxFuel = revFuel;
+          const revWrong = shape(reversed);
+          if (revWrong !== null) throw new Error(`on reversed row order: ${revWrong}`);
+        }
+      }
       return true;
     }),
     { numRuns: runs, seed: options.seed ?? SEED },

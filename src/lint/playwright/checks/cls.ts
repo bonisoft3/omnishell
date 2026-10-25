@@ -35,7 +35,7 @@ export async function armCLS(page: Page): Promise<void> {
 /**
  * Read what shifted. No wait: the driver settles the screen before calling
  * this, so one here would measure the harness's pacing instead. 0.1 is Core
- * Web Vitals' "good" boundary.
+ * Web Vitals' "good" boundary; 0.25 is its "poor" boundary.
  */
 export async function checkCLS(page: Page): Promise<VisualBug[]> {
   const cls = await page.evaluate(
@@ -46,7 +46,7 @@ export async function checkCLS(page: Page): Promise<VisualBug[]> {
     ? [{
       rule: "cls-threshold",
       description: `layout shifted ${cls.toFixed(3)} after first paint, over the 0.1 "good" boundary`,
-      severity: "major",
+      severity: cls > 0.25 ? "critical" : "major",
     }]
     : []
 }

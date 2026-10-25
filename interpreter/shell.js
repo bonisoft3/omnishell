@@ -18,7 +18,7 @@ import { parseMarkup } from "./markup.js";
 
 import { chromeText, describe, drawStrip, guestBox, hasStrip, localizeStrip, offersGuest, providerHref, providerKey, stripRoutes, supportsPasskeys } from "./chrome.js";
 import { localeAt, localeTable, ProgramError, routeAt, routeHref, screenEnv, Unanswered } from "./fragment.js";
-import { fetchText, interpretScreen, prefetchScreen, templateHash, submitsOnChange } from "./screen.js";
+import { activateScreenStyle, fetchText, interpretScreen, prefetchScreen, templateHash, submitsOnChange } from "./screen.js";
 import { compileCatalog } from "./vendor/messages.js";
 import { planRelease } from "./release-plan.js";
 export { routeAt } from "./fragment.js";
@@ -819,19 +819,7 @@ export async function createShell({ config, mount, preload = true }) {
 
     // Debug & visual-lint seam: pose fixture rows in-memory without page reloads.
     globalThis.__prontoStore = store;
-    globalThis.__prontoPose = async (table, row) => {
-      const client = globalThis.__mechaClient;
-      const collection = client?.collections?.[table];
-      if (collection) {
-        if (!collection.isReady?.()) await collection.toArrayWhenReady?.();
-        const existing = collection.toArray ?? [];
-        const key = cfg.keys?.[table] || "id";
-        const targetKey = existing[0]?.[key] ?? ((row[key] !== undefined && row[key] !== "") ? row[key] : `${table}_0001`);
-        const cleanRow = { ...row };
-        if (cleanRow[key] === "") delete cleanRow[key];
-        await store.write(table, [{ key: targetKey, row: { ...existing[0], ...cleanRow, [key]: targetKey } }]);
-      }
-    };
+    globalThis.__prontoPose = (table, row) => store.pose(table, row);
 
     // The navigation stack belongs to the terminal — there is one back button,
     // so no screen can own it. A screen the user leaves keeps its DOM, hidden
@@ -985,6 +973,7 @@ export async function createShell({ config, mount, preload = true }) {
       }
       const entry = held.get(key);
       if (entry !== undefined) {
+        activateScreenStyle(`screen-css-${route.screen}`);
         entry.locale = locale;
         entry.seq = ++seq;
         entry.el.hidden = false;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@test/harness"
 import { ftsWords, type Reader, resolveParams, tiersFrom } from "../check-visual.ts"
-import type { ParamPlan } from "../interpreter/lint.ts"
+import { paramPlans, type ParamPlan } from "../interpreter/lint.ts"
 
 // The battery fills a `:param` with a row the route's read can match, and the
 // row lives where the app's program put the entity: shell.yaml `local:` names
@@ -191,5 +191,81 @@ describe("check-visual param resolution follows the app's declared tier", () => 
     await expect(resolveParams([plan("/note/:id", "id", "note", "id")], tiers, api)).rejects.toThrow(
       "GET /crud/note?select=id&limit=1 -> 502",
     )
+  })
+
+  it("plans route params declared via data-read-* and constrains multi-param routes by already-resolved params", async () => {
+    const html = `<section class="screen" data-screen="card">
+      <div data-live="play_session" data-read-set="card_set?id=eq.{param.deck}" data-read-cards="flashcard?set_id=eq.{param.deck}&front=eq.{param.card}"></div>
+    </section>`
+    const { plans, unplanned } = paramPlans(
+      [{ path: "/explore/:deck/:card" }],
+      { "/explore/:deck/:card": html },
+    )
+    expect(unplanned).toEqual([])
+    expect(plans).toEqual([
+      { route: "/explore/:deck/:card", param: "deck", table: "card_set", column: "id", op: "eq", filter: "id=eq.{param.deck}" },
+      { route: "/explore/:deck/:card", param: "card", table: "flashcard", column: "front", op: "eq", filter: "set_id=eq.{param.deck}&front=eq.{param.card}" },
+    ])
+    const tiers = tier(true)
+    const { api, calls } = reader({
+      card_set: [{ id: "deck-2" }],
+      flashcard: [{ set_id: "deck-2", front: "hola" }],
+    })
+    const { params, unresolved } = await resolveParams(plans, tiers, api)
+    expect(unresolved).toEqual([])
+    expect(params.get("/explore/:deck/:card")).toEqual({ deck: "deck-2", card: "hola" })
+    expect(calls).toEqual([
+      "card_set?select=id&limit=1",
+      "flashcard?select=front&set_id=eq.deck-2&limit=1",
+    ])
+
+    // On device tier, narrowing by already-resolved :deck picks the matching card
+    // and reports an unresolved hole (without falling back) when no card matches :deck.
+    const deviceMatching = tier(
+      false,
+      [
+        "local:",
+        "  card_set: device",
+        "  flashcard: device",
+        "seed:",
+        "  card_set:",
+        "    - id: deck-2",
+        "  flashcard:",
+        "    - set_id: deck-1",
+        "      front: wrong",
+        "    - set_id: deck-2",
+        "      front: right",
+      ].join("\n"),
+    )
+    const matched = await resolveParams(plans, deviceMatching, reader().api)
+    expect(matched.unresolved).toEqual([])
+    expect(matched.params.get("/explore/:deck/:card")).toEqual({ deck: "deck-2", card: "right" })
+
+    const deviceDisjoint = tier(
+      false,
+      [
+        "local:",
+        "  card_set: device",
+        "  flashcard: device",
+        "seed:",
+        "  card_set:",
+        "    - id: deck-2",
+        "  flashcard:",
+        "    - set_id: deck-1",
+        "      front: wrong",
+      ].join("\n"),
+    )
+    const disjoint = await resolveParams(plans, deviceDisjoint, reader().api)
+    expect(disjoint.unresolved).toEqual([{ route: "/explore/:deck/:card", param: "card" }])
+    expect(disjoint.params.get("/explore/:deck/:card")).toEqual({ deck: "deck-2" })
+
+    // Constant filter clauses (e.g. cover_emoji=eq.🎨) are preserved even on the first param when no prior params exist.
+    const constPlans: ParamPlan[] = [
+      { route: "/generated/:deck", param: "deck", table: "card_set", column: "id", op: "eq", filter: "cover_emoji=eq.🎨&id=eq.{param.deck}" },
+    ]
+    const constServer = reader({ card_set: [{ id: "set-gen-1", cover_emoji: "🎨" }] })
+    const constRes = await resolveParams(constPlans, tier(true), constServer.api)
+    expect(constRes.params.get("/generated/:deck")).toEqual({ deck: "set-gen-1" })
+    expect(constServer.calls).toEqual(["card_set?select=id&cover_emoji=eq.🎨&limit=1"])
   })
 })
