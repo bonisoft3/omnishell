@@ -229,11 +229,40 @@ function crudReader(base: string, token: string | undefined): Reader {
 }
 
 /** PostgREST nests a select the way the filter nests the path, at any depth:
- * `article_tag.tag` selects `article_tag(tag)`, `a.b.name` selects `a(b(name))`. */
-export function embedSelect(column: string): string {
-  const path = column.split(".")
-  const leaf = path.pop() as string
-  return path.reduceRight((inner, rel) => `${rel}(${inner})`, leaf)
+ * `article_tag.tag` selects `article_tag(tag)`, `a.b.name` selects `a(b(name))`.
+ * Any dotted column in `ctxFilter` is added as an `!inner` embed so PostgREST
+ * joins and filters by that resource instead of rejecting with PGRST108. */
+export function embedSelect(column: string, ctxFilter = ""): string {
+  type Node = { inner: boolean; leaves: Set<string>; children: Map<string, Node> }
+  const node = (): Node => ({ inner: false, leaves: new Set(), children: new Map() })
+  const root = node()
+  const add = (col: string, inner: boolean) => {
+    const path = col.split(".")
+    const leaf = path.pop() as string
+    let cur = root
+    for (const rel of path) {
+      let child = cur.children.get(rel)
+      if (!child) {
+        child = node()
+        cur.children.set(rel, child)
+      }
+      if (inner) child.inner = true
+      cur = child
+    }
+    cur.leaves.add(leaf)
+  }
+  add(column, false)
+  for (const clause of ctxFilter.split("&")) {
+    const eq = clause.indexOf("=")
+    if (eq <= 0) continue
+    const col = clause.slice(0, eq)
+    if (col.includes(".")) add(col, true)
+  }
+  const render = (n: Node): string => [
+    ...n.leaves,
+    ...[...n.children].map(([rel, c]) => `${rel}${c.inner ? "!inner" : ""}(${render(c)})`),
+  ].join(",")
+  return render(root)
 }
 
 /** One hop of an embed walk: the first row of a to-many relation, or a to-one
@@ -353,7 +382,7 @@ export async function resolveParams(
       else hole(plan)
       continue
     }
-    const select = embedSelect(plan.column)
+    const select = embedSelect(plan.column, ctxFilter)
     const order = plan.op === "lt" ? `&order=${plan.column}.desc` : plan.op === "gt" ? `&order=${plan.column}.asc` : ""
     const rows = await api(`${table}?select=${select}${ctxFilter ? `&${ctxFilter}` : ""}${order}&limit=1`)
     const row = rows[0]
@@ -887,17 +916,12 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
           for (const reg of regions) {
             const parsedMachine: Machine = JSON.parse(reg.machine)
             const emptyObj = reg.emptyRow ? JSON.parse(reg.emptyRow) : {}
+            if (emptyObj.id === "") delete emptyObj.id
+            const prev = baseRows[reg.table] ?? { ...(tiers.seed[reg.table]?.[0] ?? {}) }
             for (const [k, v] of Object.entries(emptyObj)) {
-              if (v === "") delete emptyObj[k]
+              if (v !== "" || !(k in prev)) prev[k] = v
             }
-            if (!baseRows[reg.table]) {
-              baseRows[reg.table] = {
-                ...(tiers.seed[reg.table]?.[0] ?? {}),
-                ...emptyObj,
-              }
-            } else {
-              Object.assign(baseRows[reg.table], emptyObj)
-            }
+            baseRows[reg.table] = prev
             const infos = extractRegions(parsedMachine, reg.table)
             allRegionInfos.push(...infos)
           }
@@ -1223,6 +1247,11 @@ function selfTest() {
   // resolves the fixture to "[object Object]", which fills a route that then
   // lints an empty screen — clean, and measuring nothing.
   eq(embedSelect("note_label.label.name"), "note_label(label(name))", "two hops")
+  eq(
+    embedSelect("team.slug", "player.slug=eq.everson"),
+    "team(slug),player!inner(slug)",
+    "dotted context filter embeds inner resource",
+  )
   eq(embedValue({ slug: "s" }, "slug"), "s", "plain value")
   eq(embedValue({ article_tag: [{ tag: "t" }] }, "article_tag.tag"), "t", "through a to-many hop")
   eq(

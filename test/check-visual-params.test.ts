@@ -267,5 +267,18 @@ describe("check-visual param resolution follows the app's declared tier", () => 
     const constRes = await resolveParams(constPlans, tier(true), constServer.api)
     expect(constRes.params.get("/generated/:deck")).toEqual({ deck: "set-gen-1" })
     expect(constServer.calls).toEqual(["card_set?select=id&cover_emoji=eq.🎨&limit=1"])
+
+    // Dotted context filters embed their resource with !inner in select so PostgREST joins and filters by it.
+    const embedPlans: ParamPlan[] = [
+      { route: "/player/:slug/:team", param: "slug", table: "player_stat", column: "player.slug", op: "eq", filter: "player.slug=eq.{param.slug}&team.slug=eq.{param.team}" },
+      { route: "/player/:slug/:team", param: "team", table: "player_stat", column: "team.slug", op: "eq", filter: "player.slug=eq.{param.slug}&team.slug=eq.{param.team}" },
+    ]
+    const embedServer = reader({ player_stat: [{ player: { slug: "everson" }, team: { slug: "atletico-mg" } }] })
+    const embedRes = await resolveParams(embedPlans, tier(true), embedServer.api)
+    expect(embedRes.params.get("/player/:slug/:team")).toEqual({ slug: "everson", team: "atletico-mg" })
+    expect(embedServer.calls).toEqual([
+      "player_stat?select=player(slug)&limit=1",
+      "player_stat?select=team(slug),player!inner(slug)&player.slug=eq.everson&limit=1",
+    ])
   })
 })

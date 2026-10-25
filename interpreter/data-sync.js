@@ -1712,6 +1712,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
 
   function subscribe(table, fn, opts = {}) {
     const readDeps = [...new Set(opts.reads ?? [])].filter((t) => t !== table);
+    const syncedReadDeps = readDeps.filter((t) => !requestOnly(t));
     if (requestOnly(table)) {
       // A completed local command requests a fresh read. It does not open a
       // remote subscription or react to another session's writes.
@@ -1813,7 +1814,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
       });
       // The engine maintains the view over the sink alone; the projection is
       // applied after it, so the source's changes have to arrive separately.
-      const sourceTables = [...new Set([...foldSourceOf(table), ...readDeps])];
+      const sourceTables = [...new Set([...foldSourceOf(table), ...syncedReadDeps])];
       const sourceStops = sourceTables
         .filter((t) => client.collections[t] !== undefined)
         .map((t) => watch(client.collections[t], () => {
@@ -1841,9 +1842,10 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
       ...embedDeps(opts.select, table, cfg.schema),
       ...accessDeps(table),
       ...foldSourceOf(table),
-      ...readDeps,
+      ...syncedReadDeps,
     ]);
     const deps = [...new Set([table, ...others])];
+    const settleDeps = [...new Set([...deps, ...readDeps])];
     // The read's own table is judged by its filter only when the table is
     // nothing else to it: a self-embed or a folder whose parent is the same
     // table moves the result through rows outside the filter.
@@ -1876,13 +1878,13 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
           moved(wake)(changes);
         });
       });
-      for (const t of deps) {
+      for (const t of settleDeps) {
         settleListeners.set(t, (settleListeners.get(t) ?? new Set()).add(wakes.widened));
       }
       return () => {
         wakes.stop();
         for (const stop of stops) stop();
-        for (const t of deps) settleListeners.get(t).delete(wakes.widened);
+        for (const t of settleDeps) settleListeners.get(t).delete(wakes.widened);
       };
     }
     // The region's own filter as predicates. A change to a row this region
@@ -1919,7 +1921,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     const stops = deps
       .filter((t) => client.collections[t] !== undefined)
       .map((t) => watch(client.collections[t], filtered(t) && preds !== null ? wakeMatching : wakeAll));
-    for (const t of deps) {
+    for (const t of settleDeps) {
       settleListeners.set(t, (settleListeners.get(t) ?? new Set()).add(t === table ? settle : wakeAll));
     }
     return () => {
@@ -1927,7 +1929,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
       for (const stop of stops) stop();
       for (const off of unloads) off();
       for (const release of releaseDemands) release();
-      for (const t of deps) settleListeners.get(t).delete(t === table ? settle : wakeAll);
+      for (const t of settleDeps) settleListeners.get(t).delete(t === table ? settle : wakeAll);
     };
   }
 
