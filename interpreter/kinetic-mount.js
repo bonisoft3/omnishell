@@ -15,7 +15,7 @@
 // kinetic-machine record, time travel across the planes).
 import { ProgramError } from "./fragment.js";
 import { evaluateEngine } from "./jessie.js";
-import { createKineticHost, createKineticInput } from "./kinetic.js";
+import { attachTouch, createKineticHost, createKineticInput } from "./kinetic.js";
 import { unpackInputs } from "./kinetic-milestones.js";
 import { createSoundSeat } from "./kinetic-sound.js";
 import { createRtcChannel } from "./rtc-channel.js";
@@ -38,13 +38,14 @@ const loadSession = (options) => import("./kinetic-session.js").then(({ createRo
  * `menu` the presses the row reads between races and `pause` the one it reads
  * during them. An online race's channel is `connect`'s (rtc-channel.js), over
  * the terminal config's `iceServers`, and its GGRS session `rollback`'s
- * (kinetic-session.js).
+ * (kinetic-session.js). The screen's touch zones are `track`'s, one tracker
+ * every mapper listens to (docs/kinetic.md "Touch").
  * @param {HTMLElement} el
  * @param {{decl: any, engine: any, sound: any, closeSound?: (() => Promise<unknown>) | null, presenter: any, makeInput?: typeof createKineticInput,
  *   schedule?: (fn: FrameRequestCallback) => number, cancel?: (id: number) => void, syncTest?: number,
- *   iceServers?: RTCIceServer[], connect?: typeof createRtcChannel, rollback?: (options: any) => Promise<any>}} opts
+ *   iceServers?: RTCIceServer[], connect?: typeof createRtcChannel, rollback?: (options: any) => Promise<any>, track?: typeof attachTouch}} opts
  */
-export function kineticChild(el, { decl, engine, sound, closeSound = null, presenter, makeInput = createKineticInput, schedule, cancel, syncTest = 0, iceServers, connect = createRtcChannel, rollback = loadSession }) {
+export function kineticChild(el, { decl, engine, sound, closeSound = null, presenter, makeInput = createKineticInput, schedule, cancel, syncTest = 0, iceServers, connect = createRtcChannel, rollback = loadSession, track = attachTouch }) {
   const missing = CHILD_EXPORTS.filter((name) => engine[name] === undefined);
   if (missing.length > 0) throw new ProgramError(`kinetic child ${el.dataset.kinetic}: its engine exports no ${missing.join(", ")}`);
   const unsounded = sound === null ? [] : SOUND_EXPORTS.filter((name) => typeof sound[name] !== "function");
@@ -64,9 +65,12 @@ export function kineticChild(el, { decl, engine, sound, closeSound = null, prese
   const hotseat = () => props.mode === "hotseat";
   const view = (state) => engine.viewOf(state, props);
 
-  const car = makeInput({ element: el, bindings: decl.bindings });
-  const seats = (decl.seats ?? []).map((bindings) => makeInput({ element: el, bindings }));
-  const menu = makeInput({ element: el, bindings: { ...decl.menu, pause: decl.pause } });
+  const screen = el.closest("[data-screen]");
+  if (screen === null) throw new ProgramError(`kinetic child ${el.dataset.kinetic}: its mount sits in no [data-screen], whose touch zones it reads`);
+  const touch = track(screen);
+  const car = makeInput({ element: el, bindings: decl.bindings, touch });
+  const seats = (decl.seats ?? []).map((bindings) => makeInput({ element: el, bindings, touch }));
+  const menu = makeInput({ element: el, bindings: { ...decl.menu, pause: decl.pause }, touch });
   let pressed = 0;
   for (const action of [...Object.keys(decl.menu), "pause"]) {
     menu.inputs.down.on(action, () => {
@@ -281,11 +285,18 @@ export function kineticChild(el, { decl, engine, sound, closeSound = null, prese
 
   polling = tick(poll);
 
-  // A browser starts sound only from a gesture.
+  // A browser starts sound only from a gesture, and WebKit counts a touch's
+  // end as one, not its start.
   const win = el.ownerDocument.defaultView;
   const unlock = () => sound?.resume();
-  win.addEventListener("keydown", unlock);
-  win.addEventListener("pointerdown", unlock);
+  const GESTURES = ["keydown", "pointerdown", "pointerup", "click"];
+  for (const type of GESTURES) win.addEventListener(type, unlock);
+  // docs/kinetic.md "Touch": the switch an app's touch layout keys on.
+  if (win.matchMedia("(pointer: coarse)").matches) screen.dataset.kineticTouch = "";
+  const touched = (ev) => {
+    if (ev.pointerType === "touch") screen.dataset.kineticTouch = "";
+  };
+  screen.addEventListener("pointerdown", touched, { passive: true });
 
   return {
     host,
@@ -322,8 +333,9 @@ export function kineticChild(el, { decl, engine, sound, closeSound = null, prese
       stopReplay();
       leave();
       untick(polling);
-      win.removeEventListener("keydown", unlock);
-      win.removeEventListener("pointerdown", unlock);
+      for (const type of GESTURES) win.removeEventListener(type, unlock);
+      screen.removeEventListener("pointerdown", touched, { passive: true });
+      touch.detach();
       host.stop();
       for (const input of [car, menu, ...seats]) input.destroy();
       closeSound?.();

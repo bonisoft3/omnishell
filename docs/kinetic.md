@@ -184,6 +184,55 @@ mount wears `data-kinetic-loading`; once frames draw with nothing loading it
 wears `data-kinetic-ready`. A `[data-kinetic-controls="<actor>"]` on the screen
 gets the host's `mountControls`.
 
+## Touch
+
+Touch is the input mapper's third source, beside the keyboard and a gamepad
+(`attachTouch` in `interpreter/kinetic.js`, and `createKineticInput`'s
+`touch`): an element's `data-touch-zone` names zones, and zone `z` is the key
+`touch:z` an action's bindings list, so a touch makes the same command bits
+a key does and the sync test, the milestones, a rollback duel and a replay
+see nothing new. The app lays its zones out in its markup and styles them;
+the platform reads them.
+
+- **One tracker a root.** `attachTouch(root)` follows the root's pointers
+  once, and every mapper `listen`s to it, so a move hit-tests once however
+  many mappers read the zones.
+- **A pointer holds the zones under it.** An element may name several
+  (`data-touch-zone="drive left"`), and the finger follows as it slides: the
+  zone it enters is held before the one it leaves is let go, so two halves of
+  a pad sharing a zone keep it held across. A zone stays held while any
+  pointer is on it.
+- **A pointer is followed from a zone until it lifts.** One that goes down
+  on a zone is captured to the root and followed wherever it goes: off every
+  zone it holds none, and sliding back onto one holds it again. Lifting, a
+  cancel, a lost capture, the window's blur or the document going hidden lets
+  go, as GameInputs lets go of its keys. A finger that goes down off every
+  zone is the page's, and never becomes a press by sliding onto one. A zone
+  marked `data-touch-tap` (a pause, a menu key) is held only by a finger
+  that goes down on it, never by one sliding onto it from another.
+- **A zone is a key to the browser.** The tracker adopts one stylesheet a
+  document that gives every zone `touch-action: none` (what stops a pan or a
+  zoom, which a pointerdown's `preventDefault` does not) and no selection,
+  callout or tap highlight; a zone's pointerdown is also prevented, so no
+  mouse is emulated.
+- **What is held is shown.** The root wears the held zones, space-separated,
+  as `data-touch-held`, written when it changes, so the app's controls light
+  up under a thumb.
+- **The kinetic child's zones are its screen's.** The mount tracks its closest
+  `[data-screen]` (a mount outside one is refused), so a car, each hot seat
+  and the menu read their own zones from one layout, and the menu's `touch:`
+  presses reach the row as its keys do. The screen wears
+  `data-kinetic-touch` on a coarse-pointer device, and on any other once a
+  finger touches it: the one switch the app's touch controls and touch layout
+  key on, by device class rather than by user agent.
+- **A held finger after the race is a held key.** Under `menu` the car's
+  mapper is cleared each frame, so a thumb left on the pad, or a tap then,
+  reaches neither the race's last frames nor the next race
+  (`test/kinetic_touch.test.ts`).
+- **Sound starts on a touch's end.** The mount resumes the sound role on a
+  key, a pointer's down and up, and a click: WebKit grants a gesture at a
+  touch's end, not its start.
+
 ## Fixed-step accumulator and clock clamp
 
 Variable display refresh rates (`requestAnimationFrame`) produce non-uniform time deltas. The kinetic host buffers elapsed real time in a millisecond accumulator:

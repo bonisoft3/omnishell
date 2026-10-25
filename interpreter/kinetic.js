@@ -535,14 +535,141 @@ export function createKineticHost(options) {
   };
 }
 
+// Touch, the input mapper's third source: docs/kinetic.md "Touch" is the
+// contract.
+
+export const TOUCH_ZONE = "data-touch-zone";
+export const TOUCH_PREFIX = "touch:";
+
+// What makes a zone a key to the browser: touch-action alone stops its pan
+// and zoom (a pointerdown's preventDefault does not), so the platform sets
+// it rather than each app's stylesheet.
+const ZONE_CSS = `[${TOUCH_ZONE}] { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }`;
+const zoned = new WeakSet();
+function adoptZoneStyle(doc) {
+  if (zoned.has(doc)) return;
+  const sheet = new doc.defaultView.CSSStyleSheet();
+  sheet.replaceSync(ZONE_CSS);
+  doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, sheet];
+  zoned.add(doc);
+}
+
+/** The zones under a pointer event: the topmost element's nearest zone
+ * within `root`; a sliding pointer enters no `data-touch-tap` zone. */
+function zonesUnder(root) {
+  return (ev, sliding) => {
+    const hit = root.ownerDocument.elementFromPoint(ev.clientX, ev.clientY)?.closest(`[${TOUCH_ZONE}]`);
+    if (!hit || !root.contains(hit) || (sliding && hit.hasAttribute("data-touch-tap"))) return [];
+    return hit.getAttribute(TOUCH_ZONE).split(/\s+/).filter(Boolean);
+  };
+}
+
+/**
+ * The touch tracker of `root`, one per root however many mappers read it:
+ * each `listen(press)` hears `press(code, down, ev)` once a zone is first
+ * held and once it is last let go, and returns its unlisten.
+ * @param {Element} root
+ * @param {{zonesAt?: (ev: PointerEvent, sliding: boolean) => string[]}} [opts]
+ */
+export function attachTouch(root, { zonesAt = zonesUnder(root) } = {}) {
+  const doc = root.ownerDocument;
+  const win = doc.defaultView;
+  adoptZoneStyle(doc);
+  /** @type {Set<(code: string, down: boolean, ev: Event) => void>} */
+  const listeners = new Set();
+  /** @type {Map<number, string[]>} */
+  const pointers = new Map();
+  /** @type {Map<string, number>} */
+  const held = new Map();
+  let shown = "";
+
+  const show = () => {
+    const now = [...held.keys()].join(" ");
+    if (now === shown) return;
+    shown = now;
+    root.setAttribute("data-touch-held", now);
+  };
+  const press = (zone, down, ev) => {
+    for (const listener of listeners) listener(TOUCH_PREFIX + zone, down, ev);
+  };
+  const hold = (zone, ev) => {
+    const n = (held.get(zone) ?? 0) + 1;
+    held.set(zone, n);
+    if (n === 1) press(zone, true, ev);
+  };
+  const letGo = (zone, ev) => {
+    const n = held.get(zone) - 1;
+    if (n > 0) return held.set(zone, n);
+    held.delete(zone);
+    press(zone, false, ev);
+  };
+  // Entered before left, so a slide between two zones that share one keeps
+  // it held throughout.
+  const place = (id, zones, ev) => {
+    const was = pointers.get(id);
+    for (const zone of zones) if (!was.includes(zone)) hold(zone, ev);
+    for (const zone of was) if (!zones.includes(zone)) letGo(zone, ev);
+    pointers.set(id, zones);
+    show();
+  };
+  const lift = (id, ev) => {
+    place(id, [], ev);
+    pointers.delete(id);
+  };
+
+  const down = (ev) => {
+    const zones = zonesAt(ev, false);
+    if (zones.length === 0) return;
+    if (ev.cancelable) ev.preventDefault();
+    root.setPointerCapture(ev.pointerId);
+    pointers.set(ev.pointerId, []);
+    place(ev.pointerId, zones, ev);
+  };
+  const move = (ev) => {
+    if (pointers.has(ev.pointerId)) place(ev.pointerId, zonesAt(ev, true), ev);
+  };
+  const up = (ev) => {
+    if (pointers.has(ev.pointerId)) lift(ev.pointerId, ev);
+  };
+  // What GameInputs releases its keys on.
+  const releaseAll = (ev) => {
+    for (const id of [...pointers.keys()]) lift(id, ev);
+  };
+  const hidden = (ev) => {
+    if (doc.hidden) releaseAll(ev);
+  };
+
+  const wired = [
+    [root, "pointerdown", down, { passive: false }],
+    [root, "pointermove", move, { passive: true }],
+    [root, "pointerup", up, { passive: true }],
+    [root, "pointercancel", up, { passive: true }],
+    [root, "lostpointercapture", up, { passive: true }],
+    [win, "blur", releaseAll, false],
+    [doc, "visibilitychange", hidden, false],
+  ];
+  for (const [target, type, fn, opts] of wired) target.addEventListener(type, fn, opts);
+  return {
+    listen(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    detach() {
+      for (const [target, type, fn, opts] of wired) target.removeEventListener(type, fn, opts);
+    },
+  };
+}
+
 /**
  * Creates a unified kinetic input manager with virtual action bindings,
- * edge latching, blur clearing, macOS meta key handling, and Gamepad API support.
+ * edge latching, blur clearing, macOS meta key handling, Gamepad API support,
+ * and with `touch`, an attachTouch tracker's zones as `touch:<zone>` keys.
  * @param {object} options
  * @param {HTMLElement|Document} [options.element]
  * @param {Record<string, string[]>} [options.bindings]
  * @param {boolean} [options.preventDefaults=true]
  * @param {boolean} [options.gamepad=true]
+ * @param {ReturnType<typeof attachTouch>} [options.touch]
  */
 export function createKineticInput(options = {}) {
   const inputs = new GameInputs(options.element, {
@@ -552,6 +679,7 @@ export function createKineticInput(options = {}) {
 
   const bindings = options.bindings || {};
   const latched = new Set();
+  const unlisten = options.touch?.listen((code, down, ev) => inputs._handleKeyEvent(code, down, ev)) ?? (() => {});
 
   function registerBinding(action, ...keys) {
     inputs.bind(action, ...keys);
@@ -590,6 +718,9 @@ export function createKineticInput(options = {}) {
         inputs.pressCount[action] = 0;
       }
     },
-    destroy: () => inputs.destroy(),
+    destroy: () => {
+      unlisten();
+      inputs.destroy();
+    },
   };
 }

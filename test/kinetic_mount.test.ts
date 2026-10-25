@@ -7,6 +7,7 @@ import { kineticChild } from "../interpreter/kinetic-mount.js";
 import { ProgramError } from "../interpreter/fragment.js";
 import { createKineticInput } from "../interpreter/kinetic.js";
 import { packInputs } from "../interpreter/kinetic-milestones.js";
+import { screen } from "./touch_screen.ts";
 
 type Cmd = { up: boolean };
 type State = { tick: number; seed: number; ups: number; laps: number; events: { type: string }[] };
@@ -34,8 +35,9 @@ const decl = {
 };
 
 /** A mount: an element whose events are recorded, and a frame clock the test
- * turns by hand. */
-function mount(overrides: Record<string, unknown> = {}) {
+ * turns by hand, in `win` and on the screen `within` (none: no screen). */
+const quietWindow = { CustomEvent, matchMedia: () => ({ matches: false }), addEventListener() {}, removeEventListener() {} };
+function mount(overrides: Record<string, unknown> = {}, { win = quietWindow as object, within = screen().root as Element | null } = {}) {
   const raised: { type: string; detail: Record<string, unknown> }[] = [];
   const target = new EventTarget();
   target.addEventListener("milestone", (e) => raised.push({ type: "milestone", detail: (e as CustomEvent).detail }));
@@ -44,7 +46,8 @@ function mount(overrides: Record<string, unknown> = {}) {
   const frames: FrameRequestCallback[] = [];
   const el = {
     dataset: { kinetic: "race" } as Record<string, string>,
-    ownerDocument: { defaultView: { CustomEvent, addEventListener() {}, removeEventListener() {} } },
+    closest: () => within,
+    ownerDocument: { defaultView: win },
     dispatchEvent: (e: Event) => target.dispatchEvent(e),
   };
   const presenter = { reading: 0, settled: () => Promise.resolve(), frame() {}, destroy() {} };
@@ -177,6 +180,24 @@ Deno.test("a replay plays windows of the race from their rows, each frame with i
   assertEquals([drawn.at(-1)!.frame, drawn.at(-1)!.cut], [10, null], "and is drawn again");
 });
 
+// Regression: sound resumed only on a key or a pointer's down, and WebKit
+// grants a gesture at a touch's end, so a player on touch alone heard nothing.
+Deno.test("the sound resumes on a key, a pointer's down and up, and a click", () => {
+  const win = Object.assign(new EventTarget(), { CustomEvent, matchMedia: () => ({ matches: false }) });
+  let resumed = 0;
+  const sound = { frame() {}, props() {}, levels: () => [], resume: () => resumed++ };
+  const { child } = mount({ sound }, { win });
+  for (const type of ["keydown", "pointerdown", "pointerup", "click"]) win.dispatchEvent(new Event(type));
+  assertEquals(resumed, 4);
+  child.destroy();
+  win.dispatchEvent(new Event("pointerup"));
+  assertEquals(resumed, 4, "a destroyed child resumes nothing");
+});
+
+Deno.test("a mount outside every [data-screen] is refused: its touch zones are a screen's", () => {
+  assertThrows(() => mount({}, { within: null }), ProgramError, "sits in no [data-screen]");
+});
+
 Deno.test("an engine without the child's exports is refused, naming them", () => {
   const { optionsOf: _o, viewOf: _v, ...bare } = engine;
   assertThrows(() => mount({ engine: bare }), ProgramError, "its engine exports no optionsOf, viewOf");
@@ -234,7 +255,8 @@ Deno.test("an online race signals through the row, races GGRS over the channel, 
     for (const type of ["milestone", "describe"]) target.addEventListener(type, (e) => raised[seat].push({ type, detail: (e as CustomEvent).detail }));
     const el = {
       dataset: { kinetic: "race" } as Record<string, string>,
-      ownerDocument: { defaultView: { CustomEvent, addEventListener() {}, removeEventListener() {} } },
+      closest: () => screen().root,
+      ownerDocument: { defaultView: { CustomEvent, matchMedia: () => ({ matches: false }), addEventListener() {}, removeEventListener() {} } },
       dispatchEvent: (e: Event) => target.dispatchEvent(e),
     };
     return kineticChild(el as unknown as HTMLElement, {
