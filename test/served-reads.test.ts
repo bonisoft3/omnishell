@@ -685,4 +685,70 @@ describe("a document carrying its reads", () => {
     expect(pred("game", "kickoff", "2026-10-22T18:00:00Z")).toBe(false)
     expect(pred("untyped", "slug", "talleres")).toBe(false)
   })
+
+  // Regression: a region bound to a local table (`chair`) with remote synced
+  // tables in `data-reads` (`reads: ["team"]`) opened `/auth/shape` for `team`
+  // before `POST /auth/guest` settled, getting a 401 that cleared the newly
+  // minted token and reloaded the page in a loop.
+  it("keeps a local table subscription live during guest minting while deferring remote data-reads shapes until the session settles", async () => {
+    await inDocument(async (asked) => {
+      sessionStorage.removeItem("pronto-token")
+      const shapeAuths: (string | null)[] = []
+      globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        asked.push(url)
+        if (url.endsWith("/auth/shape")) {
+          const h = new Headers(init?.headers)
+          shapeAuths.push(h.get("Authorization"))
+          return new Response(JSON.stringify({ token: "st", table: "team", where: "true", expires_in: 900 }), { status: 200 })
+        }
+        if (url.includes("/electric/v1/shape")) {
+          if (new URL(url).searchParams.get("live") === "true") {
+            return await new Promise<Response>((_, reject) => {
+              init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true })
+            })
+          }
+          return new Response(JSON.stringify([{ headers: { control: "up-to-date" } }]), {
+            status: 200,
+            headers: { "electric-handle": "h1", "electric-offset": "0_0", "electric-schema": "{}" },
+          })
+        }
+        return new Response("[]", { status: 200 })
+      }
+      let settleGuest!: () => void
+      const guestSession = new Promise<{ token: string; user: { id: string; guest: boolean } }>((resolve) => {
+        settleGuest = () => {
+          const s = { token: "guest-jwt", user: { id: "g1", guest: true } }
+          sessionStorage.setItem("pronto-token", JSON.stringify(s))
+          resolve(s)
+        }
+      })
+      const store = createStore("", {
+        tables: ["team", "chair"],
+        local: { chair: "tab" },
+        carriers: FIXTURE_CARRIERS,
+        schema: {
+          team: { durability: "live", fields: [{ name: "id", type: "string" }] },
+          chair: { durability: "tab", fields: [{ name: "id", type: "string" }] },
+        },
+        mintedGuest: true,
+        ensureSession: () => guestSession,
+      })
+      let woken = 0
+      const unsub = store.subscribe("chair", () => { woken++ }, { reads: ["team"] })
+      try {
+        await store.write("chair", [{ key: "c1", row: { id: "c1" } }])
+        await new Promise((r) => setTimeout(r, 10))
+        expect(woken).toBeGreaterThan(0)
+        expect(shapeAuths).toEqual([])
+        settleGuest()
+        await guestSession
+        for (let i = 0; i < 20 && shapeAuths.length === 0; i++) await new Promise((r) => setTimeout(r, 5))
+        expect(shapeAuths).toEqual(["Bearer guest-jwt"])
+      } finally {
+        unsub()
+        await store.close()
+      }
+    })
+  })
 })

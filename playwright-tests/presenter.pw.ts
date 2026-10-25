@@ -246,4 +246,87 @@ describe("a presenter's layers", () => {
       });
     } finally { await server.close(); }
   });
+
+  // Regression: a singleton slot region still carried `[data-hydrating]`
+  // (`.screen [data-hydrating] > * { display: none !important }`) when
+  // `bindHatches` mounted its presenter, and `ResizeObserver` dropped resize
+  // notifications that arrived before `READY`, leaving every HUD `<canvas
+  // data-layer>` permanently `1x1`.
+  it("measure after slot hydration clears display:none, and flush resizes that land before READY", async () => {
+    const page = `<!doctype html><style>.screen [data-hydrating] > * { display: none !important; }</style><div id="shell"></div>`;
+    const server = serve(() => `export default async function present(canvas, env) {
+      const l = env.layers.digits;
+      const initial = [l.width, l.height];
+      await new Promise((r) => setTimeout(r, 80));
+      return {
+        frame() {},
+        resizeLayer(name, box) {
+          postMessage({ type: "hydrated " + JSON.stringify({ initial, name, after: [box.width, box.height] }) });
+        },
+      };
+    }`, page);
+    try {
+      await withPage(async (p) => {
+        await p.goto(`${server.base}/`);
+        const heard = await p.evaluate(async () => {
+          const out: string[] = [];
+          addEventListener("error", (e) => {
+            e.preventDefault();
+            out.push(String(e.error?.message ?? e.message));
+          });
+          const screenHtml = `<section class="screen" data-screen="s">
+            <div data-region="r" data-live="hud" data-empty-row='{"id":"1"}'>
+              <div id="mount" data-hatch="unit" style="width:320px;height:180px"></div>
+              <canvas id="digits" data-layer="digits" style="width:40px;height:20px;display:block"></canvas>
+            </div>
+          </section>`;
+          const origFetch = globalThis.fetch.bind(globalThis);
+          globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+            const url = new URL(String(input), location.origin);
+            if (url.pathname === "/screen.html") return new Response(screenHtml, { headers: { "content-type": "text/html" } });
+            if (url.pathname === "/screen.css") return new Response("", { headers: { "content-type": "text/css" } });
+            return origFetch(input, init);
+          };
+          const { interpretScreen } = await import("/interpreter/screen.js");
+          const store = {
+            query: async () => [],
+            subscribe: () => () => {},
+          };
+          await interpretScreen(document.getElementById("shell"), `${location.origin}/`, {
+            screen: "s",
+            files: { html: "screen.html", css: "screen.css", handlers: [] },
+            states: ["loading", "empty", "populated"],
+          }, store, {}, {
+            units: {
+              unit: {
+                isolation: "agent",
+                role: "presenter",
+                ports: { reads: ["hud"], raises: [] },
+                scripts: [],
+                files: [],
+                seed: false,
+                src: "units/unit.js",
+              },
+            },
+          });
+          // Resize while `present()` is still awaiting its 80ms boot delay (before READY).
+          const el = document.getElementById("digits") as HTMLElement;
+          el.style.width = "60px";
+          el.style.height = "30px";
+          const t0 = performance.now();
+          while (!out.some((h) => h.includes("hydrated {")) && performance.now() - t0 < 10000) {
+            await new Promise((r) => setTimeout(r, 25));
+          }
+          return out;
+        });
+        const report = heard.find((h) => h.includes("hydrated {"))!;
+        expect(report).toBeDefined();
+        const posted = JSON.parse(report.slice(report.indexOf("posted ") + 7, report.lastIndexOf(", which"))) as string;
+        const data = JSON.parse(posted.slice("hydrated ".length));
+        expect(data.initial).toEqual([40, 20]);
+        expect(data.name).toBe("digits");
+        expect(data.after).toEqual([60, 30]);
+      });
+    } finally { await server.close(); }
+  });
 });

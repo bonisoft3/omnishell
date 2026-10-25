@@ -4149,16 +4149,21 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         bindAttributes(region, slotCtx);
         wireKeysIn(region);
         bindTexts(region, slotCtx, renderers);
-        bindHatches(region, slotCtx);
-        bindKinetics(region, slotCtx);
         // The lists a slot holds — an editor's choices, its goals — are
-        // hydrated from its row as an item's are from its own.
+        // hydrated from its row as an item's are from its own. Its own
+        // hydrating mark comes off before its units mount, so a presenter
+        // measures the screen's boxes rather than `[data-hydrating] > *`'s
+        // `display: none`.
         let slot = live.get(SLOT);
         if (slot === undefined) live.set(SLOT, slot = { node: region, ctx: slotCtx, nested: new Map() });
         const ready = [];
         if (first && served === undefined && screenOpts.fixtures !== true) {
           markChildRegionsHydrating(region, region);
           finishOwn();
+        }
+        bindHatches(region, slotCtx);
+        bindKinetics(region, slotCtx);
+        if (first && served === undefined && screenOpts.fixtures !== true) {
           if (screenOpts.onHeadReady && region.querySelector("[data-live]") !== null) {
             if (top && headFlushed) await headFlushed;
             else await Promise.resolve();

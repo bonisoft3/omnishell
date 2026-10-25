@@ -1509,7 +1509,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     if (requestOnly(table) || (servedForPage && !recalled.has(rKey))) {
       return readServer(table, order, opts);
     }
-    await ensurePrepared(table);
+    await Promise.all([table, ...embedDeps(opts.select, table, cfg.schema), ...accessDeps(table)].map(ensurePrepared));
     // A read the engine already maintains needs no re-derivation: the view is
     // the filter and the order, kept current by the deltas that woke us.
     const held = maintainedView(table, { ...opts, order }, lazy(table));
@@ -1724,6 +1724,26 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
         for (const t of deps) settleListeners.get(t).delete(wakes.widened);
       };
     }
+    const afterSession = (start) => {
+      if (!pendingSession || token()) return start();
+      let stopped = false;
+      let stop = () => {};
+      pendingSession().then(() => {
+        // A settled session whose token is gone — a 401 forgot it, and the
+        // page is reloading — would be waited on again at once, and again,
+        // on the microtask queue, until the page ran out of heap.
+        if (!token()) throw new Error(`subscribe ${table}: the session settled without a token`);
+        if (!stopped) stop = start();
+      });
+      return () => {
+        stopped = true;
+        stop();
+      };
+    };
+    const watchDep = (t, onWake) =>
+      local[t] === undefined
+        ? afterSession(() => watch(client.collections[t], onWake))
+        : watch(client.collections[t], onWake);
     if (pendingSession && !token()) {
       const others = [
         ...embedDeps(opts.select, table, cfg.schema),
@@ -1731,19 +1751,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
         ...foldSourceOf(table),
       ];
       if ([table, ...others].some((t) => local[t] === undefined)) {
-        let stopped = false;
-        let stop = () => {};
-        pendingSession().then(() => {
-          // A settled session whose token is gone — a 401 forgot it, and the
-          // page is reloading — would be waited on again at once, and again,
-          // on the microtask queue, until the page ran out of heap.
-          if (!token()) throw new Error(`subscribe ${table}: the session settled without a token`);
-          if (!stopped) stop = subscribe(table, fn, opts);
-        });
-        return () => {
-          stopped = true;
-          stop();
-        };
+        return afterSession(() => subscribe(table, fn, opts));
       }
     }
     // A maintained view's own changes ARE this region's input changing —
@@ -1817,7 +1825,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
       const sourceTables = [...new Set([...foldSourceOf(table), ...syncedReadDeps])];
       const sourceStops = sourceTables
         .filter((t) => client.collections[t] !== undefined)
-        .map((t) => watch(client.collections[t], () => {
+        .map((t) => watchDep(t, () => {
           clearRemoteServed();
           wakes.widened();
         }));
@@ -1869,14 +1877,14 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
         const wake = filtered(t) ? own : wakes.widened;
         if (local[t] !== undefined) return watch(client.collections[t], moved(wake));
         let caughtUp = false;
-        return client.subscribeInvalidation(t, (changes) => {
+        return afterSession(() => client.subscribeInvalidation(t, (changes) => {
           if (!caughtUp && changes === undefined) {
             caughtUp = true;
             if (--uncaught === 0) wake(changes);
             return;
           }
           moved(wake)(changes);
-        });
+        }));
       });
       for (const t of settleDeps) {
         settleListeners.set(t, (settleListeners.get(t) ?? new Set()).add(wakes.widened));
@@ -1920,7 +1928,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     };
     const stops = deps
       .filter((t) => client.collections[t] !== undefined)
-      .map((t) => watch(client.collections[t], filtered(t) && preds !== null ? wakeMatching : wakeAll));
+      .map((t) => watchDep(t, filtered(t) && preds !== null ? wakeMatching : wakeAll));
     for (const t of settleDeps) {
       settleListeners.set(t, (settleListeners.get(t) ?? new Set()).add(t === table ? settle : wakeAll));
     }

@@ -51,21 +51,28 @@ export function mountPresenterUnit(root, { unit, src }) {
       style: { font: css.font, color: css.color, textShadow: css.textShadow, letterSpacing: css.letterSpacing, textAlign: css.textAlign },
     };
   };
-  const layers = Object.fromEntries(layered.map((el) => {
+  const offscreens = layered.map((el) => {
     const name = el.dataset.layer;
     if (!name) throw new ProgramError(`presenter "${src}": a canvas[data-layer] names no layer`);
-    return [name, { ...measure(el), canvas: el.transferControlToOffscreen() }];
-  }));
-  if (Object.keys(layers).length !== layered.length) throw new ProgramError(`presenter "${src}": two canvases name one layer`);
+    return [name, el, el.transferControlToOffscreen()];
+  });
+  if (new Set(offscreens.map(([name]) => name)).size !== layered.length) {
+    throw new ProgramError(`presenter "${src}": two canvases name one layer`);
+  }
   const worker = new Worker(scriptURL(new URL("./presenter.js", import.meta.url).href), { type: "module" });
 
   const refuse = (what) => {
     throw new ProgramError(`presenter "${src}" ${what}`);
   };
-  // The worker takes nothing before its unit is up: props wait for it, as
-  // at the other seats, and a frame before it is superseded by the next.
+  // The worker takes nothing before its unit is up: props and resizes wait for
+  // it, as at the other seats, and a frame before it is superseded by the next.
   let ready = false;
   let latest = {};
+  const resized = new Set();
+  const sendResize = (target) => {
+    if (target === canvas) worker.postMessage({ type: RESIZE, ...size() });
+    else worker.postMessage({ type: RESIZE, layer: target.dataset.layer, ...measure(target) });
+  };
   let settle;
   const drawn = new Promise((resolve, reject) => {
     settle = { resolve, reject };
@@ -94,6 +101,8 @@ export function mountPresenterUnit(root, { unit, src }) {
     if (message === null || typeof message !== "object") refuse("posted a message that is not an object");
     if (message.type === READY) {
       ready = true;
+      for (const target of resized) sendResize(target);
+      resized.clear();
       worker.postMessage({ type: PROPS, props: latest });
       settle.resolve();
       return;
@@ -115,9 +124,10 @@ export function mountPresenterUnit(root, { unit, src }) {
     return { url, bytes: await res.arrayBuffer() };
   })).then((scripts) => {
     const at = size();
+    const layers = Object.fromEntries(offscreens.map(([name, el, l]) => [name, { ...measure(el), canvas: l }]));
     worker.postMessage(
       { type: INIT, src: new URL(src, location.href).href, scripts, canvas: offscreen, layers, ...at },
-      [offscreen, ...Object.values(layers).map((l) => l.canvas), ...scripts.map((s) => s.bytes)],
+      [offscreen, ...offscreens.map(([, , l]) => l), ...scripts.map((s) => s.bytes)],
     );
   }, (err) => {
     const failed = new ProgramError(`presenter "${src}" could not load a pinned script: ${err.message}`);
@@ -126,10 +136,9 @@ export function mountPresenterUnit(root, { unit, src }) {
   });
 
   const observer = new ResizeObserver((entries) => {
-    if (!ready) return;
     for (const { target } of entries) {
-      if (target === canvas) worker.postMessage({ type: RESIZE, ...size() });
-      else worker.postMessage({ type: RESIZE, layer: target.dataset.layer, ...measure(target) });
+      if (ready) sendResize(target);
+      else resized.add(target);
     }
   });
   observer.observe(canvas);
