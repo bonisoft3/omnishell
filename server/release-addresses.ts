@@ -104,6 +104,7 @@ export async function addressRelease(out: string, options: AddressOptions = {}):
     files.set('/shell/shell.json', bytes)
   }
   const imports: Record<string, string> = {}
+  const integrities: Record<string, string> = {}
   const active = new Set<string>()
   async function address(name: string): Promise<string> {
     if (imports[name]) return imports[name]
@@ -141,6 +142,8 @@ export async function addressRelease(out: string, options: AddressOptions = {}):
       bytes = encoder.encode(css)
     }
     const hash = hex(await digest(bytes))
+    const sri = `sha256-${btoa(String.fromCharCode(...await digest(bytes)))}`
+    integrities[name] = sri
     const suffix = name.endsWith('.html') ? options.htmlSuffix ?? '' : ''
     const url = path.posix.join(path.posix.dirname(name), `_immutable-${hash}-${path.posix.basename(name)}${suffix}`)
     await Deno.writeFile(path.join(out, decodeURIComponent(url)), bytes)
@@ -208,16 +211,31 @@ export async function addressRelease(out: string, options: AddressOptions = {}):
       const rel = node.getAttribute('rel')
       if (attr === 'src' || rel === 'modulepreload') closure(target)
       node.setAttribute(attr, imports[target])
+      if ((attr === 'src' || rel === 'modulepreload') && integrities[target]) {
+        node.setAttribute('integrity', integrities[target])
+      }
     }
     // A deferred boot names its boot module and its preloads as data, which it
     // turns into elements after first paint.
     const deferred = document.querySelector('script[data-pronto-boot]')
     if (deferred) {
-      const boot = resolve(deferred.getAttribute('data-pronto-boot')!)
-      if (!boot) throw new Error(`${name}: undeclared boot module ${deferred.getAttribute('data-pronto-boot')}`)
+      const rawBoot = deferred.getAttribute('data-pronto-boot')!
+      const boot = resolve(rawBoot)
+      if (!boot) throw new Error(`${name}: undeclared boot module ${rawBoot}`)
       deferred.setAttribute('data-pronto-boot', boot)
+      const bootTarget = local(rawBoot, base)
+      if (bootTarget && integrities[bootTarget]) {
+        deferred.setAttribute('data-pronto-boot-integrity', integrities[bootTarget])
+      }
       const ahead = JSON.parse(deferred.getAttribute('data-pronto-preloads') ?? '[]') as Record<string, string>[]
-      deferred.setAttribute('data-pronto-preloads', JSON.stringify(ahead.map(link => ({ ...link, href: resolve(link.href) ?? link.href }))))
+      deferred.setAttribute('data-pronto-preloads', JSON.stringify(ahead.map(link => {
+        const linkTarget = link.href ? local(link.href, base) : null
+        return {
+          ...link,
+          href: resolve(link.href) ?? link.href,
+          ...(linkTarget && integrities[linkTarget] ? { integrity: integrities[linkTarget] } : {}),
+        }
+      })))
     } else {
       // Header modulepreloads can resolve dependencies before the map exists;
       // native modulepreloads after the map preserve both identity and scheduling.
@@ -226,6 +244,7 @@ export async function addressRelease(out: string, options: AddressOptions = {}):
         const node = document.createElement('link')
         node.setAttribute('rel', 'modulepreload')
         node.setAttribute('href', imports[target])
+        if (integrities[target]) node.setAttribute('integrity', integrities[target])
         document.head.append(node)
       }
     }

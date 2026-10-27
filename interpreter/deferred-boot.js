@@ -19,6 +19,7 @@ export function startDeferredBoot(document, Observer = PerformanceObserver) {
     const boot = document.createElement("script");
     boot.type = "module";
     boot.src = scriptURL(src, document.baseURI);
+    if (loader.dataset.prontoBootIntegrity) boot.integrity = loader.dataset.prontoBootIntegrity;
     loader.replaceWith(boot);
   }).observe({ type: "paint", buffered: true });
 }
