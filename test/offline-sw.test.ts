@@ -34,6 +34,7 @@ function worker(initial: string | null, cacheControl = "public, no-cache") {
         addAll: () => Promise.resolve(),
       }),
     keys: () => Promise.resolve([]),
+    delete: (_name: string) => Promise.resolve(void store.clear()),
   }
   // The network answers after the page has its answer, as it does: the copy
   // the worker answered with is read by then.
@@ -87,6 +88,16 @@ describe("the offline service worker", () => {
     expect(await (await sw.raw(address))!.status).toBe(502)
     sw.serve("<section>1</section>")
     expect(await sw.get(address)).toBe("<section>1</section>")
+  })
+
+  it("evicts kept entries when an addressed file returns 404", async () => {
+    const sw = worker("cached page")
+    await sw.get("/", "navigate")
+    expect(sw.store.has("https://app.test/")).toBe(true)
+    sw.serve("missing", 404)
+    expect(await (await sw.raw(address))!.status).toBe(404)
+    await sw.settle()
+    expect(sw.store.has("https://app.test/")).toBe(false)
   })
 
   // Every file a release names is an address; a name that is not one is the

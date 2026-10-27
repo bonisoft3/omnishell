@@ -248,6 +248,7 @@ export async function addressRelease(out: string, options: AddressOptions = {}):
         document.head.append(node)
       }
     }
+    for (const node of document.querySelectorAll('#pronto-assets, script[type="importmap"]')) node.remove()
     const map = document.createElement('script')
     map.setAttribute('type', 'importmap')
     map.setAttribute('id', 'pronto-assets')

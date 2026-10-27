@@ -29,12 +29,22 @@ import { evaluateRole } from "./jessie.js";
 import { hostDomScreen } from "./host-dom.js";
 import { assetURL, skeletonRoutes } from "./preloads.js";
 
+export class AssetMissing extends Error {
+  constructor(url, status = 404) {
+    super(`${status} fetching ${url}`);
+    this.name = "AssetMissing";
+    this.url = url;
+    this.status = status;
+  }
+}
+
 export async function fetchText(url, init) {
   const res = await fetch(assetURL(url), init).catch((err) => {
     // fetch rejects with a TypeError when no answer arrived at all.
     throw err instanceof TypeError ? new Unanswered(`nothing answered ${url}: ${err.message}`, { cause: err }) : err;
   });
   if (res.status >= 500) throw new Unanswered(`${res.status} fetching ${url}`);
+  if (res.status === 404 || res.status === 410) throw new AssetMissing(url, res.status);
   if (!res.ok) throw new Error(`${res.status} fetching ${url}`);
   return res.text();
 }

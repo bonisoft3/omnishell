@@ -286,6 +286,19 @@ Deno.test('native SSR streams top-down chunks and progressive prefetch reads bef
     })
     assert.equal(firstStateful.html.includes('once-Flamengo'), true)
     assert.equal(secondStateful.html.includes('once-Flamengo'), true)
+
+    // Content-addressed #pronto-assets paths resolve against canonical asset keys without duplicating _immutable-* entries in assets.json.
+    const immutableRender = appRenderer({
+      '/shell/shell.json': JSON.stringify(cfg),
+      '/index.html': `<html lang="en"><head></head><body><main id="app"></main><script id="pronto-assets" type="application/json">${JSON.stringify({ imports: { '/team.html': '/_immutable-1234abcd-team.html.txt', '/team.css': '/_immutable-5678ef01-team.css' } })}</script><script type="module" src="./boot.js"></script></body></html>`,
+      '/team.html': '<section class="screen" data-screen="team"><div data-live="team" data-filter="id=eq.{param.id}" data-empty="Not found"><h1 data-text="{name}"></h1></div></section>',
+      '/team.css': 'h1 { color: black }',
+    }, 'https://app.example')
+    const immutableResult = await immutableRender(new Request('https://app.example/team/fla'), {
+      async read() { return [{ id: 'fla', name: 'Flamengo' }] },
+    })
+    assert.equal(immutableResult.status, 200)
+    assert.equal(immutableResult.html.includes('>Flamengo</h1>'), true)
   } finally {
     for (const [key, descriptor] of saved) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor)

@@ -76,13 +76,14 @@ export function renderObject(render: (request: Request, reader: Reader, stream?:
         }))
         if (!settledResponse) {
           settledResponse = true
+          await writer.close().catch(() => {})
           const headers = headersFor(result.status)
           if (result.status === 200 && matches) {
-            await writer.close().catch(() => {})
             resolveResponse(new Response(null, { status: 304, headers }))
             return
           }
-          resolveResponse(new Response(readable, { status: result.status, headers }))
+          resolveResponse(new Response(result.html, { status: result.status, headers }))
+          return
         }
         if (notModified || streamFailed) return
         if (!streamed && !(result.status === 200 && matches)) {

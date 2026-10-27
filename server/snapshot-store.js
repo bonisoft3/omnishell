@@ -323,6 +323,12 @@ export function snapshotStore(cfg, appBase, reader) {
 	return {
 		...store,
 		reads,
+		async close() {
+			await store.close();
+			reads.clear();
+			inFlight.clear();
+			pages.clear();
+		},
 		assertHealthy() {
 			if (failures.length) {
 				throw new AggregateError(failures, "public snapshot read failed");

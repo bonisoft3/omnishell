@@ -16,7 +16,9 @@ export async function prepareWorker(publicDir: string, generated: string) {
   const assets: Record<string, string> = {}
   async function walk(dir: string, prefix = '') {
     for await (const entry of Deno.readDir(dir)) {
+      if (entry.name.startsWith('_immutable-')) continue
       const name = prefix + '/' + entry.name
+      if (name === '/docs' || name === '/omnishell') continue
       if (entry.isDirectory) await walk(path.join(dir, entry.name), name)
       else if (/\.(js|json|css|html|txt)$/.test(name)) assets[name] = await Deno.readTextFile(path.join(dir, entry.name))
     }

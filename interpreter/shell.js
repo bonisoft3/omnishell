@@ -18,7 +18,7 @@ import { parseMarkup } from "./markup.js";
 
 import { chromeText, describe, drawStrip, guestBox, hasStrip, localizeStrip, offersGuest, providerHref, providerKey, stripRoutes, supportsPasskeys } from "./chrome.js";
 import { localeAt, localeTable, ProgramError, routeAt, routeHref, screenEnv, Unanswered } from "./fragment.js";
-import { activateScreenStyle, fetchText, interpretScreen, prefetchScreen, templateHash, submitsOnChange } from "./screen.js";
+import { activateScreenStyle, fetchText, interpretScreen, prefetchScreen, templateHash, submitsOnChange, AssetMissing } from "./screen.js";
 import { compileCatalog } from "./vendor/messages.js";
 import { planRelease } from "./release-plan.js";
 export { routeAt } from "./fragment.js";
@@ -936,6 +936,37 @@ export async function createShell({ config, mount, preload = true }) {
         restating = false;
       }
     };
+    const HEAL_KEY = "pronto-healed-at";
+    const HEAL_COOLDOWN_MS = 15_000;
+    const isMissing = (err) => err instanceof AssetMissing ||
+      (typeof err?.message === "string" && err.message.includes("404 fetching")) ||
+      (err instanceof TypeError && typeof err?.message === "string" && err.message.includes("dynamically imported module"));
+    const canHeal = () => {
+      if (typeof sessionStorage?.getItem !== "function" || typeof sessionStorage?.setItem !== "function") return false;
+      const last = Number(sessionStorage.getItem(HEAL_KEY) ?? "0");
+      return Date.now() - last >= HEAL_COOLDOWN_MS;
+    };
+    const heal = async () => {
+      if (!canHeal()) return false;
+      sessionStorage.setItem(HEAL_KEY, String(Date.now()));
+      const screens = { ...recovery?.screens };
+      for (const entry of held.values()) {
+        screens[entry.key] = [...new Map([...(screens[entry.key] ?? []), ...captureFields(entry.el)])];
+      }
+      const tabs = store ? await store.tabSnapshot() : null;
+      sessionStorage.setItem(recoveryKey, JSON.stringify({
+        expected: running ? releaseKey(running) : undefined,
+        owner: session === null ? storedSessionOwner() : sessionOwner(session),
+        screens,
+        ...(tabs ? { tabs } : {}),
+        ...(initialFields === null ? {} : { initial: [...new Map([...(recovery?.initial ?? []), ...initialFields])] }),
+      }));
+      await globalThis.caches?.delete(ENTRY_CACHE);
+      navigator.serviceWorker?.controller?.postMessage?.({ type: "pronto:purge-entries" });
+      location.reload();
+      return true;
+    };
+
     // Which show() is the latest. One that waited for a catalogue and finds a
     // later one started meanwhile mounts nothing: what it read off the
     // address is no longer the address.
@@ -1076,6 +1107,7 @@ export async function createShell({ config, mount, preload = true }) {
         // reader has — but the terminal stops counting it as a live screen.
         if (held.get(key) === fresh) held.delete(key);
         if (current === fresh) current = null;
+        if (isMissing(err) && await heal()) return;
         throw err;
       } finally {
         clearTimeout(capped);
@@ -1279,6 +1311,7 @@ export async function createShell({ config, mount, preload = true }) {
     await show();
     if (guestSession) await guestSession;
     booted = true;
+    sessionStorage.removeItem?.(HEAL_KEY);
     // Painted from the worker's copy, which is any deployment old.
     if (document.querySelector('meta[name="pronto-kept"]')) heed();
     setInterval(heed, RELEASE_CHECK_MS);
@@ -1287,6 +1320,7 @@ export async function createShell({ config, mount, preload = true }) {
     });
     return { store, navigate };
   } catch (err) {
+    if ((isMissing(err) || document.querySelector('meta[name="pronto-kept"]')) && await heal()) return;
     banner(err);
     throw err;
   }

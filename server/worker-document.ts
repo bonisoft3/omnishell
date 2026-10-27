@@ -14,11 +14,19 @@ export function appRenderer(assets: Record<string, string>, origin: string) {
     sessionStorage: Object.freeze({ getItem: () => null }),
     CSS: { escape: (value: string) => value },
   })
+  const canonical = new Map<string, string>()
+  const assetMap = assets['/index.html']?.match(/<script[^>]*\bid=["']pronto-assets["'][^>]*>([\s\S]*?)<\/script>/i)
+  if (assetMap) {
+    for (const [k, v] of Object.entries((JSON.parse(assetMap[1]).imports ?? {}) as Record<string, string>)) {
+      canonical.set(v, k)
+    }
+  }
   globalThis.requestAnimationFrame = (callback) => setTimeout(callback, 0)
   globalThis.fetch = async (input) => {
     const url = new URL(input instanceof Request ? input.url : String(input))
-    if (url.origin !== origin || !Object.hasOwn(assets, url.pathname)) throw new Error(`unknown render asset: ${url}`)
-    return new Response(assets[url.pathname])
+    const key = Object.hasOwn(assets, url.pathname) ? url.pathname : canonical.get(url.pathname)
+    if (url.origin !== origin || !key || !Object.hasOwn(assets, key)) throw new Error(`unknown render asset: ${url}`)
+    return new Response(assets[key])
   }
   const messages: Record<string, ReturnType<typeof compileCatalog>> = {}
   for (const tag of Object.keys(cfg.i18n?.locales ?? {})) {
