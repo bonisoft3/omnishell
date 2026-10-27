@@ -338,3 +338,33 @@ Deno.test("an online race refuses a terminal config that carries no ICE servers"
   );
   child.destroy();
 });
+
+Deno.test("an online race uses dynamic ICE servers from /rtc-ice when available", async () => {
+  const dynamic = [{ urls: "turn:turn.example:3478", username: "u", credential: "c" }];
+  const originalFetch = globalThis.fetch;
+  // deno-lint-ignore no-explicit-any
+  (globalThis as any).fetch = (url: string) => {
+    if (url === "/rtc-ice") return Promise.resolve(new Response(JSON.stringify(dynamic), { status: 200 }));
+    return Promise.reject(new Error("not found"));
+  };
+  try {
+    const asked: unknown[] = [];
+    const connect = ({ iceServers }: { iceServers: unknown }) => {
+      asked.push(iceServers);
+      return { open: Promise.resolve(), send() {}, onMessage() {}, close() {} };
+    };
+    const { child } = mount({
+      engine: duelEngine,
+      iceServers: [{ urls: "stun:stun.example:3478" }],
+      // deno-lint-ignore no-explicit-any
+      connect: connect as any,
+      rollback: () => Promise.resolve({ start() {}, stop() {}, dispose() {} }),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    child.update({ seed: "41", laps: "1", input: "car", clock: "play", mode: "online", seat: "0", peer: "" });
+    assertEquals(asked, [dynamic], "channel used dynamic ICE servers fetched from /rtc-ice");
+    child.destroy();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

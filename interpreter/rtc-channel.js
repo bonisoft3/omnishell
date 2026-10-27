@@ -24,9 +24,23 @@ export function createRtcChannel({ initiator, signal, iceServers }) {
   };
   const gathered = () => new Promise((resolve) => {
     if (peer.iceGatheringState === "complete") return resolve();
+    let timer = null;
+    let maxTimer = null;
+    const finish = () => {
+      clearTimeout(timer);
+      clearTimeout(maxTimer);
+      resolve();
+    };
     peer.addEventListener("icegatheringstatechange", () => {
-      if (peer.iceGatheringState === "complete") resolve();
+      if (peer.iceGatheringState === "complete") finish();
     });
+    peer.addEventListener("icecandidate", ({ candidate }) => {
+      if (!candidate) return finish();
+      clearTimeout(timer);
+      const isRelay = typeof candidate.candidate === "string" && candidate.candidate.includes("typ relay");
+      timer = setTimeout(finish, isRelay ? 1000 : 3000);
+    });
+    maxTimer = setTimeout(finish, 6000);
   });
   const open = new Promise((resolve, reject) => {
     peer.addEventListener("connectionstatechange", () => {

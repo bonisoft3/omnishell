@@ -52,6 +52,15 @@ export function kineticChild(el, { decl, engine, sound, closeSound = null, prese
   if (unsounded.length > 0) throw new ProgramError(`kinetic child ${el.dataset.kinetic}: its sound role answers no ${unsounded.join(", ")}`);
   const tick = schedule ?? requestAnimationFrame;
   const untick = cancel ?? cancelAnimationFrame;
+  let effectiveIce = iceServers;
+  if (Array.isArray(iceServers) && typeof fetch === "function") {
+    fetch("/rtc-ice")
+      .then((r) => r.ok ? r.json() : null)
+      .then((dynamic) => {
+        if (Array.isArray(dynamic) && dynamic.length > 0) effectiveIce = dynamic;
+      })
+      .catch(() => {});
+  }
   /** @type {Record<string, string>} */
   let props = {};
   let race = null;
@@ -170,7 +179,7 @@ export function kineticChild(el, { decl, engine, sound, closeSound = null, prese
       closed: false,
       channel: connect({
         initiator: seat === 0,
-        iceServers,
+        iceServers: effectiveIce,
         signal: {
           send: (description) => raise("describe", { race: String(seed), description: JSON.stringify(description) }),
           onDescription: (handler) => {
@@ -186,9 +195,22 @@ export function kineticChild(el, { decl, engine, sound, closeSound = null, prese
       },
     };
     session.peer(props.peer);
+    el.dataset.kineticConnecting = "";
+    session.connectTimer = setTimeout(() => {
+      if (!session.closed && session.host === null) {
+        delete el.dataset.kineticConnecting;
+        session.closed = true;
+        session.channel.close();
+        raise("menu", { action: "duel-abort" });
+      }
+    }, 15000);
+    if (typeof session.connectTimer?.unref === "function") session.connectTimer.unref();
+    else if (typeof globalThis.Deno?.unrefTimer === "function") globalThis.Deno.unrefTimer(session.connectTimer);
     session.channel.open
-      .then(() =>
-        rollback({
+      .then(() => {
+        clearTimeout(session.connectTimer);
+        delete el.dataset.kineticConnecting;
+        return rollback({
           engine,
           seed,
           initOptions: engine.optionsOf(props),
@@ -206,12 +228,17 @@ export function kineticChild(el, { decl, engine, sound, closeSound = null, prese
           },
           onCommit: (state) => committed(state, () => session.host.stop()),
           onRender: render,
-        })
-      )
+        });
+      })
       .then((started) => {
         if (session.closed) return started.dispose();
         session.host = started;
         started.start();
+      })
+      .catch(() => {
+        clearTimeout(session.connectTimer);
+        delete el.dataset.kineticConnecting;
+        raise("menu", { action: "duel-abort" });
       });
     return session;
   };
@@ -276,7 +303,9 @@ export function kineticChild(el, { decl, engine, sound, closeSound = null, prese
   };
 
   const leave = () => {
+    delete el.dataset.kineticConnecting;
     if (duel === null) return;
+    clearTimeout(duel.connectTimer);
     duel.closed = true;
     duel.host?.dispose();
     duel.channel.close();

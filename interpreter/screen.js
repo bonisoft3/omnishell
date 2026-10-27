@@ -2640,6 +2640,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         carried.seed = draw(actor);
       }
       if (next.with !== undefined) carried.with = next.with;
+      if (typeof carried.type === "string" && carried.type.startsWith("intent:")) {
+        screen.dispatchEvent?.(new CustomEvent("pronto:intent", { detail: carried, bubbles: true }));
+      }
       await step(reduce, carried, depth + 1, pause);
     };
 
@@ -2666,6 +2669,12 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             // The DOM id and not the class: the class is how a thing looks,
             // and a reduce that branched on it would be reading the styling.
             if (el.id !== "") fired.from = el.id;
+            if (el.hasAttribute?.("command") || el.hasAttribute?.("data-command")) {
+              fired.command = el.getAttribute("command") || el.getAttribute("data-command");
+            }
+            if (el.hasAttribute?.("commandfor") || el.hasAttribute?.("data-commandfor")) {
+              fired.commandfor = el.getAttribute("commandfor") || el.getAttribute("data-commandfor");
+            }
             if ((event === "input" || event === "change") && typeof el.value === "string") {
               fired.value = el.value;
             }
@@ -2799,7 +2808,14 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       const candidatesFor = (rawState, event) => {
         const stateName = (rawState && rawState !== "") ? rawState : machine.initial;
         const out = [];
-        const keys = event.from !== undefined ? [`${event.type}@${event.from}`, event.type] : [event.type];
+        const commandKeys = event.command ? [
+          ...(event.from !== undefined ? [`command:${event.command}@${event.from}`] : []),
+          `command:${event.command}`,
+        ] : [];
+        const keys = [
+          ...commandKeys,
+          ...(event.from !== undefined ? [`${event.type}@${event.from}`, event.type] : [event.type]),
+        ];
         const chain = [];
         if (stateName) {
           chain.push(stateName);
