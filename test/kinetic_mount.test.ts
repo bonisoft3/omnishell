@@ -327,6 +327,70 @@ Deno.test("a race that replaced a held duel plays once the art arrives", async (
   assert(child.host.isPlaying());
 });
 
+Deno.test("a failed connection raises one numbered abort and closes the channel", async () => {
+  let closed = 0;
+  const { child, raised } = mount({
+    engine: duelEngine,
+    iceServers: [],
+    connect: () => ({ open: Promise.reject(new Error("connection failed")), close: () => closed++, send() {}, onMessage() {} }),
+  });
+  try {
+    child.update({ seed: "41", laps: "1", input: "car", clock: "play", mode: "online", seat: "0", peer: "" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assertEquals(raised.filter((e) => e.type === "menu").map((e) => e.detail), [{ action: "duel-abort", n: "1" }]);
+    assertEquals(closed, 1);
+  } finally {
+    child.destroy();
+  }
+});
+
+Deno.test("a timed out connection raises a numbered abort only once", async () => {
+  const realTimeout = globalThis.setTimeout;
+  let timeout!: () => void;
+  let reject!: (error: Error) => void;
+  const open = new Promise<void>((_, fail) => { reject = fail; });
+  const { child, raised } = mount({
+    engine: duelEngine,
+    iceServers: [],
+    connect: () => ({ open, close: () => reject(new Error("closed")), send() {}, onMessage() {} }),
+  });
+  try {
+    globalThis.setTimeout = ((callback: () => void, delay: number) => {
+      if (delay === 15000) timeout = callback;
+      return realTimeout(callback, delay);
+    }) as typeof setTimeout;
+    child.update({ seed: "41", laps: "1", input: "car", clock: "play", mode: "online", seat: "0", peer: "" });
+  } finally {
+    globalThis.setTimeout = realTimeout;
+  }
+  try {
+    timeout();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assertEquals(raised.filter((e) => e.type === "menu").map((e) => e.detail), [{ action: "duel-abort", n: "1" }]);
+  } finally {
+    child.destroy();
+  }
+});
+
+Deno.test("a replaced connection cannot abort the current race", async () => {
+  let reject!: (error: Error) => void;
+  const open = new Promise<void>((_, fail) => { reject = fail; });
+  const { child, raised } = mount({
+    engine: duelEngine,
+    iceServers: [],
+    connect: () => ({ open, close() {}, send() {}, onMessage() {} }),
+  });
+  try {
+    child.update({ seed: "41", laps: "1", input: "car", clock: "play", mode: "online", seat: "0", peer: "" });
+    child.update({ seed: "42", laps: "1", input: "car", clock: "hold" });
+    reject(new Error("old connection failed"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assertEquals(raised.filter((e) => e.type === "menu"), []);
+  } finally {
+    child.destroy();
+  }
+});
+
 // A terminal config without the list would race over host candidates alone,
 // which connects in every dev and CI stack and fails only past a NAT.
 Deno.test("an online race refuses a terminal config that carries no ICE servers", () => {

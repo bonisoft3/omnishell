@@ -654,6 +654,11 @@ export async function createShell({ config, mount, preload = true }) {
     if (e.error instanceof ProgramError) banner(e.error);
   });
 
+  let heal = null;
+  const isMissing = (err) => err instanceof AssetMissing ||
+    (typeof err?.message === "string" && err.message.includes("404 fetching")) ||
+    (err instanceof TypeError && typeof err?.message === "string" && err.message.includes("dynamically imported module"));
+
   try {
     let words = null;
 
@@ -938,15 +943,12 @@ export async function createShell({ config, mount, preload = true }) {
     };
     const HEAL_KEY = "pronto-healed-at";
     const HEAL_COOLDOWN_MS = 15_000;
-    const isMissing = (err) => err instanceof AssetMissing ||
-      (typeof err?.message === "string" && err.message.includes("404 fetching")) ||
-      (err instanceof TypeError && typeof err?.message === "string" && err.message.includes("dynamically imported module"));
     const canHeal = () => {
       if (typeof sessionStorage?.getItem !== "function" || typeof sessionStorage?.setItem !== "function") return false;
       const last = Number(sessionStorage.getItem(HEAL_KEY) ?? "0");
       return Date.now() - last >= HEAL_COOLDOWN_MS;
     };
-    const heal = async () => {
+    heal = async () => {
       if (!canHeal()) return false;
       sessionStorage.setItem(HEAL_KEY, String(Date.now()));
       const screens = { ...recovery?.screens };
@@ -1320,7 +1322,7 @@ export async function createShell({ config, mount, preload = true }) {
     });
     return { store, navigate };
   } catch (err) {
-    if ((isMissing(err) || document.querySelector('meta[name="pronto-kept"]')) && await heal()) return;
+    if (heal !== null && (isMissing(err) || document.querySelector('meta[name="pronto-kept"]')) && await heal()) return;
     banner(err);
     throw err;
   }

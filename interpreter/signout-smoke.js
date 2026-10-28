@@ -305,3 +305,17 @@ Deno.test({
     assert(!app.intercepted, "the stack intercepted a navigation that leaves the document");
   },
 });
+
+Deno.test({
+  name: "a missing boot config reports its error before recovery is initialized",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const app = boot();
+    globalThis.fetch = async () => new Response("missing", { status: 404 });
+    const { createShell } = await import("./shell.js");
+    await assertRejects(() => createShell({ config: "./shell.yaml", mount: app.mount }), "404 fetching");
+    assert(app.mount.textContent.includes("404 fetching"), "the banner preserves the boot error");
+    assert(!app.reloaded, "an uninitialized shell cannot recover its state");
+  },
+});

@@ -201,7 +201,7 @@ export function kineticChild(el, { decl, engine, sound, closeSound = null, prese
         delete el.dataset.kineticConnecting;
         session.closed = true;
         session.channel.close();
-        raise("menu", { action: "duel-abort" });
+        raise("menu", { action: "duel-abort", n: String(++pressed) });
       }
     }, 15000);
     if (typeof session.connectTimer?.unref === "function") session.connectTimer.unref();
@@ -236,9 +236,12 @@ export function kineticChild(el, { decl, engine, sound, closeSound = null, prese
         started.start();
       })
       .catch(() => {
+        if (session.closed) return;
         clearTimeout(session.connectTimer);
         delete el.dataset.kineticConnecting;
-        raise("menu", { action: "duel-abort" });
+        session.closed = true;
+        session.channel.close();
+        raise("menu", { action: "duel-abort", n: String(++pressed) });
       });
     return session;
   };

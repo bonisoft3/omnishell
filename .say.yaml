@@ -24,6 +24,12 @@ say:
           - do: "deno check --config test/deno.json src/ test/ check-visual.ts runtime/cli.ts"
   test:
     rulemap:
+      kinetic:
+        platform: kinetic
+        priority: -2
+        stop: true
+        cmds:
+          - do: "deno test --no-check --allow-read --allow-env --config test/deno.json test/kinetic_mount.test.ts"
       native:
         priority: 0
         cmds:

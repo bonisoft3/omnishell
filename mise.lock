@@ -124,7 +124,7 @@ url = "https://unofficial-builds.nodejs.org/download/release/v26.11.1/node-v26.1
 
 [tools.node."platforms.linux-x64"]
 checksum = "sha256:15fc043a51a5783f2f4b634561091658f5a7f0e3db03f997dca3a8033a33e45b"
-url = "https://nodejs.org/dist/v26.11.1/node-v26.11.1-linux-x64.tar.gz"
+url = "https://nodejs.org/download/release/v26.11.1/node-v26.11.1-linux-x64.tar.gz"
 
 [tools.node."platforms.linux-x64-musl"]
 checksum = "sha256:dc822f43a55877e060b9e16702019c91deb9684310fa47ea4e9bdab0f2146366"
