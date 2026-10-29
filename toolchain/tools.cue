@@ -3,5 +3,5 @@ package toolchain
 #Tools: {
 	...
 	"github:denoland/deno":       "v2.9.7"
-	"github:bonisoft3/omnishell": "0.20.2"
+	"github:bonisoft3/omnishell": "0.21.1"
 }
