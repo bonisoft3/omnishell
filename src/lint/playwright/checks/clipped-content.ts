@@ -47,12 +47,21 @@ export async function checkClippedContent(page: Page): Promise<VisualBug[]> {
       const overX = cs.overflowX === "hidden" && el.scrollWidth > el.clientWidth + 1
       const overY = cs.overflowY === "hidden" && el.scrollHeight > el.clientHeight + 1
       if (!overX && !overY) continue
+      // Cropping a purely decorative image does not hide readable content.
+      if (!el.textContent?.trim() && el.querySelector('img') &&
+          !el.querySelector('button, a, input, select, textarea, [tabindex], [role="button"], img:not([alt=""])')) continue
       const lost = overX
         ? `${el.scrollWidth - el.clientWidth}px of width`
         : `${el.scrollHeight - el.clientHeight}px of height`
+      const box = el.getBoundingClientRect()
+      const culprit = [...el.querySelectorAll<HTMLElement>("*")].find((child) => {
+        const rect = child.getBoundingClientRect()
+        return child.checkVisibility() && (overX ? rect.right > box.right + 1 : rect.bottom > box.bottom + 1)
+      })
+      const name = culprit?.id || culprit?.className?.toString().trim().split(/\s+/)[0] || culprit?.tagName.toLowerCase()
       bugs.push({
         rule: "clipped-content",
-        description: `"${id}" hides ${lost} with no ellipsis and no way to scroll to it`,
+        description: `"${id}" hides ${lost} with no ellipsis and no way to scroll to it${name ? ` (${name})` : ""}`,
         severity: "critical",
         element: id,
       })

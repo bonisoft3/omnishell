@@ -329,3 +329,49 @@ Deno.test({
     });
   },
 });
+
+Deno.test({
+  name: "conditional server patches preserve int64 revisions, refresh stale intent and still reject policy failures",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const fake = server();
+    fake.rows[0].txid = "9007199254740993";
+    let deny = false;
+    let fail = false;
+    await withBrowser({ fetch: (url, init = {}) => {
+      if (init.method === "PATCH" && fail) return Response.json({ message: "forbidden" }, { status: 403 });
+      if (init.method === "PATCH" && deny) return Response.json([]);
+      return fake.fetch(url, init);
+    } }, async createStore => {
+      const store = createStore(fake.base, {
+        tables: ["note"], carriers: FIXTURE_CARRIERS,
+        schema: { note: { durability: "server", fields: [{ name: "id", type: "string" }, { name: "title", type: "string" }] } },
+      });
+      const stop = store.subscribe("note", () => {}, { filter: "id=eq.n1" });
+      try {
+        await store.query("note", null, { filter: "id=eq.n1" });
+        await store.patch("note", [{ key: "n1", ifTxid: "9007199254740993", changes: { title: "won" } }]);
+        const first = fake.requests.find(r => r.method === "PATCH");
+        assert(first.url.searchParams.get("txid") === "eq.9007199254740993", "the condition keeps all int64 digits");
+        await store.patch("note", [{ key: "n1", ifTxid: "9007199254740993", changes: { title: "stale" } }]);
+        assert(fake.writes === 1 && fake.rows[0].title === "won", "stale intent makes no write");
+        assert((await store.query("note", null, { filter: "id=eq.n1" }))[0].title === "won", "stale settlement invalidates the cached read");
+        deny = true;
+        fake.rows[0].txid = 2;
+        let error = await store.patch("note", [{ key: "n1", ifTxid: "2", changes: { title: "denied" } }]).then(() => null, e => e);
+        assert(error?.name === "NonRetriableError", "a matching revision denied by policy remains a refusal");
+        fail = true;
+        error = await store.patch("note", [{ key: "n1", ifTxid: "1", changes: { title: "denied" } }]).then(() => null, e => e);
+        assert(error !== null, "HTTP errors remain errors even for stale intent");
+        for (const ifTxid of [42, "0", "1&status=eq.idle", "9223372036854775808"]) {
+          error = await store.patch("note", [{ key: "n1", ifTxid, changes: { title: "invalid" } }]).then(() => null, e => e);
+          assert(/ifTxid must be a positive int64/.test(error?.message), "invalid preconditions fail before HTTP");
+        }
+      } finally {
+        stop();
+        await globalThis.__mechaClient.collections.note.cleanup();
+      }
+    });
+  },
+});

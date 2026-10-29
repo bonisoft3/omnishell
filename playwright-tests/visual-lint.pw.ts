@@ -7,6 +7,8 @@ import { describe, expect, it, withPage, asCheckPage } from "./harness.ts"
 import { assertVisualLint, visualLint } from "../src/lint/playwright/visual-lint.ts"
 import { checkVerticalFit } from "../check-visual.ts"
 import { checkClippedControls } from "../src/lint/playwright/checks/clipped-controls.ts"
+import { checkClippedContent } from "../src/lint/playwright/checks/clipped-content.ts"
+import { installModalInert } from "../interpreter/shell.js"
 import { checkContrast } from "../src/lint/playwright/checks/contrast.ts"
 import { checkFocusOrder } from "../src/lint/playwright/checks/focus-order.ts"
 import { checkInteractiveOverlap } from "../src/lint/playwright/checks/interactive-overlap.ts"
@@ -116,6 +118,22 @@ describe("checkFocusOrder", () => {
 // A pointer reaches no control that is clipped to nothing or inert; an
 // aria-hidden control with neither is still a target.
 describe("hidden controls", () => {
+  it("makes only modal background inert and restores previous inertness on close", () =>
+    withPage(async (page) => {
+      await page.setContent(`<style>[data-status="playing"] [role="dialog"] { display:none } [role="dialog"] { animation: fade 2s } @keyframes fade { from { opacity:0 } to { opacity:1 } }</style>
+        <nav><button id="nav">Home</button></nav><main data-status="playing">
+        <div role="dialog" aria-modal="true"><button id="close">Close</button></div>
+        <button id="background">Background</button><section inert><button id="already">Unavailable</button></section></main>`)
+      await page.evaluate((source) => (0, eval)(`(${source})(document)`), installModalInert.toString())
+      await page.locator("main").evaluate((el) => el.setAttribute("data-status", "login"))
+      await page.waitForFunction(() => !!document.querySelector("#background")?.closest("[inert]"))
+      expect(await page.locator("#nav").evaluate((el) => !!el.closest("[inert]"))).toBe(true)
+      expect(await page.locator("#close").evaluate((el) => !!el.closest("[inert]"))).toBe(false)
+      await page.locator("main").evaluate((el) => el.setAttribute("data-status", "playing"))
+      await page.waitForFunction(() => !document.querySelector("#background")?.closest("[inert]"))
+      expect(await page.locator("#nav").evaluate((el) => !!el.closest("[inert]"))).toBe(false)
+      expect(await page.locator("#already").evaluate((el) => !!el.closest("[inert]"))).toBe(true)
+    }))
   it("are not touch targets", () =>
     withPage(
       async (page) => {
@@ -150,6 +168,15 @@ describe("checkThemeStability", () => {
 // that silence is the blind spot the second rule answers, not a defect to fix
 // in the first.
 describe("visualLint - the cheapest fix", () => {
+  it("allows cropped decorative images but still reports clipped text and named images", () =>
+    withPage(async (page) => {
+      await page.setContent(`<style>.crop { width: 50px; height: 40px; overflow: hidden } .crop img { width: 100px; height: 40px } .wide { width: 100px }</style>
+        <div id="decorative" class="crop"><img alt="" src="data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA=" /></div>
+        <div id="named" class="crop"><img alt="Diagram" src="data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA=" /></div>
+        <div id="words" class="crop"><span class="wide" style="display:block">Hidden text</span></div>`)
+      const bugs = await checkClippedContent(asCheckPage(page))
+      expect(bugs.map((bug) => bug.element)).toEqual(["crop", "crop"])
+    }))
   const CHEAP = `${fixtures}cheapest-fix.html`
 
   it("catches content a box hides, which the document's own width cannot see", () =>

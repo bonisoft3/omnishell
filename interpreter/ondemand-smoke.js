@@ -61,6 +61,9 @@ function electric(server, schema) {
       const id = url.searchParams.get("id")?.slice(3);
       const rows = server[table];
       const current = rows.find((r) => r.id === id);
+      if (!init.method || init.method === "GET") return Response.json(current ? [current] : []);
+      const expected = url.searchParams.get("txid")?.slice(3);
+      if (expected !== undefined && current?.txid !== expected) return Response.json([]);
       const txid = ++transaction;
       const operation = init.method === "DELETE" ? "delete" : init.method === "PATCH" ? "update" : "insert";
       const value = {
@@ -1326,6 +1329,52 @@ Deno.test({
       const store = createStore("http://optional-reference", cfg);
       for (const filter of ["ref=eq.", "ref=eq.not-a-uuid", "games=eq.invalid"]) {
         assert((await store.query("stat", null, { filter })).length === 0, filter);
+      }
+    });
+  },
+});
+
+Deno.test({
+  name: "conditional live patches bypass optimistic intent and settle against Electric before the next attempt",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const rows = world();
+    const fake = electric(rows, SCHEMA);
+    await withBrowser({ fetch: fake.fetcher }, async createStore => {
+      const store = createStore(fake.base, config());
+      const stop = store.subscribe("player", () => {}, { filter: "id=eq.p1" });
+      try {
+        const first = (await store.query("player", null, { filter: "id=eq.p1" }))[0];
+        await store.patch("player", [{ key: "p1", ifTxid: first.txid, changes: { name: "winner" } }]);
+        const current = (await store.query("player", null, { filter: "id=eq.p1" }))[0];
+        assert(current.name === "winner" && current.txid !== first.txid, "accepted patch waits for the committed shape");
+        await store.patch("player", [{ key: "p1", ifTxid: first.txid, changes: { name: "loser" } }]);
+        const after = (await store.query("player", null, { filter: "id=eq.p1" }))[0];
+        assert(after.name === "winner" && after.$synced !== false, "stale patch never overlays or leaves a pending write");
+        Object.assign(rows.player[0], { name: "external", txid: "50" });
+        let settled = false;
+        const stale = store.patch("player", [{ key: "p1", ifTxid: current.txid, changes: { name: "late" } }]).then(() => { settled = true; });
+        await tick(30);
+        assert(!settled, "a stale intent does not wake handlers from the old snapshot");
+        fake.update("player", "p1", { name: "external" }, 50);
+        await stale;
+        assert((await store.query("player", null, { filter: "id=eq.p1" }))[0].name === "external", "stale intent settles only after the newer stream revision");
+        await store.patch("player", [{ key: "p1", changes: { name: "ordinary" } }]);
+        assert((await store.query("player", null, { filter: "id=eq.p1" }))[0].name === "ordinary", "ordinary outbox writes retain their behavior");
+        const beforeDelete = rows.player[0].txid;
+        rows.player[0].txid = "70";
+        settled = false;
+        const deleted = store.patch("player", [{ key: "p1", ifTxid: beforeDelete, changes: { name: "late" } }]).then(() => { settled = true; });
+        await tick(30);
+        assert(!settled, "a missing future revision cannot settle before sync moves");
+        fake.remove("player", "p1", 80);
+        await deleted;
+        assert(settled && !rows.player.some(row => row.id === "p1"), "a committed delete supersedes the fetched revision");
+        assert((await store.query("player", null, { filter: "id=eq.p1" }))[0]?.name === "ordinary", "settling stale intent does not discard a newer optimistic edit");
+      } finally {
+        stop();
+        for (const c of Object.values(globalThis.__mechaClient.collections)) await c.cleanup();
       }
     });
   },

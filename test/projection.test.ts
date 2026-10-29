@@ -49,6 +49,26 @@ const mount = (value: string, files = FILES) =>
   })
 
 describe("a region states derived columns about its own rows", () => {
+  it("selects the row at the enclosing zero-based position even when labels repeat", async () => {
+    const files = {
+      ...FILES,
+      "picker.html": FILES["picker.html"].replace('{"eq":["id","{value}"]}', '{"at":"{value}"}'),
+    }
+    const m = await mountScreen({
+      route: ROUTE, files,
+      tables: { choice: [{ id: "the", value: "0" }], option: options().map((row) => ({ ...row, label: "Same" })) },
+      seed: 1,
+    })
+    await m.settle()
+    expect(attr(m, "aria-selected")).toEqual(["true", "false", "false"])
+    await m.store.update("choice", "the", { value: "1" })
+    await m.settle()
+    expect(attr(m, "aria-selected")).toEqual(["false", "true", "false"])
+    expect(attr(m, "aria-posinset")).toEqual(["1", "2", "3"])
+    expect(attr(m, "aria-setsize")).toEqual(["3", "3", "3"])
+    await m.stop()
+  })
+
   it("answers the comparison against the enclosing row, for every row", async () => {
     const m = await mount("b")
     await m.settle()

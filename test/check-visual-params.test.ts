@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@test/harness"
-import { ftsWords, type Reader, resolveParams, tiersFrom } from "../check-visual.ts"
+import { ftsWords, type Reader, renderedRouteParams, resolveRenderedFixture, resolveParams, tiersFrom } from "../check-visual.ts"
 import { paramPlans, type ParamPlan } from "../interpreter/lint.ts"
 
 // The battery fills a `:param` with a row the route's read can match, and the
@@ -281,4 +281,35 @@ describe("check-visual param resolution follows the app's declared tier", () => 
       "player_stat?select=team(slug),player!inner(slug)&player.slug=eq.everson&limit=1",
     ])
   })
+
+  it("plans a card from a real rail link constrained to the same deck", async () => {
+    const route = { path: "/explore/:deck/:card", screen: "card" };
+    const html = `<section data-screen="card"><div data-live="card_set" data-filter="id=eq.{param.deck}"></div>
+      <nav data-live="flashcard" data-filter="set_id=eq.{param.deck}"><template data-item>
+      <a data-route="card" data-param-deck="{set_id}" data-param-card="{front}"></a></template></nav></section>`;
+    const { plans, unplanned } = paramPlans([route], { [route.path]: html });
+    expect(unplanned).toEqual([]);
+    const { params, unresolved } = await resolveParams(plans, tier(true), reader({
+      card_set: [{ id: "deck-2" }], flashcard: [{ set_id: "deck-2", front: "Pikachu" }],
+    }).api);
+    expect(unresolved).toEqual([]);
+    expect(params.get(route.path)).toEqual({ deck: "deck-2", card: "Pikachu" });
+    const unrelated = html.replace('data-param-deck="{set_id}"', 'data-param-deck="{other_set}"');
+    expect(paramPlans([route], { [route.path]: unrelated }).unplanned).toEqual([{ route: route.path, param: "card" }]);
+  })
 })
+
+Deno.test("rendered route fixtures retain the resolved parent and reject unrelated or malformed links", async () => {
+  const route = { path: "/explore/:deck/:card", screen: "card" };
+  const cfg = { routes: [route], i18n: { default: "pt", locales: { pt: { path: "pt" }, en: { path: "en" } } } };
+  const known = { deck: "deck-1" }, origin = "https://app.test";
+  expect(renderedRouteParams(cfg, route.path, `${origin}/en/explore/deck-1/Polar%20bear`, known, origin)).toEqual({ deck: "deck-1", card: "Polar bear", locale: "en" });
+  for (const href of [`${origin}/en/explore/deck-2/Polar%20bear`, `${origin}/extra/explore/deck-1/Polar%20bear`, `${origin}/print/deck-1/Polar%20bear`, "not a URL", `${origin}/explore/deck-1/%ZZ`, "https://other.test/explore/deck-1/cat"]) {
+    expect(renderedRouteParams(cfg, route.path, href, known, origin)).toEqual(undefined);
+  }
+  let reads = 0, opened = "";
+  const page = { goto: (url: string) => { opened = url; return Promise.resolve(); }, evaluate: () => Promise.resolve(++reads === 1 ? [`${origin}/en/explore/deck-2/Cat`] : [`${origin}/en/explore/deck-1/Polar%20bear`]), waitForTimeout: () => Promise.resolve() };
+  expect(await resolveRenderedFixture(page, cfg, origin, route, "/explore/:deck", known, "card", 1000)).toEqual({ deck: "deck-1", card: "Polar bear", locale: "en" });
+  expect(opened).toEqual(`${origin}/explore/deck-1`);
+  expect(reads).toEqual(2);
+});

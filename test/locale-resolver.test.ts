@@ -2,6 +2,7 @@
 // Four sources re-derived at three call sites is how a row and a path come to
 // disagree, so the order is one function and these are its claims.
 import { acceptedLanguages, directionOf, localeByPath, localeTable, negotiateLocale, resolveLocale, routeAt } from "../interpreter/fragment.js";
+import { shellPreferredLanguages } from "../interpreter/shell.js";
 
 const assert = (ok: unknown, msg: string) => {
   if (!ok) throw new Error(msg);
@@ -16,6 +17,17 @@ const I18N = {
     "en": { path: "en" },
   },
 };
+
+Deno.test("hydration keeps the served language while explicit routes and static shells choose theirs", () => {
+  const cfg = { i18n: I18N, routes: [{ path: "/team" }] };
+  const document = { documentElement: { lang: "pt-BR" } };
+  const navigator = { languages: ["en-US", "en"] };
+  const served = shellPreferredLanguages({}, document, navigator);
+  assert(routeAt(cfg, "/team", "", served)?.locale === "pt-BR", "hydration retains the painted Portuguese");
+  assert(routeAt(cfg, "/en/team", "", served)?.locale === "en", "an explicit English route wins");
+  assert(routeAt(cfg, "/team", "?lang=en", served)?.locale === "en", "an explicit English query wins");
+  assert(routeAt(cfg, "/team", "", shellPreferredLanguages(null, document, navigator))?.locale === "en", "a static shell uses the browser preference");
+});
 
 Deno.test("SSR and browser choose the same locale before adoption", () => {
   const cfg = { i18n: I18N, routes: [{ path: '/team' }] };

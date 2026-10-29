@@ -70,7 +70,7 @@ export async function renderDocument({
     if (hasStrip(cfg, null, servesGuests(cfg))) {
       const nav = drawStrip(doc, cfg);
       if (servesGuests(cfg) && offersGuest(cfg)) nav.append(guestBox(doc, cfg));
-      localizeStrip(nav, cfg, { locale, here, messages });
+      localizeStrip(nav, cfg, { locale, here, messages, explicitLocale: Boolean(cfg.i18n && locale === cfg.i18n.default && params?.locale === locale) });
       doc.getElementById("app").before(nav);
     }
     describe(doc, cfg, { route, params, locale, written, el: screen, origin });
@@ -199,7 +199,9 @@ function openTagOf(el) {
   const outer = el.cloneNode(false).outerHTML;
   if (VOID_ELEMENTS.has(el.localName)) return outer;
   const close = `</${el.localName}>`;
-  return outer.endsWith(close) ? outer.slice(0, -close.length) : outer;
+  if (outer.endsWith(close)) return outer.slice(0, -close.length);
+  if (outer.endsWith("/>")) return `${outer.slice(0, -2).trimEnd()}>`;
+  return outer;
 }
 
 async function streamDocument(doc, settled, onChunk) {

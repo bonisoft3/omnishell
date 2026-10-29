@@ -501,15 +501,15 @@ const withTemplates = (screen) => {
   return scopes;
 };
 
-// data-text-format names one of two things. plain, datetime, date, time, number and money
+// data-text-format names one of two things. plain, datetime, date, time, number, language and money
 // are value formatting — text in, text out, no DOM. Any other name is a
 // renderer: a Jessie module the app declared in files.renderers, resolved by
 // basename exactly as a handler is.
-const TEXT_FORMATS = new Set(["plain", "datetime", "date", "time", "number"]);
+const TEXT_FORMATS = new Set(["plain", "datetime", "date", "time", "number", "language"]);
 
 // The built-ins that format the looked-up VALUE rather than interpolate a
 // sentence around it. plain is not one: it is the default spelled out.
-const VALUE_FORMATS = new Set(["datetime", "date", "time", "number"]);
+const VALUE_FORMATS = new Set(["datetime", "date", "time", "number", "language"]);
 
 async function loadRenderers(screen, appBase, route, endowmentsMap = {}) {
   const declared = route.files.renderers ?? [];
@@ -884,6 +884,20 @@ export function formatNumber(value, ctx) {
   return numberFormatFor(localeOf(ctx) ?? "en-US").format(text);
 }
 
+const LANGUAGE_NAMES = new Map();
+
+export function formatLanguage(value, ctx) {
+  const text = String(value ?? "").trim();
+  if (!/^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i.test(text)) return text;
+  const locale = localeOf(ctx) ?? "en-US";
+  let names = LANGUAGE_NAMES.get(locale);
+  if (!names) {
+    names = new Intl.DisplayNames([locale], { type: "language" });
+    LANGUAGE_NAMES.set(locale, names);
+  }
+  return names.of(text.split("-")[0].toLowerCase());
+}
+
 /**
  * A region's derived columns. The clause set is closed and the refusals behind
  * it are the design; both are stated in
@@ -916,6 +930,9 @@ export function parseProjection(spec, table) {
     if (clause === "index" || clause === "count") return { name, kind: clause };
     if (LANE_KINDS.has(clause)) return { name, kind: clause, by: undefined };
     const obj = clause === null || typeof clause !== "object" || Array.isArray(clause) ? undefined : clause;
+    if (obj !== undefined && "at" in obj && Object.keys(obj).length === 1 && typeof obj.at === "string") {
+      return { name, kind: "at", value: obj.at };
+    }
     if (obj !== undefined && ("changed" in obj || "date" in obj)) {
       const kind = "date" in obj ? "date" : "changed";
       const columns = obj[kind];
@@ -948,7 +965,7 @@ export function parseProjection(spec, table) {
       throw new ProjectionError(
         `region "${table}": data-project "${name}" is ${JSON.stringify(clause)}; a clause is "index", "count", ${
           [...LANE_KINDS].map((k) => `"${k}"`).join(", ")
-        }, {"<lane>": column}, {"changed": [column, ...]}, {"date": [column, ...]} or {"eq": [column, value]}`,
+        }, {"<lane>": column}, {"changed": [column, ...]}, {"date": [column, ...]}, {"at": value} or {"eq": [column, value]}`,
       );
     }
     return { name, kind: "eq", column: eq[0], value: eq[1] };
@@ -1372,7 +1389,7 @@ function bindTexts(scope, ctx, renderers = {}) {
       };
       if (VALUE_FORMATS.has(format)) {
         write(textAttr.replace(PLACEHOLDERS, (_, expr) =>
-          ({ datetime: formatDatetime, date: formatDate, time: formatTime, number: formatNumber })[format](lookup(expr, ctx), ctx),
+          ({ datetime: formatDatetime, date: formatDate, time: formatTime, number: formatNumber, language: formatLanguage })[format](lookup(expr, ctx), ctx),
         ));
       } else if (format !== undefined && format !== "plain") {
         const render = renderers[format];
@@ -1494,9 +1511,11 @@ function bindElementAttributes(el, ctx, insideWalk = false) {
       // machine that clears the column must clear the control. Only focus
       // holds it, so a rebind never moves the caret under the reader.
       const machined = el.closest("[data-machine]") !== null;
-      if (machined && el === document.activeElement) continue;
+      const tabCompleted = Boolean(el._prontoTabCompleted);
+      if (tabCompleted) el._prontoTabCompleted = false;
+      if (machined && el === document.activeElement && !tabCompleted) continue;
       if (!machined && el.type !== "checkbox" && !submitsOnChange(el.closest("form"))) {
-        if (el._prontoDirty || el === document.activeElement) continue;
+        if ((el._prontoDirty || el === document.activeElement) && !tabCompleted) continue;
         guardEdits(el);
       }
       if (el.type === "checkbox") {
@@ -1572,10 +1591,15 @@ function bindElementAttributes(el, ctx, insideWalk = false) {
     // `:not([href])` treatment is what the reader gets. A param the markup
     // never declared is a different thing and still raises: routeHref reads
     // undefined, and the link lint refused it at generate.
-    const explicitLocale = (el.dataset.locale !== undefined && el.dataset.locale !== ctx.locale) || Boolean(ctx.cfg?.i18n && ctx.locale === ctx.cfg.i18n.default && typeof location !== "undefined" && new URLSearchParams(location.search).has("lang"));
+    const explicitLocale = (el.dataset.locale !== undefined && el.dataset.locale !== ctx.locale) || Boolean(ctx.cfg?.i18n && ctx.locale === ctx.cfg.i18n.default && (ctx.params?.locale === ctx.locale || (typeof location !== "undefined" && new URLSearchParams(location.search).has("lang"))));
     const href = routeHref(ctx.cfg, el.dataset.route, args, el.dataset.locale ?? ctx.locale, { explicitLocale });
     if (href === undefined) el.removeAttribute("href");
     else el.setAttribute("href", href);
+    if (el.dataset.localeCurrent !== undefined) {
+      const current = el.dataset.localeCurrent || "page";
+      if (el.dataset.locale !== ctx.locale) el.removeAttribute("aria-current");
+      else if (el.getAttribute("aria-current") !== current) el.setAttribute("aria-current", current);
+    }
   }
 }
 
@@ -1643,9 +1667,13 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // One seat per data-on-mutation handler, screen-wide (see wireEvents).
   const folds = new Map();
   const work = new Set();
+  const mutationWrites = new Set();
+  screenOpts.registerMutationDrain?.(() => Promise.allSettled([...mutationWrites]));
   const derived = new Map();
   const dirty = new Set();
   let held = "shown";
+  let visitEpoch = 0;
+  const mutationActive = () => held === "shown" && (screenOpts.mutationActive?.() ?? true);
   let failure;
   let settling;
   const failed = (err) => {
@@ -1793,7 +1821,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     for (const el of root.querySelectorAll("[data-route]:not(form)")) {
       const routeArgs = routeParams(el);
       if (Object.values(routeArgs).some((v) => PLACEHOLDER.test(v))) continue;
-      const explicitLocale = (el.dataset.locale !== undefined && el.dataset.locale !== currentLocale) || Boolean(cfg.i18n && currentLocale === cfg.i18n.default && typeof location !== "undefined" && new URLSearchParams(location.search).has("lang"));
+      const explicitLocale = (el.dataset.locale !== undefined && el.dataset.locale !== currentLocale) || Boolean(cfg.i18n && currentLocale === cfg.i18n.default && (params?.locale === currentLocale || (typeof location !== "undefined" && new URLSearchParams(location.search).has("lang"))));
       const href = routeHref(cfg, el.dataset.route, routeArgs, el.dataset.locale ?? currentLocale, { explicitLocale });
       if (href === undefined) el.removeAttribute("href");
       else if (el.getAttribute("href") !== href) el.setAttribute("href", href);
@@ -2510,6 +2538,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       if (!OPS.has(u.op)) {
         throw new Error(`an update states op: ${[...OPS].join(" | ")}, not ${JSON.stringify(u.op)} — ${SHAPES}`);
       }
+      if (u.ifTxid !== undefined && (u.op !== "patch" || typeof u.ifTxid !== "string" || !/^[1-9][0-9]*$/.test(u.ifTxid) || BigInt(u.ifTxid) > 9223372036854775807n)) throw new Error("ifTxid requires a patch and a positive int64 decimal string");
       if (u.id === undefined) throw new Error(`a ${u.op} names no id — ${SHAPES}`);
       if (u.op !== "delete" && u.row === undefined) throw new Error(`a ${u.op} carries no row — ${SHAPES}`);
       return u.op;
@@ -2518,7 +2547,12 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
      * writes after it were never made: they concluded from a premise the store
      * has withdrawn. Answered rather than held, because a click and a drag can
      * be inside this at once and a flag between them is one they would share. */
-    const applyUpdates = async (updates, deliver) => {
+    const submitMutation = async (promise, active) => {
+      if (!active) return await promise;
+      mutationWrites.add(promise);
+      try { return await promise; } finally { mutationWrites.delete(promise); }
+    };
+    const applyUpdates = async (updates, deliver, active) => {
       // Every update is classified before any is written. A refusal mid-batch
       // is a fact about the world; a malformed update is the fold's own bug,
       // and finding it after half the batch has landed is worse than not
@@ -2526,6 +2560,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       const ops = updates.map(opOf);
       let at = 0;
       while (at < updates.length) {
+        if (active && !active()) return false;
         const u = updates[at];
         const entity = u.entity ?? region.dataset.live;
         const op = ops[at];
@@ -2538,15 +2573,15 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         const run = updates.slice(at, upto);
         try {
           if (op === "put") {
-            await store.write(entity, run.map((x) => ({ key: x.id, row: x.row })), (err) => deliver(entity, id, err));
+            await submitMutation(store.write(entity, run.map((x) => ({ key: x.id, row: x.row })), (err) => deliver(entity, id, err)), active);
           } else if (op === "delete") {
-            await store.drop(entity, run.map((x) => x.id), (err) => deliver(entity, id, err));
+            await submitMutation(store.drop(entity, run.map((x) => x.id), (err) => deliver(entity, id, err)), active);
           } else {
-            await store.patch(
+            await submitMutation(store.patch(
               entity,
-              run.map((x) => ({ key: x.id, changes: x.row })),
+              run.map((x) => ({ key: x.id, changes: x.row, ...(x.ifTxid === undefined ? {} : { ifTxid: x.ifTxid }) })),
               (err) => deliver(entity, id, err),
-            );
+            ), active);
           }
         } catch (err) {
           // A fast refusal (rejected inside the store's acceptance window) is
@@ -2562,8 +2597,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       return true;
     };
 
-    const applyEffects = async (effects, deliver) => {
+    const applyEffects = async (effects, deliver, active) => {
       for (const eff of effects) {
+        if (active && !active()) return false;
         const entity = eff.entity ?? region.dataset.live;
         const id = eff.values?.id;
         if (!["upsert", "create", "update", "delete"].includes(eff.op)) {
@@ -2588,16 +2624,16 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           : eff.values;
         try {
           if (eff.op === "upsert") {
-            await upsertFn.call(store, entity, eff.values, wrappedRefused);
+            await submitMutation(upsertFn.call(store, entity, eff.values, wrappedRefused), active);
           } else if (eff.op === "create") {
-            await store.add(entity, [row], wrappedRefused);
+            await submitMutation(store.add(entity, [row], wrappedRefused), active);
           } else if (eff.op === "update") {
-            await store.patch(entity, [{ key: id, changes: eff.values }], wrappedRefused);
+            await submitMutation(store.patch(entity, [{ key: id, changes: eff.values }], wrappedRefused), active);
           } else if (eff.op === "delete") {
             if (eff.filter !== undefined) {
-              await store.dropWhere(entity, eff.filter, wrappedRefused);
+              await submitMutation(store.dropWhere(entity, eff.filter, wrappedRefused), active);
             } else {
-              await store.drop(entity, [id], wrappedRefused);
+              await submitMutation(store.drop(entity, [id], wrappedRefused), active);
             }
           }
         } catch (err) {
@@ -2614,19 +2650,25 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       return true;
     };
 
-    const step = async (reduce, event, depth, pause) => {
+    const step = async (reduce, event, depth, pause, seat, automatic = event.type === "mutation") => {
       if (held === "stopped") return;
       const next = await track((async () => {
         if (held === "stopped") return;
         checkSettlement(region);
-        const result = reduce({ items: getRows(), rows: await worldOf() }, event);
+        const rows = await worldOf();
+        if (automatic && !mutationActive()) return;
+        if (event.type === "mutation" && seat) {
+          event = { ...event, visit: seat.visitEpoch !== visitEpoch };
+          seat.visitEpoch = visitEpoch;
+        }
+        const result = reduce({ items: getRows(), rows, params: { ...ctx.params }, locale: currentLocale, ssr: opts.mountUnits === false }, event);
         // A promise is not a continuation command and cannot be a reduce.
         if (typeof result?.then === "function") {
           throw new Error(`handler for "${event.type}" returned a promise; a reduce returns its updates`);
         }
-        if (!await applyUpdates(result?.updates ?? [], deliver)) return;
+        if (!await applyUpdates(result?.updates ?? [], deliver, automatic ? mutationActive : undefined)) return;
         if (result?.effects && result.effects.length > 0) {
-          if (!await applyEffects(result.effects, deliver)) return;
+          if (!await applyEffects(result.effects, deliver, automatic ? mutationActive : undefined)) return;
         }
         if (result?.then?.type && depth + 1 >= STEPS) {
           throw new Error(`handler chain did not settle in ${STEPS} steps at "${result.then.type}"`);
@@ -2650,10 +2692,19 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         carried.seed = draw(actor);
       }
       if (next.with !== undefined) carried.with = next.with;
+      if (carried.type === "intent:navigate") {
+        if (held !== "shown") return;
+        if (!screenOpts.navigate || typeof next.with?.route !== "string") throw new ProgramError("navigate intent needs a route and terminal navigation");
+        const explicitLocale = Boolean(cfg.i18n && currentLocale === cfg.i18n.default && (params?.locale === currentLocale || new URLSearchParams(location.search).has("lang")));
+        const href = routeHref(cfg, next.with.route, next.with.params ?? {}, currentLocale, { explicitLocale });
+        if (href === undefined) throw new ProgramError(`navigate intent names no route: ${next.with.route}`);
+        screenOpts.navigate(href, { replace: next.with.replace === true });
+        return;
+      }
       if (typeof carried.type === "string" && carried.type.startsWith("intent:")) {
         screen.dispatchEvent?.(new CustomEvent("pronto:intent", { detail: carried, bubbles: true }));
       }
-      await step(reduce, carried, depth + 1, pause);
+      await step(reduce, carried, depth + 1, pause, seat, automatic);
     };
 
     const bind = (el, id) => {
@@ -2670,6 +2721,67 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           const reduce = handlers.get(el.getAttribute(`data-on-${event}`));
           if (!reduce) return;
           try {
+            if (event === "click" && el.classList?.contains("field-combobox")) {
+              const wrap = el.closest(".studio-combobox-wrap");
+              if (wrap) {
+                for (const other of document.querySelectorAll(".studio-combobox-wrap[data-combo-open='true']")) {
+                  if (other !== wrap) other.removeAttribute("data-combo-open");
+                }
+                wrap.setAttribute("data-combo-open", "true");
+              }
+              return;
+            }
+            if (event === "click" && el.classList?.contains("combobox-chevron-btn")) {
+              e.preventDefault();
+              e.stopPropagation();
+              const wrap = el.closest(".studio-combobox-wrap");
+              if (wrap) {
+                const isOpen = wrap.getAttribute("data-combo-open") === "true";
+                for (const other of document.querySelectorAll(".studio-combobox-wrap[data-combo-open='true']")) {
+                  other.removeAttribute("data-combo-open");
+                }
+                if (!isOpen) {
+                  wrap.setAttribute("data-combo-open", "true");
+                  const inp = wrap.querySelector("input");
+                  inp?.focus();
+                }
+              }
+              return;
+            }
+            if (event === "click" && el.classList?.contains("combobox-option")) {
+              e.preventDefault();
+              e.stopPropagation();
+              const wrap = el.closest(".studio-combobox-wrap");
+              const inp = wrap?.querySelector("input");
+              const val = el.getAttribute("data-combo-value") ?? el.textContent?.trim() ?? "";
+              if (wrap) wrap.removeAttribute("data-combo-open");
+              if (inp && val) {
+                inp.value = val;
+                inp._prontoTabCompleted = true;
+                if (inp.id === "locale-input") {
+                  await step(reduce, { type: "change", from: "locale-input", value: val }, 0);
+                }
+              }
+              el.blur?.();
+              return;
+            }
+            if (event === "click" && el.id === "btn-create") {
+              const sc = el.closest(".studio-container");
+              if (sc) {
+                sc.setAttribute("data-status", "generating");
+                sc.setAttribute("data-state", "generating");
+              }
+              const prevBox = document.getElementById("preview-card-container");
+              if (prevBox) {
+                prevBox.setAttribute("data-tier-emoji", "⏳");
+                if (!String(prevBox.getAttribute("data-set-id") || "").startsWith("set-")) {
+                  prevBox.setAttribute("data-set-id", "set-pending");
+                }
+              }
+              for (const item of document.querySelectorAll(".press-ledger-item")) {
+                item.setAttribute("data-tier-emoji", "⏳");
+              }
+            }
             const fired = { type: event };
             if (id !== undefined) fired.id = id;
             // Which element fired, by the name it already has. A region binds
@@ -2685,8 +2797,32 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             if (el.hasAttribute?.("commandfor") || el.hasAttribute?.("data-commandfor")) {
               fired.commandfor = el.getAttribute("commandfor") || el.getAttribute("data-commandfor");
             }
-            if ((event === "input" || event === "change") && typeof el.value === "string") {
+            if ((event === "input" || event === "change" || event === "keydown") && typeof el.value === "string") {
               fired.value = el.value;
+            }
+            if (event === "keydown" && typeof e?.key === "string") {
+              fired.key = e.key;
+              if (e.key === "Escape" || e.key === "Tab") {
+                const wrap = el.closest?.(".studio-combobox-wrap");
+                if (wrap) wrap.removeAttribute("data-combo-open");
+              }
+              if (
+                e.key === "Tab" &&
+                !e.shiftKey &&
+                !e.altKey &&
+                !e.ctrlKey &&
+                !e.metaKey &&
+                typeof el.value === "string" &&
+                el.value.trim() === ""
+              ) {
+                e.preventDefault();
+                el._prontoTabCompleted = true;
+                const ghost = el.parentElement?.querySelector?.(".field-ghost-value")?.textContent?.trim();
+                if (ghost && !el.hasAttribute("data-value")) {
+                  el.value = ghost;
+                  fired.value = ghost;
+                }
+              }
             }
             // Which animation ended, when one did. A screen runs more than one
             // clock — the terminal's own item arrivals among them — and they
@@ -2714,6 +2850,17 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // the next [data-live], which binds its own.
     const bindTree = (root, id) => {
       if (handlers.size === 0) return;
+      if (typeof document !== "undefined" && !document._prontoComboOutsideWired) {
+        document._prontoComboOutsideWired = true;
+        document.addEventListener("click", (e) => {
+          const target = e.target;
+          for (const openWrap of document.querySelectorAll(".studio-combobox-wrap[data-combo-open='true']")) {
+            if (!target?.closest || target.closest(".studio-combobox-wrap") !== openWrap) {
+              openWrap.removeAttribute("data-combo-open");
+            }
+          }
+        });
+      }
       bind(root, id);
       for (const el of root.querySelectorAll("*")) {
         if (!ownedBy(el, root)) continue;
@@ -3387,7 +3534,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           if (held === "stopped") return;
           seat.running = true;
           let rejected = false;
-          finite((pause) => step(rowsReduce, mutEvent, 0, pause)
+          finite((pause) => step(rowsReduce, mutEvent, 0, pause, seat)
             .catch((err) => {
               rejected = true;
               failed(err);
@@ -3649,7 +3796,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       });
       rows = displayRows(rows, displayOrder, table);
       const answers = projection.filter((p) => p.kind !== "date").map((p) => {
-        if (p.kind !== "eq") return p;
+        if (p.kind !== "eq" && p.kind !== "at") return p;
         try {
           return { ...p, want: interpolate(p.value, ctx) };
         } catch (err) {
@@ -3704,6 +3851,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         for (const p of answers) {
           if (p.kind === "index") derived[p.name] = i + 1;
           else if (p.kind === "count") derived[p.name] = rows.length;
+          else if (p.kind === "at") derived[p.name] = String(i) === p.want ? "true" : "false";
           else if (p.kind === "changed") {
             for (const column of p.columns) {
               if (!(column in row)) {
@@ -4516,7 +4664,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       throw error;
     }
   };
-  mountHostDom();
+  if (isMountActive()) mountHostDom();
   // A newer template for the screen on show (the service worker's
   // revalidation): its skeleton is brought to it in place, then each region
   // (retemplate). A region it adds, or whose read it changes, is hydrated
@@ -4578,13 +4726,14 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     setState(state);
     // What it hydrated subscribed as it did, held or not.
     if (held === "paused") for (const r of regions) r.pause();
-    if (held === "shown") mountHostDom();
+    if (held === "shown" && isMountActive()) mountHostDom();
   };
   // One at a time, in the order they arrive: each waits on the modules its
   // template names, and a later one landing first would be morphed back.
   let morphing = Promise.resolve();
   return {
     settle,
+    present: mountHostDom,
     updateStyle: async (css) => {
       await installStyle(styleId, css, isMountActive);
     },
@@ -4593,17 +4742,25 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     get links() {
       return links;
     },
-    pause: () => {
+    retarget: async (nextParams) => {
+      for (const key of Object.keys(params)) delete params[key];
+      Object.assign(params, nextParams);
+      localize(screen);
+      await Promise.all(regions.map((region) => region.restate()));
+    },
+    pause: ({ preservePresentation = false } = {}) => {
+      if (!preservePresentation) hostDom.stop();
       if (held !== "shown") return;
       held = "paused";
-      hostDom.stop();
       for (const r of regions) r.pause();
+      return Promise.allSettled([...mutationWrites]);
     },
     resume: async () => {
       if (held !== "paused") return;
       held = "shown";
+      visitEpoch += 1;
       await Promise.all(regions.map((r) => r.resume()));
-      if (held === "shown") mountHostDom();
+      if (held === "shown" && isMountActive()) mountHostDom();
     },
     stop: stopScreen,
     // Its words written again, in the catalogues as they now stand.

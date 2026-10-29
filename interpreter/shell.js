@@ -156,11 +156,6 @@ function claimsOf(token) {
   }
 }
 
-// A screen's fade covers its first load. The cap is what keeps it from covering
-// a load that never lands: one region whose read queues behind the shape
-// long-polls is enough to leave the whole screen at opacity 0 for good.
-const SCREEN_LOAD_CAP_MS = 2000;
-
 // WebAuthn wire format: the auth service speaks @simplewebauthn JSON
 // (base64url strings) while navigator.credentials wants ArrayBuffers.
 const bufFromB64u = (s) =>
@@ -408,8 +403,35 @@ function renderSession(session, cfg, store, signOut, chrome, served = null) {
   // past a currentRoute() that throws on an address the app has no route for,
   // and the strip outlives that banner because it hangs beside the mount. The
   // only way out of a session may not be a control with no word on it.
+  const openLoginModal = (e) => {
+    const activeBtn = Array.from(document.querySelectorAll("#btn-top-login, .btn-top-login"))
+      .find((el) => !el.closest(".shell-screen[hidden]"));
+    if (activeBtn && typeof activeBtn.click === "function") {
+      e.preventDefault();
+      activeBtn.click();
+      return true;
+    }
+    const toggle = Array.from(document.querySelectorAll("#login-modal-toggle, .login-modal-chk"))
+      .find((el) => !el.closest(".shell-screen[hidden]")) ?? document.getElementById("login-modal-toggle");
+    if (toggle) {
+      e.preventDefault();
+      toggle.checked = true;
+      return true;
+    }
+    return false;
+  };
+  who.addEventListener("click", (e) => {
+    openLoginModal(e);
+  });
   out.textContent = chrome("chrome_signout", cfg.i18n?.default);
   out.addEventListener("click", (e) => {
+    const isGuestSession = Boolean(
+      session?.user?.guest ||
+      !session?.user?.handle ||
+      session?.user?.handle === "guest" ||
+      /entrar|sign\s*in|iniciar|התחבר|登录/i.test(out.textContent || ""),
+    );
+    if (isGuestSession && openLoginModal(e)) return;
     e.preventDefault();
     signOut();
   });
@@ -495,7 +517,37 @@ function catalogues(appBase, i18n) {
 // `preload: false` for a page that serves the app's files itself (pronto's
 // single-file bundle): a preload goes to the network past the page's own
 // answer, and fetches what nothing reads.
+export function installModalInert(document) {
+  const modalInert = new Map();
+  const syncModalInert = () => {
+    const modal = [...document.querySelectorAll('[role="dialog"][aria-modal="true"]')]
+      .find((el) => el.checkVisibility({ checkVisibilityCSS: true, contentVisibilityAuto: true }) && el.getClientRects().length);
+    const next = new Set();
+    for (let node = modal; node?.parentElement; node = node.parentElement) {
+      for (const sibling of node.parentElement.children) if (sibling !== node) next.add(sibling);
+    }
+    for (const [el, wasInert] of modalInert) if (!next.has(el)) {
+      el.inert = wasInert;
+      modalInert.delete(el);
+    }
+    for (const el of next) if (!modalInert.has(el)) {
+      modalInert.set(el, el.inert);
+      el.inert = true;
+    }
+  };
+  new document.defaultView.MutationObserver(syncModalInert).observe(document.body, {
+    subtree: true, childList: true, attributes: true,
+    attributeFilter: ["data-status", "hidden", "class", "style", "aria-modal"],
+  });
+  syncModalInert();
+}
+
+export function shellPreferredLanguages(served, document, navigator) {
+  return served && document.documentElement.lang ? [document.documentElement.lang] : navigator?.languages;
+}
+
 export async function createShell({ config, mount, preload = true }) {
+  installModalInert(document);
   let initialDraftOwner = storedSessionOwner();
   const editedFields = new WeakSet();
   const morphDrafts = new Map();
@@ -623,11 +675,14 @@ export async function createShell({ config, mount, preload = true }) {
   let servedStrip = mount.previousElementSibling?.localName === "nav" ? mount.previousElementSibling : null;
   const servedCas = document.querySelector('meta[name="pronto-cas"]')?.getAttribute("content");
   const banner = (err) => {
-    mount.replaceChildren();
+    if (!mount.querySelector(".shell-screen .screen")) mount.replaceChildren();
+    mount.querySelector(":scope > [data-shell-error]")?.remove();
     const pre = document.createElement("pre");
+    pre.dataset.shellError = "";
+    pre.setAttribute("role", "alert");
     pre.style.cssText = "color:#B8422E;padding:16px;white-space:pre-wrap";
     pre.textContent = String(err?.stack ?? err);
-    mount.append(pre);
+    mount.prepend(pre);
   };
   // The banner is a boot-failure surface, a deploy's it cannot take, and a
   // program error's whenever it lands: the app's own bug, which no retry and
@@ -654,10 +709,17 @@ export async function createShell({ config, mount, preload = true }) {
     if (e.error instanceof ProgramError) banner(e.error);
   });
 
-  let heal = null;
+  const HEAL_KEY = "pronto-healed-at";
+  const HEAL_COOLDOWN_MS = 15_000;
   const isMissing = (err) => err instanceof AssetMissing ||
     (typeof err?.message === "string" && err.message.includes("404 fetching")) ||
     (err instanceof TypeError && typeof err?.message === "string" && err.message.includes("dynamically imported module"));
+  const canHeal = () => {
+    if (typeof sessionStorage?.getItem !== "function" || typeof sessionStorage?.setItem !== "function") return false;
+    const last = Number(sessionStorage.getItem(HEAL_KEY) ?? "0");
+    return Date.now() - last >= HEAL_COOLDOWN_MS;
+  };
+  let heal = null;
 
   try {
     let words = null;
@@ -680,7 +742,8 @@ export async function createShell({ config, mount, preload = true }) {
 
     const search = new URLSearchParams(location.search);
     // This app's own reading of an address, at the terminal's preferences.
-    const addresses = (url) => routeAt(cfg, url.pathname || "/", url.search ?? "", globalThis.navigator?.languages);
+    const preferredLanguages = shellPreferredLanguages(served, document, globalThis.navigator);
+    const addresses = (url) => routeAt(cfg, url.pathname || "/", url.search ?? "", preferredLanguages);
     const currentRoute = () => {
       const found = addresses(location);
       if (found === null) throw new Error(`no route for ${location.pathname}`);
@@ -834,18 +897,8 @@ export async function createShell({ config, mount, preload = true }) {
     // that way; 0 rebuilds on every visit.
     const held = new Map();
     let current = null;
+    let presented = null;
     let seq = 0;
-    const raf = (fn) => (globalThis.requestAnimationFrame ?? ((f) => setTimeout(f, 0)))(fn);
-    // The arriving-screen slot, released a frame later so the browser has a
-    // style to transition from (the design layer's .shell-screen rules).
-    // Releasing stands on its own because the fresh path stamps at creation and
-    // must come back to opacity 1 on every ending, including the ones that
-    // never produce a screen.
-    const release = (el) => raf(() => raf(() => delete el.dataset.entering));
-    const enter = (el) => {
-      el.dataset.entering = "";
-      release(el);
-    };
     const keepOf = (route) => route.keep ?? 1;
     const keyOf = (route, params) => `${route.screen} ${JSON.stringify(params)}`;
 
@@ -855,16 +908,51 @@ export async function createShell({ config, mount, preload = true }) {
       entry.gone = true;
       entry.handle?.stop();
       entry.el.remove();
-      held.delete(entry.key);
+      if (held.get(entry.key) === entry) held.delete(entry.key);
     };
 
     // Parametrized routes would otherwise accumulate one screen per id ever
     // visited, so a route holds only its most recently shown instances.
     const evict = (route) => {
       const mine = [...held.values()]
-        .filter((e) => e.route.screen === route.screen && e !== current)
+        .filter((e) => e.route.screen === route.screen && e !== current && e !== presented)
         .sort((a, b) => b.seq - a.seq);
       for (const e of mine.slice(Math.max(keepOf(route) - 1, 0))) discard(e);
+    };
+    const present = (entry) => {
+      const previous = presented;
+      entry.el.hidden = false;
+      entry.el.inert = false;
+      delete entry.el.dataset.entering;
+      activateScreenStyle(`screen-css-${entry.route.screen}`);
+      entry.handle?.present();
+      if (previous && previous !== entry) {
+        previous.handle?.pause();
+        previous.el.hidden = true;
+        previous.el.inert = false;
+        if (keepOf(previous.route) === 0) discard(previous);
+      }
+      presented = entry;
+      mount.querySelector(":scope > [data-shell-error]")?.remove();
+      evict(entry.route);
+    };
+    const restorePresentation = async (failed) => {
+      if (current !== failed || (failed && presented === failed)) return;
+      current = presented;
+      if (failed) {
+        failed.el.hidden = presented !== null;
+        failed.mutationActive = false;
+      }
+      const previous = current;
+      mutationDrain = Promise.all([failed?.handle?.pause(), failed?.mutationDrain?.()]);
+      await mutationDrain;
+      if (previous && current === previous) {
+        previous.el.hidden = false;
+        previous.el.inert = false;
+        activateScreenStyle(`screen-css-${previous.route.screen}`);
+        previous.mutationActive = true;
+        await previous.handle?.resume();
+      }
     };
 
     // Signing out lands on the door with nothing of the session left standing.
@@ -932,6 +1020,144 @@ export async function createShell({ config, mount, preload = true }) {
     // The address this mount is already rendering, spelled as it should be.
     // The Navigation API reports a replaceState as a navigation, and taking
     // that one would mount the screen a second time under the first.
+    const applyThemeMode = (mode) => {
+      const m = mode === "light" || mode === "dark" ? mode : "auto";
+      if (m === "auto") delete document.documentElement.dataset.theme;
+      else document.documentElement.dataset.theme = m;
+      try { sessionStorage.setItem("snapcards-theme", m); } catch (_e) {}
+      for (const r of document.querySelectorAll('input.theme-radio[name="theme-mode"]')) {
+        r.checked = (r.value === m);
+      }
+    };
+    try {
+      const savedTheme = sessionStorage.getItem("snapcards-theme");
+      if (savedTheme === "light" || savedTheme === "dark") {
+        document.documentElement.dataset.theme = savedTheme;
+      }
+    } catch (_e) {}
+    document.addEventListener("change", (e) => {
+      const t = e.target;
+      if (t && t.classList?.contains("theme-radio") && t.name === "theme-mode") {
+        applyThemeMode(t.value);
+      } else if (t && t.classList?.contains("fullscreen-checkbox")) {
+        try {
+          if (t.checked && document.documentElement.requestFullscreen && !document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(() => {});
+          } else if (!t.checked && document.exitFullscreen && document.fullscreenElement) {
+            document.exitFullscreen().catch(() => {});
+          }
+        } catch (_e) {}
+      }
+    });
+    document.addEventListener("fullscreenchange", () => {
+      try {
+        if (!document.fullscreenElement) {
+          for (const cb of document.querySelectorAll("input.fullscreen-checkbox")) {
+            cb.checked = false;
+          }
+        }
+      } catch (_e) {}
+    });
+    let pendingAuthor = null;
+    const syncCategoryRadios = (author) => {
+      const root = current?.el || document;
+      if (author === "me") {
+        const mineRadio = root.querySelector?.("#cat-mine");
+        if (mineRadio) mineRadio.checked = true;
+      } else {
+        const allRadio = root.querySelector?.("#cat-all");
+        if (allRadio) allRadio.checked = true;
+      }
+    };
+    const applyPendingAuthor = () => {
+      if (!pendingAuthor) return;
+      const author = pendingAuthor;
+      const targetId = author === "me" ? "nav-my-cards" : author === "gallery" ? "nav-gallery" : "nav-home-trigger";
+      const btn = current?.el?.querySelector?.(`#${targetId}`) || document.getElementById(targetId);
+      if (btn && current?.el.contains(btn)) {
+        pendingAuthor = null;
+        syncCategoryRadios(author);
+        btn.click();
+      }
+    };
+    const EXTRA_NAV_FALLBACKS = {
+      pt: ["Minhas Fichas", "Galeria"],
+      es: ["Mis Tarjetas", "Galería"],
+      en: ["My Cards", "Gallery"],
+      he: ["הכרטיסיות שלי", "גלריה"],
+      zh: ["我的闪卡", "图库"],
+    };
+    const syncExtraNav = (loc, explicitLocale = false) => {
+      if (!nav || !nav.querySelector('a[data-route="cards"]')) return;
+      let box = nav.querySelector(":scope > .sidebar-extra-nav");
+      if (!box) {
+        box = document.createElement("div");
+        box.className = "sidebar-extra-nav";
+        box.setAttribute("role", "navigation");
+        const myLink = document.createElement("a");
+        myLink.className = "sidebar-extra-link nav-my-cards-link";
+        myLink.setAttribute("data-route", "cards");
+        myLink.setAttribute("data-author", "me");
+        const galLink = document.createElement("a");
+        galLink.className = "sidebar-extra-link nav-gallery-link";
+        galLink.setAttribute("data-route", "cards");
+        galLink.setAttribute("data-author", "gallery");
+        box.append(myLink, galLink);
+        const printLink = nav.querySelector(':scope > a[data-route="print"]');
+        if (printLink) printLink.before(box);
+        else nav.append(box);
+      }
+      const langKey = (loc || cfg.i18n?.default || "pt").split("-")[0];
+      const fb = EXTRA_NAV_FALLBACKS[langKey] || EXTRA_NAV_FALLBACKS.pt;
+      const cat = messages?.[loc] ?? messages?.[langKey] ?? messages?.[cfg.i18n?.default] ?? {};
+      const href = routeHref(cfg, "cards", {}, loc || cfg.i18n?.default, { explicitLocale }) || "/";
+      const myLink = box.querySelector(".nav-my-cards-link");
+      const galLink = box.querySelector(".nav-gallery-link");
+      if (myLink) {
+        myLink.textContent = cat.nav_my_cards || fb[0];
+        myLink.setAttribute("href", href);
+        myLink.removeAttribute("aria-current");
+      }
+      if (galLink) {
+        galLink.textContent = cat.nav_gallery || fb[1];
+        galLink.setAttribute("href", href);
+        galLink.removeAttribute("aria-current");
+      }
+    };
+    document.addEventListener("click", (e) => {
+      const themeBtn = e.target?.closest?.(".theme-btn[data-theme-val]");
+      if (themeBtn) {
+        applyThemeMode(themeBtn.dataset.themeVal);
+      }
+      const extraLink = e.target?.closest?.("a.sidebar-extra-link[data-author]");
+      if (extraLink) {
+        const author = extraLink.dataset.author || null;
+        const targetId = author === "me" ? "nav-my-cards" : author === "gallery" ? "nav-gallery" : "nav-home-trigger";
+        const btn = current?.el?.querySelector?.(`#${targetId}`) || document.getElementById(targetId);
+        if (current?.route?.screen === "cards" && btn && !btn.closest(".shell-screen[hidden]")) {
+          e.preventDefault();
+          syncCategoryRadios(author);
+          btn.click();
+        } else {
+          pendingAuthor = author;
+        }
+      }
+    }, true);
+    if (nav) {
+      const homeLink = nav.querySelector(':scope > a[data-route="cards"]');
+      if (homeLink) {
+        homeLink.addEventListener("click", () => {
+          const homeTrigger = current?.el?.querySelector?.("#nav-home-trigger") || document.getElementById("nav-home-trigger");
+          if (current?.route?.screen === "cards" && homeTrigger && !homeTrigger.closest(".shell-screen[hidden]")) {
+            syncCategoryRadios("home");
+            homeTrigger.click();
+          } else {
+            pendingAuthor = "home";
+          }
+        });
+      }
+      syncExtraNav(currentRoute().locale);
+    }
     let restating = false;
     const restate = (href) => {
       restating = true;
@@ -941,13 +1167,7 @@ export async function createShell({ config, mount, preload = true }) {
         restating = false;
       }
     };
-    const HEAL_KEY = "pronto-healed-at";
-    const HEAL_COOLDOWN_MS = 15_000;
-    const canHeal = () => {
-      if (typeof sessionStorage?.getItem !== "function" || typeof sessionStorage?.setItem !== "function") return false;
-      const last = Number(sessionStorage.getItem(HEAL_KEY) ?? "0");
-      return Date.now() - last >= HEAL_COOLDOWN_MS;
-    };
+
     heal = async () => {
       if (!canHeal()) return false;
       sessionStorage.setItem(HEAL_KEY, String(Date.now()));
@@ -973,8 +1193,10 @@ export async function createShell({ config, mount, preload = true }) {
     // later one started meanwhile mounts nothing: what it read off the
     // address is no longer the address.
     let showing = 0;
-    const show = async (navigationType = "push") => {
-      const turn = ++showing;
+    let mutationDrain = Promise.resolve();
+    const showTurn = async (navigationType, turn, boundPresentation) => {
+      await mutationDrain;
+      if (turn !== showing) return;
       let { route, params, locale, written } = currentRoute();
       const asked = new URLSearchParams(location.search).has("lang");
       // A localized route has one address, so `?lang=` on one is replaced by
@@ -994,32 +1216,81 @@ export async function createShell({ config, mount, preload = true }) {
         await ensureMessages(locale);
         if (turn !== showing) return;
       }
-      const explicitLocale = Boolean(cfg.i18n && locale === cfg.i18n.default && typeof location !== "undefined" && new URLSearchParams(location.search).has("lang"));
+      const explicitLocale = Boolean(cfg.i18n && locale === cfg.i18n.default && (params?.locale === locale || (typeof location !== "undefined" && new URLSearchParams(location.search).has("lang"))));
       localizeStrip(nav, cfg, { locale, here: location.pathname, search: location.search ?? "", messages, explicitLocale });
+      syncExtraNav(locale, explicitLocale);
       const key = keyOf(route, params);
+      const retarget = current?.el.querySelector(":scope > .screen")?.getAttribute("data-retarget-params")?.split(/\s+/).filter(Boolean) ?? [];
+      const unchanged = new Set([...Object.keys(current?.params ?? {}), ...Object.keys(params)]);
+      const changesRead = [...(current?.el.querySelectorAll("[data-live]") ?? [])].some((region) =>
+        [...region.attributes].some((attr) => (attr.name === "data-filter" || attr.name === "data-order" || attr.name.startsWith("data-read-")) &&
+          retarget.some((name) => attr.value.includes(`{param.${name}}`))));
+      if (current === presented && current?.handle && current.route.screen === route.screen && current.locale === locale && retarget.length &&
+          !changesRead &&
+          [...unchanged].every((name) => retarget.includes(name) || current.params[name] === params[name])) {
+        const displaced = held.get(key);
+        if (displaced && displaced !== current) discard(displaced);
+        held.delete(current.key);
+        current.key = key;
+        current.route = route;
+        current.written = written;
+        current.seq = ++seq;
+        held.set(key, current);
+        await current.handle.retarget(params);
+        if (turn !== showing) return;
+        mount.querySelector(":scope > [data-shell-error]")?.remove();
+        describe(document, cfg, { route, params, locale, written, el: current.el, origin: location.origin });
+        linkPrefetch.idle();
+        return;
+      }
       if (current) {
         current.scrollY = window.scrollY;
-        current.handle?.pause();
-        current.el.hidden = true;
-        if (keepOf(current.route) === 0) discard(current);
+        current.mutationActive = false;
+        mutationDrain = Promise.all([current.handle?.pause({ preservePresentation: current === presented }), current.mutationDrain?.()]);
+        current.el.inert = true;
+        boundPresentation();
+        if (current !== presented) {
+          current.el.hidden = true;
+          if (keepOf(current.route) === 0) discard(current);
+        }
         current = null;
+        await mutationDrain;
+        if (turn !== showing) return;
       }
       const entry = held.get(key);
       if (entry !== undefined) {
-        activateScreenStyle(`screen-css-${route.screen}`);
         entry.locale = locale;
         entry.seq = ++seq;
-        entry.el.hidden = false;
-        enter(entry.el);
         current = entry;
-        evict(route);
+        try {
+          await entry.ready;
+          if (turn !== showing) return;
+          entry.mutationActive = true;
+          entry.ready = (async () => {
+            await entry.handle?.resume();
+            await entry.handle?.settle();
+          })();
+          await entry.ready;
+          if (turn !== showing) return;
+          reword(entry);
+          if (route.screen === "cards") {
+            applyPendingAuthor();
+            await entry.handle?.settle();
+            if (turn !== showing) return;
+          }
+          present(entry);
+        } catch (err) {
+          if (turn === showing) await restorePresentation(entry);
+          if (entry !== current && entry !== presented) discard(entry);
+          if (turn === showing && isMissing(err) && await heal()) return;
+          throw err;
+        }
         describe(document, cfg, { route, params, locale, written, el: entry.el, origin: location.origin });
         // Following a link to a screen visited before is a fresh arrival
         // however warm its DOM is, and an arrival starts at the top; going
         // back resumes. Only "push" is treated as an arrival.
         window.scrollTo(0, navigationType === "push" ? 0 : entry.scrollY);
-        await entry.handle?.resume();
-        reword(entry);
+        try { applyThemeMode(sessionStorage.getItem("snapcards-theme") || "auto"); } catch (_e) {}
         linkPrefetch.idle();
         if (preload) {
           preloadLinkedScreens(document, appBase, cfg, route.screen, [
@@ -1047,20 +1318,15 @@ export async function createShell({ config, mount, preload = true }) {
       if (adopting === null) {
         el = document.createElement("div");
         el.className = "shell-screen";
-        el.dataset.entering = "";
+        el.hidden = presented !== null;
         mount.append(el);
       }
       // In the catalogues as they stand now: one taken while it mounts is
       // written in once it is on show.
-      const fresh = { key, el, route, params, written, locale, words: words.taken(), scrollY: 0, seq: ++seq };
+      const fresh = { key, el, route, params, written, locale, words: words.taken(), scrollY: 0, seq: ++seq, mutationActive: true };
       held.set(key, fresh);
       current = fresh;
-      evict(route);
-      // The fade is released once the screen has content, so it covers the
-      // fetch rather than racing it — and released anyway when the fetch
-      // throws or outlasts the cap, because a stamp that outlives its load is
-      // a screen nobody can see.
-      const capped = adopting ? undefined : setTimeout(() => release(el), SCREEN_LOAD_CAP_MS);
+      if (adopting) presented = fresh;
       try {
         const seeded = !adopting && mintedGuest && route.ssr === "ssr" ? linkPrefetch.seed(location.href) : undefined;
         // A screen composes its own links and hands the move back: the stack is
@@ -1071,10 +1337,17 @@ export async function createShell({ config, mount, preload = true }) {
           ensureMessages,
           locale,
           navigate,
+          mutationActive: () => fresh.mutationActive,
+          registerMutationDrain: (drain) => { fresh.mutationDrain = drain; },
           ...(seeded ? { seeded } : {}),
           ...(adopting ? { served: { screen: adopting.firstElementChild, cas: servedCas } } : {}),
         }));
-        fresh.handle = await fresh.loading;
+        fresh.ready = fresh.loading.then(async (handle) => {
+          fresh.handle = handle;
+          if (fresh.gone) return handle.stop();
+          await handle.settle();
+        });
+        await fresh.ready;
         fresh.cas = fresh.handle.cas;
         if (fresh.gone) return fresh.handle.stop();
         el.removeAttribute("data-served");
@@ -1092,7 +1365,14 @@ export async function createShell({ config, mount, preload = true }) {
           if (recovery) delete recovery.initial;
         }
         retainRecovery();
-        if (current !== fresh) return fresh.handle.pause();
+        if (current !== fresh || turn !== showing) return fresh.handle.pause();
+        if (route.screen === "cards") {
+          applyPendingAuthor();
+          await fresh.handle.settle();
+          if (turn !== showing) return;
+        }
+        present(fresh);
+        try { applyThemeMode(sessionStorage.getItem("snapcards-theme") || "auto"); } catch (_e) {}
         // After the render: the screen's own h1 is where its name comes from.
         describe(document, cfg, { route, params, locale, written, el, origin: location.origin });
         // A screen arrived at starts at its own top. This lands there anyway
@@ -1102,18 +1382,19 @@ export async function createShell({ config, mount, preload = true }) {
         // overlap.
         if (!adopting) window.scrollTo(0, 0);
       } catch (err) {
-        // A slot whose load threw has no handle, and every later eviction calls
-        // one: held onto, it turns the next visit to any screen into a
-        // TypeError instead of the error that actually happened. The element
-        // stays where it is — whatever rendered before the throw is what the
-        // reader has — but the terminal stops counting it as a live screen.
-        if (held.get(key) === fresh) held.delete(key);
-        if (current === fresh) current = null;
-        if (isMissing(err) && await heal()) return;
+        // A failed mount cannot be retained: revisiting it would resume a
+        // slot without a hydration handle.
+        if (turn === showing) await restorePresentation(fresh);
+        if (current !== fresh || turn === showing) {
+          if (held.get(key) === fresh) held.delete(key);
+          if (current === fresh) current = null;
+          fresh.gone = true;
+          fresh.el.inert = true;
+          fresh.handle?.stop();
+          if (presented && fresh !== presented) fresh.el.remove();
+        }
+        if (turn === showing && isMissing(err) && await heal()) return;
         throw err;
-      } finally {
-        clearTimeout(capped);
-        if (!adopting) release(el);
       }
       linkPrefetch.idle();
       if (preload) {
@@ -1121,6 +1402,39 @@ export async function createShell({ config, mount, preload = true }) {
           ...(fresh.handle?.links ?? []),
           ...(hasStrip(cfg, session, mintedGuest) ? stripRoutes(cfg).map((r) => r.screen) : []),
         ]);
+      }
+    };
+    const show = async (navigationType = "push") => {
+      const turn = ++showing;
+      let deadline;
+      let expire;
+      const expired = new Promise((_, reject) => { expire = reject; });
+      const boundPresentation = () => {
+        if (deadline === undefined && presented?.el.inert) {
+          deadline = setTimeout(() => expire(new Error("screen navigation timed out after 15 seconds")), 15000);
+        }
+      };
+      boundPresentation();
+      try {
+        await Promise.race([showTurn(navigationType, turn, boundPresentation), expired]);
+      } catch (error) {
+        if (turn !== showing) return;
+        const recoveryTurn = ++showing;
+        const failed = current;
+        if (failed && failed !== presented) {
+          failed.gone = true;
+          if (held.get(failed.key) === failed) held.delete(failed.key);
+        }
+        await restorePresentation(failed);
+        if (recoveryTurn !== showing) return;
+        if (failed && failed !== presented) {
+          failed.handle?.stop();
+          if (presented) discard(failed);
+        }
+        banner(error);
+        throw error;
+      } finally {
+        clearTimeout(deadline);
       }
     };
     // A screen written in catalogues older than the ones the page holds now:
@@ -1166,10 +1480,10 @@ export async function createShell({ config, mount, preload = true }) {
     // composed, mounted already. Through the platform's stack where there is
     // one, so a push and a traverse stay distinguishable; by hand where there
     // is not.
-    const navigate = (href) =>
+    const navigate = (href, { replace = false } = {}) =>
       "navigation" in globalThis
-        ? navigation.navigate(href)
-        : (history.pushState(null, "", href), show("push"));
+        ? navigation.navigate(href, { history: replace ? "replace" : "push" })
+        : (replace ? history.replaceState(null, "", href) : history.pushState(null, "", href), show(replace ? "replace" : "push"));
     // The entry document's <base> locates shell assets. A section fragment
     // still belongs to the visible address; preserve native scrolling/history
     // by resolving it there before the browser follows the anchor.

@@ -340,6 +340,34 @@ reduce;`));
 });
 
 Deno.test({
+  name: "a handler receives a copy of decoded route parameters",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const { document, Event, store, calls } = boot();
+    const inner = globalThis.fetch;
+    globalThis.fetch = (url) => {
+      if (String(url).endsWith("reorder-items.js")) return Promise.resolve(new Response(`const reduce = (state) => {
+        const word = state.params.card;
+        state.params.card = "changed";
+        return { updates: [{ op: "patch", id: "a", row: { position: word === "50%_.* Café" ? 42 : 0 } }] };
+      }; reduce;`));
+      if (String(url).endsWith(".html")) return Promise.resolve(new Response(CLICKABLE));
+      return inner(url);
+    };
+    const { interpretScreen } = await import("./screen.js");
+    const mount = document.getElementById("shell");
+    const params = { card: "50%_.* Café" };
+    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, params);
+    mount.querySelector(".items").dispatchEvent(new Event("click"));
+    await tick(40);
+    assert(calls.updates[0]?.patch.position === 42, JSON.stringify(calls.updates));
+    assert(params.card === "50%_.* Café", "the handler cannot change route context");
+  },
+});
+
+Deno.test({
   name: "a named read arrives filtered and ordered, beside the sugar it leaves alone",
   sanitizeOps: false,
   sanitizeResources: false,
@@ -1239,5 +1267,189 @@ reduce;`);
       calls.updates.length === 0 && calls.rows.length === 0 && calls.drops.length === 0,
       "a batch the terminal cannot classify writes none of itself",
     );
+  },
+});
+
+Deno.test({
+  name: "handler patch preconditions reach the store without numeric coercion",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const { document, Event, store } = boot();
+    const inner = globalThis.fetch;
+    globalThis.fetch = (url) => {
+      if (String(url).endsWith("reorder-items.js")) return Promise.resolve(new Response(`() => ({ updates: [{ op: "patch", id: "a", ifTxid: "9007199254740993", row: { position: 42 } }] })`));
+      if (String(url).endsWith(".html")) return Promise.resolve(new Response(CLICKABLE));
+      return inner(url);
+    };
+    const edits = [];
+    store.patch = async (_table, batch) => { edits.push(...batch); };
+    const { interpretScreen } = await import("./screen.js");
+    const mount = document.getElementById("shell");
+    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {});
+    mount.querySelector(".items").dispatchEvent(new Event("click"));
+    await tick(40);
+    assert(edits[0]?.ifTxid === "9007199254740993", JSON.stringify(edits));
+  },
+});
+
+Deno.test({
+  name: "mutation visit marks the first ready fold on mount and resume only",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const { document, store, calls } = boot();
+    const inner = globalThis.fetch;
+    globalThis.fetch = (url, init) => {
+      const u = String(url);
+      if (u.endsWith("reorder-items.js")) return Promise.resolve(new Response('(_state, event) => ({ updates: [{ op: "patch", id: "sum", row: { visit: event.visit } }] })'));
+      if (u.endsWith(".html")) return Promise.resolve(new Response(SCREEN_HTML.replace('data-handler="reorder-items"', 'data-on-mutation="reorder-items"')));
+      return inner(url, init);
+    };
+    const { interpretScreen } = await import("./screen.js");
+    const handle = await interpretScreen(document.getElementById("shell"), "http://localhost:8080/keep/", ROUTE, store, {});
+    await tick(80);
+    await store.write("note_item", [{ key: "d", row: { id: "d", position: 40 } }]);
+    await tick(80);
+    handle.pause();
+    await handle.resume();
+    await tick(80);
+    assert(JSON.stringify(calls.updates.map((u) => u.patch.visit)) === JSON.stringify([true, false, true]), JSON.stringify(calls.updates));
+    handle.stop();
+  },
+});
+
+Deno.test({
+  name: "pausing drains an in-flight mutation and prevents its remaining writes",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const { document, store } = boot();
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const writes = [];
+    store.patch = async (table) => { writes.push(table); if (table === "old") await gate; };
+    const inner = globalThis.fetch;
+    globalThis.fetch = (url, init) => {
+      const u = String(url);
+      if (u.endsWith("reorder-items.js")) return Promise.resolve(new Response('() => ({ updates: [{op:"patch",entity:"old",id:"a",row:{front:"es"}},{op:"patch",entity:"later",id:"a",row:{front:"es"}}] })'));
+      if (u.endsWith(".html")) return Promise.resolve(new Response(SCREEN_HTML.replace('data-handler="reorder-items"', 'data-on-mutation="reorder-items"')));
+      return inner(url, init);
+    };
+    const { interpretScreen } = await import("./screen.js");
+    const handle = await interpretScreen(document.getElementById("shell"), "http://localhost:8080/keep/", ROUTE, store, {});
+    await tick(80);
+    let drained = false;
+    const pending = handle.pause().then(() => { drained = true; });
+    await tick(20);
+    assert(!drained && JSON.stringify(writes) === '["old"]', JSON.stringify(writes));
+    release();
+    await pending;
+    await tick(20);
+    assert(JSON.stringify(writes) === '["old"]', JSON.stringify(writes));
+    handle.stop();
+  },
+});
+
+Deno.test({
+  name: "paused mutation continuations cannot write after their delay",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const { document, store, calls } = boot();
+    const inner = globalThis.fetch;
+    globalThis.fetch = (url, init) => {
+      const u = String(url);
+      if (u.endsWith("reorder-items.js")) return Promise.resolve(new Response('(_state, event) => event.type === "mutation" ? {updates: [], then: {type: "finish", delay: 150}} : {updates: [{op:"patch",id:"sum",row:{late:true}}]}'));
+      if (u.endsWith(".html")) return Promise.resolve(new Response(SCREEN_HTML.replace('data-handler="reorder-items"', 'data-on-mutation="reorder-items"')));
+      return inner(url, init);
+    };
+    const { interpretScreen } = await import("./screen.js");
+    const handle = await interpretScreen(document.getElementById("shell"), "http://localhost:8080/keep/", ROUTE, store, {});
+    await tick(30);
+    await handle.pause();
+    await tick(250);
+    assert(calls.updates.length === 0, JSON.stringify(calls.updates));
+    handle.stop();
+  },
+});
+
+Deno.test({
+  name: "pausing drains mutation effects and skips later effects",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const { document, store } = boot();
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const writes = [];
+    store.patch = async (table) => { writes.push(table); if (table === "old") await gate; };
+    const inner = globalThis.fetch;
+    globalThis.fetch = (url, init) => {
+      const u = String(url);
+      if (u.endsWith("reorder-items.js")) return Promise.resolve(new Response('() => ({effects:[{op:"update",entity:"old",values:{id:"a"}},{op:"update",entity:"later",values:{id:"a"}}]})'));
+      if (u.endsWith(".html")) return Promise.resolve(new Response(SCREEN_HTML.replace('data-handler="reorder-items"', 'data-on-mutation="reorder-items"')));
+      return inner(url, init);
+    };
+    const { interpretScreen } = await import("./screen.js");
+    const handle = await interpretScreen(document.getElementById("shell"), "http://localhost:8080/keep/", ROUTE, store, {});
+    await tick(80);
+    let drained = false;
+    const pending = handle.pause().then(() => { drained = true; });
+    await tick(20);
+    assert(!drained && JSON.stringify(writes) === '["old"]', JSON.stringify(writes));
+    release();
+    await pending;
+    await tick(20);
+    assert(JSON.stringify(writes) === '["old"]', JSON.stringify(writes));
+    handle.stop();
+  },
+});
+
+Deno.test({
+  name: "an unfinished screen exposes its mutation drain before its handle",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const { document, store } = boot();
+    let releaseWrite, releaseRead, drain;
+    const writeGate = new Promise((resolve) => { releaseWrite = resolve; });
+    const readGate = new Promise((resolve) => { releaseRead = resolve; });
+    let active = true;
+    const writes = [];
+    const query = store.query;
+    store.query = async (table, ...args) => table === "other" ? await readGate : await query(table, ...args);
+    store.patch = async (table) => { writes.push(table); if (table === "old") await writeGate; };
+    const inner = globalThis.fetch;
+    globalThis.fetch = (url, init) => {
+      const u = String(url);
+      if (u.endsWith("reorder-items.js")) return Promise.resolve(new Response('() => ({updates:[{op:"patch",entity:"old",id:"a",row:{front:"es"}},{op:"patch",entity:"later",id:"a",row:{front:"es"}}]})'));
+      if (u.endsWith(".html")) return Promise.resolve(new Response(SCREEN_HTML.replace('data-handler="reorder-items"', 'data-on-mutation="reorder-items"').replace('</form>', '</form><div data-live="other"><template data-item><span></span></template></div>')));
+      return inner(url, init);
+    };
+    const { interpretScreen } = await import("./screen.js");
+    let finished = false;
+    const loading = interpretScreen(document.getElementById("shell"), "http://localhost:8080/keep/", ROUTE, store, {}, { mutationActive: () => active, registerMutationDrain: (fn) => { drain = fn; } }).then((handle) => { finished = true; return handle; });
+    await tick(100);
+    assert(!finished && typeof drain === "function" && JSON.stringify(writes) === '["old"]', JSON.stringify({ finished, writes }));
+    active = false;
+    let drained = false;
+    const waiting = drain().then(() => { drained = true; });
+    await tick(20);
+    assert(!drained, "drain must wait for the started old-locale write");
+    releaseWrite();
+    await waiting;
+    writes.push("new");
+    releaseRead([]);
+    const handle = await loading;
+    await tick(20);
+    assert(JSON.stringify(writes) === '["old","new"]', JSON.stringify(writes));
+    handle.stop();
   },
 });

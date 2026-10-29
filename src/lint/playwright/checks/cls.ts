@@ -21,12 +21,24 @@ const TOTAL = "__prontoCLS"
  */
 export async function armCLS(page: Page): Promise<void> {
   await page.addInitScript((key: string) => {
-    const win = window as unknown as Record<string, number>
+    const win = window as unknown as Record<string, unknown>
     win[key] = 0
+    win[`${key}Sources`] = []
     new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
-        const shift = entry as PerformanceEntry & { hadRecentInput: boolean; value: number }
-        if (!shift.hadRecentInput) win[key] = (win[key] ?? 0) + shift.value
+        const shift = entry as PerformanceEntry & { hadRecentInput: boolean; value: number; sources?: { node?: Node; previousRect: DOMRectReadOnly; currentRect: DOMRectReadOnly }[] }
+        if (!shift.hadRecentInput) {
+          win[key] = (win[key] as number) + shift.value
+          for (const source of shift.sources ?? []) {
+            const el = source.node instanceof Element ? source.node : source.node?.parentElement
+            if (el) {
+              const before = source.previousRect
+              const after = source.currentRect
+              const name = `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''}${[...el.classList].slice(0, 2).map(c => `.${c}`).join('')}`
+              ;(win[`${key}Sources`] as string[]).push(`${name} ${Math.round(before.x)},${Math.round(before.y)},${Math.round(before.width)},${Math.round(before.height)}→${Math.round(after.x)},${Math.round(after.y)},${Math.round(after.width)},${Math.round(after.height)}`)
+            }
+          }
+        }
       }
     }).observe({ type: "layout-shift", buffered: true })
   }, TOTAL)
@@ -38,14 +50,17 @@ export async function armCLS(page: Page): Promise<void> {
  * Web Vitals' "good" boundary; 0.25 is its "poor" boundary.
  */
 export async function checkCLS(page: Page): Promise<VisualBug[]> {
-  const cls = await page.evaluate(
-    (key: string) => (window as unknown as Record<string, number>)[key] ?? 0,
+  const { cls, sources } = await page.evaluate(
+    (key: string) => {
+      const win = window as unknown as Record<string, unknown>
+      return { cls: (win[key] as number) ?? 0, sources: [...new Set((win[`${key}Sources`] as string[]) ?? [])].slice(0, 8) }
+    },
     TOTAL,
   )
   return cls > 0.1
     ? [{
       rule: "cls-threshold",
-      description: `layout shifted ${cls.toFixed(3)} after first paint, over the 0.1 "good" boundary`,
+      description: `layout shifted ${cls.toFixed(3)} after first paint, over the 0.1 "good" boundary${sources.length ? `; moved: ${sources.join(', ')}` : ''}`,
       severity: cls > 0.25 ? "critical" : "major",
     }]
     : []

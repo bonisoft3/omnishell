@@ -124,6 +124,7 @@ The clause set is closed:
 | `"index"` | the row's 1-based position in the region's filter and order (`aria-posinset`) |
 | `"count"` | how many rows the region holds (`aria-setsize`) |
 | `{"eq": [column, value]}` | `"true"` or `"false"`; `value` may carry placeholders, resolved against the enclosing row |
+| `{"at": value}` | `"true"` for the row at the zero-based position named by `value`, resolved against the enclosing row |
 | `"next"`, `"prev"`, `"first"`, `"last"` | the key of the neighbouring or end row along the region's order; an end names itself, never wraps |
 | `{"next": column}`, any lane kind | the same among the rows sharing `column` — a grid's minor axis |
 | `{"date": [column, ...]}` | canonical `YYYY-MM-DD` from the first nonblank source in the reader's timezone; a date-only source stays unchanged, and all-blank sources answer blank |
@@ -157,6 +158,7 @@ column ([focus and ARIA](docs/accessibility.md)).
 | `data-text-format="datetime"` | the value as a moment in the reader's language and clock — `Aug 2, 09:00` to an American, `2 de ago., 09:00` to a Brazilian. A storybook render pins UTC — the checks' frames and pronto's prerendered documents alike — since an ambient zone would make each differ by where it was rendered |
 | `data-text-format="time"` | the timestamp as `HH:mm` in the reader's timezone and language, with midnight `00:00`; missing and date-only values have no clock and are blank |
 | `data-text-format="date"` | numeric year, two-digit month and day in the reader's language and timezone; `YYYY-MM-DD` is a civil date and never shifts; missing values are blank |
+| `data-text-format="language"` | the base language of a BCP 47 code in the reader's language (`en-US` becomes “English” in English); custom language names are preserved |
 | `data-text-format="number"` | grouped and punctuated for the reader's language — `1.234,5` to a Brazilian, `1,234.5` to an American |
 | `data-text-format="money"` | the same, with the currency the bound column declares (`#Field.money`). The column is an integer count of minor units and the code and scale are the column's, never the attribute's; a column declaring none is refused at hydration and by `check markup` |
 | `data-text-format="<name>"` | an app renderer, resolved by basename out of the route's `files.renderers` — a pure `(value) => nodes` Jessie module. `interpreter/render.js` owns the node schema, the tag and attribute allowlists, the URL-scheme check and the DOM write, so a renderer emits no markup it was not granted. A name colliding with a built-in is refused |

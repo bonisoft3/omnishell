@@ -115,10 +115,12 @@ transport's spelling, hedges between the text and the number a value could be.
 ## The fold seat
 
 After every refresh of a region, first paint included, its `data-on-mutation`
-reduce is called with `{type: "mutation"}` and, as `state.items`, the rows the
+reduce is called with `{type: "mutation", visit: boolean}` and, as `state.items`, the rows the
 terminal just applied (a slot's is `[row]`). The fact is published at the patch
 site, not recovered from the DOM, and named for the store's event: no DOM change
-fires it.
+fires it. Handlers also receive the current route's decoded parameters as a
+copy in `state.params`, so exact route identities can be resolved against
+the declared rows without turning a route value into a query pattern. `visit` is true for the first ready fold after a screen mounts or resumes, and false for later refreshes in that visit.
 
 **What wakes a fold is its region's own read.** A table named only in
 `data-reads` reaches the reduce as `state.rows` and is never listened to. A fold

@@ -195,6 +195,11 @@ async function send(url, init) {
   if (init?.signal?.aborted) {
     throw init.signal.reason ?? new DOMException("aborted", "AbortError");
   }
+  if (pendingSession && !token()) await pendingSession();
+  const t = token();
+  if (t && !init?.headers?.Authorization && !init?.headers?.authorization) {
+    init = { ...init, headers: { ...init?.headers, Authorization: `Bearer ${t}` } };
+  }
   let res;
   let conflicted = false;
   for (let sent = 1; ; sent++) {
@@ -1495,6 +1500,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     const url = `${crud(table)}?${search(order, opts)}`;
     const rKey = recallKey(table, order, opts);
     const isLocalReady = () => {
+      if (pendingSession && !token()) return false;
       if (maintainedView(table, { ...opts, order }, false)?.complete()) return true;
       const tables = snapshotTables(table, opts);
       return tables.length > 0 && tables.every((t) => !lazy(t) && client.collections[t]?.isReady?.());
@@ -1943,7 +1949,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
 
   // A server entity has no replicated snapshot or offline intent. Its command
   // completes when CRUD accepts it; a refusal must never be reported as queued.
-  async function serverCommand(table, method, values, filter) {
+  async function serverCommand(table, method, values, filter, conditional = false) {
     const fields = cfg.schema[table].fields ?? [];
     const clean = row => {
       const command = Object.fromEntries(Object.entries(row)
@@ -1968,6 +1974,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
       if (row?.[keyOf(table)] === undefined) throw new ProgramError(`${method} ${table}: CRUD returned a row without its key`);
       return identity(row[keyOf(table)]);
     });
+    if (conditional) return { rows, txid: res.headers.get("x-txid") };
     if (keys.length > 0) notifySettled(table, keys);
     const submitted = method === "POST" ? (Array.isArray(values) ? values : [values]) : [];
     const expected = method === "POST" ? submitted.length : 1;
@@ -2083,7 +2090,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   // of them. Each row the collection lacks is loaded as a view of its key, held
   // until the write has gone out. A row that does not exist stays missing, and
   // the write is the collection's own refusal of it.
-  async function holding(table, keys, write) {
+  async function holding(table, keys, write, retain = false) {
     if (!lazy(table)) {
       const collection = client.collections[table];
       if (collection === undefined) throw new Error(`a write by key reads ${table}, which has no collection`);
@@ -2100,7 +2107,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     const collection = client.collections[table];
     const held = [];
     try {
-      for (const k of new Set(keys.filter((k) => !collection.has(k)))) {
+      for (const k of new Set(keys.filter((k) => retain || !collection.has(k)))) {
         const entry = maintainedView(table, { filter: `${keyOf(table)}=eq.${k}` }, true);
         if (entry === null) throw new ProgramError(`${table} reads lazily, and a view of one row of it by ${keyOf(table)} is not one the engine maintains`);
         held.push(entry.acquire());
@@ -2112,11 +2119,72 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     }
   }
 
+  async function conditionalPatch(table, edit) {
+    const key = keyOf(table);
+    const filter = `${key}=eq.${encodeURIComponent(edit.key)}`;
+    const write = async () => {
+      const held = !requestOnly(table) && client.collections[table]._state.syncedData.has(edit.key);
+      await validate(table, "update", { ...edit.changes, [key]: edit.key }, undefined, new Map());
+      const result = await serverCommand(table, "PATCH", edit.changes, `${filter}&txid=eq.${edit.ifTxid}`, true);
+      if (result.rows.length > 1 || (result.rows.length === 1 && String(result.rows[0][key]) !== String(edit.key))) {
+        throw new ProgramError(`conditional patch ${table}: CRUD returned the wrong row`);
+      }
+      if (result.rows.length === 0) {
+        const current = await requestRows(`${crud(table)}?${filter}`);
+        if (!Array.isArray(current) || current.length > 1 || (current.length === 1 && String(current[0][key]) !== String(edit.key))) throw new ProgramError(`conditional patch ${table}: CRUD returned no unique row`);
+        if (current[0]) current[0].txid = carrier().normalizeValue(TXID, current[0].txid, "postgres");
+        if (current[0]?.txid === edit.ifTxid) {
+          const err = new Error(`PATCH ${table} changed no rows: the server refused the matching revision`);
+          err.name = "NonRetriableError";
+          throw err;
+        }
+        if (!requestOnly(table)) await observeRevision(client.collections[table], key, edit.key, current[0], held);
+      } else if (!requestOnly(table)) {
+        if (result.txid === null || !/^[0-9]+$/.test(result.txid) || BigInt(result.txid) > 4294967295n) {
+          throw new ProgramError(`conditional patch ${table}: response names no valid transaction (x-txid)`);
+        }
+        await client.collections[table].utils.awaitTxId(Number(result.txid), 60000);
+      }
+      clearRemoteServed();
+      notifySettled(table, [String(edit.key)]);
+    };
+    // Conditional intent belongs to one observed revision, never the offline
+    // outbox: replaying it as an ordinary optimistic edit loses its premise.
+    if (requestOnly(table)) await write();
+    else await holding(table, [edit.key], write, true);
+  }
+
+  function observeRevision(collection, keyColumn, key, current, held) {
+    // The optimistic overlay may hide a committed change or deletion. Wait
+    // on Electric's messages, not the visible collection's change events.
+    const row = collection._state.syncedData.get(key);
+    if ((row === undefined && (current === undefined || held)) || (current !== undefined && row?.txid != null && compareTxid(row.txid, current.txid) >= 0)) return Promise.resolve();
+    return collection.utils.awaitMatch(message => {
+      if (String(message.value?.[keyColumn]) !== String(key)) return false;
+      if (message.headers?.operation === "delete") return true;
+      return current !== undefined && message.value?.txid != null && compareTxid(message.value.txid, current.txid) >= 0;
+    }, 60000);
+  }
+
   /** Named fields of rows that are already there. */
   async function patch(table, edits, onRefused) {
     if (edits.length === 0) return;
     await ensurePrepared(table);
     const key = keyOf(table);
+    for (const edit of edits) {
+      if (edit.ifTxid === undefined) continue;
+      if (typeof edit.ifTxid !== "string" || !/^[1-9][0-9]*$/.test(edit.ifTxid) || BigInt(edit.ifTxid) > 9223372036854775807n) {
+        throw new ProgramError("patch ifTxid must be a positive int64 decimal string");
+      }
+      if (edit.key === undefined || local[table] !== undefined) throw new ProgramError("patch ifTxid requires a remote row key");
+    }
+    if (edits.some(edit => edit.ifTxid !== undefined)) {
+      for (const edit of edits) {
+        if (edit.ifTxid !== undefined) await conditionalPatch(table, edit);
+        else await patch(table, [edit], onRefused);
+      }
+      return;
+    }
     if (requestOnly(table)) {
       const edgeIndex = new Map();
       for (const e of edits) {

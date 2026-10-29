@@ -314,6 +314,7 @@ export async function exercise(
 type SchemaEntity = { durability: string; fields: FieldDef[] };
 type Edge = { table: string; key: string; from: string };
 type Shell = {
+  i18n?: { default: string; locales?: Record<string, unknown> };
   schema?: Record<string, SchemaEntity>;
   routes?: { files?: { handlers?: string[] } }[];
   validations?: Record<string, Record<string, { src?: string; edges?: Edge[] }>>;
@@ -473,7 +474,14 @@ export async function checkApp(appDir: URL, options: BatteryOptions = {}): Promi
         });
         continue;
       }
-      await take(path, "handler", (table) => arbitraryHandlerInput(entities, table), named);
+      await take(path, "handler", (table) => {
+        const input = arbitraryHandlerInput(entities, table);
+        if (!shell.i18n) return input;
+        const locales = [...new Set([shell.i18n.default, ...Object.keys(shell.i18n.locales ?? {})])];
+        return fc.tuple(input, fc.constantFrom(...locales)).map(([sample, locale]) => ({
+          ...sample, state: { ...sample.state, locale },
+        }));
+      }, named);
     }
   }
 

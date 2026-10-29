@@ -63,7 +63,7 @@ const MAX_HEIGHT = 10000;
 // terminal cannot know what a move looks like, only that a megabyte, a
 // control character, a getter or a nested object must not reach a screen.
 export const DETAIL = Object.freeze({ keys: 8, key: /^[a-z][a-z0-9_]{0,23}$/, value: 128 });
-const DETAIL_VALUE = /^[\x20-\x7e]*$/;
+const DETAIL_VALUE = /^[^\x00-\x1f\x7f-\x9f]*$/;
 
 /** A frozen string→string record built key by key from `value`, or undefined
  * when `value` is not one — which the realm seat drops with the event and the

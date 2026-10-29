@@ -165,14 +165,15 @@ async function pairs({ cap, flipped }: { cap: number; flipped: boolean }): Promi
   // the root among them — is put back where it was.
   let scrolled: Array<readonly [HTMLElement, number, number]> | null = null
   // An ancestor's layer is the same for every run under it.
-  const layers = new Map<HTMLElement, { flat: boolean; colour: RGBA }>()
+  const layers = new Map<HTMLElement, { flat: boolean; pure: boolean; colour: RGBA }>()
   const layerOf = (up: HTMLElement) => {
     const known = layers.get(up)
     if (known) return known
     const s = getComputedStyle(up)
-    const flat = s.opacity === "1" && s.filter === "none" && s.mixBlendMode === "normal" &&
-      s.backdropFilter === "none" && s.maskImage === "none" && s.backgroundImage === "none"
-    const layer = { flat, colour: flat ? parse(s.backgroundColor) : ([0, 0, 0, 0] as RGBA) }
+    const pure = s.opacity === "1" && s.filter === "none" && s.mixBlendMode === "normal" &&
+      s.maskImage === "none"
+    const flat = pure && s.backdropFilter === "none" && s.backgroundImage === "none"
+    const layer = { flat, pure, colour: pure ? parse(s.backgroundColor) : ([0, 0, 0, 0] as RGBA) }
     layers.set(up, layer)
     return layer
   }
@@ -197,7 +198,9 @@ async function pairs({ cap, flipped }: { cap: number; flipped: boolean }): Promi
       if (ink[3] === 0) continue
 
       // The backdrop: layers composited outward until one is opaque, or the
-      // canvas. Anything on the way that is not a flat colour ends the claim.
+      // canvas. Anything on the way that is not a flat colour ends the claim,
+      // unless the translucent background already painted over it guarantees
+      // failure against both pure white and pure black backdrops.
       let [r, g, b, a] = [0, 0, 0, 0]
       const over = ([lr, lg, lb, la]: RGBA) => {
         const gap = (1 - a) * la
@@ -208,11 +211,11 @@ async function pairs({ cap, flipped }: { cap: number; flipped: boolean }): Promi
       for (let up: HTMLElement | null = el; up; up = up.parentElement) {
         const layer = layerOf(up)
         if (!layer.flat) { flat = false; break }
-        over(layer.colour)
+        if (layer.pure) over(layer.colour)
         if (a >= 1) { provider = up; break }
       }
-      if (!flat) continue
-      if (provider === null) { over(canvas); provider = document.documentElement }
+      if (!flat && a < 0.5) continue
+      if (flat && provider === null) { over(canvas); provider = document.documentElement }
 
       // Nothing painted over the glyphs, and nothing painted between them and
       // that backdrop: the paint stack at the first line's centre must start
@@ -230,12 +233,35 @@ async function pairs({ cap, flipped }: { cap: number; flipped: boolean }): Promi
         line = firstLine()
         if (!line) continue
       }
+      const hadPointerNone = style.pointerEvents === "none"
+      if (hadPointerNone) el.style.setProperty("pointer-events", "auto", "important")
       const stack = document.elementsFromPoint(line.left + line.width / 2, line.top + line.height / 2)
+      if (hadPointerNone) el.style.removeProperty("pointer-events")
       if (stack.length === 0 || !el.contains(stack[0])) continue
-      // A run laid outside its provider's box — a label floated above a card —
-      // has that provider nowhere under its glyphs.
-      const to = stack.indexOf(provider)
-      if (to < 0 || stack.slice(stack.indexOf(el) + 1, to).some((e) => !e.contains(el))) continue
+      if (flat && provider !== null) {
+        // A run laid outside its provider's box — a label floated above a card —
+        // has that provider nowhere under its glyphs.
+        const to = stack.indexOf(provider)
+        if (to < 0 || stack.slice(stack.indexOf(el) + 1, to).some((e) => !e.contains(el))) {
+          if (a < 0.5) continue
+          flat = false
+        }
+      }
+
+      if (!flat && a < 1) {
+        const bgW: RGB = [Math.round(r + (1 - a) * 255), Math.round(g + (1 - a) * 255), Math.round(b + (1 - a) * 255)]
+        const bgK: RGB = [Math.round(r), Math.round(g), Math.round(b)]
+        const fgW = bgW.map((c, i) => Math.round(ink[i] * ink[3] + c * (1 - ink[3]))) as RGB
+        const fgK = bgK.map((c, i) => Math.round(ink[i] * ink[3] + c * (1 - ink[3]))) as RGB
+        const lum = ([cr, cg, cb]: RGB) => {
+          const ch = (v: number) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4 }
+          return 0.2126 * ch(cr) + 0.7152 * ch(cg) + 0.0722 * ch(cb)
+        }
+        const cr = (x: RGB, y: RGB) => { const [lx, ly] = [lum(x), lum(y)]; return (Math.max(lx, ly) + 0.05) / (Math.min(lx, ly) + 0.05) }
+        const [bg, fg] = cr(fgW, bgW) >= cr(fgK, bgK) ? [bgW, fgW] : [bgK, fgK]
+        out.push({ label: label(el), size: parseFloat(style.fontSize), weight: Number(style.fontWeight), fg, bg })
+        continue
+      }
 
       const bg: RGB = [Math.round(r), Math.round(g), Math.round(b)]
       const fg = bg.map((c, i) => Math.round(ink[i] * ink[3] + c * (1 - ink[3]))) as RGB

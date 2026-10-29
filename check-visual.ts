@@ -37,7 +37,7 @@ import type { VisualBug } from "./src/lint/playwright/types.ts"
 import { type ParamPlan, paramPlans, machineRegions } from "./interpreter/lint.ts"
 import { type MachineRegionInfo, extractRegions, generateCoveringArrayFrames } from "./test/storybook-injector.ts"
 import type { Machine } from "./test/canonical.ts"
-import { parseFilter, parseFilterSpec, PLACEHOLDER, PLACEHOLDERS } from "./interpreter/fragment.js"
+import { parseFilter, parseFilterSpec, PLACEHOLDER, PLACEHOLDERS, routeAt } from "./interpreter/fragment.js"
 
 type Finding = { severity: string; path: string; message: string }
 /** Only what this driver drives; the checks take @playwright/test's Page, which is the same object. */
@@ -49,7 +49,7 @@ type PageLike = {
 }
 /** Likewise: the one method a lane calls on a viewport's context. */
 type ContextLike = { newPage(): Promise<PageLike> }
-type Route = { path: string; files?: { html?: string } }
+type Route = { path: string; screen?: string; files?: { html?: string } }
 
 export type Viewport = { name: string; width: number; height: number }
 
@@ -164,6 +164,35 @@ export function fillRoute(pattern: string, params: Record<string, string>): stri
       return encodeURIComponent(v)
     })
     .join("/")
+}
+
+/** Resolve an address with the same route and locale matcher as the shell. */
+export function renderedRouteParams(cfg: ShellDoc, pattern: string, href: string, known: Record<string, string>, origin: string): Record<string, string> | undefined {
+  let url: URL
+  try { url = new URL(href) } catch { return undefined }
+  if (url.origin !== origin) return undefined
+  let found
+  try { found = routeAt(cfg, url.pathname, url.search) } catch (err) {
+    if (err instanceof URIError) return undefined
+    throw err
+  }
+  if (found?.route?.path !== pattern) return undefined
+  const params = found.params as Record<string, string>
+  for (const [name, value] of Object.entries(known)) if (params[name] !== value) return undefined
+  return params
+}
+
+/** A tab view may be materialized only when the real parent screen runs. */
+export async function resolveRenderedFixture(page: any, cfg: ShellDoc, base: string, route: Route, parentPath: string, known: Record<string, string>, param: string, timeout: number): Promise<Record<string, string> | undefined> {
+  await page.goto(`${base}${fillRoute(parentPath, known)}`, { waitUntil: "domcontentloaded" })
+  const deadline = Date.now() + timeout
+  do {
+    const addresses: string[] = await page.evaluate((screen: string) => [location.href, ...Array.from(document.querySelectorAll(`.shell-screen:not([hidden]) a[data-route="${screen}"][href]`), (a) => (a as HTMLAnchorElement).href)], route.screen)
+    const found = addresses.map((href) => renderedRouteParams(cfg, route.path, href, known, new URL(base).origin)).find((p) => p?.[param] !== undefined)
+    if (found) return found
+    await page.waitForTimeout(50)
+  } while (Date.now() < deadline)
+  return undefined
 }
 
 type Row = Record<string, unknown>
@@ -716,6 +745,33 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
   }
   const { plans, unplanned } = paramPlans(routes, markup)
   const { params, unresolved } = await resolveParams(plans, tiers, crudReader(base, session?.token))
+  // Only browser-owned tab views can be materialized by a live screen; a
+  // missing server row stays the coverage hole the reader found.
+  const tabHoles = unresolved.filter((hole) => {
+    const plan = plans.find((p) => p.route === hole.route && p.param === hole.param)
+    return plan !== undefined && tiers.local[plan.table] === "tab" && onDevice(plan, tiers)
+  })
+  if (tabHoles.length) {
+    const browser = await chromium.launch({ args: ["--ignore-certificate-errors"] })
+    try {
+      const context = await browser.newContext()
+      try {
+        if (session !== undefined) await context.addInitScript((s) => sessionStorage.setItem("pronto-token", JSON.stringify(s)), session)
+        for (const hole of tabHoles) {
+          const route = routes.find((r) => r.path === hole.route)
+          const parentPath = hole.route.slice(0, hole.route.lastIndexOf("/")) || "/"
+          if (!route?.screen || !routes.some((r) => r.path === parentPath)) continue
+          const known = params.get(hole.route) ?? {}
+          if (parentPath.split("/").some((p) => p.startsWith(":") && known[p.slice(1)] === undefined)) continue
+          const page = await context.newPage()
+          try {
+            const found = await resolveRenderedFixture(page, shell, base, route, parentPath, known, hole.param, settleTimeout())
+            if (found) { params.set(hole.route, { ...known, ...found }); unresolved.splice(unresolved.indexOf(hole), 1) }
+          } finally { await page.close() }
+        }
+      } finally { await context.close() }
+    } finally { await browser.close() }
+  }
   const findings: Finding[] = []
 
   // A route whose param never resolved is a coverage hole, not a pass, and a

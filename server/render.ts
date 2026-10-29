@@ -368,6 +368,13 @@ export async function serve(env: (name: string) => string | undefined = (name) =
     Deno.exit(1);
   };
   inhabit(door, die);
+  if (typeof globalThis.navigator === "object" && globalThis.navigator !== null) {
+    try {
+      Object.defineProperty(globalThis.navigator, "onLine", { value: true, configurable: true });
+    } catch {
+      // ignore if non-configurable
+    }
+  }
   globalThis.fetch = boundedFetch(globalThis.fetch, doorTimeout);
 
   const read = async (path: string) => {
@@ -460,5 +467,9 @@ export async function serve(env: (name: string) => string | undefined = (name) =
   });
   // Each retained document's subscriptions hold its lazy views.
   await warmEagerTables(store, cfg);
+  const cols = (globalThis as unknown as { __mechaClient?: { collections?: Record<string, { subscribeChanges?: (fn: () => void) => unknown }> } }).__mechaClient?.collections;
+  for (const t of cfg.tables.filter((t: string) => cfg.schema?.[t]?.durability !== "server" && cfg.read?.[t] !== "lazy")) {
+    cols?.[t]?.subscribeChanges?.(() => {});
+  }
   ready = true;
 }

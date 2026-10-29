@@ -35,9 +35,12 @@ export async function checkInteractiveOverlap(page: Page): Promise<VisualBug[]> 
 
       const insetX = rect.width * 0.25
       const insetY = rect.height * 0.25
+      const edgeY = Math.min(2, rect.height * 0.1)
       const hitPoints = [
         { label: "center", px: rect.left + rect.width / 2, py: rect.top + rect.height / 2 },
+        { label: "top-edge", px: rect.left + rect.width / 2, py: rect.top + edgeY },
         { label: "top-center", px: rect.left + rect.width / 2, py: rect.top + insetY },
+        { label: "bottom-edge", px: rect.left + rect.width / 2, py: rect.bottom - edgeY },
         { label: "bottom-center", px: rect.left + rect.width / 2, py: rect.bottom - insetY },
         { label: "left-center", px: rect.left + insetX, py: rect.top + rect.height / 2 },
         { label: "right-center", px: rect.right - insetX, py: rect.top + rect.height / 2 },

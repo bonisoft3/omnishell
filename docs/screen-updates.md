@@ -13,6 +13,16 @@ changes**, the terminal stamps it as attributes and a stylesheet draws them.
 Where and how nodes are created at all — the renderer's allowlist, the security
 boundary — is [the terminal's](terminal.md#where-nodes-are-created).
 
+Navigation keeps the outgoing screen visible while the destination loads in a
+hidden mount. Its subscriptions and automatic writes pause, but its presentation
+stays in place. Preparation includes settling derived writes and navigation intents, so a
+resolver route does not flash between the source and its final destination.
+Once the destination is ready, the shell switches its stylesheet
+and visible mount together; a superseded navigation cannot take the screen.
+Host-DOM hatches start after the destination is visible, so they can measure its
+layout, and the outgoing hatches stop at that handoff. A failed load keeps the
+outgoing screen and restores its interaction while reporting the error.
+
 ## When data changes
 
 The terminal never diffs a virtual tree; keyed reconciliation is the bill for
@@ -280,8 +290,8 @@ Electric resumes a shape only from a handle of its own
 
 The terminal ships no style. It stamps state as attributes at moments no screen
 could observe — a screen's lifecycle in `data-state`, a form in flight, a row
-not yet synced, arriving (`data-enter`) or leaving (`data-exit`), a screen
-entering — and the design layer (`shell/design.css`, emitted from the program)
+not yet synced, arriving (`data-enter`) or leaving (`data-exit`) — and the
+design layer (`shell/design.css`, emitted from the program)
 owns every rule, motion tokens included. The stamps are
 [REFERENCE's table](../REFERENCE.md#what-the-terminal-stamps); a stylesheet and
 a test read them and never write them. An app that styles nothing still works.

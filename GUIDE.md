@@ -76,7 +76,7 @@ endowed**.
 
 | Attribute | `event` | Notes |
 |---|---|---|
-| `data-on-mutation="ref"` | `{type: "mutation"}` | every refresh of the region — first paint and each change to its own read; a table named only in `data-reads` is read, not heard, so mount the fold on a region per table |
+| `data-on-mutation="ref"` | `{type: "mutation", visit: boolean}` | every refresh of the region — `visit` is true on the first ready fold after mount or resume; a table named only in `data-reads` is read, not heard, so mount the fold on a region per table |
 | `data-on-click="ref"` | `{type: "click", id, from}` | `id` is the **row's** id; `from` is the element's DOM `id` |
 | a returned `then` | `{type: <yours>}` | your own scheduled beat |
 | a refused write | `{type: "refused", entity, kind, id, validation}` | `kind` is `"refused"` (validation) or `"failed"`; `validation` names the validation that said no, when one did |
@@ -99,6 +99,18 @@ endowed**.
 `id` is the key and `row` is the body — the identity is the URI and never
 repeated inside the payload, so a row need not carry a key that may be spelled
 `article_id` or `tag`. `entity` defaults to the region's `data-live`.
+
+After its updates, a reduce may return `then: {type: "intent:navigate", with: {route, params}}` to navigate to a named screen and its route parameters. The terminal composes the localized address and owns history. Add `replace: true` inside `with` when the destination replaces the current history entry.
+
+A screen may declare `data-retarget-params="card"` to keep its mounted DOM and scroll position when only that route parameter changes. Explicit links and browser history use the same path. If a region's filter, order, or named read depends on the parameter, the terminal mounts a new screen instead so its subscriptions remain correct.
+
+Navigation retains the outgoing screen until the destination and its local folds settle. Only the presented screen can retarget in place. A failed navigation restores the outgoing screen; if staging keeps it inert for 15 seconds, navigation fails visibly and releases it after started writes drain. Initial hydration has no presentation deadline. Late results cannot replace a newer destination.
+
+A remote patch may state `ifTxid`, the positive int64 decimal string read from
+the row. CRUD applies it only while that revision still stands. A stale
+revision makes no change and refreshes the reader; a matching revision refused
+by policy remains an error. Conditional patches require a connection and do not
+enter the optimistic offline outbox.
 
 **`op` is required and never inferred**: a patch that happened to carry a row
 would be a put by accident, and silence is how that ships. An update naming no

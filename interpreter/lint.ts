@@ -310,7 +310,7 @@ export type ParamPlan = { route: string; param: string; table: string; column: s
  * states where a param is printed, which nothing can be resolved from.
  */
 export function paramPlans(
-  routes: { path: string }[],
+  routes: { path: string; screen?: string }[],
   markup: Record<string, string>,
 ): { plans: ParamPlan[]; unplanned: { route: string; param: string }[] } {
   const plans = new Map<string, ParamPlan>();
@@ -357,6 +357,25 @@ export function paramPlans(
           if (plans.get(key)?.op === "eq") break;
         }
         if (plans.get(key)?.op === "eq") break;
+      }
+      if (!plans.has(key) && route.screen) {
+        type Frame = { tag: string; table?: string; filter?: string };
+        walkTags<Frame>(markup[route.path] ?? "", (tag, attrText, stack) => {
+          const attrs = attrMap(attrText);
+          const table = attrs.get("data-live");
+          const filter = attrs.get("data-filter");
+          const enclosing = stack.findLast((frame) => frame.table !== undefined);
+          const column = attrs.get(`data-param-${param}`)?.match(/^\{([\w]+)\}$/)?.[1];
+          if (tag === "a" && attrs.get("data-route") === route.screen && column && enclosing?.table && enclosing.filter !== undefined) {
+            const others = route.path.split("/").filter((part) => part.startsWith(":") && part.slice(1) !== param).map((part) => part.slice(1));
+            const bound = others.every((other) => {
+              const field = attrs.get(`data-param-${other}`)?.match(/^\{([\w]+)\}$/)?.[1];
+              return field !== undefined && enclosing.filter!.split("&").includes(`${field}=eq.{param.${other}}`);
+            });
+            if (bound) consider({ route: route.path, param, table: enclosing.table, column, op: "eq", filter: `${enclosing.filter}&${column}=eq.{param.${param}}` });
+          }
+          return { tag, table, filter };
+        });
       }
     }
   }
