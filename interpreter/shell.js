@@ -1247,6 +1247,7 @@ export async function createShell({ config, mount, preload = true }) {
         current.scrollY = window.scrollY;
         current.mutationActive = false;
         mutationDrain = Promise.all([current.handle?.pause({ preservePresentation: current === presented }), current.mutationDrain?.()]);
+        current.releaseInitial?.();
         current.el.inert = true;
         boundPresentation();
         if (current !== presented) {
@@ -1315,15 +1316,34 @@ export async function createShell({ config, mount, preload = true }) {
         adopting = null;
       }
       let el = adopting;
+      let initialLoading;
+      let initialLoadingTimer;
+      const releaseInitial = () => {
+        clearTimeout(initialLoadingTimer);
+        initialLoading?.remove();
+        if (el) {
+          delete el.dataset.entering;
+          if (initialLoading && !fresh.gone) el.inert = false;
+        }
+      };
       if (adopting === null) {
         el = document.createElement("div");
         el.className = "shell-screen";
         el.hidden = presented !== null;
+        if (presented === null) {
+          el.dataset.entering = "";
+          el.inert = true;
+          initialLoading = document.createElement("p");
+          initialLoading.setAttribute("role", "status");
+          initialLoading.textContent = "Loading…";
+          mount.append(initialLoading);
+          initialLoadingTimer = setTimeout(releaseInitial, 2000);
+        }
         mount.append(el);
       }
       // In the catalogues as they stand now: one taken while it mounts is
       // written in once it is on show.
-      const fresh = { key, el, route, params, written, locale, words: words.taken(), scrollY: 0, seq: ++seq, mutationActive: true };
+      const fresh = { key, el, route, params, written, locale, words: words.taken(), scrollY: 0, seq: ++seq, mutationActive: true, releaseInitial };
       held.set(key, fresh);
       current = fresh;
       if (adopting) presented = fresh;
@@ -1395,6 +1415,8 @@ export async function createShell({ config, mount, preload = true }) {
         }
         if (turn === showing && isMissing(err) && await heal()) return;
         throw err;
+      } finally {
+        releaseInitial();
       }
       linkPrefetch.idle();
       if (preload) {

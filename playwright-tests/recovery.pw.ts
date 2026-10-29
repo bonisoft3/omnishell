@@ -63,7 +63,11 @@ async function serve(authenticated = false, automaticGuest = false, promoteTo?: 
     files.set("shell/messages/en.json", "{}")
     files.set("shell/messages/es.json", "{")
   }
-  if (transition.coldBoot) files.set("shell/index.html", files.get("shell/index.html")!.replace(`<div class="shell-screen" data-served>${screen("home")}</div>`, ""))
+  if (transition.coldBoot) {
+    files.set("shell/index.html", files.get("shell/index.html")!.replace(`<div class="shell-screen" data-served>${screen("home")}</div>`, ""))
+    files.set("shell/shell.css", ".shell-screen[data-entering] { opacity: 0 }")
+    files.set("shell/screens/home.html", screen("home").replace("</section>", '<div data-live="probe"><template data-item><p data-text="{id}"></p></template></div></section>'))
+  }
   if (mutationDrain) {
     const config = JSON.parse(files.get("shell/shell.json")!)
     config.local = { probe: "tab", trigger: "tab", label: "tab", late: "tab" }
@@ -227,6 +231,7 @@ describe("release draft recovery", () => {
         await refresh(page)
         await page.waitForFunction(() => (window as any).runtimeRelease === "B" &&
           !!(window as any).finishRead && !!document.querySelector("[data-live=probe]"))
+        await page.waitForFunction(() => !document.querySelector('.shell-screen[inert]'))
         await page.locator('input[name="draft"]').fill("typed while hydrating")
         await page.locator('input[value="no"]').check()
         await page.evaluate(() => (window as any).finishRead())
@@ -678,6 +683,95 @@ for (const stalledRead of [false, true]) it(`bounds a stalled ${stalledRead ? "r
       expect(await page.locator('[data-shell-error]').count()).toBe(0)
     })
   } finally { release(); await server.close() }
+})
+
+it("holds the first screen through initial reads and releases later updates", async () => {
+  const server = await serve(false, false, undefined, false, false, { coldBoot: true })
+  try {
+    await withPage(async page => {
+      await page.addInitScript(() => {
+        let store: any
+        const gate = new Promise<void>(resolve => { (window as any).releaseInitialRead = resolve })
+        Object.defineProperty(window, "__prontoStore", {
+          configurable: true, get() { return store }, set(value) {
+            store = value
+            const query = store.query.bind(store)
+            store.query = async (...args: unknown[]) => { await gate; return query(...args) }
+          },
+        })
+      })
+      await page.goto(server.base)
+      await page.locator('.shell-screen[data-entering]').waitFor()
+      expect(await page.locator('[role="status"]').textContent()).toBe("Loading…")
+      expect(await page.locator('.shell-screen').evaluate(el => getComputedStyle(el).opacity)).toBe("0")
+      await page.evaluate(() => (window as any).releaseInitialRead())
+      await ready(page, "A")
+      expect(await page.locator('.shell-screen').evaluate(el => getComputedStyle(el).opacity)).toBe("1")
+      expect(await page.locator('[role="status"]').count()).toBe(0)
+      await page.evaluate(() => (window as any).__prontoStore.write("probe", [{ key: "later", row: { id: "later" } }]))
+      await page.waitForFunction(() => document.querySelectorAll('[data-screen="home"] p').length === 2)
+      expect(await page.locator('.shell-screen').evaluate(el => getComputedStyle(el).opacity)).toBe("1")
+    })
+  } finally { await server.close() }
+})
+
+it("reveals a slow first screen after a bounded wait", async () => {
+  const server = await serve(false, false, undefined, false, false, { coldBoot: true })
+  try {
+    await withPage(async page => {
+      await page.addInitScript(() => {
+        let store: any
+        Object.defineProperty(window, "__prontoStore", {
+          configurable: true, get() { return store }, set(value) {
+            store = value
+            store.query = () => new Promise(() => {})
+          },
+        })
+      })
+      await page.goto(server.base)
+      await page.locator('.shell-screen[data-entering]').waitFor()
+      await page.locator('[data-screen="home"] input[name="draft"]').focus()
+      expect(await page.evaluate(() => document.activeElement?.id)).not.toBe("draft")
+      await page.waitForFunction(() => !document.querySelector('.shell-screen[data-entering]'))
+      expect(await page.locator('[data-screen="home"] h1').isVisible()).toBe(true)
+      expect(await page.locator('[role="status"]').count()).toBe(0)
+      await page.locator('[data-screen="home"] input[name="draft"]').focus()
+      expect(await page.evaluate(() => document.activeElement?.id)).toBe("draft")
+    })
+  } finally { await server.close() }
+})
+
+it("clears the first loading status when a newer navigation wins", async () => {
+  const server = await serve(false, false, undefined, false, false, { coldBoot: true })
+  try {
+    await withPage(async page => {
+      await page.addInitScript(() => {
+        let store: any
+        ;(window as any).holdInitial = true
+        const gate = new Promise<void>(resolve => { (window as any).releaseInitialRead = resolve })
+        Object.defineProperty(window, "__prontoStore", {
+          configurable: true, get() { return store }, set(value) {
+            store = value
+            const query = store.query.bind(store)
+            store.query = async (...args: unknown[]) => {
+              if ((window as any).holdInitial) await gate
+              return query(...args)
+            }
+          },
+        })
+      })
+      await page.goto(server.base)
+      await page.locator('.shell-screen[data-entering]').waitFor()
+      await page.evaluate(() => {
+        (window as any).holdInitial = false
+        ;(window as any).navigation.navigate("/other")
+      })
+      await page.locator('[data-screen="other"]').waitFor({ state: "visible" })
+      expect(await page.locator('[role="status"]').count()).toBe(0)
+      await page.evaluate(() => (window as any).releaseInitialRead())
+      expect(await page.locator('[data-screen="home"]:visible').count()).toBe(0)
+    })
+  } finally { await server.close() }
 })
 
 it("keeps partial cold-boot content when its first read fails", async () => {
