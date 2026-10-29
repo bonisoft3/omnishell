@@ -10,7 +10,7 @@ const files: Record<string, string> = {
   'shell/index.html': '<html><head><base href="/shell/"><link rel="stylesheet" href="./shell.css"></head><body><script type="module" src="./boot.js"></script></body></html>',
   // A document prerendered at generate: it boots after first paint.
   'regras/index.html': `<!-- generated -->\n{{- $o := placeholder "http.vars.origin" -}}\n<!doctype html>\n<html><head><base href="/shell/"><link rel="stylesheet" href="./shell.css"></head><body><script type="module" src="/omnishell/interpreter/deferred-boot.js" data-pronto-boot="./boot.js" data-pronto-preloads='[{"rel":"modulepreload","href":"/omnishell/interpreter/shell.js"},{"rel":"preload","as":"fetch","href":"/shell/screens/regras.html"}]'></script></body></html>`,
-  'docs/brief.html': '<html><body><h1>Brief</h1></body></html>',
+  'docs/journal.html': '<html><body><h1>Journal</h1></body></html>',
   'shell/boot.js': 'import "/omnishell/interpreter/shell.js";',
   'shell/shell.css': 'body {}',
   'shell/shell.json': JSON.stringify(cfg),
@@ -53,7 +53,7 @@ Deno.test('every document that boots the runtime carries the release, a deferred
     const hash = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(map)))))
     assert.ok(release.scripts.includes(`'sha256-${hash}'`))
     // A page that boots nothing is a file like any other; templates keep their suffix.
-    assert.ok(release.imports['/docs/brief.html'])
+    assert.ok(release.imports['/docs/journal.html'])
     assert.ok(release.imports['/shell/screens/regras.html'].endsWith('-regras.html'))
     assert.equal(release.imports['/offline-first-sw.js'], undefined)
   } finally { await Deno.remove(out, { recursive: true }) }

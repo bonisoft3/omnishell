@@ -75,3 +75,7 @@ just integrate # container build, then the browser and visual suites
 
 [CONTRIBUTING.md](CONTRIBUTING.md) covers which suite can see which kind of
 change, and the two invariants to preserve when touching the interpreter.
+
+## License
+
+[GPL-3.0](LICENSE)

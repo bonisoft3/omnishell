@@ -68,7 +68,8 @@ endowed**.
 **What it receives**
 
 - `state.rows` — `{table: [row, ...]}` for every table named in the waking
-  region's `data-reads`.
+  region's `data-reads` (the waking region's own `data-live` table is **not** in
+  `state.rows` unless it is also listed in `data-reads`).
 - `state.items` — the region's own current rows, in DOM order.
 - `event` — see below.
 
@@ -127,7 +128,10 @@ where randomness exists.
 
 Consecutive updates of the same op against the same collection go down as one
 store call, so a fold stating a thousand rows costs one write. Order within the
-array is kept.
+array is kept. Within a single `updates` return, patch/put each `(entity, id)`
+at most once: the store keeps only the last update per row in a batch, so two
+separate `patch` objects for the same row overwrite each other instead of
+merging — combine all field changes for a row into one `patch` or `put` object.
 
 The chain is [capped](docs/data.md#the-step-after); exceeding the cap throws
 `handler chain did not settle`. One refused write **aborts the remaining
