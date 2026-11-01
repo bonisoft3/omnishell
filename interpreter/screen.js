@@ -2791,9 +2791,8 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
               const prevBox = document.getElementById("preview-card-container");
               if (prevBox) {
                 prevBox.setAttribute("data-tier-emoji", "⏳");
-                if (!String(prevBox.getAttribute("data-set-id") || "").startsWith("set-")) {
-                  prevBox.setAttribute("data-set-id", "set-pending");
-                }
+                // Every Create is a new deck, so the deck shown before is never the one coming.
+                prevBox.setAttribute("data-set-id", "set-pending");
               }
               for (const item of document.querySelectorAll(".press-ledger-item")) {
                 item.setAttribute("data-tier-emoji", "⏳");
