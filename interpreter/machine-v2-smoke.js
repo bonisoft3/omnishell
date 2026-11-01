@@ -147,15 +147,16 @@ function boot(html = SCREEN_HTML, rows = []) {
       creates.push(row);
     },
     update: async () => {},
-    put: async (_table, row) => {
+    put: async (_table, stated, _onRefused, absent) => {
       if (knobs.refuseNext) {
         knobs.refuseNext = false;
         const err = new Error("409 refused");
         err.name = "NonRetriableError";
         throw err;
       }
+      const i = rows.findIndex((r) => r.id === stated.id);
+      const row = i < 0 ? { ...absent, ...stated } : stated;
       puts.push({ ...row });
-      const i = rows.findIndex((r) => r.id === row.id);
       if (i < 0) rows.push({ ...row });
       else rows[i] = { ...rows[i], ...row };
       for (const cb of subs) setTimeout(cb, 0);

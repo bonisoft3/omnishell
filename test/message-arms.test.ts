@@ -135,6 +135,47 @@ describe("the fixture tier", () => {
   })
 })
 
+describe("a message with plain arguments", () => {
+  it("binds each argument against the row", async () => {
+    // Substitution is a single pass, so a message handed over as its raw
+    // string put "{position}" on screen verbatim: an argument binds only when
+    // the catalogue compiles it to an AST, as it does for a plural.
+    const m = await mount(
+      `<small data-text="{msg.of}"></small>`,
+      [{ id: "a", n: 1, position: 2, size: 5 }],
+      { messages: { en: compileCatalog({ of: "Card {position} of {size}" }) }, locale: "en" },
+    )
+    await m.settle()
+    expect(m.texts("li")).toEqual(["Card 2 of 5"])
+    await m.stop()
+  })
+
+  // Compiling plain arguments made a row's message reach the binder; a row is
+  // data, so an argument it lacks surfaces as the key, as a missing key does.
+  it("surfaces a row's message as its key when the row lacks an argument", async () => {
+    const m = await mount(
+      `<small data-text="{msg[said]}"></small>`,
+      [{ id: "a", n: 1, said: "of", position: 2, size: 5 }, { id: "b", n: 2, said: "of" }],
+      { messages: { en: compileCatalog({ of: "Card {position} of {size}" }) }, locale: "en" },
+    )
+    await m.settle()
+    expect(m.texts("li")).toEqual(["Card 2 of 5", "of"])
+    await m.stop()
+  })
+
+  // Only the arm evaluation takes can be missing: the other arm naming an absent column is not.
+  it("renders a row's message whose untaken arm binds a column the row lacks", async () => {
+    const m = await mount(
+      `<small data-text="{msg[said]}"></small>`,
+      [{ id: "a", n: 1, said: "turn", who: "ana" }, { id: "b", n: 2, said: "turn", who: "online" }],
+      { messages: { en: compileCatalog({ turn: "{who, select, ana {Ana plays.} other {{handle} plays.}}" }) }, locale: "en" },
+    )
+    await m.settle()
+    expect(m.texts("li")).toEqual(["Ana plays.", "turn"])
+    await m.stop()
+  })
+})
+
 describe("an arm bound into an attribute", () => {
   it("selects the same arm the element's text does", async () => {
     const m = await mount(

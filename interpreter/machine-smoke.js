@@ -38,9 +38,10 @@ function boot(html, handlerSource) {
     },
     create: async () => {},
     update: async (table, id, patch) => calls.updates.push({ table, id, patch }),
-    put: async (table, row) => {
+    put: async (table, stated, _onRefused, absent) => {
+      const i = rows.findIndex((r) => r.id === stated.id);
+      const row = i < 0 ? { ...absent, ...stated } : stated;
       calls.puts.push({ table, row });
-      const i = rows.findIndex((r) => r.id === row.id);
       if (i < 0) rows.push({ ...row });
       else rows[i] = { ...rows[i], ...row };
       for (const cb of subs) setTimeout(cb, 0);
@@ -58,7 +59,7 @@ function boot(html, handlerSource) {
     return Promise.reject(new Error(`unexpected fetch ${u}`));
   };
 
-  return { document, Event, store, calls };
+  return { document, Event, store, calls, rows };
 }
 
 const assert = (cond, msg) => {
@@ -236,6 +237,34 @@ Deno.test({
         JSON.stringify({ table: "tint", row: { id: "the", hue: "cool", label: "lamp" } }),
       `the empty row's fields ride the first write, got ${JSON.stringify(calls.puts[0])}`,
     );
+  },
+});
+
+// A handler's write can land in the store before the slot refreshes: the reader
+// chose an audience and typed a topic at once, and the machine's first write,
+// concluding from the fallback, stated the fallback's audience over the chosen one.
+Deno.test({
+  name: "a first write from the fallback states its columns only where the row is still absent",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const html = screenHtml(MACHINE, ' data-empty-row=\'{"id":"the","hue":"warm","label":"lamp"}\'');
+    const { document, Event, store, calls, rows } = boot(html);
+    const { interpretScreen } = await import("./screen.js");
+
+    const mount = document.getElementById("shell");
+    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {});
+    rows.push({ id: "the", hue: "warm", label: "chosen" });
+    const region = mount.querySelector("[data-live]");
+    region.dispatchEvent(new Event("click"));
+    await tick(30);
+
+    assert(
+      JSON.stringify(calls.puts[0]) === JSON.stringify({ table: "tint", row: { id: "the", hue: "cool" } }),
+      `a row that landed states only the moved field, got ${JSON.stringify(calls.puts[0])}`,
+    );
+    assert(rows[0].label === "chosen", `the landed row keeps its own label, got ${JSON.stringify(rows[0])}`);
   },
 });
 

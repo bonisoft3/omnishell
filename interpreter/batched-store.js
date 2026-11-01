@@ -26,9 +26,11 @@ export function batched(singular) {
     },
     // The key travels beside the row, so the decomposition puts it back under
     // the column the double keys on. Every double here keys on `id`; one that
-    // did not would state its own `write` rather than be guessed at.
+    // did not would state its own `write` rather than be guessed at. `absent`,
+    // the columns stated only where the row is inserted, goes to the double,
+    // which alone knows whether it holds the row.
     write: async (table, edits, onRefused) => {
-      for (const e of edits) await store.put(table, { ...e.row, id: e.key }, onRefused);
+      for (const e of edits) await store.put(table, { ...e.row, id: e.key }, onRefused, e.absent);
     },
     patch: async (table, edits, onRefused) => {
       for (const edit of edits) await store.update(table, edit.key, edit.changes, onRefused);

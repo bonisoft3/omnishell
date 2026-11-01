@@ -630,6 +630,10 @@ function localeOf(ctx) {
   return ctx?.params?.locale || ctx?.locale || ctx?.row?.locale || ctx?.i18n?.default;
 }
 
+// A binding the row does not carry: its own type so a row's message can tell
+// it from every other failure, which still stops the screen.
+class MissingBinding extends Error {}
+
 // {msg.x} and {msg[col]} read the catalogue; everything else is `binding`'s.
 function lookup(expr, ctx) {
   const { row, params, messages, locale, i18n } = ctx ?? {};
@@ -673,7 +677,17 @@ function lookup(expr, ctx) {
       if (rowMsg !== null) return key;
       throw new Error(`unknown message {${expr}}`);
     }
-    if (Array.isArray(val)) return evaluateAst(val, ctx, activeLocale);
+    if (Array.isArray(val)) {
+      if (rowMsg === null) return evaluateAst(val, ctx, activeLocale);
+      // A row's message whose taken arms bind a column the row lacks is data
+      // too: the key surfaces for check-i18n instead of taking the screen down.
+      try {
+        return evaluateAst(val, ctx, activeLocale);
+      } catch (err) {
+        if (err instanceof MissingBinding) return key;
+        throw err;
+      }
+    }
     return val;
   }
   const v = binding(expr, row, params);
@@ -683,7 +697,7 @@ function lookup(expr, ctx) {
   // columns materialize when the synced row arrives. Bind blank instead of
   // crashing the screen out from under the pending row.
   if (r.$synced === false) return undefined;
-  throw new Error(`binding {${expr}} not in row [${Object.keys(r)}]`);
+  throw new MissingBinding(`binding {${expr}} not in row [${Object.keys(r)}]`);
 }
 
 /**
@@ -2541,6 +2555,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       if (u.ifTxid !== undefined && (u.op !== "patch" || typeof u.ifTxid !== "string" || !/^[1-9][0-9]*$/.test(u.ifTxid) || BigInt(u.ifTxid) > 9223372036854775807n)) throw new Error("ifTxid requires a patch and a positive int64 decimal string");
       if (u.id === undefined) throw new Error(`a ${u.op} names no id — ${SHAPES}`);
       if (u.op !== "delete" && u.row === undefined) throw new Error(`a ${u.op} carries no row — ${SHAPES}`);
+      if (u.absent !== undefined && u.op !== "put") throw new Error(`absent columns fill a put's insert, not a ${u.op}`);
       return u.op;
     };
     /** Answers false when a refusal ended the batch, so a caller knows the
@@ -2573,7 +2588,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         const run = updates.slice(at, upto);
         try {
           if (op === "put") {
-            await submitMutation(store.write(entity, run.map((x) => ({ key: x.id, row: x.row })), (err) => deliver(entity, id, err)), active);
+            await submitMutation(store.write(entity, run.map((x) => ({ key: x.id, row: x.row, ...(x.absent === undefined ? {} : { absent: x.absent }) })), (err) => deliver(entity, id, err)), active);
           } else if (op === "delete") {
             await submitMutation(store.drop(entity, run.map((x) => x.id), (err) => deliver(entity, id, err)), active);
           } else {
@@ -2749,8 +2764,8 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
               return;
             }
             if (event === "click" && el.classList?.contains("combobox-option")) {
+              // Not stopped: a chart on the region hears the choice as click@<option>.
               e.preventDefault();
-              e.stopPropagation();
               const wrap = el.closest(".studio-combobox-wrap");
               const inp = wrap?.querySelector("input");
               const val = el.getAttribute("data-combo-value") ?? el.textContent?.trim() ?? "";
@@ -2763,7 +2778,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
                 }
               }
               el.blur?.();
-              return;
+              // An option that names a handler is a choice the program records, not only text
+              // for the input: it was dropped here, and a chosen value never reached the row.
+              if (!el.hasAttribute("data-on-click")) return;
             }
             if (event === "click" && el.id === "btn-create") {
               const sc = el.closest(".studio-container");
@@ -3313,9 +3330,16 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         });
         const out = { updates: [] };
         if (targetState !== undefined || Object.keys(patch).length > 0) {
-          const stated = { ...(row === region._prontoFallbackRow ? row : { id: row.id, [machine.field]: row[machine.field] }), ...patch };
+          // A write concluding from the fallback states the fallback's columns for
+          // an absent row only: a handler's write may have landed in the store
+          // before this slot refreshed, and stating them over it reverted it (an
+          // audience a reader chose became the default as they typed a topic).
+          const fromFallback = row === region._prontoFallbackRow;
+          // The fallback's own state is one of its columns: an arrow that names no
+          // target leaves a landed row's state as it is.
+          const stated = { id: row.id, ...(fromFallback ? {} : { [machine.field]: row[machine.field] }), ...patch };
           if (targetState !== undefined) stated[machine.field] = targetState;
-          out.updates = [{ op: "put", id: stated.id, row: stated }];
+          out.updates = [{ op: "put", id: stated.id, row: stated, ...(fromFallback ? { absent: row } : {}) }];
           // The chain's own view of the row: a raise delivered after this
           // write must conclude from it, not from the slot's last refresh —
           // the store's wake is asynchronous and the chain is not.

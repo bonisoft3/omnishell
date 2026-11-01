@@ -80,14 +80,15 @@ Deno.test({
       },
       create: async () => {},
       update: async () => {},
-      put: async (_t, row) => {
+      put: async (_t, stated, _onRefused, absent) => {
         if (knobs.refuseNext) {
           knobs.refuseNext = false;
           const err = new Error("409 refused");
           err.name = "NonRetriableError";
           throw err;
         }
-        const i = rows.findIndex((r) => r.id === row.id);
+        const i = rows.findIndex((r) => r.id === stated.id);
+        const row = i < 0 ? { ...absent, ...stated } : stated;
         if (i < 0) rows.push({ ...row });
         else rows[i] = { ...rows[i], ...row };
         for (const cb of subs) setTimeout(cb, 0);

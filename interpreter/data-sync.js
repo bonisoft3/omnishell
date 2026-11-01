@@ -2001,9 +2001,11 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
    * present. The caller derived each key from what its row identifies, so the
    * same row written twice is the same row, and fields a row does not name are
    * left alone: it states a row, it does not replace one. */
-  // Each edit is {key, row}: the key beside the row it identifies, the way
-  // patch and drop already take theirs. The row need not repeat it, and the key
-  // wins where it does — a caller states identity in one place.
+  // Each edit is {key, row, absent?}: the key beside the row it identifies, the
+  // way patch and drop already take theirs. The row need not repeat it, and the
+  // key wins where it does — a caller states identity in one place. `absent`
+  // holds columns stated only if the row is inserted, judged against the
+  // collection as the write lands: a machine's first write from its fallback.
   async function write(table, edits, onRefused) {
     if (edits.length === 0) return;
     await ensurePrepared(table);
@@ -2012,14 +2014,16 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
       if (e?.key === undefined) throw new Error(`write ${table}: an edit names no ${key}`);
       return { ...e.row, [key]: e.key };
     });
+    const inserted = (row, i) => ({ ...edits[i].absent, ...row });
     if (requestOnly(table)) {
       const commands = [];
       const edgeIndex = new Map();
-      for (const row of rows) {
+      for (const [i, row] of rows.entries()) {
         const filter = `${key}=eq.${encodeURIComponent(row[key])}`;
         const have = (await readServer(table, null, { filter }))[0];
-        await validate(table, have === undefined ? "insert" : "update", row, have, edgeIndex);
-        commands.push({ row, method: have === undefined ? "POST" : "PATCH", filter: have === undefined ? undefined : filter });
+        const stated = have === undefined ? inserted(row, i) : row;
+        await validate(table, have === undefined ? "insert" : "update", stated, have, edgeIndex);
+        commands.push({ row: stated, method: have === undefined ? "POST" : "PATCH", filter: have === undefined ? undefined : filter });
       }
       for (const command of commands) await serverCommand(table, command.method, command.row, command.filter);
       return;
@@ -2032,9 +2036,9 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     // the collection holds as a number is still that number when patched.
     const byKey = new Map(collection.toArray.map((r) => [String(r[key]), r]));
     const edgeIndex = new Map();
-    for (const row of rows) {
+    for (const [i, row] of rows.entries()) {
       const have = byKey.get(String(row[key]));
-      if (have === undefined) await validate(table, "insert", blank(table, row), undefined, edgeIndex);
+      if (have === undefined) await validate(table, "insert", blank(table, inserted(row, i)), undefined, edgeIndex);
       else await validate(table, "update", row, have, edgeIndex);
     }
     // Judging awaits, so the collection may have moved under the snapshot the
@@ -2043,9 +2047,9 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     const now = new Map(collection.toArray.map((r) => [String(r[key]), r]));
     const fresh = [];
     const standing = [];
-    for (const row of rows) {
+    for (const [i, row] of rows.entries()) {
       const have = now.get(String(row[key]));
-      if (have === undefined) fresh.push(blank(table, row));
+      if (have === undefined) fresh.push(blank(table, inserted(row, i)));
       else standing.push({ key: have[key], changes: row });
     }
     // Standing rows change before fresh ones arrive, so a batch that demotes one

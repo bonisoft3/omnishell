@@ -55,6 +55,9 @@ export type BatteryOptions = {
   includePairwise?: boolean;
 };
 
+// The types the runtime delivers as JSON numbers; int64, bigint and decimal arrive as strings.
+const NUMERIC = new Set(["int", "int32", "integer", "double"]);
+
 function makeProxyRow(
   base: Record<string, unknown>,
   table: string,
@@ -66,6 +69,11 @@ function makeProxyRow(
     .filter((field) => Object.hasOwn(field, "default"))
     .map((field) => [field.name, field.default]));
   const merged: Record<string, unknown> = { ...defaults, ...seedRow, ...base };
+  // A column the schema declares numeric reads as a number: a plural refuses text for its
+  // count, and "Sample trust" broke every frame of a screen counting a rating.
+  const numeric = new Set((schema?.[table]?.fields ?? [])
+    .filter((field) => NUMERIC.has(String(field.type)))
+    .map((field) => field.name));
   return new Proxy(merged, {
     get: (target, prop) => {
       if (typeof prop !== "string") return undefined;
@@ -76,6 +84,7 @@ function makeProxyRow(
       if (prop === "timeZone" || prop.endsWith("_timezone") || prop.endsWith("_tz")) return "UTC";
       if (prop.startsWith("cur_") || prop.startsWith("chk_") || prop.startsWith("exp_") || prop.startsWith("is_")) return "false";
       if (prop.endsWith("_date") || prop === "date" || prop.endsWith("_at") || prop === "at" || prop.endsWith("_time") || prop === "time") return "2026-09-24T00:00:00Z";
+      if (numeric.has(prop)) return 1;
       return `Sample ${prop}`;
     },
     has: () => true,

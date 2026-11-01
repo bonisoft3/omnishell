@@ -1,6 +1,7 @@
-// Message catalogue compilation: parses ICU MessageFormat strings into JSON
-// ASTs at build time using @formatjs/icu-messageformat-parser, keeping plain
-// strings intact so the zero-dependency evaluator in SES receives pure ASTs.
+// Message catalogue compilation: parses every ICU MessageFormat string at build
+// time with @formatjs/icu-messageformat-parser, so the zero-dependency evaluator
+// in SES receives an AST for anything that binds and the unescaped text for
+// anything that does not — one apostrophe rule for both.
 
 import { parse, TYPE } from "npm:@formatjs/icu-messageformat-parser@3.5.20";
 
@@ -53,27 +54,28 @@ function validateNodes(nodes: MessageNode[]): void {
   }
 }
 
-function hasIcuComplex(nodes: MessageNode[]): boolean {
-  for (const node of nodes) {
-    if (
-      node.type === TYPE.select ||
-      node.type === TYPE.plural ||
-      node.type === TYPE.pound
-    ) {
-      return true;
-    }
-  }
-  return false;
+// A string the interpreter receives is substituted verbatim, so any node that
+// binds — an argument as much as a plural — must reach it as an AST.
+function isLiteral(nodes: MessageNode[]): boolean {
+  return nodes.every((node) => node.type === TYPE.literal);
 }
+
+// An odd run of apostrophes before a brace is ICU quoting: "d'{name}" would
+// print the braces instead of binding them, and on a settled screen braces are
+// a bug. An even run is escaped apostrophes: "d''{name}" renders "d'Name".
+const QUOTED_BRACE = /(?<!')'(?:'')*[{}]/;
 
 export function parseMessage(raw: string): string | MessageAst {
   if (typeof raw !== "string") {
     throw new Error(`message must be a string, got ${typeof raw}`);
   }
-  if (!raw.includes("{")) return raw;
-  const ast = parse(raw) as unknown as MessageNode[];
+  if (QUOTED_BRACE.test(raw)) {
+    throw new Error(`apostrophe before a brace quotes it in ICU: write ’ (U+2019) in ${JSON.stringify(raw)}`);
+  }
+  // Catalogue text is not markup: "Press <kbd>Enter</kbd>" or "a<b" stays literal.
+  const ast = parse(raw, { ignoreTag: true }) as unknown as MessageNode[];
   validateNodes(ast);
-  if (!hasIcuComplex(ast)) return raw;
+  if (isLiteral(ast)) return ast.map((node) => (node as LiteralNode).value).join("");
   return ast;
 }
 
@@ -93,49 +95,4 @@ export function compileCatalog(
     }
   }
   return out;
-}
-
-export function messagesSelfTest(): string[] {
-  const failures: string[] = [];
-
-  const plain = parseMessage("Hello world!");
-  if (plain !== "Hello world!") {
-    failures.push(`plain string failed: got ${JSON.stringify(plain)}`);
-  }
-
-  const argStr = parseMessage("Hello {name}!");
-  if (argStr !== "Hello {name}!") {
-    failures.push(`plain template failed: got ${JSON.stringify(argStr)}`);
-  }
-
-  const pluralAst = parseMessage("{count, plural, one {# item} other {# items}}") as MessageNode[];
-  if (!Array.isArray(pluralAst) || pluralAst.length !== 1 || pluralAst[0].type !== 6) {
-    failures.push(`plural AST failed: got ${JSON.stringify(pluralAst)}`);
-  } else {
-    const p = pluralAst[0] as PluralNode;
-    if (p.value !== "count" || !p.options.one || !p.options.other) {
-      failures.push(`plural options failed: got ${JSON.stringify(p)}`);
-    }
-  }
-
-  const selectAst = parseMessage("{gender, select, female {ela} male {ele} other {elu}}") as MessageNode[];
-  if (!Array.isArray(selectAst) || selectAst.length !== 1 || selectAst[0].type !== 5) {
-    failures.push(`select AST failed: got ${JSON.stringify(selectAst)}`);
-  }
-
-  try {
-    parseMessage("Hello {unclosed");
-    failures.push("expected unclosed brace to throw");
-  } catch {
-    // Expected
-  }
-
-  try {
-    parseMessage("Today is {d, date}");
-    failures.push("expected date element to throw");
-  } catch {
-    // Expected
-  }
-
-  return failures;
 }

@@ -18,7 +18,7 @@ type Store = {
   query(table: string, order: string | null, opts: Row): Promise<Row[]>
   subscribe(table: string, fn: (changes?: { value?: Row; previousValue?: Row }[]) => void, opts: Row): () => void
   add(table: string, rows: Row[]): Promise<void>
-  write(table: string, edits: { key: string; row: Row }[]): Promise<void>
+  write(table: string, edits: { key: string; row: Row; absent?: Row }[]): Promise<void>
   patch(table: string, edits: { key: string; changes: Row }[]): Promise<void>
   drop(table: string, keys: string[]): Promise<void>
   dropWhere(table: string, filter: string): Promise<void>
@@ -118,6 +118,12 @@ const CASES: Record<string, Op[]> = {
   "a batch write that inserts one row and changes another": [
     ["add", [{ id: "a", title: "x", n: 1 }]],
     ["write", [{ key: "a", row: { n: 2 } }, { key: "b", row: { title: "y" } }]],
+  ],
+  // A machine's first write from its fallback: the fallback's columns land on an
+  // inserted row and leave a row that is already there alone.
+  "a write whose absent columns fill an insert and spare a standing row": [
+    ["add", [{ id: "a", title: "x", n: 1 }]],
+    ["write", [{ key: "a", row: { n: 2 }, absent: { title: "fallback" } }, { key: "b", row: { n: 3 }, absent: { title: "fallback" } }]],
   ],
   // The shipped store refuses the batch before it writes any of it.
   "a batch write whose second edit names no key": [

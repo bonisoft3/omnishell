@@ -41,7 +41,7 @@ export type FakeDataSync = {
   // singular methods above; the interpreter drives these, and `batched` below
   // is what keeps the two describing the same store.
   add(table: string, rows: Row[]): Promise<void>;
-  write(table: string, edits: { key: string; row: Row }[]): Promise<void>;
+  write(table: string, edits: { key: string; row: Row; absent?: Row }[]): Promise<void>;
   patch(table: string, edits: { key: string; changes: Row }[]): Promise<void>;
   drop(table: string, keys: string[]): Promise<void>;
   dropWhere(table: string, filter: string): Promise<void>;
@@ -303,10 +303,13 @@ export function fakeDataSync(tables: Record<string, Row[]>, cluster: Cluster = {
   }, wrapped.patch);
   // An edit carries its key beside its row, under the column the table keys
   // on, and a batch with an edit naming none writes nothing.
-  wrapped.write = whole((table, edits: { key: string; row: Row }[]) => {
+  wrapped.write = whole((table, edits: { key: string; row: Row; absent?: Row }[]) => {
     if (edits.some((e) => e?.key === undefined)) throw new Error(`write ${table}: an edit names no ${keyOf(table)}`);
-  }, async (table, edits: { key: string; row: Row }[]) => {
-    for (const e of edits) await store.put(table, { ...e.row, [keyOf(table)]: e.key });
+  }, async (table, edits: { key: string; row: Row; absent?: Row }[]) => {
+    // `absent` states its columns only where the row is inserted, as data-sync's write does.
+    for (const e of edits) {
+      await store.put(table, { ...(has(table, e.key) ? {} : e.absent), ...e.row, [keyOf(table)]: e.key });
+    }
   });
   wrapped.drop = whole((table, keys: string[]) => {
     const missing = keys.find((k) => !has(table, k));
