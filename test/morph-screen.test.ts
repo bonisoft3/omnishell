@@ -12,6 +12,28 @@ const markup = (html: string) => {
 }
 
 describe("morphScreen with morphlex", () => {
+  // The template states data-image-src and neither attribute it binds, so a new template blanked
+  // every picture on the open screen until its region's next pass.
+  it("keeps what data-image-src bound", async () => {
+    const { document } = parseHTML(
+      `<!doctype html><html><body><div id="screen"><p><img id="pic" data-image-src="/a.png" src="/a-640.png" srcset="/a-320.png 320w" sizes="100vw"></p></div></body></html>`,
+    ) as unknown as { document: Document }
+    ;(globalThis as unknown as DomGlobal).document = document
+    const live = document.getElementById("screen")!
+    const holder = document.createElement("div")
+    holder.innerHTML = `<div id="screen"><p class="new"><img id="pic" data-image-src="{src}" sizes="100vw"></p></div>`
+    await morphScreen(live, holder.firstElementChild!)
+    const pic = document.getElementById("pic")!
+    expect(document.querySelector("p")!.getAttribute("class")).toBe("new")
+    expect(pic.getAttribute("src")).toBe("/a-640.png")
+    expect(pic.getAttribute("srcset")).toBe("/a-320.png 320w")
+    // A srcset left behind would go on outranking the src the new template states.
+    const plain = document.createElement("div")
+    plain.innerHTML = `<div id="screen"><p class="new"><img id="pic" src="/static.png"></p></div>`
+    await morphScreen(live, plain.firstElementChild!)
+    expect(pic.getAttribute("srcset")).toBe(null)
+    expect(pic.getAttribute("src")).toBe("/static.png")
+  })
   it("surgically morphs static skeleton while preserving dynamic regions untouched", async () => {
     const { document } = parseHTML(
       `<!doctype html><html><body>

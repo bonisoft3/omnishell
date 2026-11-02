@@ -24,6 +24,7 @@ import {
   routeHref,
   routeParams,
   Unanswered,
+  IMAGE_WIDTHS,
 } from "./fragment.js";
 import { evaluateRole } from "./jessie.js";
 import { hostDomScreen } from "./host-dom.js";
@@ -618,6 +619,39 @@ const BOOL_ATTRS = new Set([
   "disabled", "checked", "readonly", "required", "selected", "hidden", "open", "multiple",
 ]);
 const BLANK_PIXEL = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
+const IMAGE_FALLBACK_WIDTH = 640;
+const IMAGE_PLAIN = "/img/insecure/plain/";
+
+/** Markup that would waste data-image-src, refused wherever it renders. Each of these still
+ * draws a picture, or nothing, so nothing else says: without sizes a browser assumes the whole
+ * viewport, and auto only counts on a lazy image. */
+function checkImageSrc(el, template) {
+  if (el.localName !== "img") throw new Error(`data-image-src on <${el.localName}>; it binds an <img>`);
+  if (!PLACEHOLDER.test(template)) throw new Error(`data-image-src="${template}" binds a column; a literal picture is a plain src`);
+  const sizes = el.getAttribute("sizes");
+  if (!sizes) throw new Error(`data-image-src="${template}" needs sizes`);
+  if (/^\s*auto\b/i.test(sizes) && el.getAttribute("loading") !== "lazy") {
+    throw new Error(`data-image-src="${template}" has sizes="${sizes}", and auto needs loading="lazy"`);
+  }
+}
+
+/** A blob plane picture offered at each width, for the browser to choose by the
+ * space it has. Anything else has no size to ask for: a seeded `data:` picture
+ * stays itself, and a blank is the same deliberate blank a bound src is. */
+function bindImageSrc(el, value) {
+  // srcset splits its candidates on spaces and commas, which a src keeps as written.
+  const key = value.slice(IMAGE_PLAIN.length).replace(/[\s,]/g, encodeURIComponent);
+  const fitted = (w) => `/img/insecure/rs:fit:${w}:${w}/plain/${key}`;
+  const sized = value.startsWith(IMAGE_PLAIN);
+  const srcset = sized ? IMAGE_WIDTHS.map((w) => `${fitted(w)} ${w}w`).join(", ") : null;
+  const src = sized ? fitted(IMAGE_FALLBACK_WIDTH) : value || BLANK_PIXEL;
+  // Setting either again makes the browser choose again, and a region re-binds often.
+  if (el.getAttribute("srcset") !== srcset) {
+    if (srcset === null) el.removeAttribute("srcset");
+    else el.setAttribute("srcset", srcset);
+  }
+  if (el.getAttribute("src") !== src) el.setAttribute("src", src);
+}
 
 
 /** The language a screen is rendering in, from the most explicit thing its
@@ -1472,6 +1506,7 @@ function bindElementAttributes(el, ctx, insideWalk = false) {
       if (parent.hasAttribute("data-text-format")) return;
     }
   }
+  if (el.hasAttribute?.("data-image-src")) checkImageSrc(el, el.getAttribute("data-image-src"));
   // setAttribute would consume the placeholder template; persistent regions
   // (singletons) re-bind on every refresh, so originals are stashed.
   let stash = el._prontoAttrs;
@@ -1503,7 +1538,7 @@ function bindElementAttributes(el, ctx, insideWalk = false) {
     const attr = { name, value: template };
     // The fixture adapter: an interpolated img src would fire a real request
     // the moment it is set; a transparent pixel keeps the layout box instead.
-    if (ctx.inert && el.localName === "img" && attr.name === "src") {
+    if (ctx.inert && el.localName === "img" && (attr.name === "src" || attr.name === "data-image-src")) {
       el.setAttribute("src", BLANK_PIXEL);
       continue;
     }
@@ -1566,6 +1601,10 @@ function bindElementAttributes(el, ctx, insideWalk = false) {
       }
     }
     const value = interpolate(template, ctx);
+    if (attr.name === "data-image-src") {
+      bindImageSrc(el, value);
+      continue;
+    }
     if (BOOL_ATTRS.has(attr.name)) {
       const present = value !== "" && value !== "false";
       if (present) el.setAttribute(attr.name, value);
@@ -4939,19 +4978,26 @@ function morphTree(live, target, { slots }) {
     if (own(name) || (PLACEHOLDER.test(value) && !regionAttr(name))) continue;
     if (live.getAttribute(name) !== value) live.setAttribute(name, value);
   }
+  // What data-image-src bound is no template's to state, so its absence there says nothing.
+  // The template decides: one moving to a plain src takes the srcset away with it.
+  const imageBinding = (name) => name === "src" || name === "srcset";
   for (const { name } of [...live.attributes]) {
-    if (!own(name) && !target.hasAttribute(name)) live.removeAttribute(name);
+    if (own(name) || target.hasAttribute(name)) continue;
+    if (!(imageBinding(name) && target.hasAttribute("data-image-src"))) live.removeAttribute(name);
   }
+  const imageTemplated = new WeakSet();
   const halted = new WeakSet();
   morphlex.morphInner(live, target, {
     preserveChanges: true,
     beforeNodeVisited: (from, to) => {
+      if (to.nodeType === 1 && to.hasAttribute("data-image-src")) imageTemplated.add(from);
       if (to.nodeType === 1 && to.hasAttribute("data-live") && (!slots || listRegion(to))) halted.add(from);
       return true;
     },
     beforeChildrenVisited: (from) =>
       from.nodeType !== 1 || !(halted.has(from) || from.hasAttribute("data-hatch") || from.hasAttribute("data-text")),
-    beforeAttributeUpdated: (_el, name, value) => value === null || !PLACEHOLDER.test(value) || regionAttr(name),
+    beforeAttributeUpdated: (el, name, value) =>
+      value === null ? !(imageBinding(name) && imageTemplated.has(el)) : !PLACEHOLDER.test(value) || regionAttr(name),
   });
 }
 

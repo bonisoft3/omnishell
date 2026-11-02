@@ -113,6 +113,22 @@ A **slot** is a region with no item template; it binds at most one row. Item
 templates are collected with an unscoped `querySelectorAll`, so a region
 containing another region is never a slot.
 
+## Responsive images
+
+`<img data-image-src="{back}" sizes="auto, (max-width: 720px) 100vw, 33vw" loading="lazy" alt="">`
+offers a blob plane picture (`/img/insecure/plain/…`) at 320, 640 and 960 pixels
+wide, as `srcset`, with 640 as `src`. The browser chooses by the space the image
+has, so a screen names no width. Any other value, such as a `data:` picture, binds
+as a plain `src`, and a blank as a bound `src`'s blank.
+
+`sizes` starts with `auto` where the image is lazy, which asks for its laid-out
+width, so CSS must reserve its box. The rest of `sizes` is what a browser without
+`auto` reads, so it states the real layout. Compose answers these URLs through
+imgproxy. The Cloudflare release refuses a screen using this attribute unless the
+app declares `edgeImages` with `plan: "paid"`: the rest of an app needs no card.
+A missing `sizes`, `auto` on an image that is not lazy, a literal value and any
+element but `<img>` are errors.
+
 ## Derived columns
 
 `data-project` maps an output column to a clause, as JSON:

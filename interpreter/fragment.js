@@ -12,6 +12,10 @@ export const PLACEHOLDER = /\{([\w.]+(?:\[\w+\])?)\}/;
 /** The same grammar over a whole text. */
 export const PLACEHOLDERS = new RegExp(PLACEHOLDER.source, "g");
 
+/** The widths data-image-src offers the browser. Each is a paid transformation
+ * at the edge, so a release hands the adapter this list and it refuses any other. */
+export const IMAGE_WIDTHS = [320, 640, 960];
+
 /** The attributes the browser fetches the moment an element is in the
  * document. */
 const LOADS = ["src", "srcset", "poster"];
