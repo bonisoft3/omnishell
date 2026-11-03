@@ -1289,6 +1289,27 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     stoodIn.add(key);
     return last !== undefined ? [...last.rows] : JSON.parse(carried.body);
   }
+  // A first read has no stand-in, and a view's load is a chain of trips the
+  // screen sat hidden behind. One trip to the server answers it, unless the
+  // view settles first, and the view takes over either way. A failed trip
+  // leaves the read to the view, which says so if it fails too. A table this
+  // tab has written waits for the view, whose rows include what the server may
+  // not have yet.
+  async function oneTrip(key, table, order, opts, views) {
+    if (!keepsReads) return undefined;
+    const tables = readDeps(table, opts);
+    if ([...tables].some((t) => (generation.get(t) ?? 0) > 0)) return undefined;
+    const url = `${crud(table)}?${search(order, opts)}`;
+    const before = generations(tables);
+    const answer = await Promise.race([
+      fetchServer(url).catch(() => undefined),
+      Promise.all(views.map((view) => settled(view))).then(() => undefined, () => undefined),
+    ]);
+    if (answer === undefined || generations(tables) !== before) return undefined;
+    keep(answered, memoKey(url), { body: answer.body, tables, refreshing: null, served: false, servedAt: null });
+    if (!opts.current) stoodIn.add(key);
+    return answer.rows;
+  }
   function recall(key, table, opts, rows) {
     stoodIn.delete(key);
     if (keepsReads) keep(recalled, key, { rows, tables: readDeps(table, opts) });
@@ -1541,7 +1562,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
       const release = lease(held);
       try {
         if (!held.complete()) {
-          const shown = standIn(key, table, order, opts);
+          const shown = standIn(key, table, order, opts) ?? await oneTrip(key, table, order, opts, [held]);
           if (shown !== undefined) return shown;
           await settled(held);
         }
@@ -1565,7 +1586,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
         const demands = snapshotDemands(table, opts);
         for (const entry of demands) releases.push(lease(entry));
         if (demands.some(entry => !entry.complete())) {
-          const shown = standIn(key, table, order, opts);
+          const shown = standIn(key, table, order, opts) ?? await oneTrip(key, table, order, opts, demands);
           if (shown !== undefined) return shown;
         }
         await Promise.all([

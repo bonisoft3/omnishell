@@ -121,6 +121,7 @@ async function adopt(
   live: ReturnType<typeof store>,
   before = (_d: Document) => {},
   worker: Files = { html: template },
+  schema?: Record<string, unknown>,
 ) {
   const { document } = parseHTML(html)
   ;(globalThis as unknown as { document: Document }).document = document
@@ -132,6 +133,7 @@ async function adopt(
   serveTemplate(worker.html, worker.css ?? "", { html: template, css: "" })
   const handle = await interpretScreen(mount, "https://wall.test/", ROUTE, live, {}, {
     routes: ROUTES,
+    ...(schema ? { schema } : {}),
     served: { screen, cas },
   })
   return { document, screen, nodes, handle }
@@ -277,6 +279,22 @@ describe("a running screen whose template moves on", () => {
     await live.wake("note")
     expect(screen.querySelector('[data-id="n3"] .flag')?.textContent).toBe("new")
     handle.stop()
+  })
+
+  it("keeps the rows a tab's underived table has not caught up to", async () => {
+    // Labels are a tab's own table, filled by a fold after the mount, and adopting them empty
+    // wiped the title the server drew, for as long as the fold took.
+    const html = await served(TEMPLATE, { note: NOTES, pin: PIN })
+    const tab = { note: { durability: "tab", fields: [{ name: "id", type: "string", pk: true }] } }
+    const { screen, handle } = await adopt(html, TEMPLATE, store({ note: [], pin: PIN }), undefined, undefined, tab)
+    await handle.settle()
+    expect([...screen.querySelectorAll(".cards > li")].map((c) => c.getAttribute("data-id"))).toEqual(["n1", "n2"])
+    handle.stop()
+    // A table the server keeps said what it said: the list is empty.
+    const { screen: other, handle: otherHandle } = await adopt(html, TEMPLATE, store({ note: [], pin: PIN }))
+    await otherHandle.settle()
+    expect(other.querySelectorAll(".cards > li").length).toBe(0)
+    otherHandle.stop()
   })
 
   it("keeps the state its rows gave it", async () => {

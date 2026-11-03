@@ -124,6 +124,7 @@ Deno.test({
     const fetcher = async (input: unknown, init?: RequestInit) => {
       const url = new URL(String(input))
       if (url.pathname === "/auth/shape") return Response.json({ token: "shape", where: "true", expires_in: 900 })
+      if (url.pathname.startsWith("/crud/")) return new Response("{}", { status: 503 })
       const headers = {
         "electric-handle": "cards", "electric-offset": `0_${offset}`, "electric-cursor": String(offset),
         "electric-schema": JSON.stringify({ id: { type: "text" }, name: { type: "text" } }),

@@ -1283,7 +1283,11 @@ export async function createShell({ config, mount, preload = true }) {
           // however warm its DOM is, and an arrival starts at the top; going
           // back resumes. Only "push" is treated as an arrival.
           window.scrollTo(0, navigationType === "push" ? 0 : entry.scrollY);
-          if (document.visibilityState === "visible") await new Promise((painted) => requestAnimationFrame(painted));
+          // A frame's callbacks run before its paint, so what follows waits for
+          // the task after it, or resuming would hold back the paint it follows.
+          if (document.visibilityState === "visible") {
+            await new Promise((painted) => requestAnimationFrame(() => setTimeout(painted)));
+          }
           if (turn !== showing) return;
           entry.ready = (async () => {
             await entry.handle?.resume();

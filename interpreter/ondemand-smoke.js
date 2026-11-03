@@ -61,7 +61,13 @@ function electric(server, schema) {
       const id = url.searchParams.get("id")?.slice(3);
       const rows = server[table];
       const current = rows.find((r) => r.id === id);
-      if (!init.method || init.method === "GET") return Response.json(current ? [current] : []);
+      if (!init.method || init.method === "GET") {
+        // It states only keys, joining nothing, and any other answer would pass for the server's.
+        const keyed = url.searchParams.get("id")?.startsWith("eq.") && !url.searchParams.get("select")?.includes("(") &&
+          [...url.searchParams.keys()].every((k) => k === "id" || k === "select");
+        if (!keyed) return new Response("{}", { status: 503 });
+        return Response.json(current ? [current] : []);
+      }
       const expected = url.searchParams.get("txid")?.slice(3);
       if (expected !== undefined && current?.txid !== expected) return Response.json([]);
       const txid = ++transaction;
@@ -463,7 +469,7 @@ const lazy = (name, fn, options = {}) =>
       const online = Object.getOwnPropertyDescriptor(navigator, "onLine");
       Object.defineProperty(navigator, "onLine", { value: true, configurable: true });
       try {
-        await withBrowser({ fetch: fake.fetcher }, (createStore) => fn({ fake, store: createStore(fake.base, options.config ?? config()) }));
+        await withBrowser({ fetch: options.fetcher?.(fake) ?? fake.fetcher }, (createStore) => fn({ fake, store: createStore(fake.base, options.config ?? config()) }));
       } finally {
         if (online) Object.defineProperty(navigator, "onLine", online);
         else delete navigator.onLine;
@@ -590,6 +596,45 @@ lazy("a joined player index is recreated after on-demand collection cleanup", as
   const repeatedPlayerSubsets = fake.subsets.filter(subset => subset.table === "player").slice(initialPlayerSubsets.length);
   checkPlayerSubsets(repeatedPlayerSubsets, "the repeated read stays scoped to referenced IDs");
 }, { server: goalWorld(), electricSchema: goalSchema, config: goalConfig });
+
+// A view's load is a chain of trips, and a first read waited on all of it with
+// the screen hidden, so an unvisited deck took seconds to open.
+const trips = [];
+lazy("a first read of a lazy table answers from one trip, and the view takes over", async ({ fake, store }) => {
+  const release = fake.hold("player_game");
+  const opts = { filter: "game_id=eq.g1" };
+  const wakes = [];
+  const stop = store.subscribe("player_game", (changes) => wakes.push(changes), opts);
+  const rows = await store.query("player_game", null, opts);
+  assert(trips.length === 1, `one trip, got ${trips.length}`);
+  assert(JSON.stringify(rows.map((r) => r.id).sort()) === JSON.stringify(["pg1", "pg2"]), `the server's rows: ${JSON.stringify(rows)}`);
+  assert(![...globalThis.__prontoViews.values()][0].complete(), "answered with the view still loading");
+  // A fold acts on what it is given, and a server answer is as current as one gets.
+  const current = await store.query("player_game", null, { ...opts, current: true });
+  assert(current.length === 2, `a current read answers too: ${JSON.stringify(current)}`);
+  release();
+  await until(() => wakes.length > 0, "the load's end woke the reader the trip answered");
+  stop();
+}, {
+  fetcher: (fake) => (input, init) => {
+    const url = new URL(String(input));
+    if (!url.pathname.endsWith("/crud/player_game") || (init?.method && init.method !== "GET")) return fake.fetcher(input, init);
+    trips.push(url.search);
+    return Promise.resolve(Response.json(world().player_game.filter((r) => r.game_id === "g1")));
+  },
+});
+
+lazy("a stalled trip leaves a lazy read to its view", async ({ fake, store }) => {
+  const opts = { filter: "game_id=eq.g1" };
+  const stop = store.subscribe("player_game", () => {}, opts);
+  const rows = await store.query("player_game", null, opts);
+  assert(rows.length === 2, `the view answered: ${JSON.stringify(rows)}`);
+  assert(fake.subsets.length > 0, "from its subset");
+  stop();
+}, {
+  fetcher: (fake) => (input, init) =>
+    /\/crud\/player_game\?/.test(String(input)) && (!init?.method || init.method === "GET") ? new Promise(() => {}) : fake.fetcher(input, init),
+});
 
 lazy("a typed column's equality is one literal of its type, and no `or`", async ({ fake, store }) => {
   const opts = { filter: "round=eq.3" };

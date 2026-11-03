@@ -4058,6 +4058,15 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       const stored = await store.query(table, opts.order, opts);
       reading = false;
       if (stopped) return;
+      // A tab's own table with nothing in it has not been derived yet, which
+      // says nothing of the rows a served document drew from the server's: the
+      // adoption wiped them, and a deck's title blinked out for a second.
+      if (first && served !== undefined && templates.length > 0 && stored.length === 0 && region.children.length > 0 &&
+          cfg.schema?.[table]?.durability === "tab" && (await store.query(table, null, {})).length === 0) {
+        if (stopped) return;
+        finishOwn();
+        return;
+      }
       currentRows = stored;
       const rows = projected(stored);
       // Which rows this pass has to reconsider. null means all of them: a
