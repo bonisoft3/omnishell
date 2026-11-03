@@ -1673,11 +1673,16 @@ export async function createShell({ config, mount, preload = true }) {
       return checking;
     };
     const heed = () => checkRelease()?.catch(unheard);
-    // A control losing focus only retries what was found while editing.
-    const retry = () => setTimeout(() => {
-      if (pending !== null) restart().catch(unheard);
-      else if (deferred) heed();
-    }, 0);
+    // A control losing focus only retries what was found while editing, and
+    // with nothing found it schedules nothing: every blur and change on the
+    // page would otherwise cost a task.
+    const retry = () => {
+      if (pending === null && !deferred) return;
+      setTimeout(() => {
+        if (pending !== null) restart().catch(unheard);
+        else if (deferred) heed();
+      }, 0);
+    };
     document.addEventListener("focusout", retry);
     document.addEventListener("change", retry);
 

@@ -1291,19 +1291,41 @@ const HAS_MOVE_BEFORE = typeof globalThis.Element?.prototype?.moveBefore === "fu
 // the animations the stamp actually started, and fall back to releasing at
 // once where none run — a reduced-motion viewer, or an engine without the
 // Animations API.
+//
+// Asked when the pass has placed its nodes (answerSettles), not a frame later:
+// getAnimations resolves style itself, so it already sees what data-enter or
+// data-exit started, and a row with nothing to play leaves before the paint
+// instead of standing one frame inert. The frame is the fallback for a node no
+// pass has placed yet.
+const settling = new Set();
 function settle(node, done) {
-  raf(() => {
-    const running = node.getAnimations?.({ subtree: true }) ?? [];
-    if (running.length === 0) return done();
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      done();
-    };
-    Promise.allSettled(running.map((a) => a.finished)).then(finish);
-    setTimeout(finish, MOTION_CAP_MS);
-  });
+  const entry = { node, done };
+  settling.add(entry);
+  entry.frame = globalThis.requestAnimationFrame?.(() => answer(entry));
+  if (entry.frame === undefined) setTimeout(() => answer(entry), 0);
+}
+
+function answer(entry, running = entry.node.getAnimations?.({ subtree: true }) ?? []) {
+  if (!settling.delete(entry)) return;
+  if (entry.frame !== undefined) globalThis.cancelAnimationFrame?.(entry.frame);
+  if (running.length === 0) return entry.done();
+  let settled = false;
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    entry.done();
+  };
+  Promise.allSettled(running.map((a) => a.finished)).then(finish);
+  setTimeout(finish, MOTION_CAP_MS);
+}
+
+/** Answers every settle whose node is in the document and can say what it is
+ * playing; an engine without the Animations API keeps its frame. Every node is
+ * read before any is released, so style resolves once for the pass. */
+function answerSettles() {
+  const placed = [...settling].filter((e) => e.node.isConnected && typeof e.node.getAnimations === "function");
+  const running = placed.map((e) => e.node.getAnimations({ subtree: true }));
+  placed.forEach((e, i) => answer(e, running[i]));
 }
 
 function playEnter(node) {
@@ -4257,6 +4279,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
               if (select.value === select._prontoBound) select._prontoBound = undefined;
             }
             fromEnclosing(() => bindElementAttributes(region, ctx), table, "own element");
+            answerSettles();
           };
           const wireListNodes = () => {
             wireKeysOn(region);

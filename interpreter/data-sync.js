@@ -60,7 +60,7 @@ const later = (fn) => {
     done = true;
     channel.port1.close();
     channel.port2.close();
-    if (frame !== undefined) globalThis.cancelAnimationFrame(frame);
+    if (frame !== undefined) globalThis.cancelAnimationFrame?.(frame);
   };
   const run = () => {
     if (done) return;
