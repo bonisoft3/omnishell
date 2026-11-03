@@ -1295,20 +1295,35 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   // leaves the read to the view, which says so if it fails too. A table this
   // tab has written waits for the view, whose rows include what the server may
   // not have yet.
+  //
+  // The trip holds the views until they settle and is shared until then. A
+  // reader answered early lets go of its view, and a fold's read has no other
+  // holder: each wake rebuilt the view, found it loading and asked again, some
+  // two hundred requests to reopen a deck.
+  const trips = new Map();
   async function oneTrip(key, table, order, opts, views) {
     if (!keepsReads) return undefined;
     const tables = readDeps(table, opts);
     if ([...tables].some((t) => (generation.get(t) ?? 0) > 0)) return undefined;
     const url = `${crud(table)}?${search(order, opts)}`;
-    const before = generations(tables);
-    const answer = await Promise.race([
-      fetchServer(url).catch(() => undefined),
-      Promise.all(views.map((view) => settled(view))).then(() => undefined, () => undefined),
-    ]);
-    if (answer === undefined || generations(tables) !== before) return undefined;
-    keep(answered, memoKey(url), { body: answer.body, tables, refreshing: null, served: false, servedAt: null });
+    const address = memoKey(url);
+    const loaded = () => Promise.all(views.map((view) => settled(view))).then(() => undefined, () => undefined);
+    let trip = trips.get(address);
+    if (trip === undefined) {
+      const before = generations(tables);
+      trip = fetchServer(url).then((answer) => (generations(tables) === before ? answer : undefined), () => undefined);
+      trips.set(address, trip);
+      const releases = views.map((view) => lease(view));
+      loaded().finally(() => {
+        trips.delete(address);
+        for (const release of releases) release();
+      });
+    }
+    const answer = await Promise.race([trip, loaded()]);
+    if (answer === undefined) return undefined;
+    keep(answered, address, { body: answer.body, tables, refreshing: null, served: false, servedAt: null });
     if (!opts.current) stoodIn.add(key);
-    return answer.rows;
+    return JSON.parse(answer.body);
   }
   function recall(key, table, opts, rows) {
     stoodIn.delete(key);

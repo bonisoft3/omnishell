@@ -624,6 +624,33 @@ lazy("a first read of a lazy table answers from one trip, and the view takes ove
   },
 });
 
+const rereads = [];
+lazy("reads of a loading view share one trip, and the view still finishes with no subscriber", async ({ fake, store }) => {
+  // A fold's read has no subscription, so answering it early let go of the view: each wake rebuilt
+  // it, found it loading and asked the server again, some two hundred requests to reopen a deck.
+  const release = fake.hold("player_game");
+  const opts = { filter: "game_id=eq.g1", current: true };
+  for (let i = 0; i < 4; i++) {
+    assert((await store.query("player_game", null, opts)).length === 2, "the trip answered");
+    await tick(5);
+  }
+  assert(rereads.length === 1, `one trip for one load, got ${rereads.length}`);
+  const subsets = fake.subsets.filter((s) => s.table === "player_game").length;
+  assert(subsets === 1, `one subset for one load, got ${subsets}`);
+  const [view] = [...globalThis.__prontoViews.values()];
+  assert(view !== undefined && !view.complete(), "the view outlived the reads it answered");
+  release();
+  // The trip lets go only once the view has settled, so one still loading stays here.
+  await until(() => globalThis.__prontoViews.size === 0, "the view finished and the trip let go");
+}, {
+  fetcher: (fake) => (input, init) => {
+    const url = new URL(String(input));
+    if (!url.pathname.endsWith("/crud/player_game") || (init?.method && init.method !== "GET")) return fake.fetcher(input, init);
+    rereads.push(url.search);
+    return Promise.resolve(Response.json(world().player_game.filter((r) => r.game_id === "g1")));
+  },
+});
+
 lazy("a stalled trip leaves a lazy read to its view", async ({ fake, store }) => {
   const opts = { filter: "game_id=eq.g1" };
   const stop = store.subscribe("player_game", () => {}, opts);
