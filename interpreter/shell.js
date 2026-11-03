@@ -1273,19 +1273,24 @@ export async function createShell({ config, mount, preload = true }) {
           await entry.ready;
           if (turn !== showing) return;
           entry.mutationActive = true;
+          reword(entry);
+          if (route.screen === "cards") applyPendingAuthor();
+          // What it drew is on hand, so it shows at once and refreshes behind:
+          // resuming first kept a screen in memory hidden through every read
+          // its regions ask again.
+          present(entry);
+          // Following a link to a screen visited before is a fresh arrival
+          // however warm its DOM is, and an arrival starts at the top; going
+          // back resumes. Only "push" is treated as an arrival.
+          window.scrollTo(0, navigationType === "push" ? 0 : entry.scrollY);
+          if (document.visibilityState === "visible") await new Promise((painted) => requestAnimationFrame(painted));
+          if (turn !== showing) return;
           entry.ready = (async () => {
             await entry.handle?.resume();
             await entry.handle?.settle();
           })();
           await entry.ready;
           if (turn !== showing) return;
-          reword(entry);
-          if (route.screen === "cards") {
-            applyPendingAuthor();
-            await entry.handle?.settle();
-            if (turn !== showing) return;
-          }
-          present(entry);
         } catch (err) {
           if (turn === showing) await restorePresentation(entry);
           if (entry !== current && entry !== presented) discard(entry);
@@ -1293,10 +1298,6 @@ export async function createShell({ config, mount, preload = true }) {
           throw err;
         }
         describe(document, cfg, { route, params, locale, written, el: entry.el, origin: location.origin });
-        // Following a link to a screen visited before is a fresh arrival
-        // however warm its DOM is, and an arrival starts at the top; going
-        // back resumes. Only "push" is treated as an arrival.
-        window.scrollTo(0, navigationType === "push" ? 0 : entry.scrollY);
         try { applyThemeMode(sessionStorage.getItem("omnishell-theme") || "auto"); } catch (_e) {}
         linkPrefetch.idle();
         if (preload) {

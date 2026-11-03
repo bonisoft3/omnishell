@@ -286,6 +286,36 @@ describe("release draft recovery", () => {
       })
     } finally { await server.close() }
   })
+  it("shows a held screen at once and refreshes it behind", async () => {
+    const server = await serve(false, false, undefined, false, false, { coldBoot: true })
+    try {
+      await withPage(async page => {
+        await page.addInitScript(() => {
+          const state = window as any
+          let store: any
+          const gate = new Promise<void>(resolve => { state.releaseRead = resolve })
+          Object.defineProperty(window, "__prontoStore", {
+            configurable: true, get() { return store }, set(value) {
+              store = value
+              const query = store.query
+              store.query = async (...args: any[]) => {
+                if (state.holdRead && args[0] === "probe") { state.readHeld = true; await gate }
+                return query(...args)
+              }
+            },
+          })
+        })
+        await page.goto(server.base)
+        await ready(page, "A")
+        await page.evaluate(() => (window as any).navigate("/other").finished)
+        await page.evaluate(() => { (window as any).holdRead = true; (window as any).navigate("/") })
+        // Hidden until its reads answered, a screen in memory waited on the network to be shown.
+        await page.waitForFunction(() => (window as any).readHeld === true)
+        expect(await page.evaluate(() => document.querySelector('[data-screen="home"]')?.closest(".shell-screen")?.hasAttribute("hidden"))).toBe(false)
+        await page.evaluate(() => (window as any).releaseRead())
+      })
+    } finally { await server.close() }
+  })
   it("keeps newer input while a replacement screen waits for a region read", async () => {
     const server = await serve()
     try {
