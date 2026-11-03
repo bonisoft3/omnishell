@@ -196,6 +196,26 @@ export function prefetchScreen(appBase, route) {
     pending.catch(() => {});
     if (!kept.has(url.href)) prefetched.set(url.href, pending);
   }
+  return ahead[0][1];
+}
+
+/** The reads a screen's markup declares that its address alone decides, as its regions will ask
+ * them. A region in a row's template, or reading anything but the params, waits for its mount. */
+export function addressedReads(text, params) {
+  const ctx = { params };
+  const reads = [];
+  for (const region of parseMarkup(document, text).querySelectorAll("[data-live]")) {
+    const { live: table, filter, order, select } = region.dataset;
+    if ([...(filter ?? "").matchAll(PLACEHOLDERS)].some(([, expr]) => !expr.startsWith("param."))) continue;
+    const parsed = order === undefined || order === "" ? undefined : parseOrder(order, table);
+    if (parsed !== undefined && parsed.literal === undefined) continue;
+    const opts = {};
+    if (filter) opts.filter = interpolateFilter(filter, ctx);
+    if (select) opts.select = select;
+    if (parsed !== undefined) opts.order = parsed.literal;
+    reads.push({ table, order: opts.order, opts });
+  }
+  return reads;
 }
 
 // A slot read that matched more than one row. Its own type so the outage
@@ -2747,6 +2767,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       if (next.delay > 0) {
         pause?.();
         await rest(next.delay / TEMPO, { kind: "then", type: next.type });
+        // What a delay hands to the future is no part of what the screen waits for: begun before
+        // the screen is on show, settle would track its writes and keep the screen hidden.
+        await screenOpts.presented;
       }
       const carried = { type: next.type };
       // A draw the reduce asked for. It has no randomness of its own — the
@@ -3966,20 +3989,18 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // markup is one form — a row of per-label file buttons, a per-row action —
     // is not inside itself, and querySelectorAll alone would leave it unwired,
     // clicking into silence.
+    let drawn = null;
     const stamp = (entry, tmpl) => {
       // A row already drawn under this key — a served document's, or one
       // written into the markup — is the row's node from here on, and the
       // binding below brings it to the row as it is now. One an older template
-      // drew is first morphed to this one's item (adoptTree).
+      // drew is first morphed to this one's item (adoptTree). One map for the
+      // pass: scanning the children per row kept a served list of thousands of
+      // rows on the main thread for half a second, with the page looking ready.
       let node = null;
       if (first) {
-        const key = String(entry.ctx.row.id);
-        for (const child of region.children) {
-          if (child.dataset?.id === key) {
-            node = child;
-            break;
-          }
-        }
+        drawn ??= new Map([...region.children].reverse().map((child) => [child.dataset?.id, child]));
+        node = drawn.get(String(entry.ctx.row.id)) ?? null;
       }
       if (node) {
         const item = tmpl.content.firstElementChild.cloneNode(true);
@@ -4023,6 +4044,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // that a failure is told apart as the read's rather than the render's.
     let reading = false;
     const refresh = async (changes) => {
+      drawn = null;
       reading = true;
       const stored = await store.query(table, opts.order, opts);
       reading = false;

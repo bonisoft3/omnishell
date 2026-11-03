@@ -16,26 +16,6 @@
 {sharedstyles}
 <link rel="preload" href="./shell.json" as="fetch" crossorigin>
 {modulepreload}
-<script type="speculationrules">
-{
-  "prefetch": [
-    {
-      "source": "document",
-      "where": {
-        "and": [
-          { "href_matches": "/*" },
-          { "not": { "href_matches": "/auth/*" } },
-          { "not": { "href_matches": "/crud/*" } },
-          { "not": { "href_matches": "/electric/*" } },
-          { "not": { "href_matches": "/srv/*" } },
-          { "not": { "href_matches": "/shell/*" } }
-        ]
-      },
-      "eagerness": "moderate"
-    }
-  ]
-}
-</script>
 </head>
 <body>
 <main id="app"></main>

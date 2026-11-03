@@ -864,14 +864,14 @@ export async function createShell({ config, mount, preload = true }) {
     }
 
     await catalogued;
-    const { createStore, servedReadsOf, takeProgressiveReads } = await dataPlane;
+    const { createStore } = await dataPlane;
     const store = createStore("", {
       ...cfg,
       appBase,
       mintedGuest,
       ensureSession: guestSession ? () => guestSession : null,
     });
-    const linkPrefetch = startLinkPrefetch({ addresses, appBase, store, servedReadsOf, takeProgressiveReads });
+    const linkPrefetch = startLinkPrefetch({ addresses, appBase, store });
     recovery = JSON.parse(sessionStorage.getItem(recoveryKey) ?? "null");
     const owner = session === null ? storedSessionOwner() : sessionOwner(session);
     if (initialDraftOwner !== owner) initialFields = null;
@@ -930,6 +930,7 @@ export async function createShell({ config, mount, preload = true }) {
       delete entry.el.dataset.entering;
       activateScreenStyle(`screen-css-${entry.route.screen}`);
       entry.handle?.present();
+      entry.onPresented?.();
       if (previous && previous !== entry) {
         previous.handle?.pause();
         previous.el.hidden = true;
@@ -1242,6 +1243,7 @@ export async function createShell({ config, mount, preload = true }) {
         held.set(key, current);
         await current.handle.retarget(params);
         if (turn !== showing) return;
+        feedback.settle();
         mount.querySelector(":scope > [data-shell-error]")?.remove();
         describe(document, cfg, { route, params, locale, written, el: current.el, origin: location.origin });
         linkPrefetch.idle();
@@ -1370,6 +1372,7 @@ export async function createShell({ config, mount, preload = true }) {
           navigate,
           mutationActive: () => fresh.mutationActive,
           registerMutationDrain: (drain) => { fresh.mutationDrain = drain; },
+          presented: new Promise((resolve) => { fresh.onPresented = resolve; }),
           ...(seeded ? { seeded } : {}),
           ...(adopting ? { served: { screen: adopting.firstElementChild, cas: servedCas } } : {}),
         }));

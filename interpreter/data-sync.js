@@ -1495,16 +1495,33 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     return rows;
   }
 
+  function answersLocally(table, order, opts) {
+    if (pendingSession && !token()) return false;
+    if (maintainedView(table, { ...opts, order }, false)?.complete()) return true;
+    const tables = snapshotTables(table, opts);
+    return tables.length > 0 && tables.every((t) => !lazy(t) && client.collections[t]?.isReady?.());
+  }
+
+  /** One read of a screen not on show yet, kept for the page at `at` as a document's would be,
+   * and with the reader's own token, so it holds for any reader. */
+  async function readAhead(table, order, opts, at) {
+    if (!keepsReads || local[table] !== undefined || answersLocally(table, order, opts)) return;
+    const url = `${crud(table)}?${search(order, opts)}`;
+    const tables = readDeps(table, opts);
+    const before = generations(tables);
+    const { body } = await fetchServer(url);
+    if (generations(tables) !== before) return;
+    if (!prefetchedPages.has(at)) prefetchedPages.set(at, new Map());
+    if (prefetchedPages.size > 16) prefetchedPages.delete(prefetchedPages.keys().next().value);
+    prefetchedPages.get(at).set(readKey(url, at), body);
+    notifySeeded(memoKey(url));
+  }
+
   async function read(table, order, opts = {}) {
     order ??= opts.order;
     const url = `${crud(table)}?${search(order, opts)}`;
     const rKey = recallKey(table, order, opts);
-    const isLocalReady = () => {
-      if (pendingSession && !token()) return false;
-      if (maintainedView(table, { ...opts, order }, false)?.complete()) return true;
-      const tables = snapshotTables(table, opts);
-      return tables.length > 0 && tables.every((t) => !lazy(t) && client.collections[t]?.isReady?.());
-    };
+    const isLocalReady = () => answersLocally(table, order, opts);
     if (!requestOnly(table) && local[table] === undefined && !recalled.has(rKey) &&
         !hasServedRead(url) && !(keepsReads && answered.has(memoKey(url))) &&
         !isLocalReady()) {
@@ -2453,6 +2470,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     query,
     orderOf,
     seedReads,
+    readAhead,
     waitSeed,
     add: writing(add),
     write: writing(write),

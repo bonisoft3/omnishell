@@ -29,7 +29,7 @@ async function importClosure(roots: string[]): Promise<string[]> {
 // The door as it serves a release (server/release-addresses.ts): each
 // deployment's tree addressed, every address any deployment wrote still
 // answered, and the current entry at every route.
-async function serve(authenticated = false, automaticGuest = false, promoteTo?: string, retarget = false, mutationDrain = false, transition: { gate?: Promise<void>; fail?: number; hatches?: boolean; locales?: boolean; coldBoot?: boolean } = {}) {
+async function serve(authenticated = false, automaticGuest = false, promoteTo?: string, retarget = false, mutationDrain = false, transition: { gate?: Promise<void>; fail?: number; hatches?: boolean; locales?: boolean; coldBoot?: boolean; delayedThen?: boolean } = {}) {
   const screen = (name: string) => `<section class="screen" data-screen="${name}"><h1>Release</h1><input name="draft" id="draft"><input name="answer" type="radio" value="no"><input name="answer" type="radio" value="yes"><div data-live="probe"><template data-item><p data-text="{id}"></p></template></div></section>`
   const files = new Map<string, string>([
     ["shell/index.html", `<!doctype html><html><head><base href="/shell/"><link rel="stylesheet" href="shell.css"></head><body><div id="app"><div class="shell-screen" data-served>${screen("home")}</div></div><script type="module" src="boot.js"></script></body></html>`],
@@ -83,6 +83,19 @@ async function serve(authenticated = false, automaticGuest = false, promoteTo?: 
       files.set(handler, `() => ({ updates: [{op:"put",entity:"label",id:"label",row:{value:"${value}"}}${name === "other" ? ',{op:"put",entity:"late",id:"late",row:{value:"es"}}' : ""}] })`)
     }
     files.set("shell/shell.json", JSON.stringify(config))
+  }
+  if (transition.delayedThen) {
+    const config = JSON.parse(files.get("shell/shell.json")!)
+    config.local = { probe: "tab", held: "tab", later: "tab" }
+    config.schema = Object.fromEntries(Object.keys(config.local).map(table => [table, { fields: [{ name: "id", type: "string" }, { name: "value", type: "string" }] }]))
+    config.routes.push({ path: "/delayed", screen: "delayed", nav: { strip: false }, files: { html: "shell/screens/delayed.html", css: "shell/screens/delayed.css", handlers: ["shell/handlers/delayed.js"] } })
+    files.set("shell/shell.json", JSON.stringify(config))
+    files.set("shell/screens/delayed.html", `<section class="screen" data-screen="delayed"><div data-live="held" data-empty=""><template data-item><p data-text="{id}"></p></template></div><div data-live="probe" data-filter="id=eq.seat" data-empty-row='{"id":"seat","value":""}' data-on-mutation="delayed"><template data-item><p data-text="{id}"></p></template></div></section>`)
+    files.set("shell/screens/delayed.css", "")
+    files.set("shell/handlers/delayed.js", `(state, event) => event.type === "later"
+      ? { updates: [{ op: "put", entity: "later", id: "later", row: { id: "later", value: "written" } }] }
+      : state.rows.probe?.[0]?.value ? { updates: [] }
+      : { updates: [{ op: "put", entity: "probe", id: "seat", row: { id: "seat", value: "asked" } }], then: { type: "later", delay: 1 } }`)
   }
   if (transition.hatches) {
     const config = JSON.parse(files.get("shell/shell.json")!)
@@ -190,6 +203,8 @@ describe("release draft recovery", () => {
         await page.locator('#next').evaluate((el: HTMLAnchorElement) => el.click())
         await page.waitForURL('**/deck/a/Charmander')
         await page.waitForFunction(() => document.querySelector('#card')?.textContent === 'Charmander')
+        // A retarget presents nothing new, and the link pulsed forever when only a presented screen ended it.
+        await page.waitForFunction(() => !document.querySelector('#next')?.hasAttribute('aria-busy'))
         expect(await page.evaluate(() => document.querySelector('#card') === (window as any).originalCard)).toBe(true)
         expect(await page.evaluate(() => window.scrollY)).toBe(500)
         await page.goBack()
@@ -198,6 +213,43 @@ describe("release draft recovery", () => {
         await page.goForward()
         await page.waitForFunction(() => document.querySelector('#card')?.textContent === 'Charmander')
         expect(await page.evaluate(() => document.querySelector('#card') === (window as any).originalCard)).toBe(true)
+      })
+    } finally { await server.close() }
+  })
+  it("begins a delayed then only once its screen is on show", async () => {
+    const server = await serve(false, false, undefined, false, false, { delayedThen: true })
+    try {
+      await withPage(async page => {
+        await page.addInitScript(() => {
+          let store: any
+          Object.defineProperty(window, "__prontoStore", {
+            configurable: true,
+            get() { return store },
+            set(value) {
+              store = value
+              const gate = new Promise<void>(resolve => { (window as any).finishRead = resolve })
+              const { query, write } = store
+              store.query = async (...args: any[]) => {
+                if (args[0] === "held") await gate
+                return query(...args)
+              }
+              store.write = (entity: string, ...rest: any[]) => {
+                ((window as any).writes ??= []).push([entity, document.querySelector('[data-screen="delayed"]')?.closest(".shell-screen")?.hasAttribute("hidden")])
+                return write(entity, ...rest)
+              }
+            },
+          })
+        })
+        await page.goto(server.base)
+        await ready(page, "A")
+        await page.evaluate(() => { (window as any).navigate("/delayed") })
+        await page.waitForFunction(() => (window as any).writes?.some(([entity]: [string]) => entity === "probe"))
+        await page.waitForTimeout(100)
+        // A write begun behind the screen is one settle waits for, so a slow server held the screen hidden.
+        expect(await page.evaluate(() => (window as any).writes.some(([entity]: [string]) => entity === "later"))).toBe(false)
+        await page.evaluate(() => (window as any).finishRead())
+        await page.waitForFunction(() => (window as any).writes.some(([entity]: [string]) => entity === "later"))
+        expect(await page.evaluate(() => (window as any).writes.find(([entity]: [string]) => entity === "later")[1])).toBe(false)
       })
     } finally { await server.close() }
   })

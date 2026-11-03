@@ -1,27 +1,20 @@
 // The first click on a link drew its screen empty until the screen's reads
-// came back, where a second click drew it whole from the tab. A link's
-// document, rendered for a fresh guest, carries the very /crud reads its first
-// paint makes (data-sync.js, carryReads), so fetching it ahead and seeding the
-// store with them makes the first click the second. Its markup and stylesheet
-// come along (prefetchScreen).
+// came back, where a second click drew it whole from the tab. So a link's screen
+// reads ahead: its markup and stylesheet (prefetchScreen), and the reads that
+// markup declares with nothing but the link's own params, each kept for the page
+// at that address. Never its document: a render holds the database's one
+// connection for seconds, and a pointer crossing a page of links would queue
+// one each ahead of the click it was on its way to.
 //
-// A data read carries the guest's token, which no <link rel=prefetch> or
-// speculation rule can send, so this asks itself; it keeps to what the
-// browser's own speculation keeps to. Nothing on a connection that asked to
-// save data or on a 2G one, nothing in a hidden tab. Ahead of intent, when the
-// browser says it is idle, only the navigation strip's links: the app's own
-// places, which the program bounds. A page's links to rows are as many as its
-// rows, and each document a prefetch asks for is a render the cluster makes,
-// so any other link waits for a pointer to rest on it or for focus. Each
-// address once per document, at low priority, so the browser schedules them
-// behind what the page itself needs, and marked as the browser marks its own
-// (Purpose: prefetch), which a stale cached document is served whole for.
-// servedReadsOf comes from the data plane the shell loads apart, so that this
-// module costs the first paint nothing of it.
-import { prefetchScreen } from "./screen.js";
+// It keeps to what the browser's own speculation keeps to: nothing on a
+// connection that asked to save data or on a 2G one, nothing in a hidden tab.
+// Ahead of intent, when the browser says it is idle, only the navigation strip's
+// links: the app's own places, which the program bounds. Each address once per
+// document.
+import { addressedReads, prefetchScreen } from "./screen.js";
 
-/** @param {{ addresses: any, appBase: any, store: any, servedReadsOf: any, takeProgressiveReads?: any }} opts */
-export function startLinkPrefetch({ addresses, appBase, store, servedReadsOf, takeProgressiveReads }) {
+/** @param {{ addresses: any, appBase: any, store: any }} opts */
+export function startLinkPrefetch({ addresses, appBase, store }) {
   const asked = new Map();
 
   const saving = () => {
@@ -29,64 +22,15 @@ export function startLinkPrefetch({ addresses, appBase, store, servedReadsOf, ta
     return c?.saveData === true || /(^|-)2g$/.test(c?.effectiveType ?? "");
   };
 
-  async function prefetch(url, speculative = true, idle = false) {
+  async function prefetch(url) {
     const found = addresses(url);
-    prefetchScreen(appBase, found.route);
-    // A route the terminal draws on its own is served a shell that carries
-    // nothing; only a rendered one is worth its document.
-    if (found.route.ssr !== "ssr" && found.route.ssr !== "ssg") return false;
-    const init = speculative
-      ? {
-          headers: {
-            Accept: "text/html",
-            Purpose: "prefetch",
-            "X-Pronto-Prefetch": "1",
-            ...(idle ? { "X-Pronto-Speculative": "1" } : {}),
-          },
-          ...(idle ? { priority: "low" } : {}),
-        }
-      : {
-          headers: { Accept: "text/html", "X-Pronto-Prefetch": "1" },
-        };
-    // A document that did not come leaves the click to ask, as it always
-    // did; one that came with reads no store can take is a program's fault,
-    // and says so.
-    const res = await fetch(url.href, init).catch(() => null);
-    if (res === null || res.status !== 200) return false;
-    const fresh = res.headers.get("x-edge-cache") !== "stale" && (!speculative || res.headers.has("x-edge-cache"));
-    const seedOpts = fresh ? { at: url.href } : undefined;
-    if (takeProgressiveReads && res.body?.getReader) {
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      const parts = [];
-      let tail = "";
-      for (;;) {
-        let step;
-        try {
-          step = await reader.read();
-        } catch {
-          return false;
-        }
-        const { done, value } = step;
-        const chunk = done ? decoder.decode() : decoder.decode(value, { stream: true });
-        if (chunk) {
-          parts.push(chunk);
-          const { reads, rest } = takeProgressiveReads(tail + chunk);
-          tail = rest;
-          if (reads.size > 0) store.seedReads(reads, seedOpts);
-        }
-        if (done) break;
-      }
-      store.seedReads(servedReadsOf(parts.join("")), seedOpts);
-      return true;
-    }
-    const text = await res.text().catch(() => null);
-    if (text === null) return false;
-    store.seedReads(servedReadsOf(text), seedOpts);
-    return true;
+    const markup = await prefetchScreen(appBase, found.route);
+    // A read that did not come leaves the screen to ask, and to say so if it fails too.
+    await Promise.allSettled(addressedReads(markup, found.params).map((read) =>
+      store.readAhead(read.table, read.order, read.opts, url.href)));
   }
 
-  function want(href, idle = false) {
+  function want(href) {
     if (saving() || document.visibilityState !== "visible") return;
     const url = new URL(href, location.href);
     if (url.origin !== location.origin) return;
@@ -100,7 +44,7 @@ export function startLinkPrefetch({ addresses, appBase, store, servedReadsOf, ta
     const same = here !== null && target !== null && target.route.screen === here.route.screen &&
       JSON.stringify(target.params) === JSON.stringify(here.params);
     if (asked.has(key) || target === null || same) return;
-    const p = prefetch(url, true, idle);
+    const p = prefetch(url);
     p.catch(() => {});
     asked.set(key, p);
     return p;
@@ -108,7 +52,7 @@ export function startLinkPrefetch({ addresses, appBase, store, servedReadsOf, ta
 
   const intent = (e) => {
     const a = e.target?.closest?.("a[href]");
-    if (a && !a.target && !a.hasAttribute("download") && !a.getAttribute("href").startsWith("#")) want(a.href, false);
+    if (a && !a.target && !a.hasAttribute("download") && !a.getAttribute("href").startsWith("#")) want(a.href);
   };
   addEventListener("pointerover", intent, { passive: true });
   addEventListener("pointerdown", intent, { passive: true });
@@ -123,26 +67,24 @@ export function startLinkPrefetch({ addresses, appBase, store, servedReadsOf, ta
         const links = [...document.querySelectorAll("body > nav a[href]")].map((a) => a.href);
         const step = (i) => {
           if (i >= links.length) return;
-          Promise.resolve(want(links[i], true)).finally(() => {
+          Promise.resolve(want(links[i])).catch(() => {}).finally(() => {
             requestIdleCallback(() => step(i + 1));
           });
         };
         step(0);
       });
     },
-    /** Joins an in-flight prefetch on navigation or asks the SSR document
-     * once when speculation did not run or answered 204. */
+    /** Joins an in-flight prefetch on navigation, or reads ahead once when none ran. */
     async seed(href) {
       const url = new URL(href, location.href);
-      const found = addresses(url);
-      if (found === null || found.route.ssr !== "ssr") return;
+      if (addresses(url) === null) return;
       const key = url.pathname + url.search;
       const prior = asked.get(key);
-      if (prior !== undefined && await prior) return;
+      if (prior !== undefined) return prior.catch(() => {});
       if (saving()) return;
-      const run = prefetch(url, false);
+      const run = prefetch(url);
       asked.set(key, run);
-      await run;
+      await run.catch(() => {});
     },
   };
 }

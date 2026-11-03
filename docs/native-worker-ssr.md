@@ -27,7 +27,7 @@ as top-level reads settle, then stream nested regions in document order and
 embed their snapshot `/crud/*` responses in
 `<script type="application/json" id="pronto-reads">` before `</body>` so fresh
 guest tabs adopt the SSR DOM without re-fetching those queries after first
-paint. Prefetches (`X-Pronto-Prefetch: 1`) also receive `<!--pronto-read:...-->`
+paint. Requests marked `X-Pronto-Prefetch: 1` also receive `<!--pronto-read:...-->`
 comments as each region's reads resolve, letting an in-flight navigation seed
 the store progressively; those comments are stripped before storing the document
 in `caches.default`. Within one snapshot render or one browser microtask,
@@ -37,7 +37,7 @@ unfiltered/subset rowsets satisfy alternate column orders and embed subsets in
 memory, and unpaginated row-preserving `col=eq.<val>` waves combine into
 `col=in.(...)` while still recording each caller's original query key in
 `#pronto-reads`. The entry Worker stores 200 GET renders in `caches.default` for
-86,400 s, keyed by renderer, reset, public-write timestamp, locale and URL,
+86,400 s, keyed by renderer, reset, locale and URL,
 while sending `Cache-Control: public, no-cache, must-revalidate` and
 `Vary: Accept-Language` to the browser. Concurrent cold misses and stale
 revalidations for the same key share one in-flight render. Interactive renders,
@@ -45,8 +45,8 @@ intent-driven prefetches (`pointerover`/`pointerdown`/`focusin`), and `/crud/*`
 requests take the high-priority PGlite lane ahead of background Electric shape
 snapshots, stale SWR revalidations, and idle navigation-strip prefetches
 (`X-Pronto-Speculative: 1`).
-Fresh cache hits (`<= 60s`) keep `#pronto-reads` and their ETag; stale hits
-(`> 60s`) drop the ETag, trigger `ctx.waitUntil` background regeneration, and
+Fresh cache hits (`<= 60s` old, and begun after the last public write) keep
+`#pronto-reads` and their ETag; stale hits (any other) drop the ETag, trigger `ctx.waitUntil` background regeneration, and
 strip `#pronto-reads` on navigation so the browser paints the cached HTML
 immediately and refreshes its live regions from `/crud/*` after first paint.
 Matching `If-None-Match` GET/HEAD requests bypass the edge cache and can receive

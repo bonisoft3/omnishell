@@ -95,7 +95,7 @@ endowed**.
 | `{op: "put", entity?, id, row}` | `write` | the row at this key **is** this |
 | `{op: "patch", entity?, id, row}` | `patch` | the fields it names **become** this |
 | `{op: "delete", entity?, id}` | `drop` | this key **has no** row |
-| `then: {type, delay?, seed?, uuid?, with?}` | re-wakes this reduce after `delay`; `uuid: true` hands it `event.uuid`, a version-4 key; `seed: true` hands it `event.seed`, a draw `?seed=` replays; `with` arrives as `event.with` | the only source of time |
+| `then: {type, delay?, seed?, uuid?, with?}` | re-wakes this reduce after `delay`, and no sooner than its screen is on show, so what that wake writes never holds the screen back; `uuid: true` hands it `event.uuid`, a version-4 key; `seed: true` hands it `event.seed`, a draw `?seed=` replays; `with` arrives as `event.with` | the only source of time |
 
 `id` is the key and `row` is the body — the identity is the URI and never
 repeated inside the payload, so a row need not carry a key that may be spelled
