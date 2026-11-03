@@ -80,9 +80,9 @@ describe("a rendered document's hydration preloads", () => {
     // miss the fetch cache and parse modules outside their compartment.
     const document = await rendered("http://renderer.internal/", "/shell/", '<link rel="modulepreload" href="/omnishell/interpreter/screen.js">')
     const paint = loader(document)
-    expect(document.querySelectorAll('link[rel="preload"], link[rel="modulepreload"], script[src]:not([data-pronto-boot])').length).toBe(0)
+    expect(document.querySelectorAll('link[rel="preload"], link[rel="modulepreload"], script[src]:not([data-pronto-boot], [async])').length).toBe(0)
     expect(paint("first-paint")).toBe(false)
-    expect(document.querySelectorAll('link[rel="preload"], link[rel="modulepreload"], script[src]:not([data-pronto-boot])').length).toBe(0)
+    expect(document.querySelectorAll('link[rel="preload"], link[rel="modulepreload"], script[src]:not([data-pronto-boot], [async])').length).toBe(0)
     expect(paint("first-contentful-paint")).toBe(true)
     const fetches = [...document.querySelectorAll('link[rel="preload"][as="fetch"]')]
     expect(fetches.map((link) => link.getAttribute("href"))).toEqual([
@@ -94,7 +94,7 @@ describe("a rendered document's hydration preloads", () => {
     expect(document.querySelector('link[as="style"]')?.hasAttribute("crossorigin")).toBe(false)
     expect([...document.querySelectorAll('link[rel="modulepreload"]')].map((link) => link.getAttribute("href")))
       .toEqual(["/omnishell/interpreter/screen.js"])
-    expect(document.querySelector("script[src]")?.getAttribute("src")).toBe("https://reader.test/shell/boot.js")
+    expect(document.querySelector("script[src]:not([async])")?.getAttribute("src")).toBe("https://reader.test/shell/boot.js")
     expect(document.querySelector('link[href*="other"]')).toBe(null)
     expect(document.documentElement.outerHTML).not.toContain("renderer.internal")
   })

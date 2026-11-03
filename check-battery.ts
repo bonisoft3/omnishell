@@ -160,6 +160,7 @@ export function callSites(html: string): Map<string, CallSite[]> {
     // deno-lint-ignore no-explicit-any
     for (const state of Object.values(chart.states ?? {}) as any[]) {
       for (const value of Object.values(state.on ?? {})) walk(value);
+      if (state.always !== undefined) walk(state.always);
       for (const [delay, value] of Object.entries(state.after ?? {})) {
         // A non-numeric delay is a module answering the milliseconds.
         if (!/^\d+$/.test(delay)) take(delay, { table });

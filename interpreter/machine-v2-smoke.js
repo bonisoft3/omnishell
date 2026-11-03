@@ -836,6 +836,74 @@ Deno.test({
   },
 });
 
+// A fold's foreign fact arrives as a column, and a chart that read it only on entering the state
+// went on waiting for a deck that had ended.
+Deno.test({
+  name: "always: a column another writer sets moves a chart already standing in the state",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const CHART = {
+      field: "phase",
+      initial: "idle",
+      states: {
+        idle: { always: [{ guard: "pastLimit", target: "high" }] },
+        high: {},
+      },
+    };
+    const HTML = `<section class="screen" data-screen="alw">
+      <button id="alw-btn" data-live="score" data-filter="id=eq.s1"
+              data-phase="{phase}"
+              data-machine='${JSON.stringify(CHART)}'>Check</button>
+    </section>`;
+    const { document, store } = boot(HTML);
+    const { interpretScreen } = await import("./screen.js");
+    const mount = document.getElementById("shell");
+    const route = { ...ROUTE, files: { ...ROUTE.files, handlers: Object.keys(MODULES).map((m) => `shell/handlers/${m}`) } };
+    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {}, CFG);
+    const btn = mount.querySelector("#alw-btn");
+    await tick(30);
+    assert(btn.getAttribute("data-phase") === "idle", `expected idle, got ${btn.getAttribute("data-phase")}`);
+    await store.put("score", { id: "s1", phase: "idle", current: 5000, previous: 0 });
+    await tick(30);
+    assert(btn.getAttribute("data-phase") === "high", `expected high, got ${btn.getAttribute("data-phase")}`);
+  },
+});
+
+// A raise from a refresh's always re-ran the always list, and never reached its own arrow.
+Deno.test({
+  name: "always: a raise it chains on a refresh reaches the arrow that hears it",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const CHART = {
+      field: "phase",
+      initial: "idle",
+      states: {
+        idle: { always: [{ guard: "pastLimit", raise: "over" }], on: { over: "high" } },
+        high: {},
+      },
+    };
+    const HTML = `<section class="screen" data-screen="alw">
+      <button id="alw-btn" data-live="score" data-filter="id=eq.s1"
+              data-phase="{phase}"
+              data-machine='${JSON.stringify(CHART)}'>Check</button>
+    </section>`;
+    const { document, store } = boot(HTML);
+    const { interpretScreen } = await import("./screen.js");
+    const mount = document.getElementById("shell");
+    const route = { ...ROUTE, files: { ...ROUTE.files, handlers: Object.keys(MODULES).map((m) => `shell/handlers/${m}`) } };
+    await interpretScreen(mount, "http://localhost:8080/keep/", route, store, {}, CFG);
+    const btn = mount.querySelector("#alw-btn");
+    await tick(30);
+    await store.put("score", { id: "s1", phase: "idle", current: 5000, previous: 0 });
+    await tick(30);
+    assert(btn.getAttribute("data-phase") === "high", `expected high, got ${btn.getAttribute("data-phase")}`);
+  },
+});
+
 Deno.test({
   name: "always: transient eventless transitions evaluate immediately on entering a state",
   sanitizeOps: false,

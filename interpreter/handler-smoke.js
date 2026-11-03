@@ -695,6 +695,68 @@ reduce;`);
 });
 
 Deno.test({
+  name: "a release's handler takes the next event, without the page restarting",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const { document, Event, store, calls } = boot();
+    const writing = (position) => `const reduce = () => ({ updates: [{ op: "patch", id: "a", row: { position: ${position} } }] });
+reduce;`;
+    let source = writing(1);
+    const inner = globalThis.fetch;
+    globalThis.fetch = (url, init) => {
+      const u = String(url);
+      if (u.endsWith("reorder-items.js")) return Promise.resolve(new Response(source));
+      if (u.endsWith(".html")) return Promise.resolve(new Response(CLICKABLE));
+      return inner(url, init);
+    };
+    const { interpretScreen } = await import("./screen.js");
+
+    const mount = document.getElementById("shell");
+    const appBase = "http://localhost:8080/keep/";
+    const handle = await interpretScreen(mount, appBase, ROUTE, store, {});
+    mount.querySelector(".items").dispatchEvent(new Event("click"));
+    await tick(60);
+    source = writing(2);
+    await handle.updateHandlers(ROUTE.files.handlers.map((f) => new URL(f, appBase).pathname));
+    mount.querySelector(".items").dispatchEvent(new Event("click"));
+    await tick(60);
+
+    assert(
+      JSON.stringify(calls.updates.map((u) => u.patch.position)) === JSON.stringify([1, 2]),
+      `the same listeners ran each handler in turn, got ${JSON.stringify(calls.updates)}`,
+    );
+  },
+});
+
+Deno.test({
+  name: "a reduce asks for a key and is called again with one",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const { document, Event, store, calls } = boot();
+    withHandler(`const reduce = (state, event) => event.type === "click"
+  ? { updates: [], then: { type: "minted", uuid: true } }
+  : { updates: [{ op: "patch", id: "a", row: { position: /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(event.uuid) } }] };
+reduce;`);
+    const { interpretScreen } = await import("./screen.js");
+
+    const mount = document.getElementById("shell");
+    await interpretScreen(mount, "http://localhost:8080/keep/", ROUTE, store, {});
+    mount.querySelector(".items").dispatchEvent(new Event("click"));
+    await tick(60);
+
+    assert(
+      JSON.stringify(calls.updates) ===
+        JSON.stringify([{ table: "note_item", id: "a", patch: { position: true } }]),
+      `the key arrived on the next event, got ${JSON.stringify(calls.updates)}`,
+    );
+  },
+});
+
+Deno.test({
   name: "a step the reduce asked to be delayed does not land before its delay",
   sanitizeOps: false,
   sanitizeResources: false,

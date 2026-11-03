@@ -105,8 +105,10 @@ describe("a prerendered document", () => {
       // the first contentful paint, and nothing the shell boots from is
       // fetched ahead of it.
       expect(d.querySelectorAll('link[rel="modulepreload"], link[rel="preload"]').length).toBe(0)
-      expect(d.querySelectorAll("script[src]").length).toBe(1)
-      const scripts = [...d.querySelectorAll("script")].filter((s) => s.getAttribute("type") !== "speculationrules")
+      // But for the one script that holds what a reader does until the shell arrives.
+      const early = d.querySelector('script[src="/omnishell/interpreter/early-gestures.js"]')
+      expect(early?.hasAttribute("async")).toBe(true)
+      const scripts = [...d.querySelectorAll("script")].filter((s) => s.getAttribute("type") !== "speculationrules" && s !== early)
       expect(scripts.length).toBe(1)
       expect(scripts[0].getAttribute("src")).toBe("/omnishell/interpreter/deferred-boot.js")
       expect(scripts[0].getAttribute("data-pronto-boot")).toBe("./boot.js")

@@ -143,8 +143,9 @@ several regions reads its world from `state.rows`, not `state.items`.
 The command goes in the return. `then` is not an effect but the next event,
 delivered to the same reduce after the writes land: after `delay` on the
 terminal's clock, so `?clock=manual` holds it; with a draw when it says
-`seed: true`, since the compartment has no randomness and `?seed=` replays the
-draw; with `with` carried across. A value can be recorded and a promise
+`seed: true`, or a whole version-4 key when it says `uuid: true`, since the
+compartment has no randomness and `?seed=` replays the draw; with `with` carried
+across. A value can be recorded and a promise
 cannot, so a reduce returning one throws.
 
 Under `?seed=` each reduce draws from a stream of its own, seeded from the

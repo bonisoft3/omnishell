@@ -13,7 +13,7 @@ import { FRAME, INIT, PROPS, READ, READY, RESIZE } from "./presenter-realm.js";
 import { scriptURL } from "./script-url.js";
 
 // The objects a blob seed ships are named by their content.
-const SEEDED = /^blobs\/mecha-objects\/[0-9a-f]{64}\.[a-z0-9]+$/;
+const SEEDED = /^seed-assets\/[0-9a-f]{64}\.[a-z0-9]+$/;
 
 /** Mounts `unit` into `root` behind a presenter's worker. `frame(value)` hands
  * it the next frame, structured-cloned; `ready` settles once its unit is up,

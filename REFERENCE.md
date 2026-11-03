@@ -125,7 +125,8 @@ as a plain `src`, and a blank as a bound `src`'s blank.
 width, so CSS must reserve its box. The rest of `sizes` is what a browser without
 `auto` reads, so it states the real layout. Compose answers these URLs through
 imgproxy. The Cloudflare release refuses a screen using this attribute unless the
-app declares `edgeImages` with `plan: "paid"`: the rest of an app needs no card.
+app declares `edgeImages` with `plan: "paid"`, the image service above its blob
+storage: the rest of an app needs no card.
 A missing `sizes`, `auto` on an image that is not lazy, a literal value and any
 element but `<img>` are errors.
 

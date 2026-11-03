@@ -239,6 +239,12 @@ const DRAWER = (name) =>
   ? { updates: [], then: { type: "drawn", seed: true } }
   : { updates: [{ op: "patch", id: "${name}", row: { n: event.seed } }] };
 reduce;`;
+// The same, asking for a whole key.
+const MINTER = (name) =>
+  `const reduce = (state, event) => event.type === "click"
+  ? { updates: [], then: { type: "minted", uuid: true } }
+  : { updates: [{ op: "patch", id: "${name}", row: { n: event.uuid } }] };
+reduce;`;
 const DRAWERS_HTML = `<section class="screen" data-screen="draws">
   <ul id="alpha" data-live="draw" data-filter="id=eq.alpha" data-handler="alpha" data-on-click="alpha">
     <template data-item><li data-text="{n}"></li></template>
@@ -249,7 +255,7 @@ const DRAWERS_HTML = `<section class="screen" data-screen="draws">
 </section>`;
 
 // Mounts the two drawers and clicks them in `order`; what each drew.
-async function drawnIn(order) {
+async function drawnIn(order, source = DRAWER) {
   await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
   const { document, Event } = parseHTML(
     "<!doctype html><html><head></head><body><div id=shell></div></body></html>",
@@ -276,7 +282,7 @@ async function drawnIn(order) {
     if (u.endsWith(".html")) return Promise.resolve(new Response(DRAWERS_HTML));
     if (u.endsWith(".css")) return Promise.resolve(new Response(""));
     const drawer = /\/(alpha|beta)\.js$/.exec(u)?.[1];
-    if (drawer !== undefined) return Promise.resolve(new Response(DRAWER(drawer)));
+    if (drawer !== undefined) return Promise.resolve(new Response(source(drawer)));
     return Promise.reject(new Error(`unexpected fetch ${u}`));
   };
   const { interpretScreen } = await import("./screen.js");
@@ -295,6 +301,21 @@ async function drawnIn(order) {
   handle.stop();
   return Object.fromEntries(tables.draw.map((r) => [r.id, r.n]));
 }
+
+Deno.test({
+  name: "a key a reduce asks for is on its own stream, so a replay mints the same one",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    clock().reset();
+    const first = await drawnIn(["alpha", "beta"], MINTER);
+    clock().reset();
+    const second = await drawnIn(["beta", "alpha"], MINTER);
+    assert(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(first.alpha), `a version-4 key, got ${first.alpha}`);
+    assert(first.alpha !== first.beta, `two actors' keys differ, got ${JSON.stringify(first)}`);
+    assert(JSON.stringify(first) === JSON.stringify(second), `the same seed mints the same for each actor whichever ran first: ${JSON.stringify(first)} then ${JSON.stringify(second)}`);
+  },
+});
 
 Deno.test({
   name: "each reduce draws from its own stream, so the order they ran in changes no draw",

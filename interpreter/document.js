@@ -380,4 +380,8 @@ function deferBoot(doc) {
   const map = doc.getElementById("pronto-assets");
   if (map !== null) boot.before(map);
   boot.replaceWith(loader);
+  const early = doc.createElement("script");
+  early.setAttribute("async", "");
+  early.setAttribute("src", assetURL("/omnishell/interpreter/early-gestures.js", doc).pathname);
+  doc.head.append(early);
 }

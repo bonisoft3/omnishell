@@ -702,7 +702,7 @@ it("holds the first screen through initial reads and releases later updates", as
       })
       await page.goto(server.base)
       await page.locator('.shell-screen[data-entering]').waitFor()
-      expect(await page.locator('[role="status"]').textContent()).toBe("Loading…")
+      expect(await page.locator("[data-initial-loading]").count()).toBe(1)
       expect(await page.locator('.shell-screen').evaluate(el => getComputedStyle(el).opacity)).toBe("0")
       await page.evaluate(() => (window as any).releaseInitialRead())
       await ready(page, "A")

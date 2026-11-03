@@ -62,14 +62,18 @@ when it is shown again and every five minutes, and reads the map the answer
 carries. The difference between the two maps decides what it does
 (`release-plan.js`):
 
-- **a screen's template or stylesheet, or a catalogue**: taken in place. The
-  page swaps the map `assetURL` reads; each held screen whose files moved is
-  morphed to its new template, carrying what the reader typed through the
-  morph, and its stylesheet swapped once the new one has loaded what it
+- **what the page only links to** — `/docs/`, images and text — changes nothing
+  it runs, so the page only swaps the map `assetURL` reads.
+- **a screen's template or stylesheet, a catalogue, or a handler**: taken in
+  place. The page swaps the map `assetURL` reads; each held screen whose files
+  moved is morphed to its new template, carrying what the reader typed through
+  the morph, and its stylesheet swapped once the new one has loaded what it
   imports; the screen on show and the strip are written in the new words at
-  once, and a held screen as it is shown again.
-- **anything else** — a handler, a renderer, a validation, the config, a
-  shared stylesheet, the interpreter — is code the page runs: it restarts into
+  once, and a held screen as it is shown again. A handler is a pure function
+  looked up as it is called, so a held screen's next event takes the new one and
+  a chain already running ends on the one it began on.
+- **anything else** — a renderer, a validation, the config, a shared
+  stylesheet, the interpreter — is code the page runs: it restarts into
   the new entry. It waits while an editable control is focused, a file is
   selected or a form submits; before the reload it records edited identifiable
   controls and `tab` rows, and drops the entries the worker kept, each of
@@ -248,9 +252,18 @@ screen own markup it did not render
   when the served page is read
   ([`m-ssr-hydration.test.ts`](../test/m-ssr-hydration.test.ts)).
 
+A link answers its click at once (`nav-feedback.js`), pulsing and `aria-busy`
+until the screen it asked for is on show, which can take seconds on a cold route.
+
 Nothing on show is replaced, so the reader's focus, scroll, selection and
 anything typed stay where they are; a control typed into before the shell
-arrived is held as edited, as one typed into after is. There is no fade and no
+arrived is held as edited, as one typed into after is. A document asks for
+`early-gestures.js` from its `<head>`, apart from the modules that wait for
+first paint, and what a reader does until the screen is live goes to it and to
+nothing else: a half-wired screen could answer a gesture and then hear it again.
+The shell replays them in order once it has the screen (`early-replay.js`), a
+Create pressed on the served form creating, without their native defaults, which
+already happened. There is no fade and no
 jump to the top, and `data-served` comes off once the screen is bound. A
 served strip naming the strip's routes is kept, its words and addresses
 rewritten in place, and its guest box bound; one naming others is another

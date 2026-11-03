@@ -18,7 +18,15 @@ and a machine states screen state as it changes: from TEA and Harel, a
 transition emits a mutation as a pure descriptor and the store's answer returns
 as an event. Machine or reduce is the author's choice: a chart is strongest
 component-generated or with many states (an inventory a reviewer reads by
-set-difference), weakest at two states around real arithmetic.
+set-difference), weakest at two states around real arithmetic. A fold that
+reads other tables and a chart share a row by owning different columns: writes
+state only their own, and a gesture the fold must answer is an intent the chart
+writes and the fold, seated with `data-on-mutation`, applies. A fold hearing the
+same click as the chart would race it, since neither knows which landed first.
+A fact only a fold can see crosses the other way, as a write observed through a
+read: the fold writes a column, and an `always` arrow of the state waiting on it
+reads it. The terminal evaluates `always` on every refresh for this, so no fold
+writes a chart's field and the chart draws every state it can be in.
 
 A native form owns its `.store-error` visibility in the DOM. A machine refresh
 of an enclosing region can rebind the form and hide that error. Keep such a
@@ -175,6 +183,8 @@ the HTML is the contract the reader touches, run the same however it was made.
   chart is advisory, the app check fails its coverage floor because nothing
   was walked. A browser test can exercise the route-scoped chart against a
   real event.
+  An `always` arrow's guard names the row that selects it in its literal params,
+  and the walk writes them, as a fold would.
   Its `refused` stimulus enters through the same region delivery hook as a
   store rejection; dispatching a DOM event would miss that arrow.
 - **Posing** (`test/storybook-battery.ts`, over every app from

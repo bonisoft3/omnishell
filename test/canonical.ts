@@ -104,11 +104,13 @@ function mapStateNode(s: StateNode, opts: { drive: boolean }): Record<string, un
     if (opts.drive) on[`after:${delay}`] = mapValue(value, { drive: opts.drive, atRoot: false });
     else after[delay] = mapValue(value, { drive: opts.drive, atRoot: false });
   }
+  if (s.always !== undefined) {
+    // The trace says when one fired, and a real eventless arrow would take it on entry instead.
+    if (opts.drive) on.always = mapValue(s.always, { drive: opts.drive, atRoot: false });
+    else node.always = mapValue(s.always, { drive: opts.drive, atRoot: false });
+  }
   if (Object.keys(on).length > 0) node.on = on;
   if (Object.keys(after).length > 0) node.after = after;
-  if (s.always !== undefined) {
-    node.always = mapValue(s.always, { drive: opts.drive, atRoot: false });
-  }
   if (s.onDone !== undefined) {
     node.onDone = mapValue(s.onDone, { drive: opts.drive, atRoot: false });
   }

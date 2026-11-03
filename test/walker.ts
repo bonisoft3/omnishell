@@ -37,6 +37,8 @@ export type WalkHarness = {
   wait(ms: number): Promise<void>;
   /** The machine field's current value, for the state invariant. */
   field(): unknown;
+  /** Write columns on the row, as a fold does: what an `always` arrow's guard reads. */
+  write?(columns: Record<string, unknown>): Promise<void>;
 };
 
 const arrowId = (a: Arrow) => `${a.state}|${a.key}|${a.index}`;
@@ -125,7 +127,9 @@ const candidateAt = (machine: Machine, state: string, key: string, index: number
     return val === undefined ? undefined : listOf(val)[index];
   }
   const node = resolveStateNode(machine, state);
-  const value = key.startsWith("after:")
+  const value = key === "always"
+    ? node?.always
+    : key.startsWith("after:")
     ? node?.after?.[key.slice(6)]
     : node?.on?.[key] ?? machine.on?.[key];
   return value === undefined ? undefined : listOf(value)[index];
@@ -196,7 +200,9 @@ const paramsOf = (candidate: unknown): Record<string, unknown> | undefined => {
 
 /** Every event an arrow asks for, in order — one for most arrows, several where
  * the chart declares a sequence. */
-const eventInits = (candidate: unknown): (Record<string, unknown> | undefined)[] => {
+const eventInits = (candidate: unknown, key?: string): (Record<string, unknown> | undefined)[] => {
+  // No event selects an `always` arrow: its guard's literal params are the row that does.
+  if (key === "always") return [paramsOf(candidate)];
   const seq = paramsOf(candidate)?.[SEQUENCE_FIELD];
   if (typeof seq === "string" && seq.length > 0) return [...seq].map((key) => ({ key }));
   return [eventInit(candidate)];
@@ -261,6 +267,9 @@ function edgesOf(machine: Machine): Map<string, Edge[]> {
     };
     for (const [key, value] of Object.entries(s.on ?? {})) add(key, value);
     for (const [delay, value] of Object.entries(s.after ?? {})) add(`after:${delay}`, value);
+    if (s.always !== undefined) {
+      for (const c of list(s.always)) out.push({ key: "always", to: resolveTarget(machine, c.target, name) ?? name, init: paramsOf(c) });
+    }
     if (s.type === "final") {
       const finalTarget = resolveFinalTarget(machine, name);
       if (finalTarget !== undefined) {
@@ -341,7 +350,7 @@ function planPostmanTour(machine: Machine): Stimulus[] {
     let target = resolveTarget(machine, rawTarget, fromState) ?? fromState;
     const finalTarget = resolveFinalTarget(machine, target);
     if (finalTarget !== undefined) target = finalTarget;
-    const inits = eventInits(candidate);
+    const inits = eventInits(candidate, a.key);
     const stimuli = inits.map((init) => stimulusOf(a.key, init));
     const edge: PostmanEdge = { from: fromState, to: target, stimuli };
     baseEdges.push(edge);
@@ -541,6 +550,12 @@ export async function walkMachine(
         await harness.wait(afterMs + settleMs);
         return;
       }
+      if (s.type === "always") {
+        if (harness.write === undefined) return;
+        await harness.write(s.init ?? {});
+        await harness.wait(settleMs);
+        return;
+      }
       await harness.fire(s.type, s.from, s.init);
       await harness.wait(settleMs);
       const v = harness.field();
@@ -585,7 +600,7 @@ export async function walkMachine(
       if (restoringAfter) await harness.wait(afterMs + settleMs);
       // Every event this arrow asks for, in order: one keystroke for most, and
       // the sequence that walks past its shadowing siblings for a typeahead's.
-      for (const init of eventInits(candidateAt(machine, a.state, a.key, a.index))) {
+      for (const init of eventInits(candidateAt(machine, a.state, a.key, a.index), a.key)) {
         await deliver(stimulusOf(a.key, init));
       }
     }

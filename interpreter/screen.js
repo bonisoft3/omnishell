@@ -154,6 +154,13 @@ const screenFile = (url) => {
   return pending;
 };
 
+/** A release's moved files, by pathname: a screen mounted later fetches them anew. */
+export function forgetFiles(pathnames) {
+  for (const held of [kept, prefetched]) {
+    for (const href of [...held.keys()]) if (pathnames.includes(new URL(href).pathname)) held.delete(href);
+  }
+}
+
 /** Starts a route's markup and stylesheet loading before the mount that reads
  * them exists. The stylesheet is installed the moment it lands, so the shared
  * sheets it @imports load beside the data plane rather than after it. */
@@ -271,6 +278,11 @@ const streams = new Map();
 let drawn = 0;
 // The reduce each draw is made for, by the name the markup calls it.
 const actorOf = new WeakMap();
+const lateReduce = (handlers, name) => {
+  const reduce = (...args) => handlers.get(name)(...args);
+  actorOf.set(reduce, name);
+  return reduce;
+};
 if (MANUAL) {
   globalThis.__prontoClock = {
     // Returns how many waits are still outstanding, so a caller can tell a
@@ -352,12 +364,11 @@ const draw = (actor = "") => {
   t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
   return (t ^ (t >>> 14)) >>> 0;
 };
-// A key the terminal mints for a row or a blob. Seeded, it is four draws laid
-// out as a version-4 uuid, so a replayed create writes the same key; unseeded,
-// it is the platform's own.
-const mintUuid = () => {
-  if (seeded === null) return crypto.randomUUID();
-  const hex = [draw(), draw(), draw(), draw()].map((n) => n.toString(16).padStart(8, "0")).join("");
+// A key the terminal mints for a row, a blob or a reduce: four draws laid out
+// as a version-4 uuid, so a replayed create writes the same key. Its draws are
+// the seed's or getRandomValues, which unlike randomUUID needs no secure context.
+const mintUuid = (actor) => {
+  const hex = [draw(actor), draw(actor), draw(actor), draw(actor)].map((n) => n.toString(16).padStart(8, "0")).join("");
   const variant = ((parseInt(hex[16], 16) & 0x3) | 0x8).toString(16);
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20)}`;
 };
@@ -1560,11 +1571,9 @@ function bindElementAttributes(el, ctx, insideWalk = false) {
       // machine that clears the column must clear the control. Only focus
       // holds it, so a rebind never moves the caret under the reader.
       const machined = el.closest("[data-machine]") !== null;
-      const tabCompleted = Boolean(el._prontoTabCompleted);
-      if (tabCompleted) el._prontoTabCompleted = false;
-      if (machined && el === document.activeElement && !tabCompleted) continue;
+      if (machined && el === document.activeElement) continue;
       if (!machined && el.type !== "checkbox" && !submitsOnChange(el.closest("form"))) {
-        if ((el._prontoDirty || el === document.activeElement) && !tabCompleted) continue;
+        if (el._prontoDirty || el === document.activeElement) continue;
         guardEdits(el);
       }
       if (el.type === "checkbox") {
@@ -2513,7 +2522,12 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       return Object.fromEntries(entries);
     };
 
-    const rowsReduce = region.dataset.onMutation && handlers.get(region.dataset.onMutation);
+    // Looked up as it is called, so a release's handler takes the region's next wake.
+    const rowsName = region.dataset.onMutation;
+    let rowsReduce = rowsName && handlers.get(rowsName);
+    if (rowsReduce) {
+      rowsReduce = lateReduce(handlers, rowsName);
+    }
     // Assigned by the machine block below when the machine declares "refused";
     // a refusal is then the machine's onError before it is anything else.
     const machineRefused = [];
@@ -2740,10 +2754,11 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       // again with it, the same way it says it wants to wait. The terminal
       // owning the draw is also what lets a screen be replayed: with ?seed= it
       // draws from that instead, and the same run comes back.
-      if (next.seed === true) {
+      if (next.seed === true || next.uuid === true) {
         const actor = actorOf.get(reduce);
         if (actor === undefined) throw new Error(`a draw asked for by a reduce no name was registered for, at "${next.type}"`);
-        carried.seed = draw(actor);
+        if (next.seed === true) carried.seed = draw(actor);
+        if (next.uuid === true) carried.uuid = mintUuid(actor);
       }
       if (next.with !== undefined) carried.with = next.with;
       if (carried.type === "intent:navigate") {
@@ -2775,68 +2790,6 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           const reduce = handlers.get(el.getAttribute(`data-on-${event}`));
           if (!reduce) return;
           try {
-            if (event === "click" && el.classList?.contains("field-combobox")) {
-              const wrap = el.closest(".studio-combobox-wrap");
-              if (wrap) {
-                for (const other of document.querySelectorAll(".studio-combobox-wrap[data-combo-open='true']")) {
-                  if (other !== wrap) other.removeAttribute("data-combo-open");
-                }
-                wrap.setAttribute("data-combo-open", "true");
-              }
-              return;
-            }
-            if (event === "click" && el.classList?.contains("combobox-chevron-btn")) {
-              e.preventDefault();
-              e.stopPropagation();
-              const wrap = el.closest(".studio-combobox-wrap");
-              if (wrap) {
-                const isOpen = wrap.getAttribute("data-combo-open") === "true";
-                for (const other of document.querySelectorAll(".studio-combobox-wrap[data-combo-open='true']")) {
-                  other.removeAttribute("data-combo-open");
-                }
-                if (!isOpen) {
-                  wrap.setAttribute("data-combo-open", "true");
-                  const inp = wrap.querySelector("input");
-                  inp?.focus();
-                }
-              }
-              return;
-            }
-            if (event === "click" && el.classList?.contains("combobox-option")) {
-              // Not stopped: a chart on the region hears the choice as click@<option>.
-              e.preventDefault();
-              const wrap = el.closest(".studio-combobox-wrap");
-              const inp = wrap?.querySelector("input");
-              const val = el.getAttribute("data-combo-value") ?? el.textContent?.trim() ?? "";
-              if (wrap) wrap.removeAttribute("data-combo-open");
-              if (inp && val) {
-                inp.value = val;
-                inp._prontoTabCompleted = true;
-                if (inp.id === "locale-input") {
-                  await step(reduce, { type: "change", from: "locale-input", value: val }, 0);
-                }
-              }
-              el.blur?.();
-              // An option that names a handler is a choice the program records, not only text
-              // for the input: it was dropped here, and a chosen value never reached the row.
-              if (!el.hasAttribute("data-on-click")) return;
-            }
-            if (event === "click" && el.id === "btn-create") {
-              const sc = el.closest(".studio-container");
-              if (sc) {
-                sc.setAttribute("data-status", "generating");
-                sc.setAttribute("data-state", "generating");
-              }
-              const prevBox = document.getElementById("preview-card-container");
-              if (prevBox) {
-                prevBox.setAttribute("data-tier-emoji", "⏳");
-                // Every Create is a new deck, so the deck shown before is never the one coming.
-                prevBox.setAttribute("data-set-id", "set-pending");
-              }
-              for (const item of document.querySelectorAll(".press-ledger-item")) {
-                item.setAttribute("data-tier-emoji", "⏳");
-              }
-            }
             const fired = { type: event };
             if (id !== undefined) fired.id = id;
             // Which element fired, by the name it already has. A region binds
@@ -2857,27 +2810,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             }
             if (event === "keydown" && typeof e?.key === "string") {
               fired.key = e.key;
-              if (e.key === "Escape" || e.key === "Tab") {
-                const wrap = el.closest?.(".studio-combobox-wrap");
-                if (wrap) wrap.removeAttribute("data-combo-open");
-              }
-              if (
-                e.key === "Tab" &&
-                !e.shiftKey &&
-                !e.altKey &&
-                !e.ctrlKey &&
-                !e.metaKey &&
-                typeof el.value === "string" &&
-                el.value.trim() === ""
-              ) {
-                e.preventDefault();
-                el._prontoTabCompleted = true;
-                const ghost = el.parentElement?.querySelector?.(".field-ghost-value")?.textContent?.trim();
-                if (ghost && !el.hasAttribute("data-value")) {
-                  el.value = ghost;
-                  fired.value = ghost;
-                }
-              }
+              fired.modified = Boolean(e.shiftKey || e.altKey || e.ctrlKey || e.metaKey);
             }
             // Which animation ended, when one did. A screen runs more than one
             // clock — the terminal's own item arrivals among them — and they
@@ -2905,17 +2838,6 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // the next [data-live], which binds its own.
     const bindTree = (root, id) => {
       if (handlers.size === 0) return;
-      if (typeof document !== "undefined" && !document._prontoComboOutsideWired) {
-        document._prontoComboOutsideWired = true;
-        document.addEventListener("click", (e) => {
-          const target = e.target;
-          for (const openWrap of document.querySelectorAll(".studio-combobox-wrap[data-combo-open='true']")) {
-            if (!target?.closest || target.closest(".studio-combobox-wrap") !== openWrap) {
-              openWrap.removeAttribute("data-combo-open");
-            }
-          }
-        });
-      }
       bind(root, id);
       for (const el of root.querySelectorAll("*")) {
         if (!ownedBy(el, root)) continue;
@@ -3227,6 +3149,21 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           }
         }
 
+        // Debug seam, like __prontoViews: which arrow fired, where it landed,
+        // and the region that fired it. Nothing is pushed unless something
+        // armed the array. Before the cascade its landing starts, so a replay reads them in order.
+        globalThis.__prontoMachineTrace?.push({
+          region,
+          // Which chart drew it. Two charts on one region share the element, so
+          // a walk filtering by region alone would read its sibling's arrows as
+          // its own — and the field is what tells them apart everywhere else.
+          field: machine.field,
+          state: chosen.origin,
+          key: chosen.key,
+          index: chosen.index,
+          to: arrowTarget ??
+            (Object.hasOwn(patch, machine.field) ? patch[machine.field] : row[machine.field]),
+        });
         // 4. onDone and always cascade
         let cascadeSteps = 0;
         while (targetState !== undefined && cascadeSteps < 10) {
@@ -3351,21 +3288,6 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           if (!progressed) break;
         }
 
-        // Debug seam, like __prontoViews: which arrow fired, where it landed,
-        // and the region that fired it. Nothing is pushed unless something
-        // armed the array.
-        globalThis.__prontoMachineTrace?.push({
-          region,
-          // Which chart drew it. Two charts on one region share the element, so
-          // a walk filtering by region alone would read its sibling's arrows as
-          // its own — and the field is what tells them apart everywhere else.
-          field: machine.field,
-          state: chosen.origin,
-          key: chosen.key,
-          index: chosen.index,
-          to: arrowTarget ??
-            (Object.hasOwn(patch, machine.field) ? patch[machine.field] : row[machine.field]),
-        });
         const out = { updates: [] };
         if (targetState !== undefined || Object.keys(patch).length > 0) {
           // A write concluding from the fallback states the fallback's columns for
@@ -3487,7 +3409,10 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             if (typeof ctl?.valueAsNumber === "number" && !Number.isNaN(ctl.valueAsNumber)) {
               fired.valueAsNumber = ctl.valueAsNumber;
             }
-            if (typeof e.key === "string") fired.key = e.key;
+            if (typeof e.key === "string") {
+              fired.key = e.key;
+              fired.modified = Boolean(e.shiftKey || e.altKey || e.ctrlKey || e.metaKey);
+            }
             // Only where the chart reads it (fragment.js POINTER_FIELDS).
             if (shape.pointer) Object.assign(fired, pointerIn(e, src ?? ctl));
             // The ARROW declares the gesture, not the type: one narrowed to an
@@ -3538,12 +3463,18 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       // them — re-arms on the refresh it causes; the entered flag covers the
       // machine's own moves.
       const current = (region._prontoMachineRow ?? getRows()[0])?.[machine.field];
-      if (current !== undefined && region[mine("armed")] !== current) {
-        armAfter(current);
+      if (current !== undefined) {
+        if (region[mine("armed")] !== current) armAfter(current);
+        // On every refresh, not only a new state: a fold's foreign fact arrives as a column,
+        // and this is the chart reading it.
         const node = resolveStateNode(current);
         if (node?.always !== undefined) {
           const alwaysList = machineCandidates(node.always).map((c, index) => ({ c, key: "always", index, origin: current }));
-          runMachine((state, event) => apply(machineRow(state), event, alwaysList), { type: "always" }).catch((err) => {
+          const standing = region._prontoMachineRow ?? getRows()[0];
+          // Asked of the row in hand first: a step reads the region's whole world, on every refresh.
+          // Held to the state it was asked in, which a gesture may have left by the time it runs,
+          // and a raise it chains is an ordinary event.
+          if (evalCandidates(alwaysList, { items: [standing] }, { type: "always" }) !== undefined) runMachine((state, event) => event.type === "always" ? apply(machineRow(state), event, alwaysList, current) : machineReduce(state, event), { type: "always" }).catch((err) => {
             failed(err);
             console.error(err);
           });
@@ -4271,8 +4202,10 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             const nodes = fresh.map((f) => f.node);
             for (const f of fresh) if (f.tmpl._prontoHasKeys) wireKeysIn(f.node);
             const { deliver, apply } = wireEvents(region, nodes, () => currentRows, handlers, ctx);
-            const reduce = handlers.get(region.dataset.handler);
-            if (reduce && dragging) wireDrag(region, nodes, () => currentRows, reduce, deliver, apply);
+            const dragName = region.dataset.handler;
+            if (handlers.has(dragName) && dragging) {
+              wireDrag(region, nodes, () => currentRows, lateReduce(handlers, dragName), deliver, apply);
+            }
             for (const f of fresh) f.wired = true;
             first = false;
           };
@@ -4798,6 +4731,18 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     present: mountHostDom,
     updateStyle: async (css) => {
       await installStyle(styleId, css, isMountActive);
+    },
+    // A release's handlers, by pathname. A chain already running ends on the one it began on.
+    updateHandlers: async (paths) => {
+      const moved = [...handlers.keys()].flatMap((name) => {
+        const file = route.files.handlers?.find((p) => p.split("/").pop() === `${name}.js`);
+        return file !== undefined && paths.includes(new URL(file, appBase).pathname) ? [[name, file]] : [];
+      });
+      const taken = await Promise.all(moved.map(async ([name, file]) => [name, await loadModule(appBase, file, "handler", endowmentsMap)]));
+      for (const [name, module] of taken) {
+        actorOf.set(module, name);
+        handlers.set(name, module);
+      }
     },
     // Which template this screen was drawn from (templateHash).
     cas,

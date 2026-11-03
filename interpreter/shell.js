@@ -18,9 +18,11 @@ import { parseMarkup } from "./markup.js";
 
 import { chromeText, describe, drawStrip, guestBox, hasStrip, localizeStrip, offersGuest, providerHref, providerKey, stripRoutes, supportsPasskeys } from "./chrome.js";
 import { localeAt, localeTable, ProgramError, routeAt, routeHref, screenEnv, Unanswered } from "./fragment.js";
-import { activateScreenStyle, fetchText, interpretScreen, prefetchScreen, templateHash, submitsOnChange, AssetMissing } from "./screen.js";
+import { activateScreenStyle, fetchText, forgetFiles, interpretScreen, prefetchScreen, templateHash, submitsOnChange, AssetMissing } from "./screen.js";
 import { compileCatalog } from "./vendor/messages.js";
-import { planRelease } from "./release-plan.js";
+import { filesMoved, planRelease } from "./release-plan.js";
+import { replayEarlyGestures, takeEarlyGestures } from "./early-replay.js";
+import { navFeedback } from "./nav-feedback.js";
 export { routeAt } from "./fragment.js";
 import { assetURL, preloadLinkedScreens, preloadScreen, releaseOf, setRelease } from "./preloads.js";
 import { startLinkPrefetch } from "./link-prefetch.js";
@@ -919,7 +921,9 @@ export async function createShell({ config, mount, preload = true }) {
         .sort((a, b) => b.seq - a.seq);
       for (const e of mine.slice(Math.max(keepOf(route) - 1, 0))) discard(e);
     };
+    const feedback = navFeedback(globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true);
     const present = (entry) => {
+      feedback.settle();
       const previous = presented;
       entry.el.hidden = false;
       entry.el.inert = false;
@@ -1024,13 +1028,13 @@ export async function createShell({ config, mount, preload = true }) {
       const m = mode === "light" || mode === "dark" ? mode : "auto";
       if (m === "auto") delete document.documentElement.dataset.theme;
       else document.documentElement.dataset.theme = m;
-      try { sessionStorage.setItem("snapcards-theme", m); } catch (_e) {}
+      try { sessionStorage.setItem("omnishell-theme", m); } catch (_e) {}
       for (const r of document.querySelectorAll('input.theme-radio[name="theme-mode"]')) {
         r.checked = (r.value === m);
       }
     };
     try {
-      const savedTheme = sessionStorage.getItem("snapcards-theme");
+      const savedTheme = sessionStorage.getItem("omnishell-theme");
       if (savedTheme === "light" || savedTheme === "dark") {
         document.documentElement.dataset.theme = savedTheme;
       }
@@ -1291,7 +1295,7 @@ export async function createShell({ config, mount, preload = true }) {
         // however warm its DOM is, and an arrival starts at the top; going
         // back resumes. Only "push" is treated as an arrival.
         window.scrollTo(0, navigationType === "push" ? 0 : entry.scrollY);
-        try { applyThemeMode(sessionStorage.getItem("snapcards-theme") || "auto"); } catch (_e) {}
+        try { applyThemeMode(sessionStorage.getItem("omnishell-theme") || "auto"); } catch (_e) {}
         linkPrefetch.idle();
         if (preload) {
           preloadLinkedScreens(document, appBase, cfg, route.screen, [
@@ -1321,6 +1325,7 @@ export async function createShell({ config, mount, preload = true }) {
       const releaseInitial = () => {
         clearTimeout(initialLoadingTimer);
         initialLoading?.remove();
+        if (initialLoading) mount.removeAttribute("aria-busy");
         if (el) {
           delete el.dataset.entering;
           if (initialLoading && !fresh.gone) el.inert = false;
@@ -1333,9 +1338,15 @@ export async function createShell({ config, mount, preload = true }) {
         if (presented === null) {
           el.dataset.entering = "";
           el.inert = true;
-          initialLoading = document.createElement("p");
-          initialLoading.setAttribute("role", "status");
-          initialLoading.textContent = "Loading…";
+          // Before any catalogue, so no words: a pulse reads in every language.
+          initialLoading = document.createElement("div");
+          initialLoading.dataset.initialLoading = "";
+          initialLoading.setAttribute("aria-hidden", "true");
+          initialLoading.style.cssText = "min-block-size:100dvh;background:currentColor;opacity:.05";
+          if (!globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+            initialLoading.animate?.([{ opacity: 0.03 }, { opacity: 0.1 }], { duration: 1100, iterations: Infinity, direction: "alternate", easing: "ease-in-out" });
+          }
+          mount.setAttribute("aria-busy", "true");
           mount.append(initialLoading);
           initialLoadingTimer = setTimeout(releaseInitial, 2000);
         }
@@ -1385,6 +1396,7 @@ export async function createShell({ config, mount, preload = true }) {
           if (recovery) delete recovery.initial;
         }
         retainRecovery();
+        await replayEarlyGestures(document, () => fresh.handle.settle());
         if (current !== fresh || turn !== showing) return fresh.handle.pause();
         if (route.screen === "cards") {
           applyPendingAuthor();
@@ -1392,7 +1404,7 @@ export async function createShell({ config, mount, preload = true }) {
           if (turn !== showing) return;
         }
         present(fresh);
-        try { applyThemeMode(sessionStorage.getItem("snapcards-theme") || "auto"); } catch (_e) {}
+        try { applyThemeMode(sessionStorage.getItem("omnishell-theme") || "auto"); } catch (_e) {}
         // After the render: the screen's own h1 is where its name comes from.
         describe(document, cfg, { route, params, locale, written, el, origin: location.origin });
         // A screen arrived at starts at its own top. This lands there anyway
@@ -1402,6 +1414,8 @@ export async function createShell({ config, mount, preload = true }) {
         // overlap.
         if (!adopting) window.scrollTo(0, 0);
       } catch (err) {
+        takeEarlyGestures();
+        feedback.settle();
         // A failed mount cannot be retained: revisiting it would resume a
         // slot without a hydration handle.
         if (turn === showing) await restorePresentation(fresh);
@@ -1476,6 +1490,13 @@ export async function createShell({ config, mount, preload = true }) {
       console.error(err);
       current?.el.querySelector(".screen")?.setAttribute("data-state", "network-error");
     };
+    const updateHandlers = async (paths) => {
+      for (const entry of [...held.values()]) {
+        if (entry.loading && !entry.handle) await entry.loading;
+        if (entry.gone || held.get(entry.key) !== entry) continue;
+        await entry.handle.updateHandlers(paths);
+      }
+    };
     // A newer template or style for a screen the page holds, morphed in place
     // with what the reader typed carried through it.
     const updateScreens = async (paths) => {
@@ -1514,6 +1535,8 @@ export async function createShell({ config, mount, preload = true }) {
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       const a = e.target?.closest?.("a[href]");
       if (!a || a.target || a.hasAttribute("download")) return;
+      const to = new URL(a.href, location.href);
+      if (to.origin === location.origin && to.pathname !== location.pathname && addresses(to) !== null) feedback.press(a);
       const href = a.getAttribute("href");
       if (href.startsWith("#")) fragments.set(a, href);
       // Held screens reuse their anchors after a language/address change.
@@ -1617,6 +1640,7 @@ export async function createShell({ config, mount, preload = true }) {
         const plan = planRelease(running, next, cfg.routes.map((r) => ({
           html: new URL(r.files.html, appBase).pathname,
           css: new URL(r.files.css, appBase).pathname,
+          handlers: (r.files.handlers ?? []).map((f) => new URL(f, appBase).pathname),
         })));
         if (plan.kind === "unchanged") return;
         if (plan.kind === "restart") {
@@ -1629,10 +1653,13 @@ export async function createShell({ config, mount, preload = true }) {
           return;
         }
         deferred = false;
+        forgetFiles(filesMoved(running, next));
         setRelease(document, next);
-        running = next;
+        await updateHandlers(plan.handlers);
         await updateScreens(plan.screens);
         for (const name of plan.catalogues) await words.heard(name, await fetchText(new URL(name, location.origin)));
+        // Only now: a failed update is found again at the next check, not taken for done.
+        running = next;
         if (current) reword(current);
       })().finally(() => { checking = null; });
       return checking;

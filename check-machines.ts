@@ -84,17 +84,20 @@ export async function walkFindings(
 ): Promise<Finding[]> {
   try {
     const walk = await walkMachine(machine, harness, opts);
-    if (walk.shadowed.length === 0) return [];
+    const findings: Finding[] = [];
     // Advisory, not an error: the arrows are drawn and a reader reaches them by
     // typing further. What the walk reports is its own reach.
-    return [{
-      severity: "advisory",
-      path,
-      message: `${where}: ${walk.shadowed.length} arrow(s) an earlier sibling admits the event of, ` +
-        `so nothing here selects them: ${
-          walk.shadowed.map((a) => `${a.state} --${a.key}[${a.index}]-->`).join(", ")
-        }`,
-    }];
+    if (walk.shadowed.length > 0) {
+      findings.push({
+        severity: "advisory",
+        path,
+        message: `${where}: ${walk.shadowed.length} arrow(s) an earlier sibling admits the event of, ` +
+          `so nothing here selects them: ${
+            walk.shadowed.map((a) => `${a.state} --${a.key}[${a.index}]-->`).join(", ")
+          }`,
+      });
+    }
+    return findings;
   } catch (err) {
     return [{ severity: "error", path, message: `${where}: ${said(err)}` }];
   }
@@ -236,6 +239,15 @@ function harnessFor(m: Mounted, region: El, machine: Machine, params: Record<str
     },
     wait: async (ms) => {
       m.advance(ms);
+      await m.quiet();
+    },
+    write: async (columns) => {
+      const row = seedQuery(
+        Object.fromEntries(Object.keys(tables).map((t) => [t, m.rows(t)])),
+        cluster, table, { filter, select: readsOf(region).select },
+      )[0] ?? (region as unknown as { _prontoFallbackRow?: Row })._prontoFallbackRow;
+      if (row === undefined) throw new Error(`walk: no row of "${table}" to write on`);
+      await m.store.put(table, { ...row, ...columns });
       await m.quiet();
     },
     field: () => machine.field === undefined ? undefined : seedQuery(
@@ -631,7 +643,7 @@ function reducerHarness(machine: Machine, opts: { refuse?: string; stray?: boole
   const candidates = (value: unknown) =>
     typeof value === "string" ? [{ target: value }] : (Array.isArray(value) ? value : [value]);
   const step = (key: string) => {
-    const value = machine.states[at]?.on?.[key] ??
+    const value = key === "always" ? machine.states[at]?.always : machine.states[at]?.on?.[key] ??
       machine.states[at]?.after?.[key.slice("after:".length)] ?? machine.on?.[key];
     if (value === undefined) return;
     if (key === opts.refuse) return;
@@ -643,6 +655,7 @@ function reducerHarness(machine: Machine, opts: { refuse?: string; stray?: boole
   };
   return {
     fire: async (type) => step(type),
+    write: async () => step("always"),
     // The chart's own delays are the only ones a state can be waiting on, so
     // one wait is one due timer.
     wait: async () => {
@@ -723,8 +736,25 @@ export async function selfTest(): Promise<{ failures: string[] }> {
     initial: "idle",
     states: { idle: { on: { start: "running" } }, running: { after: { "3000": "idle" } } },
   };
+  // An end only a read can see: a fold writes the column, and the chart's arrow reads it.
+  const ended: Machine = {
+    field: "state",
+    initial: "idle",
+    states: {
+      idle: { on: { start: "running" } },
+      running: { always: [{ guard: { type: "row-is", params: { ended: "done" } }, target: "done" }] },
+      done: { on: { again: "idle" } },
+    },
+  };
+  const unreached: Machine = {
+    field: "state",
+    initial: "idle",
+    states: { idle: { on: { start: "running" } }, running: {}, done: { on: { again: "idle" } } },
+  };
   const cases: { name: string; machine: Machine; opts?: { refuse?: string; stray?: boolean }; expect: string[] }[] = [
     { name: "a chart the driver honours is silent", machine: toggle, expect: [] },
+    { name: "an always arrow is driven by the row its guard names, and XState agrees", machine: ended, expect: [] },
+    { name: "a state no arrow enters starves its arrows", machine: unreached, expect: ["done --again[0]-->"] },
     // The arrow is named, not merely counted: a walk that said only "1 arrow"
     // would leave the reader to guess which of a chart's dozens.
     {
