@@ -1328,6 +1328,36 @@ function answerSettles() {
   placed.forEach((e, i) => answer(e, running[i]));
 }
 
+/** The nodes of `order` that keep their place when a list is re-placed: the
+ * longest run of them already in document order (`at` maps each node in the
+ * region to its index). Every other node moves, so a swap moves two rows, not
+ * every row between them. */
+function steadyNodes(order, at) {
+  const tails = []; // tails[n]: the order index ending the best run of length n + 1
+  const tailAt = [];
+  const prev = new Int32Array(order.length);
+  for (let k = 0; k < order.length; k++) {
+    const p = at.get(order[k]);
+    if (p === undefined) continue;
+    let lo = tails.length;
+    if (lo > 0 && tailAt[lo - 1] > p) {
+      let hi = lo - 1;
+      lo = 0;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (tailAt[mid] < p) lo = mid + 1;
+        else hi = mid;
+      }
+    }
+    prev[k] = lo > 0 ? tails[lo - 1] : -1;
+    tails[lo] = k;
+    tailAt[lo] = p;
+  }
+  const steady = new Set();
+  for (let k = tails.length > 0 ? tails[tails.length - 1] : -1; k >= 0; k = prev[k]) steady.add(order[k]);
+  return steady;
+}
+
 function playEnter(node) {
   node.dataset.enter = "";
   settle(node, () => delete node.dataset.enter);
@@ -4262,15 +4292,46 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
                 child.remove();
               }
             }
-            let cursor = region.firstElementChild;
-            for (const node of order) {
-              while (cursor && cursor.dataset?.exit !== undefined) cursor = cursor.nextElementSibling;
-              if (cursor === node) {
-                cursor = cursor.nextElementSibling;
-                continue;
+            // Rows already in place at either end are left alone. Of the rest,
+            // the longest run already in order stays, and every other row
+            // moves.
+            const skipExits = (child, step) => {
+              while (child && child.dataset?.exit !== undefined) child = child[step];
+              return child;
+            };
+            let start = 0;
+            let head = skipExits(region.firstElementChild, "nextElementSibling");
+            while (start < order.length && head === order[start]) {
+              start += 1;
+              head = skipExits(head.nextElementSibling, "nextElementSibling");
+            }
+            let end = order.length;
+            let tail = skipExits(region.lastElementChild, "previousElementSibling");
+            while (end > start && tail === order[end - 1]) {
+              end -= 1;
+              tail = skipExits(tail.previousElementSibling, "previousElementSibling");
+            }
+            const middle = order.slice(start, end);
+            const at = new Map();
+            let index = 0;
+            for (let child = head; child && child !== order[end]; child = child.nextElementSibling) {
+              if (child.dataset?.exit === undefined) at.set(child, index++);
+            }
+            const steady = steadyNodes(middle, at);
+            // In order, each before the next row that stays, so rows arriving
+            // into an empty list are appended as they come.
+            const after = order[end] ?? null;
+            let stays = 0;
+            for (let k = 0; k < middle.length; k++) {
+              const node = middle[k];
+              if (steady.has(node)) continue;
+              if (stays <= k) {
+                stays = k + 1;
+                while (stays < middle.length && !steady.has(middle[stays])) stays += 1;
               }
-              if (HAS_MOVE_BEFORE && node.isConnected) region.moveBefore(node, cursor);
-              else region.insertBefore(node, cursor);
+              const next = stays < middle.length ? middle[stays] : after;
+              if (HAS_MOVE_BEFORE && node.isConnected) region.moveBefore(node, next);
+              else region.insertBefore(node, next);
             }
             emptyNote(region, order.length === 0 ? region.dataset.empty : undefined, ctx, templates[0]?.el);
             const select = region.closest("select");

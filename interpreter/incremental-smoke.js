@@ -147,6 +147,40 @@ Deno.test({
   },
 });
 
+Deno.test({
+  name: "a swap moves the two rows it swaps, not the rows between them",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const rows = Array.from({ length: 10 }, (_, i) => ({ id: `r${i}`, title: `row ${i}`, created_at: 10 - i }));
+    const { mount, poke } = await render(rows);
+    const list = mount.querySelector("ul.cards");
+    let moves = 0;
+    for (const method of ["insertBefore", "moveBefore"]) {
+      const place = list[method]?.bind(list);
+      if (place === undefined) continue;
+      list[method] = (node, ref) => {
+        moves += 1;
+        return place(node, ref);
+      };
+    }
+
+    // The stub store answers in array order, as the engine answers in data-order.
+    const [one, eight] = [rows[1], rows[8]];
+    rows[1] = { ...eight, created_at: one.created_at };
+    rows[8] = { ...one, created_at: eight.created_at };
+    poke([
+      { type: "update", value: rows[1], previousValue: eight },
+      { type: "update", value: rows[8], previousValue: one },
+    ]);
+    await tick();
+
+    const ids = [...list.querySelectorAll("li")].map((li) => li.dataset.id);
+    assert(ids.join() === "r0,r8,r2,r3,r4,r5,r6,r7,r1,r9", `swapped order (got ${ids.join()})`);
+    assert(moves === 2, `two rows moved (got ${moves})`);
+  },
+});
+
 // A singleton region is a sink too: when its row goes, its output must go
 // with it. Leaving the last row's values standing is how a deleted subject
 // kept rendering itself underneath the notice saying it was gone.
