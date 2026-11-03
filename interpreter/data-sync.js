@@ -233,7 +233,7 @@ const CONFLICT_SENDS = 5;
 const CONFLICT_FIRST_MS = 25;
 const reloading = new Set();
 
-async function send(url, init) {
+async function send(url, init, retried = false) {
   if (init?.signal?.aborted) {
     throw init.signal.reason ?? new DOMException("aborted", "AbortError");
   }
@@ -260,9 +260,19 @@ async function send(url, init) {
   ) {
     // Expired/invalid token: re-gate through the login screen. The reload
     // tears the page down, so this promise never settles while the store is
-    // open. The server terminal's reload is its end (server/render.ts inhabit).
+    // open. The server terminal's reload instead returns the guest it mints
+    // afresh (server/render.ts inhabit): the request is sent once more with
+    // it, or fails where none comes or the door refuses that one too.
+    if (retried) throw new Error(`${res.status} ${url}: the door refused the renewed token`);
     sessionStorage.removeItem("pronto-token");
-    location.reload();
+    const renewed = location.reload();
+    if (typeof renewed?.then === "function") {
+      await renewed;
+      const headers = { ...init?.headers };
+      // A request made while the guest was being renewed carried none.
+      if (token()) headers.Authorization = `Bearer ${token()}`;
+      return send(url, { ...init, headers }, true);
+    }
     return new Promise((resolve) => {
       reloading.add(() =>
         resolve({
