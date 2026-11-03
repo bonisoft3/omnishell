@@ -1759,6 +1759,20 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   const folds = new Map();
   const work = new Set();
   const mutationWrites = new Set();
+  // A fold reads its named reads afresh on every wake, and with nothing holding
+  // their views between wakes each read was a new load whose rows woke the fold
+  // again. They are held while the screen is on show, and answer locally.
+  const namedHolds = new Map();
+  const holdNamedRead = (read, readOpts) => {
+    if (opts.mountUnits === false || held !== "shown") return;
+    const { current: _current, ...view } = readOpts;
+    const key = JSON.stringify([read.table, view]);
+    if (!namedHolds.has(key)) namedHolds.set(key, store.subscribe(read.table, () => {}, view));
+  };
+  const releaseNamedReads = () => {
+    for (const stop of namedHolds.values()) stop();
+    namedHolds.clear();
+  };
   screenOpts.registerMutationDrain?.(() => Promise.allSettled([...mutationWrites]));
   const derived = new Map();
   const dirty = new Set();
@@ -2544,6 +2558,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           const opts = { current: true };
           if (r.filter !== undefined) opts.filter = interpolateFilter(r.filter, ctx);
           if (r.order !== undefined) opts.order = r.order;
+          holdNamedRead(r, opts);
           const rows = await store.query(r.table, r.order ?? null, opts);
           return [r.name, r.order === undefined ? sortByPk(r.table, rows) : rows];
         }),
@@ -3698,6 +3713,12 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       opts.filter = fromEnclosing(() => interpolateFilter(region.dataset.filter, ctx), table, "data-filter");
     }
     if (region.dataset.select) opts.select = region.dataset.select;
+    // One read per row, which a trip each would flood the server with. A list of them with nothing
+    // to say while empty fills in behind the screen, whose reader waited on all of them to see any.
+    if (screenOpts.mountUnits !== false && region.parentElement?.closest("[data-id]")) {
+      opts.perRow = true;
+      if (region.dataset.empty === undefined && region.querySelector(":scope > template[data-item]") !== null) opts.fillsIn = true;
+    }
     // Carried in opts as well as passed to query, because the store keys a
     // maintained view on the whole read — order included — and subscribe is
     // handed nothing but opts.
@@ -4686,6 +4707,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // waiting on the newer template's modules meets either when it resumes.
   const stopScreen = () => {
     held = "stopped";
+    releaseNamedReads();
     const errors = [];
     for (const stop of [...regions.map(r => () => r.stop()), ...cleanups.splice(0)]) {
       try { stop(); } catch (error) { errors.push(error); }
@@ -4800,6 +4822,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       if (held !== "shown") return;
       held = "paused";
       for (const r of regions) r.pause();
+      releaseNamedReads();
       return Promise.allSettled([...mutationWrites]);
     },
     resume: async () => {

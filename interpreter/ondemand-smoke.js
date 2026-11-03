@@ -651,6 +651,36 @@ lazy("reads of a loading view share one trip, and the view still finishes with n
   },
 });
 
+const perRow = [];
+lazy("a read stamped per row leaves its load to the batched subset", async ({ store }) => {
+  // A home screen's deck covers are a read per deck, and a trip each sent two hundred requests
+  // where the store's subset loads batch them into one.
+  const opts = { filter: "game_id=eq.g1", perRow: true };
+  const stop = store.subscribe("player_game", () => {}, opts);
+  assert((await store.query("player_game", null, opts)).length === 2, "the view answered");
+  assert(perRow.length === 0, `no trip, got ${perRow.length}`);
+  stop();
+}, {
+  fetcher: (fake) => (input, init) => {
+    if (/\/crud\/player_game\?/.test(String(input)) && (!init?.method || init.method === "GET")) perRow.push(String(input));
+    return fake.fetcher(input, init);
+  },
+});
+
+lazy("a per-row list fills in behind the screen, and is woken when its load ends", async ({ fake, store }) => {
+  // A reader waited on every row's read to see any of the screen: a deck's thumbnails held the whole page.
+  const release = fake.hold("player_game");
+  const opts = { filter: "game_id=eq.g1", perRow: true, fillsIn: true };
+  let woke = false;
+  const stop = store.subscribe("player_game", () => { woke = true; }, opts);
+  assert((await store.query("player_game", null, opts)).length === 0, "nothing yet, without waiting");
+  assert(!woke, "not woken while loading");
+  release();
+  await until(() => woke, "the load's end woke the reader");
+  assert((await store.query("player_game", null, opts)).length === 2, "and it fills in");
+  stop();
+});
+
 lazy("a stalled trip leaves a lazy read to its view", async ({ fake, store }) => {
   const opts = { filter: "game_id=eq.g1" };
   const stop = store.subscribe("player_game", () => {}, opts);

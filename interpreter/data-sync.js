@@ -1302,7 +1302,11 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   // two hundred requests to reopen a deck.
   const trips = new Map();
   async function oneTrip(key, table, order, opts, views) {
-    if (!keepsReads) return undefined;
+    if (opts.fillsIn && !opts.current) {
+      stoodIn.add(key);
+      return [];
+    }
+    if (!keepsReads || opts.perRow) return undefined;
     const tables = readDeps(table, opts);
     if ([...tables].some((t) => (generation.get(t) ?? 0) > 0)) return undefined;
     const url = `${crud(table)}?${search(order, opts)}`;
