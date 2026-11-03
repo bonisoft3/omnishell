@@ -253,6 +253,39 @@ describe("release draft recovery", () => {
       })
     } finally { await server.close() }
   })
+  it("says nothing of a delayed then's write that a page being left cut off", async () => {
+    const server = await serve(false, false, undefined, false, false, { delayedThen: true })
+    try {
+      await withPage(async page => {
+        const errors: string[] = []
+        page.on("console", message => { if (message.type() === "error") errors.push(message.text()) })
+        await page.addInitScript(() => {
+          let store: any
+          Object.defineProperty(window, "__prontoStore", {
+            configurable: true,
+            get() { return store },
+            set(value) {
+              store = value
+              const { write } = store
+              store.write = (entity: string, ...rest: any[]) => {
+                if (entity !== "later") return write(entity, ...rest)
+                // A navigation fails what is in flight, and a delayed step now starts just as a reader can leave.
+                window.dispatchEvent(new Event("pagehide"))
+                ;(window as any).cutOff = true
+                return Promise.reject(new TypeError("Failed to fetch"))
+              }
+            },
+          })
+        })
+        await page.goto(server.base)
+        await ready(page, "A")
+        await page.evaluate(() => { (window as any).navigate("/delayed") })
+        await page.waitForFunction(() => (window as any).cutOff === true)
+        await page.waitForTimeout(100)
+        expect(errors.filter(text => text.includes("Failed to fetch"))).toEqual([])
+      })
+    } finally { await server.close() }
+  })
   it("keeps newer input while a replacement screen waits for a region read", async () => {
     const server = await serve()
     try {

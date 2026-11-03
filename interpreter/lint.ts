@@ -51,7 +51,7 @@ const strip = (html: string) => html.replace(SCRIPT, "").replace(STYLE, "").repl
 // Both authored quoting styles, matching what the DOM parser hands the
 // interpreter — a single-quoted attribute must not be visible to one checker
 // and invisible to another.
-const ATTR = /\s(data-[a-z][a-z-]*)=(?:"([^"]*)"|'([^']*)')/g;
+const ATTR = /\s(data-[a-z][a-z_-]*)=(?:"([^"]*)"|'([^']*)')/g;
 
 const decode = (v: string) =>
   v.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")

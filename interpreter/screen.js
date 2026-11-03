@@ -199,6 +199,15 @@ export function prefetchScreen(appBase, route) {
   return ahead[0][1];
 }
 
+// A page being left takes its requests with it: what fails then failed because
+// the document is going, and is not said.
+let leaving = false;
+globalThis.addEventListener?.("pagehide", () => { leaving = true; });
+globalThis.addEventListener?.("pageshow", () => { leaving = false; });
+const report = (err) => {
+  if (!leaving) console.error(err);
+};
+
 /** The reads a screen's markup declares that its address alone decides, as its regions will ask
  * them. A region in a row's template, or reading anything but the params, waits for its mount. */
 export function addressedReads(text, params) {
@@ -2368,7 +2377,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       // refusal's own rollback triggers exactly such a refresh, which would
       // clobber the state within milliseconds.
       const refused = (err) => {
-        console.error(err);
+        report(err);
         // With a mutation reduce mounted on the form's region, the refusal is
         // the reduce's event (see wireEvents' deliver) — the reduce writes the
         // words as a row, so the .store-error side channel stays untouched.
@@ -2475,7 +2484,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           const result = reduce(state, { type: "move", fromId, toId });
           await apply(result.updates ?? [], deliver);
         } catch (err) {
-          console.error(err);
+          report(err);
           setState("network-error");
         }
       });
@@ -2583,7 +2592,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       return fired;
     };
     const deliver = (entity, id, err) => {
-      console.error(err);
+      report(err);
       const fired = refusal(entity, id, err);
       if (machineRefused.length > 0) {
         for (const hear of machineRefused) hear(fired);
@@ -2595,7 +2604,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       region._prontoMachineRow = undefined;
       if (rowsReduce) {
         step(rowsReduce, fired, 0).catch((e) => {
-          console.error(e);
+          report(e);
           setState("network-error");
         });
         return;
@@ -2849,7 +2858,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             if (e?.detail !== null && typeof e?.detail === "object") fired.detail = e.detail;
             await step(reduce, fired, 0);
           } catch (err) {
-            console.error(err);
+            report(err);
             setState("network-error");
           }
         });
@@ -3402,7 +3411,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             if (region[mine("afterGen")] !== gen) return;
             await runMachine(timerReduce, { type: `after:${key}` });
           })().catch((err) => {
-            console.error(err);
+            report(err);
             setState("network-error");
           });
         }
@@ -3456,7 +3465,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             }
             await runMachine(machineReduce, fired);
           } catch (err) {
-            console.error(err);
+            report(err);
             setState("network-error");
           }
         });
@@ -3464,7 +3473,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       if (shape.handled.includes("refused")) {
         machineRefused.push((fired) => {
           runMachine(machineReduce, fired).catch((err) => {
-            console.error(err);
+            report(err);
             setState("network-error");
           });
         });
@@ -3477,7 +3486,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       if (shape.handled.includes("sync_ack")) {
         machineAck.push((fired) => {
           runMachine(machineReduce, fired).catch((err) => {
-            console.error(err);
+            report(err);
             setState("network-error");
           });
         });
@@ -3499,7 +3508,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           // and a raise it chains is an ordinary event.
           if (evalCandidates(alwaysList, { items: [standing] }, { type: "always" }) !== undefined) runMachine((state, event) => event.type === "always" ? apply(machineRow(state), event, alwaysList, current) : machineReduce(state, event), { type: "always" }).catch((err) => {
             failed(err);
-            console.error(err);
+            report(err);
           });
         }
       }
@@ -3554,7 +3563,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             .catch((err) => {
               rejected = true;
               failed(err);
-              console.error(err);
+              report(err);
               setState("network-error");
             })
             .finally(() => {
@@ -4468,7 +4477,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           paint?.reject(err);
           throw err;
         }
-        console.error(err);
+        report(err);
         if (top || (reading && !shown)) {
           outages.add(guarded);
           setState("network-error");
