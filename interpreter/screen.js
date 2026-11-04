@@ -1787,6 +1787,18 @@ function staticOrParam(template, ctx) {
 // declarations, which is what a data-hatch name resolves against. opts.routes
 // and opts.i18n are the table every link's address is composed from, and
 // opts.navigate is how a navigate form reaches the terminal's stack.
+// How long a fold may take writing, in milliseconds, and still have its regions
+// woken in the event's own task. The pass that places the rows grows with the
+// rows written: a fold of a few rows is over in a millisecond, one of ten
+// thousand writes for tens of them and places them for hundreds. A pass that
+// long is many frames whatever task it runs in, and run in the event's it holds
+// the next key or click behind it; in a task of its own the input goes first.
+const PROMPT_FOLD_MS = 4;
+
+// Work in flight, by store, across every screen it serves: a document's slots
+// share one store, and a flush of its wakes reaches all of their regions.
+const inFlight = new WeakMap();
+
 export async function interpretScreen(mount, appBase, route, store, params = {}, opts = {}) {
   const screenOpts = opts;
   const hostDom = await hostDomScreen(route, appBase, opts.hostDom ?? {}, opts);
@@ -1837,15 +1849,20 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     failure ??= err;
   };
   const track = (promise) => {
-    const tracked = promise.then((value) => {
+    const done = () => {
       work.delete(tracked);
+      inFlight.set(store, inFlight.get(store) - 1);
+    };
+    const tracked = promise.then((value) => {
+      done();
       return value;
     }, (err) => {
-      work.delete(tracked);
+      done();
       failed(err);
       throw err;
     });
     work.add(tracked);
+    inFlight.set(store, (inFlight.get(store) ?? 0) + 1);
     return tracked;
   };
   const finite = (run) => {
@@ -2888,6 +2905,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         el.addEventListener(event, async (e) => {
           const reduce = handlers.get(el.getAttribute(`data-on-${event}`));
           if (!reduce) return;
+          const began = performance.now();
           try {
             const fired = { type: event };
             if (id !== undefined) fired.id = id;
@@ -2924,6 +2942,18 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             // built and never the unit's own object.
             if (e?.detail !== null && typeof e?.detail === "object") fired.detail = e.detail;
             await step(reduce, fired, 0);
+            // The fold's writes have all landed, so the regions they moved are
+            // woken now, in the event's own task. After a click Chrome holds
+            // every task the click posted, even a user-blocking one, until it
+            // has rendered: the store's wake would run in the next frame's
+            // animation callback, inside that frame, and its paint waits on
+            // the work. Done here, the work is over before the frame begins.
+            // Only while no other fold on the store is mid-write, this
+            // screen's or another slot's — between its drop and its put a
+            // fold is half applied, and its wake is left to the store's own
+            // turn. A fold that took long writing has a long pass to come,
+            // and it too is left to the store's turn (PROMPT_FOLD_MS).
+            if (inFlight.get(store) === 0 && performance.now() - began <= PROMPT_FOLD_MS) store.flushNotifications?.();
           } catch (err) {
             report(err);
             setState("network-error");
