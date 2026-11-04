@@ -442,10 +442,15 @@ async function loadRole(screen, appBase, route, attr, role, listed = "handlers",
 // check is that the name is an event and that the handler is declared. The
 // value is a REFERENCE and never a body, which is what keeps the assembly
 // lintable and the reduce pure — an inline on<event> would be neither.
-const onAttrs = (el) =>
-  [...el.attributes]
-    .filter((a) => a.name.startsWith("data-on-"))
-    .map((a) => ({ event: a.name.slice("data-on-".length), name: a.value }));
+const onAttrs = (el) => {
+  const out = [];
+  const attrs = el.attributes;
+  for (let i = 0; i < attrs.length; i++) {
+    const a = attrs[i];
+    if (a.name.startsWith("data-on-")) out.push({ event: a.name.slice("data-on-".length), name: a.value });
+  }
+  return out;
+};
 
 /** The adapter a control names, or undefined. Modules are loaded once per
  * screen and reached through the ctx every binding already carries. null is
@@ -1241,9 +1246,21 @@ function nestedBindings(el, ctx) {
   return out.join("\u0000");
 }
 
+// A template's text split around its placeholders, kept: the same few strings
+// are interpolated once per row of every list. Odd entries are the
+// expressions. Bounded, since a caller may hand it text no markup wrote.
+const splitTemplates = new Map();
 function interpolate(template, ctx) {
   if (Array.isArray(template)) return evaluateAst(template, ctx, localeOf(ctx));
-  return template.replace(PLACEHOLDERS, (_, expr) => String(lookup(expr, ctx) ?? ""));
+  let parts = splitTemplates.get(template);
+  if (parts === undefined) {
+    if (splitTemplates.size >= 4096) splitTemplates.clear();
+    parts = template.split(PLACEHOLDERS);
+    splitTemplates.set(template, parts);
+  }
+  let out = parts[0];
+  for (let i = 1; i < parts.length; i += 2) out += String(lookup(parts[i], ctx) ?? "") + parts[i + 1];
+  return out;
 }
 
 function interpolateFilter(template, ctx) {
@@ -1517,31 +1534,34 @@ function emptyNote(region, copy, ctx, item) {
   region.append(note);
 }
 
+function bindText(el, ctx, renderers) {
+  const textAttr = el.getAttribute("data-text");
+  if (textAttr === null) return;
+  const format = el.getAttribute("data-text-format") ?? undefined;
+  // Written only where it differs: a served row already saying it keeps
+  // its text node, and the reader's selection in it.
+  const write = (text) => {
+    if (el.textContent !== text) el.textContent = text;
+  };
+  if (VALUE_FORMATS.has(format)) {
+    write(textAttr.replace(PLACEHOLDERS, (_, expr) =>
+      ({ datetime: formatDatetime, date: formatDate, time: formatTime, number: formatNumber, language: formatLanguage })[format](lookup(expr, ctx), ctx),
+    ));
+  } else if (format !== undefined && format !== "plain") {
+    const render = renderers[format];
+    // Every format resolves at hydration, so an unresolved one can only be
+    // the fixture adapter, which evaluates no Jessie. It shows the value as
+    // text there, the way it shows a widget's markup unenhanced.
+    if (render === undefined) write(interpolate(textAttr, ctx));
+    else renderInto(render, interpolate(textAttr, ctx), el);
+  } else {
+    write(interpolate(textAttr, ctx));
+  }
+}
+
 function bindTexts(scope, ctx, renderers = {}) {
   const visit = (el) => {
-    const textAttr = el.getAttribute("data-text");
-    if (textAttr !== null) {
-      const format = el.getAttribute("data-text-format") ?? undefined;
-      // Written only where it differs: a served row already saying it keeps
-      // its text node, and the reader's selection in it.
-      const write = (text) => {
-        if (el.textContent !== text) el.textContent = text;
-      };
-      if (VALUE_FORMATS.has(format)) {
-        write(textAttr.replace(PLACEHOLDERS, (_, expr) =>
-          ({ datetime: formatDatetime, date: formatDate, time: formatTime, number: formatNumber, language: formatLanguage })[format](lookup(expr, ctx), ctx),
-        ));
-      } else if (format !== undefined && format !== "plain") {
-        const render = renderers[format];
-        // Every format resolves at hydration, so an unresolved one can only be
-        // the fixture adapter, which evaluates no Jessie. It shows the value as
-        // text there, the way it shows a widget's markup unenhanced.
-        if (render === undefined) write(interpolate(textAttr, ctx));
-        else renderInto(render, interpolate(textAttr, ctx), el);
-      } else {
-        write(interpolate(textAttr, ctx));
-      }
-    }
+    bindText(el, ctx, renderers);
     if (el.hasAttribute("data-text-format") || el.localName === "template") return;
     for (let child = el.firstElementChild; child !== null; child = child.nextElementSibling) {
       if (!child.hasAttribute("data-live")) visit(child);
@@ -1563,10 +1583,16 @@ function guardEdits(el) {
   });
 }
 
-function bindAttributes(scope, ctx) {
-  for (let parent = scope.parentElement; parent !== null; parent = parent.parentElement) {
-    if (parent.hasAttribute("data-text-format")) return;
+// Nodes a renderer produced are the row's own content, not authored markup.
+function insideRendered(el) {
+  for (let parent = el.parentElement; parent !== null; parent = parent.parentElement) {
+    if (parent.hasAttribute("data-text-format")) return true;
   }
+  return false;
+}
+
+function bindAttributes(scope, ctx) {
+  if (insideRendered(scope)) return;
   // Renderer output has no bindings; nested regions bind against their own
   // rows, and a template's markup against the rows it stamps (a DOM without
   // template content keeps it as children). Prune all three before walking a
@@ -1581,6 +1607,86 @@ function bindAttributes(scope, ctx) {
   visit(scope);
 }
 
+/** Whether any of the element's own attributes is a binding. */
+function hasBoundAttribute(el) {
+  const attrs = el.attributes ?? [];
+  for (let i = 0; i < attrs.length; i++) {
+    const a = attrs[i];
+    if (!regionAttr(a.name) && PLACEHOLDER.test(a.value)) return true;
+  }
+  return false;
+}
+
+/**
+ * Where an item template's bindings sit, found once per template. Every row
+ * the template stamps is a clone of the same markup, so which of its elements
+ * carry bound attributes, a data-text or a data-on-* is a fact about the
+ * template; walking each clone to find them again is a walk of every element
+ * of every row, which is most of what a ten-thousand-row create spends. The
+ * plan is a list of child-index paths, in document order, each saying what
+ * its element is for:
+ *
+ * - attr and text: what bindAttributes and bindTexts would reach, with their
+ *   pruning — nothing below a data-text-format, a template or a nested
+ *   [data-live].
+ * - event: what wireEvents' bindTree would wire, the elements owned by the
+ *   item (no [data-live] between) that declare a data-on-*.
+ * - open: an owned element whose children are not the template's by the time
+ *   the row is wired, because a renderer or a hatch writes them. Its
+ *   descendants are walked then, the way bindTree walks everything.
+ */
+function bindingPlan(root) {
+  const plan = [];
+  // A data-text with elements under it writes over them, and the walks then
+  // never reach them; a plan made before the write would. Such a template is
+  // walked, row by row, as before.
+  let exact = true;
+  const walk = (el, path, bindable, owned) => {
+    const step = {
+      path,
+      attr: bindable && (hasBoundAttribute(el) || el.hasAttribute("data-image-src")),
+      text: bindable && el.hasAttribute("data-text"),
+      event: owned && onAttrs(el).length > 0,
+      open: owned && (el.hasAttribute("data-text-format") || el.hasAttribute("data-hatch")),
+    };
+    if (step.attr || step.text || step.event || step.open) plan.push(step);
+    if (step.text && !el.hasAttribute("data-text-format") && el.firstElementChild !== null) exact = false;
+    const below = bindable && !el.hasAttribute("data-text-format") && el.localName !== "template";
+    let i = 0;
+    for (let child = el.firstElementChild; child !== null; child = child.nextElementSibling, i++) {
+      const nested = child.hasAttribute("data-live");
+      walk(child, [...path, i], below && !nested, owned && !step.open && !nested);
+    }
+  };
+  walk(root, [], true, true);
+  return exact ? plan : undefined;
+}
+
+/** The plan's elements in a fresh clone of its template, by path. By sibling
+ * steps, not `children`: each element's `children` is a live collection the
+ * document then invalidates on every insertion, and ten thousand rows' worth
+ * makes placing them quadratic. */
+function planned(plan, node) {
+  const els = plan.map(({ path }) => {
+    let el = node;
+    for (const i of path) {
+      el = el.firstElementChild;
+      for (let k = 0; k < i; k++) el = el.nextElementSibling;
+    }
+    return el;
+  });
+  return { plan, els, unbound: true };
+}
+
+/** bindAttributes then bindTexts over a fresh clone, by its plan: the same
+ * elements in the same order, without the walk. */
+function bindPlanned(scope, { plan, els }, ctx, renderers = {}) {
+  if (!insideRendered(scope)) {
+    for (let i = 0; i < plan.length; i++) if (plan[i].attr) bindElementAttributes(els[i], ctx, true);
+  }
+  for (let i = 0; i < plan.length; i++) if (plan[i].text) bindText(els[i], ctx, renderers);
+}
+
 /**
  * One element's bound attributes. Split out because a LIST region's own
  * element belongs to nobody else's pass: its parent's stops at it (ownedBy
@@ -1593,26 +1699,14 @@ function bindElementAttributes(el, ctx, insideWalk = false) {
   // Nodes a renderer produced are the row's own content, not authored
   // markup: nothing in them is a binding, and the braces an author wrote
   // name no column.
-  if (!insideWalk) {
-    for (let parent = el.parentElement; parent !== null; parent = parent.parentElement) {
-      if (parent.hasAttribute("data-text-format")) return;
-    }
-  }
+  if (!insideWalk && insideRendered(el)) return;
   if (el.hasAttribute?.("data-image-src")) checkImageSrc(el, el.getAttribute("data-image-src"));
   // setAttribute would consume the placeholder template; persistent regions
   // (singletons) re-bind on every refresh, so originals are stashed.
   let stash = el._prontoAttrs;
   const attrs = el.attributes ?? [];
   if (stash === undefined) {
-    let hasBound = false;
-    for (let i = 0; i < attrs.length; i++) {
-      const a = attrs[i];
-      if (!regionAttr(a.name) && PLACEHOLDER.test(a.value)) {
-        hasBound = true;
-        break;
-      }
-    }
-    if (!hasBound) return;
+    if (!hasBoundAttribute(el)) return;
     stash = el._prontoAttrs = {};
   }
   // The names to consider are the element's attributes AND every name already
@@ -2966,7 +3060,23 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // its id; outside one it acts on what the region read. The walk stops at
     // the next [data-live], which binds its own.
     const bindTree = (root, id) => {
+      // A stamped item wires by its template's plan: the owned elements that
+      // declare a data-on-*, and the whole of whatever a renderer or a hatch
+      // has written since (bindingPlan).
+      const plan = root._prontoPlanned;
+      root._prontoPlanned = undefined;
       if (handlers.size === 0) return;
+      if (plan !== undefined) {
+        for (let i = 0; i < plan.plan.length; i++) {
+          const el = plan.els[i];
+          if (plan.plan[i].event) bind(el, id);
+          if (!plan.plan[i].open) continue;
+          for (const inner of el.querySelectorAll("*")) {
+            if (ownedBy(inner, root)) bind(inner, id);
+          }
+        }
+        return;
+      }
       bind(root, id);
       for (const el of root.querySelectorAll("*")) {
         if (!ownedBy(el, root)) continue;
@@ -3742,6 +3852,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       el._prontoHasHatches = Boolean(root.matches?.("[data-hatch]") || root.querySelector("[data-hatch]") !== null);
       el._prontoHasNested = root.querySelector("[data-live]") !== null;
       el._prontoHasKeys = Boolean(root.matches?.("[data-key]") || root.querySelector("[data-key]") !== null);
+      el._prontoPlan = bindingPlan(root);
       const when = el.getAttribute("data-when");
       if (when === null) return { el, admits: null };
       // A data-when is matched against the row itself, so its values are
@@ -4121,6 +4232,13 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       } else {
         node = tmpl.content.firstElementChild.cloneNode(true);
         node.dataset.id = entry.ctx.row.id;
+        // A fresh clone is its template's markup exactly, so the template's
+        // plan finds its bindings (bindingPlan). Not an id that itself reads
+        // as a placeholder: the walk would bind data-id, and the plan has no
+        // way to know it.
+        if (tmpl._prontoPlan !== undefined && !PLACEHOLDER.test(node.dataset.id)) {
+          node._prontoPlanned = planned(tmpl._prontoPlan, node);
+        }
       }
       if (tmpl._prontoHasForms) {
         for (const form of formsIn(node)) {
@@ -4275,8 +4393,16 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
               // would stick on the literal "undefined" and never clear.
               if (row.$synced === false) entry.node.dataset.pending = "true";
               else if (entry.node.hasAttribute("data-pending")) delete entry.node.dataset.pending;
-              bindAttributes(entry.node, entry.ctx);
-              bindTexts(entry.node, entry.ctx, renderers);
+              // A node's first bind follows its template's plan; any later
+              // one walks, since by then the row's markup is its own.
+              const plan = entry.node._prontoPlanned;
+              if (plan?.unbound) {
+                plan.unbound = false;
+                bindPlanned(entry.node, plan, entry.ctx, renderers);
+              } else {
+                bindAttributes(entry.node, entry.ctx);
+                bindTexts(entry.node, entry.ctx, renderers);
+              }
               if (entry.tmpl._prontoHasHatches) bindHatches(entry.node, entry.ctx);
               if (entry.tmpl._prontoHasNested || entry.nested.size > 0) toSync.push(entry);
               if (!entry.wired) fresh.push(entry);
@@ -4722,6 +4848,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           const item = tmpl.content.firstElementChild;
           const node = entry.node;
           morphTree(node, item.cloneNode(true), { slots: false });
+          // The node is the newer item's shape now, which the plan it was
+          // stamped with does not describe.
+          node._prontoPlanned = undefined;
           const pairs = new Map();
           adoptTree(item, node, { rows: true, live: true, pairs });
           entry.tmpl = tmpl;
