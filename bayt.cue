@@ -61,7 +61,7 @@ _smokeCmd: {
 	}
 	"builtin": {
 		shell: "sh"
-		do:    "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-import --allow-net --allow-sys --ignore=test/design-tokens.test.ts,test/check-parity.test.ts,test/chrome-direction.test.ts,test/entry-document.test.ts,test/document.test.ts,test/locale-resolver.test.ts,test/vendor-bundle.test.ts,test/arbitrary-types.test.ts,test/data-sync-parity.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read \(_smokes)'"
+		do:    "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-write --allow-import --allow-net --allow-sys --ignore=test/design-tokens.test.ts,test/check-parity.test.ts,test/chrome-direction.test.ts,test/entry-document.test.ts,test/document.test.ts,test/locale-resolver.test.ts,test/vendor-bundle.test.ts,test/arbitrary-types.test.ts,test/data-sync-parity.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read \(_smokes)'"
 	}
 }
 

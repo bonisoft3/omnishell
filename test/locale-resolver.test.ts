@@ -1,7 +1,7 @@
 // The order a screen's language is decided in, asserted where it is defined.
 // Four sources re-derived at three call sites is how a row and a path come to
 // disagree, so the order is one function and these are its claims.
-import { acceptedLanguages, directionOf, localeByPath, localeTable, negotiateLocale, resolveLocale, routeAt } from "../interpreter/fragment.js";
+import { acceptedLanguages, directionOf, localeByPath, localeTable, negotiateLocale, resolveLocale, restatedHref, routeAt } from "../interpreter/fragment.js";
 import { shellPreferredLanguages } from "../interpreter/shell.js";
 
 const assert = (ok: unknown, msg: string) => {
@@ -154,4 +154,12 @@ Deno.test("every tag an app declares is classified the same by the list and by t
     }
   }
   assert(seen > 0, "no app declared a locale, so this asserted nothing");
+});
+
+// A Stripe return lands on /print?order=… in a language the door negotiated;
+// restating it as /en/print once dropped the order the receipt is read by.
+Deno.test("restating an address keeps what the route reads past its path", () => {
+  assert(restatedHref("/en/print", "?order=abc&checkout=cancelled", "#top") === "/en/print?order=abc&checkout=cancelled#top", "query and fragment survive");
+  assert(restatedHref("/print?lang=pt", "?lang=pt&order=abc") === "/print?lang=pt&order=abc", "the asked language is the canonical's, said once");
+  assert(restatedHref("/es/explore", "") === "/es/explore", "a bare arrival stays bare");
 });

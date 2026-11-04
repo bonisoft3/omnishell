@@ -13,7 +13,7 @@ type Posted = { type: string; props?: Row; detail?: Row };
 
 const UNIT = {
   isolation: "agent",
-  ports: { reads: ["game"], raises: ["answer"] },
+  ports: { reads: ["game"], raises: { answer: { type: "object", fields: { fen: { type: "string", maxLength: 128 }, nodes: { type: "string", maxLength: 128 }, uci: { type: "string", maxLength: 128 } } } } },
   memo: { table: "answer", key: ["fen", "nodes"], columns: ["fen", "nodes", "uci"] },
   src: "shell/units/engine/unit.js",
 };
@@ -29,8 +29,8 @@ class FakeWorker {
   postMessage(data: Posted) {
     this.posted.push(data);
   }
-  addEventListener(_type: string, fn: (e: { data: unknown }) => void) {
-    this.listeners.push(fn);
+  addEventListener(type: string, fn: (e: { data: unknown }) => void) {
+    if (type === "message") this.listeners.push(fn);
   }
   terminate() {}
   /** What the unit says, delivered as the port does: a task of its own, so a
@@ -43,6 +43,7 @@ class FakeWorker {
 }
 // deno-lint-ignore no-explicit-any
 (globalThis as any).Worker = FakeWorker;
+globalThis.fetch = () => Promise.resolve(new Response(""));
 
 /** A store of one table: rows by the memo's natural key, as upsertBy resolves. */
 function memoStore(rows: Row[] = []) {
@@ -102,6 +103,8 @@ const mount = async (store: ReturnType<typeof memoStore>) => {
   FakeWorker.made.length = 0;
   const events: { name: string; detail: Row }[] = [];
   const hatch = mountHatch(null, { unit: UNIT, src: SRC, onEvent: (e: { name: string; detail: Row }) => events.push(e), store });
+  // The seat starts the worker from the unit's fetched bytes.
+  await settled();
   const worker = FakeWorker.made[0];
   worker.says({ type: "pronto:ready" });
   await settled();
@@ -251,9 +254,9 @@ Deno.test("an answer missing a key field or a column of the memo is refused, and
   // ProgramError, so the shell banners it rather than leaving a console line
   // and a question that stands forever.
   let [threw] = await escaped(() => worker.says({ type: "pronto:event", name: "answer", detail: { fen: "e4", uci: "e7e5" } }));
-  assert(threw instanceof ProgramError && String(threw).includes('"nodes"'), `a key field the answer lacks is named, got ${threw}`);
+  assert(threw instanceof ProgramError && String(threw).includes("detail.nodes: missing field"), `a key field the answer lacks is named, got ${threw}`);
   [threw] = await escaped(() => worker.says({ type: "pronto:event", name: "answer", detail: { fen: "e4", nodes: "100" } }));
-  assert(threw instanceof ProgramError && String(threw).includes('"uci"'), `a column the answer lacks is named, got ${threw}`);
+  assert(threw instanceof ProgramError && String(threw).includes("detail.uci: missing field"), `a column the answer lacks is named, got ${threw}`);
   assertEquals(store.rows, [], "and nothing was written");
   // A question is put inside the region's refresh, whose outage guard retries
   // anything but a ProgramError as a dead gateway; worker-smoke.js drives this

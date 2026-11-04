@@ -714,6 +714,20 @@ export function routePattern(route, locale) {
  * what the renderer's URL check gives for a refused one: a reader's data must
  * not take the screen down. A NAME the app got wrong still throws, because
  * that is the author's mistake and no row can fix it. */
+/**
+ * The address a negotiated or `?lang=` arrival is restated to: the route's
+ * canonical spelling, with every other query parameter and the fragment the
+ * reader arrived with. A provider's return address (`/print?order=…`) names
+ * what the screen reads; respelling the path must not drop it.
+ */
+export function restatedHref(canonical, search, hash = "") {
+  const target = new URL(canonical, "https://address.invalid");
+  for (const [name, value] of new URLSearchParams(search)) {
+    if (name !== "lang") target.searchParams.append(name, value);
+  }
+  return `${target.pathname}${target.search}${hash}`;
+}
+
 export function routeHref(cfg, screen, params, locale, { explicitLocale = false } = {}) {
   const route = cfg.routes?.find((r) => r.screen === screen);
   if (route === undefined) throw new ProgramError(`data-route names "${screen}", which is no route of this app`);

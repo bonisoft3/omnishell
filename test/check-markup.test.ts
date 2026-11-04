@@ -39,3 +39,26 @@ Deno.test("markup refuses executable content after parsing attributes and nested
   }
   assertEquals(screenFindings("prose.html", '<p>&lt;script&gt; is text</p><!-- <script>run()</script> --><span data-on-click="save">Save</span>', {}, new Set(["save"]), []), []);
 });
+
+Deno.test("markup host-DOM ownership requires manifest declaration and selection on every screen route", async () => {
+  const { checkApp } = await import("../check-markup.ts");
+  const directory = await Deno.makeTempDir();
+  const app = new URL(`file://${directory}/`);
+  try {
+    await Deno.mkdir(new URL("shell/screens/", app), { recursive: true });
+    await Deno.writeTextFile(new URL("shell/screens/print.html", app), '<button data-host-dom="checkout">Pay</button>');
+    for (const [hostDom, routes, accepted] of [
+      [{ checkout: { src: "shell/hatches/checkout.js", note: "Payment controls" } }, [{ path: "/print", screen: "print", hatches: ["checkout"] }], true],
+      [{}, [{ path: "/print", screen: "print", hatches: ["checkout"] }], false],
+      [{ checkout: {} }, [{ path: "/print", screen: "print" }], false],
+      [{ checkout: {} }, [{ path: "/print", screen: "print", hatches: ["checkout"] }, { path: "/other", screen: "print" }], false],
+    ] as const) {
+      await Deno.writeTextFile(new URL("shell/shell.yaml", app), JSON.stringify({ schema: {}, hostDom, routes }));
+      const result = await checkApp(app);
+      assertEquals(result.checked, 1);
+      assertEquals(result.findings.length === 0, accepted, JSON.stringify(result.findings));
+    }
+  } finally {
+    await Deno.remove(directory, { recursive: true });
+  }
+});

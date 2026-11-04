@@ -902,7 +902,7 @@ const label = (tag: string, attr: (name: string) => string | undefined) => {
  * `<select>`, a bare checkbox and a native invoker (`popovertarget`,
  * `commandfor`) are the platform's own affordances and reach the interpreter
  * through nothing, so none of them is a control this rule judges. */
-export function unwitnessedControls(html: string): string[] {
+export function unwitnessedControls(html: string, selectedHostDom: Set<string> = new Set()): string[] {
   const out: string[] = [];
   type Cover = {
     live: boolean;
@@ -981,7 +981,12 @@ export function unwitnessedControls(html: string): string[] {
     // `popovertarget`. Neither writes anything, which is exactly why neither
     // is a handler this rule could otherwise find.
     const invoker = has("popovertarget") || attr("commandfor") !== undefined;
-    if (!invoker && (tag === "button" || (tag === "input" && type !== undefined && CONTROL_INPUT.has(type)))) {
+    const control = tag === "button" || (tag === "input" && type !== undefined && CONTROL_INPUT.has(type));
+    const hostDom = attr("data-host-dom");
+    if (has("data-host-dom") && (!control || !hostDom || !selectedHostDom.has(hostDom))) {
+      out.push(`${label(tag, attr)} data-host-dom must name a declared hatch selected on this screen's routes, on the control itself`);
+    }
+    if (!invoker && control && !(hostDom && selectedHostDom.has(hostDom))) {
       // A button's default type is submit; type="button" and type="reset"
       // reach no submit listener however deep in a form they sit.
       const own: Own = {
@@ -1039,8 +1044,17 @@ export function hatchSites(html: string): HatchSite[] {
   return out;
 }
 
+/** A payload's shape, mecha's #Shape: what a raised event's detail is rebuilt
+ * from at the seat. */
+export type Shape =
+  | { type: "string"; maxLength: number; values?: string[] }
+  | { type: "integer"; min: number; max: number }
+  | { type: "boolean" }
+  | { type: "array"; maxItems: number; items: Shape }
+  | { type: "object"; fields: Record<string, Shape> };
+
 /** A vendored unit as shell.yaml `units:` declares it to the terminal. */
-export type UnitPorts = { ports: { reads: string[]; raises: string[] }; memo?: { table: string; key: string[]; columns: string[] } };
+export type UnitPorts = { ports: { reads: string[]; raises: Record<string, Shape> }; memo?: { table: string; key: string[]; columns: string[] } };
 
 /** The reasons one screen's mounts disagree with their units' ports: a unit
  * nobody declared, a mount fed a region's row the unit does not read, a
@@ -1063,7 +1077,7 @@ export function hatchLint(sites: HatchSite[], units: Record<string, UnitPorts>):
       out.push(`data-hatch="${s.unit}" is fed the row of "${s.table}", which its ports do not read (reads: ${unit.ports.reads.join(", ") || "nothing"})`);
     }
     for (const ev of s.handles) {
-      if (!unit.ports.raises.includes(ev)) out.push(`data-hatch="${s.unit}" handles "${ev}", which its ports do not raise (raises: ${unit.ports.raises.join(", ") || "nothing"})`);
+      if (!Object.hasOwn(unit.ports.raises, ev)) out.push(`data-hatch="${s.unit}" handles "${ev}", which its ports do not raise (raises: ${Object.keys(unit.ports.raises).join(", ") || "nothing"})`);
     }
     if (unit.memo === undefined) continue;
     for (const k of unit.memo.key) {
@@ -1081,7 +1095,7 @@ export function hatchLint(sites: HatchSite[], units: Record<string, UnitPorts>):
 export function unhandledRaises(sites: HatchSite[], units: Record<string, UnitPorts>): string[] {
   const out: string[] = [];
   for (const [name, unit] of Object.entries(units)) {
-    for (const ev of unit.ports.raises) {
+    for (const ev of Object.keys(unit.ports.raises)) {
       if (!sites.some((s) => s.unit === name && s.handles.includes(ev))) {
         out.push(`unit "${name}" raises "${ev}", which no data-hatch mount handles`);
       }

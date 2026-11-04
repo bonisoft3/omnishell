@@ -49,6 +49,13 @@ messages, params and an abort signal and returns cleanup. Pause, stop and morph
 abort and clean up; resume and a visible morph mount again. See the
 [[../../pronto/SPEC|artifact contract]] for declarations and obligations.
 
+A button wired by that module declares `data-host-dom="hatch-name"` on the
+control itself. Markup lint admits it only when the manifest declares the hatch
+and every route rendering that screen selects it. This witnesses ownership,
+not correct behavior: the hatch's tests must exercise the listener. An ancestor
+marker does not cover child controls, and unmarked controls still require the
+ordinary terminal wiring.
+
 Pronto emits the terminal's CSP at the door and in the entry page; verified
 release caching retains it. The only Trusted Types policies are the inert
 parser, same-origin script URLs, and SES's eval/Function crossing while the
@@ -125,11 +132,24 @@ shares the renderer process and blocks the parent as completely as inline code.
 - **realm** (`hatch.js`) — a sandboxed iframe, ECMA-262's realm: its own
   globals and DOM, an opaque origin, no storage or cookies, and
   `window.parent` only to post to, never the parent's DOM; same thread. For a
-  unit whose untrusted half arrives over the network at read time.
+  unit whose untrusted half arrives over the network at read time. Its
+  document is its own protection domain under whatever policy it states, not
+  the app's, which is why the door exempts realm files from the app's CSP. The
+  only permission it can be handed is one the seat offers (`REALM_GRANTS`,
+  today `geolocation`) and the unit declares, as the frame's `allow`, so the
+  browser asks the reader in the app's name. A single-file page has no file to
+  frame, so it frames itself: a unit marked `self` is the page's own URL with
+  `#pronto-unit=<name>` (`selfSrc`), whose boot writes the unit instead of the
+  app (pronto's [pages](../../pronto/docs/release-targets.md#pages)).
 - **agent** (`hatch-worker.js`) — a worker, ECMA-262's agent: its own thread
   and event loop, same origin, so it keeps `fetch`, IndexedDB and the cache
   API: more authority than the realm. For a hash-pinned binary vendored at
-  build time, trusted by the app's audit and the pin.
+  build time, trusted by the app's audit and the pin. Sharing the origin, it
+  shares the app's policy: the seat fetches its script and starts it from a
+  `blob:`, which inherits the page's CSP, so what it connects to is what the
+  app declares (`capabilities.resources`). A unit is one classic script. A
+  unit that throws is a `ProgramError`, since a question it was asked would
+  otherwise stand forever.
 
 The boundary does not say what a unit is for, which is pronto's derived
 `role`: an agent with a memo is a **question** (below), and an agent without
@@ -190,8 +210,8 @@ upsert, then dispatched the same way. The reduce hearing the event reads the
 answer off the row — one path for a hit and a fresh answer — so the same
 question asked twice runs the unit once (`test/hatch-memo.test.ts`). A props
 object with a key field empty is the mount withdrawing its question and passes
-through; a question or an answer missing a key field, or an answer missing a
-column, is refused. Every refusal of the mount and the seats is a
+through; a question missing a key field is refused, as is an answer its
+shape does not rebuild. Every refusal of the mount and the seats is a
 `ProgramError`: a mount and a question run inside the region's refresh, whose
 outage guard retries anything else as a dead gateway, and an answer inside the
 port's listener, where a throw is the window's `error` event — the shell
@@ -203,17 +223,20 @@ disagreeing with the entity it was declared to land in: the same
 write and so no `refused` event has anywhere to go.
 
 **The terminal parses; the app owes the rest.** Whatever the seat, the
-boundary is a parser: `parseDetail` admits at most 8 keys matching
-`^[a-z][a-z0-9_]{0,23}$`, each a printable-ASCII string of at most 128
-characters, into a frozen record — the offer `terminal.cue` publishes as
-`hatch.<seat>.detail`, which pronto's `vendored-unit.test.ts` holds the parser
-equal to, and which pronto's `#emit` holds a memo's columns to as far as the
-program states them: their count, their names, and the size bound a column
-declares; the alphabet, and the length of a column left unbounded, are the
-seat's refusal at runtime. A detail
-that fails is dropped with its event by the realm seat, whose sender is a
-provider's page, and refused by the agent seat, whose sender is the app's own
-wrapper — a memo answer lost in silence would be a question standing forever.
+boundary is a parser. Each name in a unit's `raises` carries the payload shape
+pronto declares for it (mecha's `#Shape`, the grammar machine events use), and
+`rebuildDetail` builds a fresh, deep-frozen value from the detail by that shape
+— exactly its fields, no others — holding the whole to `DETAIL_BYTES`, 10 MiB,
+the one bound `terminal.cue` publishes as `hatch.<seat>.detail` and pronto's
+`vendored-unit.test.ts` holds equal to the parser. There is no alphabet:
+structured clone already keeps getters and prototypes from crossing, and what
+a field may hold is the program's to say. A memo's answer is shaped by its
+entity, its key and columns as text bounded by each column's declared size
+([pronto's record](../../pronto/docs/archive/2026-10-28-unit-event-types.md)).
+A detail that fails is dropped with its event by the realm seat, whose sender
+is a provider's page, and refused by the agent seat, whose sender is the app's
+own wrapper — a memo answer lost in silence would be a question standing
+forever.
 What the answer means is the app's to guard, three ways: look it up against
 the app's own rows rather than interpret it, so an engine is trusted for
 preference and not possibility when no row exists for an illegal move; carry

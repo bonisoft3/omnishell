@@ -17,7 +17,7 @@ import { parseMarkup } from "./markup.js";
 // service exists to sign against.
 
 import { chromeText, describe, drawStrip, guestBox, hasStrip, localizeStrip, offersGuest, providerHref, providerKey, stripRoutes, supportsPasskeys } from "./chrome.js";
-import { localeAt, localeTable, ProgramError, routeAt, routeHref, screenEnv, Unanswered } from "./fragment.js";
+import { localeAt, localeTable, ProgramError, restatedHref, routeAt, routeHref, screenEnv, Unanswered } from "./fragment.js";
 import { activateScreenStyle, fetchText, forgetFiles, interpretScreen, prefetchScreen, templateHash, submitsOnChange, AssetMissing } from "./screen.js";
 import { compileCatalog } from "./vendor/messages.js";
 import { filesMoved, planRelease } from "./release-plan.js";
@@ -548,7 +548,7 @@ export function shellPreferredLanguages(served, document, navigator) {
   return served && document.documentElement.lang ? [document.documentElement.lang] : navigator?.languages;
 }
 
-export async function createShell({ config, mount, preload = true }) {
+export async function createShell({ config, mount, preload = true, hostDomModules }) {
   installModalInert(document);
   let initialDraftOwner = storedSessionOwner();
   const editedFields = new WeakSet();
@@ -1213,7 +1213,7 @@ export async function createShell({ config, mount, preload = true }) {
       const negotiated = !asked && params.locale === undefined && locale !== written;
       if ((route.paths !== undefined && asked) || negotiated) {
         const canonical = routeHref(cfg, route.screen, params, locale, { explicitLocale: asked && locale === cfg.i18n?.default });
-        if (canonical !== undefined) restate(canonical);
+        if (canonical !== undefined) restate(restatedHref(canonical, location.search, location.hash));
         ({ route, params, locale, written } = currentRoute());
       }
       if (preload) preloadScreen(document, appBase, route);
@@ -1371,6 +1371,7 @@ export async function createShell({ config, mount, preload = true }) {
         // the terminal's, and a screen that pushed its own entry would be
         // deciding scroll and history for a back button it does not own.
         fresh.loading = interpretScreen(el, appBase, route, store, params, screenEnv(cfg, {
+          ...(hostDomModules ? { hostDomModules } : {}),
           messages,
           ensureMessages,
           locale,

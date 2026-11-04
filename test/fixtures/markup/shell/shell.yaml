@@ -46,6 +46,6 @@ routes:
 units:
   oracle:
     isolation: agent
-    ports: {reads: [detail], raises: [answer, verdict]}
+    ports: {reads: [detail], raises: {answer: {}, verdict: {}}}
     memo: {table: detail, key: [title, body], columns: [title, body]}
     src: shell/units/oracle.js

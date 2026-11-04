@@ -352,7 +352,7 @@ Hooks a stylesheet or a test observes and never writes:
 resolved against the row by the same binder as every other attribute and
 resynchronised on every refresh, so a hatch sees a current-value feed rather
 than a message it has to keep up with. What comes back out is named and
-request-shaped, and crosses as a parsed, frozen event (`parseDetail`). Both
+request-shaped, and crosses rebuilt and frozen by the shape its raise declares (`rebuildDetail`). Both
 are the unit's ports (shell.yaml `units.<name>.ports`): the region a mount
 sits in must be a table the unit `reads`, and a `data-on-<event>` on the mount
 must be one it `raises` — the mount refuses the rest, and `check markup`

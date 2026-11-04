@@ -237,3 +237,25 @@ describe("unwitnessedControls", () => {
     expect(unwitnessedControls('<button class="act ghost">go</button>')[0]).toContain('<button class="act ghost">')
   })
 })
+
+describe("explicit host-DOM control ownership", () => {
+  it("admits only the marked control for a selected hatch", () => {
+    const selected = new Set(["print-checkout"])
+    expect(unwitnessedControls('<button data-host-dom="print-checkout">Pay</button>', selected)).toEqual([])
+    const findings = unwitnessedControls('<button data-host-dom="print-checkout">Pay</button><button id="bare">Bare</button>', selected)
+    expect(findings).toHaveLength(1)
+    expect(findings[0]).toContain('id="bare"')
+  })
+
+  it("refuses unknown, off-route, empty and ancestor ownership", () => {
+    for (const html of [
+      '<button data-host-dom="missing" popovertarget="dialog">Open</button>',
+      '<button data-host-dom="">Pay</button>',
+      '<button data-host-dom>Pay</button>',
+      '<div data-host-dom="print-checkout"><button>Pay</button></div>',
+    ]) {
+      expect(unwitnessedControls(html, new Set(["print-checkout"]))[0]).toContain("data-host-dom must name")
+    }
+    expect(unwitnessedControls('<button data-host-dom="print-checkout">Pay</button>')[0]).toContain("data-host-dom must name")
+  })
+})

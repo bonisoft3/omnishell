@@ -19,7 +19,8 @@ const SEEDED = /^seed-assets\/[0-9a-f]{64}\.[a-z0-9]+$/;
  * it the next frame, structured-cloned; `ready` settles once its unit is up,
  * and rejects with the worker's own failure. */
 export function mountPresenterUnit(root, { unit, src }) {
-  if (unit.ports.raises.length) throw new ProgramError(`presenter "${src}" declares raises (${unit.ports.raises.join(", ")}): a presenter paints and raises nothing`);
+  const raised = Object.keys(unit.ports.raises);
+  if (raised.length) throw new ProgramError(`presenter "${src}" declares raises (${raised.join(", ")}): a presenter paints and raises nothing`);
   const canvas = document.createElement("canvas");
   canvas.className = "presenter-canvas";
   canvas.style.display = "block";

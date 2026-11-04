@@ -46,6 +46,12 @@ export const SRC_SCHEMES = new Set(["http:", "https:"]);
 // has taken the app away from them.
 const SANDBOX = "allow-scripts allow-popups allow-popups-to-escape-sandbox";
 
+// The permissions a frame may be delegated, each only to a unit that declares
+// it (shell.yaml `units.<name>.grants`), as the frame's `allow`. A grant is the
+// reader's to answer: the browser prompts in this app's name, and the unit sees
+// a denial as the API's own error. terminal.cue publishes the same list.
+export const REALM_GRANTS = Object.freeze(["geolocation"]);
+
 // A sandboxed frame without allow-same-origin has an opaque origin, and an
 // opaque origin serialises as the string "null" — so this, not the src's
 // origin, is what its messages carry. Reading the src's host here instead
@@ -55,33 +61,74 @@ const OPAQUE_ORIGIN = "null";
 // A unit that lies about its height must not be able to blow out the document.
 const MAX_HEIGHT = 10000;
 
-// The shape a unit's event detail may take, the offer terminal.cue publishes
-// as `hatch.<seat>.detail` (pronto's vendored-unit test holds the two equal).
-// The reduce that receives it is a compartment with nothing endowed and
-// cannot defend itself, so the parse sits here, on the trusted side, exactly
-// as `height`'s number check does. What the grammar means is the app's: the
-// terminal cannot know what a move looks like, only that a megabyte, a
-// control character, a getter or a nested object must not reach a screen.
-export const DETAIL = Object.freeze({ keys: 8, key: /^[a-z][a-z0-9_]{0,23}$/, value: 128 });
-const DETAIL_VALUE = /^[^\x00-\x1f\x7f-\x9f]*$/;
+// What a unit's event may carry. The browser's structured clone already
+// guarantees data alone crosses — no getter, function or prototype — so the
+// seat's own floor is size: at most DETAIL_BYTES, strings counted as UTF-16
+// bytes. Everything else is the event's payload
+// shape, which the program declares beside the name (pronto's `ports.raises`,
+// mecha's #Shape) because only the program knows what the event means.
+export const DETAIL_BYTES = 10 * 1024 * 1024;
 
-/** A frozen string→string record built key by key from `value`, or undefined
- * when `value` is not one — which the realm seat drops with the event and the
- * agent seat refuses. Nothing is passed through: the unit's own object never
- * crosses. */
-export function parseDetail(value) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const keys = Object.keys(value);
-  if (keys.length > DETAIL.keys) return undefined;
-  const detail = {};
-  for (const key of keys) {
-    if (!DETAIL.key.test(key)) return undefined;
-    const held = value[key];
-    if (typeof held !== "string") return undefined;
-    if (held.length > DETAIL.value || !DETAIL_VALUE.test(held)) return undefined;
-    detail[key] = held;
-  }
-  return Object.freeze(detail);
+class Unfit extends Error {}
+
+/** The value `shape` rebuilds out of `value`, deep-frozen: the unit's own
+ * object never crosses. Throws Unfit naming the first path that does not fit,
+ * which the realm seat drops with the event and the agent seat refuses. Object
+ * fields are exactly the declared ones, as mecha's check reads them. */
+export function rebuildDetail(shape, value) {
+  let left = DETAIL_BYTES;
+  const spend = (bytes, path) => {
+    left -= bytes;
+    if (left < 0) throw new Unfit(`${path}: over ${DETAIL_BYTES} bytes`);
+  };
+  const own = (o, key) => Object.prototype.hasOwnProperty.call(o, key);
+  const rebuild = (shape, value, path) => {
+    switch (shape.type) {
+      case "string":
+        if (typeof value !== "string" || value.length > shape.maxLength || (shape.values && !shape.values.includes(value))) {
+          throw new Unfit(`${path}: invalid string`);
+        }
+        spend(value.length * 2, path);
+        return value;
+      case "integer":
+        if (!Number.isSafeInteger(value) || value < shape.min || value > shape.max) throw new Unfit(`${path}: invalid integer`);
+        spend(8, path);
+        return value;
+      case "boolean":
+        if (typeof value !== "boolean") throw new Unfit(`${path}: invalid boolean`);
+        spend(1, path);
+        return value;
+      case "array":
+        if (!Array.isArray(value) || value.length > shape.maxItems) throw new Unfit(`${path}: invalid array`);
+        // Indexed, not mapped: map skips a hole, which structured clone keeps,
+        // and the reduce would be handed an item no shape admitted.
+        return Object.freeze(Array.from({ length: value.length }, (_, i) => rebuild(shape.items, value[i], `${path}[${i}]`)));
+      case "object": {
+        if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Unfit(`${path}: invalid object`);
+        for (const key of Object.keys(value)) if (!own(shape.fields, key)) throw new Unfit(`${path}.${key}: undeclared field`);
+        const out = {};
+        for (const [key, field] of Object.entries(shape.fields)) {
+          if (!own(value, key)) throw new Unfit(`${path}.${key}: missing field`);
+          spend(key.length * 2, path);
+          out[key] = rebuild(field, value[key], `${path}.${key}`);
+        }
+        return Object.freeze(out);
+      }
+      default:
+        throw new Unfit(`${path}: unknown shape`);
+    }
+  };
+  return rebuild(shape, value, "detail");
+}
+
+// A single-file page has no file to serve a frame from, so it serves itself:
+// a unit the bundle marks `self` is this document's own URL with the unit
+// named in the fragment, which keeps one cache entry for both loads. The
+// document's boot, finding the name in a sandboxed (opaque-origin) frame,
+// writes the unit inlined beside it instead of the app.
+export const SELF_UNIT = "pronto-unit";
+export function selfSrc(name, href = globalThis.location.href) {
+  return `${href.split("#")[0]}#${SELF_UNIT}=${encodeURIComponent(name)}`;
 }
 
 // The seats, by the ECMA-262 name of what each gives the unit: a realm is an
@@ -110,16 +157,31 @@ export function mountHatch(root, { unit, src, onEvent, store } = {}) {
   if (seat === undefined) throw new ProgramError(`hatch isolation "${unit.isolation}" is not implemented`);
   if (unit.ports === undefined) throw new ProgramError(`hatch "${unit.src}" declares no ports`);
   // The raises port, applied to every event the seat delivers — before the
-  // memo reads one as an answer, and before a DOM event is dispatched.
+  // memo reads one as an answer, and before a DOM event is dispatched. A name
+  // outside it is the wiring's bug at either seat; a detail its shape does not
+  // rebuild is dropped from a frame, whose sender is a provider's page, and
+  // refused from a worker, whose sender is the app's own wrapper and whose
+  // answer lost in silence would leave a question standing.
+  const { raises } = unit.ports;
   const declared = (event) => {
-    if (!unit.ports.raises.includes(event.name)) {
+    if (!Object.hasOwn(raises, event.name)) {
       throw new ProgramError(
-        `hatch "${unit.src}" raised "${event.name}", which its ports do not declare (raises: ${unit.ports.raises.join(", ") || "nothing"})`,
+        `hatch "${unit.src}" raised "${event.name}", which its ports do not declare (raises: ${Object.keys(raises).join(", ") || "nothing"})`,
       );
     }
-    return event;
+    try {
+      return { name: event.name, detail: rebuildDetail(raises[event.name], event.detail) };
+    } catch (err) {
+      if (!(err instanceof Unfit)) throw err;
+      if (unit.isolation === "agent") throw new ProgramError(`hatch "${src}" posted "${event.name}" with ${err.message}`);
+      return undefined;
+    }
   };
-  if (unit.memo === undefined) return seat(root, { unit, src, onEvent: (event) => onEvent?.(declared(event)) });
+  const admitted = (event) => {
+    const held = declared(event);
+    if (held !== undefined) onEvent?.(held);
+  };
+  if (unit.memo === undefined) return seat(root, { unit, src, onEvent: admitted });
   return memoSeat(seat, root, { unit, src, onEvent, store, declared });
 }
 
@@ -140,7 +202,7 @@ export function mountHatch(root, { unit, src, onEvent, store } = {}) {
 // authored the write, so there is no `refused` event to hand one.
 function memoSeat(seat, root, { unit, src, onEvent, store, declared }) {
   const { table, key, columns } = unit.memo;
-  const [answer] = unit.ports.raises;
+  const [answer] = Object.keys(unit.ports.raises);
   const at = (row, k) => String(row[k]);
   const detailOf = (row) => Object.freeze(Object.fromEntries(key.map((k) => [k, at(row, k)])));
   const attributed = (what) => (err) => {
@@ -150,16 +212,11 @@ function memoSeat(seat, root, { unit, src, onEvent, store, declared }) {
   const inner = seat(root, {
     unit,
     src,
-    onEvent: (event) => {
-      declared(event);
-      for (const k of key) {
-        if (event.detail[k] === undefined) throw new ProgramError(`hatch "${src}" answered without "${k}", a key of its memo`);
-      }
-      const row = {};
-      for (const c of columns) {
-        if (event.detail[c] === undefined) throw new ProgramError(`hatch "${src}" answered without "${c}", a column of its memo`);
-        row[c] = event.detail[c];
-      }
+    onEvent: (raw) => {
+      // The answer's shape is the memo's key and columns (pronto derives it),
+      // so a missing one is refused by the rebuild before it reaches here.
+      const event = declared(raw);
+      const row = Object.fromEntries(columns.map((c) => [c, event.detail[c]]));
       // Dispatched once the row is held, so the chart hearing it reads the
       // answer off the row and never off the detail. The refusal is handed in
       // as onRefused too: one landing after the store's acceptance window can
@@ -209,8 +266,13 @@ function mountFrameUnit(root, { unit, src, onEvent }) {
   const url = new URL(src);
   if (!SRC_SCHEMES.has(url.protocol)) throw new ProgramError(`hatch src scheme "${url.protocol}" is not allowed`);
 
+  const grants = unit.grants ?? [];
+  for (const g of grants) {
+    if (!REALM_GRANTS.includes(g)) throw new ProgramError(`hatch "${src}" asks for "${g}", which the realm seat does not grant`);
+  }
   const frame = document.createElement("iframe");
   frame.setAttribute("sandbox", SANDBOX);
+  if (grants.length) frame.setAttribute("allow", grants.join("; "));
   frame.setAttribute("src", url.href);
   // An article carries several of these and none of them is what the reader
   // came for.
@@ -256,9 +318,7 @@ function mountFrameUnit(root, { unit, src, onEvent }) {
       frame.style.height = `${Math.min(Math.round(height), MAX_HEIGHT)}px`;
       return;
     }
-    const detail = parseDetail(message.detail);
-    if (detail === undefined) return;
-    onEvent?.({ name: message.name, detail });
+    onEvent?.({ name: message.name, detail: message.detail });
   };
   globalThis.addEventListener("message", onMessage);
 

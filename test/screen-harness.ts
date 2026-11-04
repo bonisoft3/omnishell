@@ -20,6 +20,7 @@ import "../interpreter/vendor/ses.umd.min.js";
 import { ensureSes } from "../interpreter/jessie.js";
 import { controlProperties } from "../server/linkedom-controls.ts";
 import { compileCatalog } from "../src/messages.ts";
+import type { Shape } from "../interpreter/lint.ts";
 
 
 // The Jessie tier's lockdown, taken once at load: the ses pin is imported
@@ -241,7 +242,7 @@ export type El = {
  * a `data-hatch` name against. */
 export type Unit = {
   isolation: string;
-  ports: { reads: string[]; raises: string[] };
+  ports: { reads: string[]; raises: Record<string, Shape> };
   /** An agent's memo as the terminal performs it: the table, the key and the
    * columns an answer fills. */
   memo?: { table: string; key: string[]; columns: string[] };

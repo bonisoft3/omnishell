@@ -7,7 +7,7 @@ import { ProgramError } from "./fragment.js";
 // so a navigated (or stubbed) frame is the one that gets answered.
 import { parseHTML } from "npm:linkedom@0.18.4";
 
-const UNIT = { isolation: "realm", ports: { reads: ["article"], raises: ["answer", "select"] }, src: "shell/units/embed.html", note: "oEmbed host" };
+const UNIT = { isolation: "realm", ports: { reads: ["article"], raises: { answer: { type: "object", fields: { uci: { type: "string", maxLength: 128 } } }, select: { type: "object", fields: { id: { type: "string", maxLength: 128 } } } } }, src: "shell/units/embed.html", note: "oEmbed host" };
 
 const SCREEN_HTML = `<section class="screen" data-screen="article">
   <article data-live="article" data-order="created_at.desc" data-on-answer="shadow">
@@ -309,6 +309,47 @@ Deno.test({
       assert(err !== null && String(err.message).includes(phrase), `refused with ${phrase}, got ${err?.message}`);
     };
     await refusedWith({ embed: { ...UNIT, ports: { reads: ["comment"], raises: UNIT.ports.raises } } }, 'is fed the row of "article"');
-    await refusedWith({ embed: { ...UNIT, ports: { reads: ["article"], raises: ["select"] } } }, 'handles "answer"');
+    await refusedWith({ embed: { ...UNIT, ports: { reads: ["article"], raises: { select: UNIT.ports.raises.select } } } }, 'handles "answer"');
   },
+});
+
+Deno.test("a frame's event outside its declared shape is dropped, never raised as the app's bug", async () => {
+  const { mountHatch } = await import("./hatch.js");
+  const { target } = dom();
+  const events = [];
+  const hatch = mountHatch(target, { unit: UNIT, src: "https://app.example/u.html", onEvent: (e) => events.push(e) });
+  const { source } = stubWindow(target.querySelector("iframe"));
+  // A provider's page is not the app: what it gets wrong is dropped, as the
+  // worker seat would refuse it from the app's own wrapper.
+  post(source, { type: "pronto:event", name: "select", detail: { id: 7 } });
+  post(source, { type: "pronto:event", name: "select", detail: { id: "a1", extra: "x" } });
+  assert(events.length === 0, `nothing outside the shape arrived, got ${JSON.stringify(events)}`);
+  post(source, { type: "pronto:event", name: "select", detail: { id: "Sé" } });
+  assert(events.length === 1 && events[0].detail.id === "Sé", `a fitting detail in any script arrives, got ${JSON.stringify(events)}`);
+  hatch.destroy();
+});
+
+Deno.test("a frame is delegated only the permissions its unit declares and the seat offers", async () => {
+  const { mountHatch } = await import("./hatch.js");
+  let { target } = dom();
+  let hatch = mountHatch(target, { unit: UNIT, src: "https://app.example/u.html" });
+  assert(!target.querySelector("iframe").hasAttribute("allow"), "a unit declaring nothing is granted nothing");
+  hatch.destroy();
+  ({ target } = dom());
+  hatch = mountHatch(target, { unit: { ...UNIT, grants: ["geolocation"] }, src: "https://app.example/u.html" });
+  assert(target.querySelector("iframe").getAttribute("allow") === "geolocation", "a declared grant becomes the frame's allow");
+  hatch.destroy();
+  ({ target } = dom());
+  let threw = null;
+  try {
+    mountHatch(target, { unit: { ...UNIT, grants: ["camera"] }, src: "https://app.example/u.html" });
+  } catch (e) {
+    threw = e;
+  }
+  assert(threw instanceof ProgramError && threw.message.includes('"camera"'), `a grant the seat does not offer is refused, got ${threw}`);
+});
+
+Deno.test("a unit a single-file page serves from itself is addressed by its name in the page's fragment", async () => {
+  const { selfSrc } = await import("./hatch.js");
+  assert(selfSrc("delivery-map", "https://a.example/app/print?x=1#top") === "https://a.example/app/print?x=1#pronto-unit=delivery-map", "the page's own URL, its fragment replaced");
 });

@@ -3,7 +3,7 @@
 // effect and the whole state machine — screens only style states.
 import { parseMarkup } from "./markup.js";
 import { renderInto } from "./render.js";
-import { mountHatch } from "./hatch.js";
+import { mountHatch, selfSrc } from "./hatch.js";
 import {
   ABSENT,
   binding,
@@ -2104,13 +2104,13 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         for (const key of Object.keys(el.dataset)) {
           if (!/^on[A-Z]/.test(key)) continue;
           const handled = key.slice(2).replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`).slice(1);
-          if (!unit.ports.raises.includes(handled)) {
+          if (!Object.hasOwn(unit.ports.raises, handled)) {
             throw new ProgramError(`data-hatch="${name}" handles "${handled}", which its ports do not raise`);
           }
         }
         el._prontoHatch = mountHatch(el, {
           unit,
-          src: new URL(unit.src, appBase).href,
+          src: unit.self ? selfSrc(name) : new URL(unit.src, appBase).href,
           store,
           // A unit's named event becomes a real DOM event on the mount, so the
           // ordinary data-on-* path carries it the rest of the way: bind

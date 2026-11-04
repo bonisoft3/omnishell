@@ -92,7 +92,7 @@ type SchemaEntity = {
   fields: SchemaField[];
   uniques?: { name: string; cols: string[]; where?: string }[];
 };
-type Shell = { schema?: Record<string, SchemaEntity>; routes?: LinkRoute[]; units?: Record<string, UnitPorts> };
+type Shell = { schema?: Record<string, SchemaEntity>; routes?: (LinkRoute & { hatches?: string[] })[]; hostDom?: Record<string, unknown>; units?: Record<string, UnitPorts> };
 
 /** The schema entry as the rules take it: they are written against a whole
  * entity, whose table is the key it is filed under. */
@@ -128,6 +128,7 @@ export function screenFindings(
   routes: LinkRoute[],
   units: Record<string, UnitPorts> = {},
   sites: HatchSite[] = [],
+  selectedHostDom: Set<string> = new Set(),
 ): Finding[] {
   const out: Finding[] = [];
   const report = (message: string) => out.push({ severity: "error", path, message });
@@ -223,7 +224,7 @@ export function screenFindings(
   // After the machine rules: a control's cover depends on what its region's
   // machine answers, and an unparseable machine is that pass's finding.
   for (const why of read(() => templateArity(html)) ?? []) report(why);
-  for (const why of read(() => unwitnessedControls(html)) ?? []) report(why);
+  for (const why of read(() => unwitnessedControls(html, selectedHostDom)) ?? []) report(why);
   for (const why of read(() => linkLint(html, routes)) ?? []) report(why);
   const mounts = read(() => hatchSites(html)) ?? [];
   sites.push(...mounts);
@@ -308,6 +309,9 @@ export async function checkApp(appDir: URL): Promise<Checked> {
   const units = shell.units ?? {};
   const sites: HatchSite[] = [];
   for (const name of names.sort()) {
+    const screenRoutes = routes.filter(route => route.screen === name.slice(0, -".html".length));
+    const selectedHostDom = new Set(Object.keys(shell.hostDom ?? {}).filter(hatch =>
+      screenRoutes.length > 0 && screenRoutes.every(route => route.hatches?.includes(hatch))));
     findings.push(
       ...screenFindings(
         `shell/screens/${name}`,
@@ -317,6 +321,7 @@ export async function checkApp(appDir: URL): Promise<Checked> {
         routes,
         units,
         sites,
+        selectedHostDom,
       ),
     );
   }
