@@ -10,7 +10,7 @@
 //
 import { parseHTML } from "npm:linkedom@0.18.4";
 import { parse as parseYaml } from "jsr:@std/yaml@1.0.5";
-import { renderStorybook } from "./interpreter/storybook.js";
+import { renderStorybook, stopStorybook } from "./interpreter/storybook.js";
 import { directionOf, PLACEHOLDER, PLACEHOLDERS } from "./interpreter/fragment.js";
 // The terminal's own copy table, so the keys required here are the keys the
 // terminal actually asks for and cannot drift from them.
@@ -653,141 +653,145 @@ export async function checkMemoryApp(
 
   const mount = document.getElementById("mount")!;
 
-  for (const route of shell.routes ?? []) {
-    const screenTextsByLocale: Record<string, string[]> = {};
-    const html = files[route.files.html] ?? "";
-    const hasMsgRefs = html.includes("{msg.");
+  try {
+    for (const route of shell.routes ?? []) {
+      const screenTextsByLocale: Record<string, string[]> = {};
+      const html = files[route.files.html] ?? "";
+      const hasMsgRefs = html.includes("{msg.");
 
-    for (const locale of locales) {
-      screenTextsByLocale[locale] = [];
+      for (const locale of locales) {
+        screenTextsByLocale[locale] = [];
 
-      try {
-        await renderStorybook(mount, "http://app.test/", route, {}, (shell.units ?? {}) as Record<string, never>, {
-          messages,
-          locale,
-          // A data-route link is addressed from the table, so a screen
-          // carrying one renders only where the storybook holds it.
-          routes: shell.routes,
-          i18n: shell.i18n,
-          // A money binding resolves its currency and its scale off the bound
-          // column, so a screen carrying one renders only where the schema does.
-          schema: shell.schema,
-          hostDom: shell.hostDom,
-        });
-      } catch (err) {
-        findings.push({
-          severity: "error",
-          path: route.files.html,
-          message: `renderStorybook failed under [${locale}]: ${(err as Error).message}`,
-        });
-        continue;
-      }
+        try {
+          await renderStorybook(mount, "http://app.test/", route, {}, (shell.units ?? {}) as Record<string, never>, {
+            messages,
+            locale,
+            // A data-route link is addressed from the table, so a screen
+            // carrying one renders only where the storybook holds it.
+            routes: shell.routes,
+            i18n: shell.i18n,
+            // A money binding resolves its currency and its scale off the bound
+            // column, so a screen carrying one renders only where the schema does.
+            schema: shell.schema,
+            hostDom: shell.hostDom,
+          });
+        } catch (err) {
+          findings.push({
+            severity: "error",
+            path: route.files.html,
+            message: `renderStorybook failed under [${locale}]: ${(err as Error).message}`,
+          });
+          continue;
+        }
 
-      const locCat = messages[locale] ?? {};
+        const locCat = messages[locale] ?? {};
 
-      for (const fig of mount.querySelectorAll("figure")) {
-        const state = fig.id.replace(new RegExp(`^${route.screen}-`), "");
-        const frame = fig.querySelector(".frame");
-        if (!frame) continue;
+        for (const fig of mount.querySelectorAll("figure")) {
+          const state = fig.id.replace(new RegExp(`^${route.screen}-`), "");
+          const frame = fig.querySelector(".frame");
+          if (!frame) continue;
 
-        for (const el of inspectedElements(frame)) {
-          // 1. Exact catalog binding match on data-text="{msg.<key>}"
-          const dt = el.getAttribute("data-text");
-          if (dt && dt.startsWith("{msg.") && dt.endsWith("}")) {
-            const key = dt.slice(5, -1);
-            const expected = locCat[key];
-            // A key with arms renders one of them, and comparing a rendered
-            // arm against the whole map says nothing; checkMessageArms grades
-            // those keys instead.
-            if (typeof expected === "string") {
-              const actual = (el.textContent ?? "").trim();
-              const expTrimmed = expected.trim();
-              if (actual !== expTrimmed) {
-                findings.push({
-                  severity: "error",
-                  path: route.files.html,
-                  message: `state '${state}' [${locale}]: data-text="${dt}" rendered "${actual}", expected "${expTrimmed}"`,
-                });
+          for (const el of inspectedElements(frame)) {
+            // 1. Exact catalog binding match on data-text="{msg.<key>}"
+            const dt = el.getAttribute("data-text");
+            if (dt && dt.startsWith("{msg.") && dt.endsWith("}")) {
+              const key = dt.slice(5, -1);
+              const expected = locCat[key];
+              // A key with arms renders one of them, and comparing a rendered
+              // arm against the whole map says nothing; checkMessageArms grades
+              // those keys instead.
+              if (typeof expected === "string") {
+                const actual = (el.textContent ?? "").trim();
+                const expTrimmed = expected.trim();
+                if (actual !== expTrimmed) {
+                  findings.push({
+                    severity: "error",
+                    path: route.files.html,
+                    message: `state '${state}' [${locale}]: data-text="${dt}" rendered "${actual}", expected "${expTrimmed}"`,
+                  });
+                }
               }
             }
-          }
 
-          // 2. Child text nodes: check for un-interpolated placeholders and default-language prose leaks
-          for (const child of el.childNodes) {
-            if (child.nodeType === 3 /* text node */) {
-              const val = (child.nodeValue ?? "").trim();
+            // 2. Child text nodes: check for un-interpolated placeholders and default-language prose leaks
+            for (const child of el.childNodes) {
+              if (child.nodeType === 3 /* text node */) {
+                const val = (child.nodeValue ?? "").trim();
+                if (val.length === 0) continue;
+                screenTextsByLocale[locale].push(val);
+
+                const phMatch = val.match(/\{msg\.[^}]+\}/);
+                if (phMatch) {
+                  findings.push({
+                    severity: "error",
+                    path: route.files.html,
+                    message: `state '${state}' [${locale}]: un-interpolated placeholder '${phMatch[0]}' in <${el.tagName.toLowerCase()}>`,
+                  });
+                }
+
+                if (locale !== defaultLocale && !dt && !val.startsWith("Sample ") && leakPatterns[locale].any?.test(val)) {
+                  for (const { d, l, regex } of leakPatterns[locale].patterns) {
+                    if (regex.test(val)) {
+                      findings.push({
+                        severity: "error",
+                        path: route.files.html,
+                        message: `state '${state}' [${locale}]: '${defaultLocale}' text leak '${d}' (expected '${l}') in <${el.tagName.toLowerCase()}> text: "${val}"`,
+                      });
+                    }
+                  }
+                }
+              }
+            }
+
+            // 3. User-facing attributes: check placeholders and default-language leaks
+            for (const attr of el.attributes ?? []) {
+              const name = attr.name;
+              if (name === "data-text" || name.startsWith("data-") || !USER_FACING_ATTRS.has(name)) continue;
+              const val = (attr.value ?? "").trim();
               if (val.length === 0) continue;
-              screenTextsByLocale[locale].push(val);
 
               const phMatch = val.match(/\{msg\.[^}]+\}/);
               if (phMatch) {
                 findings.push({
                   severity: "error",
                   path: route.files.html,
-                  message: `state '${state}' [${locale}]: un-interpolated placeholder '${phMatch[0]}' in <${el.tagName.toLowerCase()}>`,
+                  message: `state '${state}' [${locale}]: un-interpolated placeholder '${phMatch[0]}' in ${name}="${val}"`,
                 });
               }
 
-              if (locale !== defaultLocale && !dt && !val.startsWith("Sample ") && leakPatterns[locale].any?.test(val)) {
-                for (const { d, l, regex } of leakPatterns[locale].patterns) {
+              if (locale !== defaultLocale && leakPatterns[locale].any?.test(val)) {
+                for (const { l, regex } of leakPatterns[locale].patterns) {
                   if (regex.test(val)) {
                     findings.push({
                       severity: "error",
                       path: route.files.html,
-                      message: `state '${state}' [${locale}]: '${defaultLocale}' text leak '${d}' (expected '${l}') in <${el.tagName.toLowerCase()}> text: "${val}"`,
+                      message: `state '${state}' [${locale}]: '${defaultLocale}' text leak in ${name}="${val}" (expected '${l}')`,
                     });
                   }
                 }
               }
             }
           }
+        }
+      }
 
-          // 3. User-facing attributes: check placeholders and default-language leaks
-          for (const attr of el.attributes ?? []) {
-            const name = attr.name;
-            if (name === "data-text" || name.startsWith("data-") || !USER_FACING_ATTRS.has(name)) continue;
-            const val = (attr.value ?? "").trim();
-            if (val.length === 0) continue;
-
-            const phMatch = val.match(/\{msg\.[^}]+\}/);
-            if (phMatch) {
-              findings.push({
-                severity: "error",
-                path: route.files.html,
-                message: `state '${state}' [${locale}]: un-interpolated placeholder '${phMatch[0]}' in ${name}="${val}"`,
-              });
-            }
-
-            if (locale !== defaultLocale && leakPatterns[locale].any?.test(val)) {
-              for (const { l, regex } of leakPatterns[locale].patterns) {
-                if (regex.test(val)) {
-                  findings.push({
-                    severity: "error",
-                    path: route.files.html,
-                    message: `state '${state}' [${locale}]: '${defaultLocale}' text leak in ${name}="${val}" (expected '${l}')`,
-                  });
-                }
-              }
-            }
+      // 4. Divergence: localized screens must not produce identical visible text to defaultLocale
+      const defTexts = screenTextsByLocale[defaultLocale]?.join(" ") ?? "";
+      if (hasMsgRefs && defTexts.length > 0) {
+        for (const sec of secondaryLocales) {
+          const secTexts = screenTextsByLocale[sec]?.join(" ") ?? "";
+          if (secTexts === defTexts) {
+            findings.push({
+              severity: "error",
+              path: route.files.html,
+              message: `route '${route.path}' [${sec}]: rendered text is identical to '${defaultLocale}'; localization did not take effect`,
+            });
           }
         }
       }
     }
-
-    // 4. Divergence: localized screens must not produce identical visible text to defaultLocale
-    const defTexts = screenTextsByLocale[defaultLocale]?.join(" ") ?? "";
-    if (hasMsgRefs && defTexts.length > 0) {
-      for (const sec of secondaryLocales) {
-        const secTexts = screenTextsByLocale[sec]?.join(" ") ?? "";
-        if (secTexts === defTexts) {
-          findings.push({
-            severity: "error",
-            path: route.files.html,
-            message: `route '${route.path}' [${sec}]: rendered text is identical to '${defaultLocale}'; localization did not take effect`,
-          });
-        }
-      }
-    }
+  } finally {
+    stopStorybook(mount);
   }
 
   return findings;
@@ -972,70 +976,74 @@ export async function checkPseudoLocale(
   };
   const mount = document.getElementById("mount")!;
 
-  for (const route of routes) {
-    for (const tag of PSEUDO_TAGS) {
-      try {
-        await renderStorybook(mount, "http://app.test/", route, {}, (shell.units ?? {}) as Record<string, never>, {
-          messages: catalogues,
-          locale: tag,
-          routes,
-          i18n: view,
-          schema: shell.schema,
-          hostDom: shell.hostDom,
-        });
-      } catch (err) {
-        findings.push({
-          severity: "error",
-          path: route.files.html,
-          message: `renderStorybook failed under the pseudo locale [${tag}]: ${(err as Error).message}`,
-        });
-        continue;
-      }
-
-      const wanted = directionOf(tag);
-      for (const fig of mount.querySelectorAll("figure")) {
-        const state = fig.id.replace(new RegExp(`^${route.screen}-`), "");
-        const frame = fig.querySelector(".frame");
-        if (!frame) continue;
-
-        // The screen root, not the document: a row carrying its own locale
-        // switches one screen and leaves the page around it alone. Reported
-        // rather than skipped when the frame is empty, because a silently
-        // ungraded frame is how this claim stops being observed.
-        const root = frame.firstElementChild;
-        const said = root?.getAttribute("dir");
-        if (said !== wanted) {
+  try {
+    for (const route of routes) {
+      for (const tag of PSEUDO_TAGS) {
+        try {
+          await renderStorybook(mount, "http://app.test/", route, {}, (shell.units ?? {}) as Record<string, never>, {
+            messages: catalogues,
+            locale: tag,
+            routes,
+            i18n: view,
+            schema: shell.schema,
+            hostDom: shell.hostDom,
+          });
+        } catch (err) {
           findings.push({
             severity: "error",
             path: route.files.html,
-            message: root === null
-              ? `state '${state}' [${tag}]: the frame painted no screen`
-              : `state '${state}' [${tag}]: the screen root says dir=${JSON.stringify(said)}, and ${tag} reads ${wanted}`,
+            message: `renderStorybook failed under the pseudo locale [${tag}]: ${(err as Error).message}`,
           });
+          continue;
         }
 
-        // Intl output belongs to the pseudo locale's base language.
-        for (const el of inspectedElements(frame, true)) {
-          const plain = (where: string, value: string) => {
-            const val = value.trim();
-            if (val === "" || val.includes(OPEN) || SYNTHETIC.test(val)) return;
-            if (!PROSE.test(val) || ONLY_PLACEHOLDERS.test(val)) return;
+        const wanted = directionOf(tag);
+        for (const fig of mount.querySelectorAll("figure")) {
+          const state = fig.id.replace(new RegExp(`^${route.screen}-`), "");
+          const frame = fig.querySelector(".frame");
+          if (!frame) continue;
+
+          // The screen root, not the document: a row carrying its own locale
+          // switches one screen and leaves the page around it alone. Reported
+          // rather than skipped when the frame is empty, because a silently
+          // ungraded frame is how this claim stops being observed.
+          const root = frame.firstElementChild;
+          const said = root?.getAttribute("dir");
+          if (said !== wanted) {
             findings.push({
               severity: "error",
               path: route.files.html,
-              message: `state '${state}' [${tag}]: ${where} reads ${JSON.stringify(val)}, which reaches no catalogue`,
+              message: root === null
+                ? `state '${state}' [${tag}]: the frame painted no screen`
+                : `state '${state}' [${tag}]: the screen root says dir=${JSON.stringify(said)}, and ${tag} reads ${wanted}`,
             });
-          };
-
-          for (const child of el.childNodes) {
-            if (child.nodeType === 3) plain(`<${el.tagName.toLowerCase()}>`, child.nodeValue ?? "");
           }
-          for (const attr of el.attributes ?? []) {
-            if (USER_FACING_ATTRS.has(attr.name)) plain(`${attr.name}=`, attr.value ?? "");
+
+          // Intl output belongs to the pseudo locale's base language.
+          for (const el of inspectedElements(frame, true)) {
+            const plain = (where: string, value: string) => {
+              const val = value.trim();
+              if (val === "" || val.includes(OPEN) || SYNTHETIC.test(val)) return;
+              if (!PROSE.test(val) || ONLY_PLACEHOLDERS.test(val)) return;
+              findings.push({
+                severity: "error",
+                path: route.files.html,
+                message: `state '${state}' [${tag}]: ${where} reads ${JSON.stringify(val)}, which reaches no catalogue`,
+              });
+            };
+
+            for (const child of el.childNodes) {
+              if (child.nodeType === 3) plain(`<${el.tagName.toLowerCase()}>`, child.nodeValue ?? "");
+            }
+            for (const attr of el.attributes ?? []) {
+              if (USER_FACING_ATTRS.has(attr.name)) plain(`${attr.name}=`, attr.value ?? "");
+            }
           }
         }
       }
     }
+  } finally {
+    stopStorybook(mount);
   }
 
   return findings;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@test/harness";
 import { parseHTML } from "linkedom";
-import { fixtureStore, renderStorybook } from "../interpreter/storybook.js";
+import { fixtureStore, renderStorybook, stopStorybook } from "../interpreter/storybook.js";
 
 describe("storybook fixture values", () => {
   it("caps list and singleton fixtures using the runtime's filter limit", async () => {
@@ -54,6 +54,7 @@ describe("storybook fixture values", () => {
         "fixture-0", "fixture-1", "fixture-2",
       ]);
     } finally {
+      stopStorybook(document.getElementById("mount")!);
       Object.assign(globalThis, held);
     }
   });

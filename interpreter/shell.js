@@ -783,7 +783,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       await catalogued;
       const { renderStorybook } = await import("./storybook.js");
       const { route, params, locale } = currentRoute();
-      await renderStorybook(mount, appBase, route, params, cfg.units ?? {}, {
+      const book = await renderStorybook(mount, appBase, route, params, cfg.units ?? {}, {
         hostDom: cfg.hostDom ?? {},
         kinetic: cfg.kinetic ?? {},
         messages,
@@ -792,7 +792,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
         i18n: cfg.i18n,
         schema: cfg.schema,
       });
-      return { storybook: true };
+      return { storybook: true, stop: book.stop };
     }
     const dataPlane = import("./data-sync.js");
 

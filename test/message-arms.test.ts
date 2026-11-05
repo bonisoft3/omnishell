@@ -117,7 +117,7 @@ describe("the fixture tier", () => {
     const route = { screen: "pr", files: { html: "pr.html", css: "pr.css" }, states: ["populated"] }
     const source = files(PLURAL)["pr.html"]
     const html = `<!doctype html><html><head></head><body><div id="mount"></div></body></html>`
-    const { renderStorybook } = await import("../interpreter/storybook.js")
+    const { renderStorybook, stopStorybook } = await import("../interpreter/storybook.js")
     const { parseHTML } = await import("npm:linkedom@0.18.4")
     // deno-lint-ignore no-explicit-any
     const g = globalThis as any
@@ -130,6 +130,7 @@ describe("the fixture tier", () => {
       await renderStorybook(mount, "http://app.test/", route, {}, {}, { messages: PRICE, locale: "es" })
       expect(mount.querySelector(".frame small").textContent).toMatch(/^vale \d+ punto/)
     } finally {
+      stopStorybook(g.document.getElementById("mount"))
       g.document = doc
     }
   })

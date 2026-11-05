@@ -4845,7 +4845,11 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     globalThis.removeEventListener("pageshow", returnDocument);
   });
 
-  await Promise.all(pending);
+  try { await Promise.all(pending); }
+  catch (error) {
+    try { stopScreen(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], "screen mount failed"); }
+    throw error;
+  }
   hydrated = true;
   if (regions.length === 0) {
     screen.dataset.state = route.states?.[0] ?? "populated";

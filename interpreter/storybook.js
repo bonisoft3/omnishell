@@ -11,6 +11,12 @@
 import { parseLimit, screenEnv } from "./fragment.js";
 import { interpretScreen } from "./screen.js";
 
+const books = new WeakMap();
+
+export function stopStorybook(mount) {
+  books.get(mount)?.stop();
+}
+
 function fixture(field, i, state, counted, fields = []) {
   const leaf = field.split(".").pop();
   const declared = fields.find((candidate) => candidate.name === leaf);
@@ -74,6 +80,7 @@ export async function renderStorybook(
   units = {},
   opts = {},
 ) {
+  stopStorybook(mount);
   // Which columns a plural reads, so the fixture row answers them with
   // a count rather than the sentence it answers every other column with.
   const counted = new Set();
@@ -133,73 +140,101 @@ export async function renderStorybook(
   `;
   document.head.append(style);
 
-  const book = document.createElement("div");
-  book.className = "storybook";
-  document.title = `${route.screen} — storybook`;
-  mount.replaceChildren(book);
+  const frames = [];
+  let stopped = false;
+  const lifetime = {
+    stop() {
+      if (stopped) return;
+      stopped = true;
+      if (books.get(mount) === lifetime) books.delete(mount);
+      style.remove();
+      const errors = [];
+      for (const frame of frames.splice(0)) {
+        try { frame.stop(); } catch (error) { errors.push(error); }
+      }
+      if (errors.length) throw new AggregateError(errors, "storybook cleanup failed");
+    },
+  };
+  books.set(mount, lifetime);
 
-  for (const state of route.states ?? ["populated"]) {
-    const figure = document.createElement("figure");
-    // Same identifier the ir gives its storyboard frame and the bijection
-    // checker builds — the two surfaces address each other by it.
-    figure.id = `${route.screen}-${state}`;
-    const caption = document.createElement("figcaption");
-    caption.textContent = `${state} `;
-    // The shell is fetch-driven and never loads from file://, so unlike the
-    // ir's return links this one has no degraded form to fall back to.
-    const sketch = document.createElement("a");
-    sketch.href = `../docs/ir.html#${figure.id}`;
-    sketch.textContent = "sketch ↗";
-    caption.append(sketch);
-    const frame = document.createElement("div");
-    frame.className = "frame";
-    figure.append(caption, frame);
-    book.append(figure);
+  try {
+    const book = document.createElement("div");
+    book.className = "storybook";
+    document.title = `${route.screen} — storybook`;
+    mount.replaceChildren(book);
 
-    // handlers: false — the fixture adapter loads no ses and evaluates no handlers;
-    // drag is inert in the frames. fixtures: true keeps media inert too:
-    // fixture rows interpolated into img src would otherwise fire real
-    // requests ("Sample object_key 1" against imgproxy, each a 404).
-    // Every data-hatch resolves before a region hydrates, ahead of the inert
-    // check, so a screen declaring a unit needs the table even though
-    // `fixtures: true` means none is mounted.
-    await interpretScreen(
-      frame,
-      appBase,
-      route,
-      fixtureStore(state, counted, opts.schema),
-      addressed,
-      screenEnv(opts, {
-        handlers: false,
-        fixtures: true,
-        units,
-        messages: opts.messages,
-        locale: opts.locale,
-        // A storybook frame is compared — by eye, by the visual gate, by a golden
-        // — and it is rendered off a reader's machine. Left to the host, every
-        // date-bearing frame would differ between a laptop and CI.
-        timeZone: "UTC",
-      }),
-    );
-    // data-state alone cannot say "posed": the live states (loading, empty,
-    // populated, …) are drawn here under the same names the interpreter sets on
-    // a running screen. A frame-only rule — one that poses an arm the probes
-    // would otherwise decide — has to carry this too, or it reaches the app.
-    if (frame.firstElementChild) {
-      frame.firstElementChild.dataset.storybook = "";
-      frame.firstElementChild.dataset.state = state;
+    for (const state of route.states ?? ["populated"]) {
+      const figure = document.createElement("figure");
+      // Same identifier the ir gives its storyboard frame and the bijection
+      // checker builds — the two surfaces address each other by it.
+      figure.id = `${route.screen}-${state}`;
+      const caption = document.createElement("figcaption");
+      caption.textContent = `${state} `;
+      // The shell is fetch-driven and never loads from file://, so unlike the
+      // ir's return links this one has no degraded form to fall back to.
+      const sketch = document.createElement("a");
+      sketch.href = `../docs/ir.html#${figure.id}`;
+      sketch.textContent = "sketch ↗";
+      caption.append(sketch);
+      const frame = document.createElement("div");
+      frame.className = "frame";
+      figure.append(caption, frame);
+      book.append(figure);
+
+      // handlers: false — the fixture adapter loads no ses and evaluates no handlers;
+      // drag is inert in the frames. fixtures: true keeps media inert too:
+      // fixture rows interpolated into img src would otherwise fire real
+      // requests ("Sample object_key 1" against imgproxy, each a 404).
+      // Every data-hatch resolves before a region hydrates, ahead of the inert
+      // check, so a screen declaring a unit needs the table even though
+      // `fixtures: true` means none is mounted.
+      const handle = await interpretScreen(
+        frame,
+        appBase,
+        route,
+        fixtureStore(state, counted, opts.schema),
+        addressed,
+        screenEnv(opts, {
+          handlers: false,
+          fixtures: true,
+          units,
+          messages: opts.messages,
+          locale: opts.locale,
+          // A storybook frame is compared — by eye, by the visual gate, by a golden
+          // — and it is rendered off a reader's machine. Left to the host, every
+          // date-bearing frame would differ between a laptop and CI.
+          timeZone: "UTC",
+        }),
+      );
+      if (stopped) {
+        handle.stop();
+        return lifetime;
+      }
+      frames.push(handle);
+      // data-state alone cannot say "posed": the live states (loading, empty,
+      // populated, …) are drawn here under the same names the interpreter sets on
+      // a running screen. A frame-only rule — one that poses an arm the probes
+      // would otherwise decide — has to carry this too, or it reaches the app.
+      if (frame.firstElementChild) {
+        frame.firstElementChild.dataset.storybook = "";
+        frame.firstElementChild.dataset.state = state;
+      }
     }
-  }
 
-  // `?frame=` addresses one frame. The hash is spoken for by the route, so the
-  // browser will not anchor-scroll and neither :target nor a fragment jump is
-  // available — both have to be done by hand.
-  const wanted = new URLSearchParams(location.search).get("frame");
-  if (wanted) {
-    const target = book.querySelector(`#${CSS.escape(wanted)}`);
-    if (target) {
-      target.dataset.targeted = "";
-      target.scrollIntoView({ block: "center" });
+    // `?frame=` addresses one frame. The hash is spoken for by the route, so the
+    // browser will not anchor-scroll and neither :target nor a fragment jump is
+    // available — both have to be done by hand.
+    const wanted = new URLSearchParams(location.search).get("frame");
+    if (wanted) {
+      const target = book.querySelector(`#${CSS.escape(wanted)}`);
+      if (target) {
+        target.dataset.targeted = "";
+        target.scrollIntoView({ block: "center" });
+      }
     }
+    return lifetime;
+  } catch (error) {
+    try { lifetime.stop(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], "storybook render failed"); }
+    throw error;
   }
 }

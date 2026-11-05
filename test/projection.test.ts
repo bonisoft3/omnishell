@@ -231,7 +231,7 @@ describe("the fixture tier", () => {
         <template data-item><p data-view="{state}" data-up="{up}"></p></template>
       </div>
     </section>`
-    const { renderStorybook } = await import("../interpreter/storybook.js")
+    const { renderStorybook, stopStorybook } = await import("../interpreter/storybook.js")
     const { parseHTML } = await import("npm:linkedom@0.18.4")
     // deno-lint-ignore no-explicit-any
     const g = globalThis as any
@@ -245,6 +245,7 @@ describe("the fixture tier", () => {
       await renderStorybook(mount, "http://app.test/", route)
       expect(mount.querySelector(".frame p").getAttribute("data-view")).toBe("Sample state 1")
     } finally {
+      stopStorybook(g.document.getElementById("mount"))
       g.document = doc
       g.fetch = fetched
     }
