@@ -51,7 +51,7 @@ const strip = (html: string) => html.replace(SCRIPT, "").replace(STYLE, "").repl
 // Both authored quoting styles, matching what the DOM parser hands the
 // interpreter — a single-quoted attribute must not be visible to one checker
 // and invisible to another.
-const ATTR = /\s(data-[a-z][a-z_-]*)=(?:"([^"]*)"|'([^']*)')/g;
+const ATTR = /\s(data-[a-z][a-z0-9_-]*)=(?:"([^"]*)"|'([^']*)')/g;
 
 const decode = (v: string) =>
   v.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
@@ -1204,7 +1204,7 @@ export function unwitnessedSlot(filter: string | undefined, e: Entity, select?: 
 // the authority (cue vet runs at generate) — this mirror is what lets the
 // rule report structure findings from the same pass that checks references,
 // unit-testable with no cue spawn.
-const TRANSITION_KEYS = new Set(["guard", "target", "assign", "effect", "raise", "actions"]);
+const TRANSITION_KEYS = new Set(["guard", "target", "assign", "effect", "raise", "actions", "reenter"]);
 const ACTION_KEYS = new Set(["assign", "effect", "raise"]);
 const REF_KEYS = new Set(["type", "params"]);
 const EFFECT_KEYS = new Set(["op", "entity", "token", "filter", "values"]);
@@ -1220,7 +1220,8 @@ export const DURABILITY_EFFECT_LEVEL: Record<string, string> = {
 };
 /** Where a chart's writes land: the region's table for an effect naming no
  * entity, and the durability of any table the emitted schema declares. */
-export type Reach = { table: string; durabilityOf: (table: string) => string | undefined };
+export type ObservationBinding = { via: string; table: string; field?: string; match: Record<string, string>; require?: string[] };
+export type Reach = { table: string; durabilityOf: (table: string) => string | undefined; actors?: Record<string, ObservationBinding>; columnsOf?: (table: string) => string[] | undefined };
 
 /** The reason an object in a value position is not a well-formed {type,
  * params} reference (XState's spelling), or null. Strings and literals are not this rule's —
@@ -1286,6 +1287,7 @@ type StateNode = {
   after?: Record<string, unknown>;
   entry?: unknown;
   exit?: unknown;
+  invoke?: unknown;
   states?: Record<string, StateNode>;
 };
 
@@ -1299,6 +1301,7 @@ type Machine = {
   after?: Record<string, unknown>;
   entry?: unknown;
   exit?: unknown;
+  invoke?: unknown;
   states: Record<string, StateNode>;
 };
 
@@ -1353,6 +1356,7 @@ export function machineLint(machine: Machine, available: Set<string>, reach: Rea
       if (unknown.length > 0) {
         return `transition carries ${unknown.map((k) => `"${k}"`).join(", ")} — outside the #Machine subset`;
       }
+      if ("reenter" in c && typeof c.reenter !== "boolean") return "reenter must be boolean";
       const cand = c as { guard?: unknown; assign?: Record<string, unknown>; effect?: unknown; actions?: unknown };
       for (const r of [cand.guard, ...Object.values(cand.assign ?? {})]) {
         const why = badRef(r);
@@ -1387,6 +1391,26 @@ export function machineLint(machine: Machine, available: Set<string>, reach: Rea
     if (why !== null) return why;
   }
   const shape = machineShape(machine) as ReturnType<typeof machineShape> & { effects?: { entity?: string }[] };
+  for (const { state, spec } of shape.invokes) {
+    if (spec === null || typeof spec !== "object" || typeof spec.src !== "string" ||
+        (spec.id !== undefined && typeof spec.id !== "string") || Object.keys(spec).some((key) => !["id", "src"].includes(key))) {
+      return `invoke in "${state || "root"}" supports only named src and id`;
+    }
+    if (reach.actors !== undefined) {
+      const binding = reach.actors[spec.src];
+      if (!binding) return `invoke names undeclared actor "${spec.src}"`;
+      if (binding.via !== "observe") return `invoke actor "${spec.src}" uses unsupported adapter "${binding.via}"`;
+      const source = reach.columnsOf?.(binding.table);
+      const target = reach.columnsOf?.(reach.table);
+      if (reach.columnsOf && !source) return `invoke actor "${spec.src}" reads undeclared table "${binding.table}"`;
+      for (const field of [...Object.keys(binding.match), ...(binding.field ? [binding.field] : [])]) {
+        if (source && !source.includes(field)) return `invoke actor "${spec.src}" reads undeclared field "${binding.table}.${field}"`;
+      }
+      for (const field of [...Object.values(binding.match), ...(binding.require ?? [])]) {
+        if (target && !target.includes(field)) return `invoke actor "${spec.src}" binds undeclared field "${reach.table}.${field}"`;
+      }
+    }
+  }
   for (const eff of shape.effects ?? []) {
     const table = eff.entity ?? reach.table;
     const durability = reach.durabilityOf(table);

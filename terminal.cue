@@ -465,7 +465,7 @@ _presenterPolicy: _ @embed(file="presenter-security-policy.txt", type=text)
 
 		modules: [...#Path]
 		modules: [
-			"shell.js", "chrome.js", "screen.js", "fragment.js", "data-sync.js", "validate.js", "render.js",
+			"shell.js", "cortex-navigation.js", "row-attachments.js", "machine-engine.js", "observe-actor.js", "invoked-actors.js", "chrome.js", "screen.js", "fragment.js", "data-sync.js", "validate.js", "render.js",
 			"release-plan.js", "early-gestures.js", "early-replay.js", "nav-feedback.js", "preloads.js", "link-prefetch.js", "markup.js", "script-url.js", "deferred-boot.js",
 			"host-dom.js", "hatch.js", "hatch-worker.js", "hatch-presenter.js", "presenter-realm.js", "presenter.js",
 			"storybook.js", "jessie.js", "statechart.js", "kinetic.js", "kinetic-milestones.js", "kinetic-session.js", "kinetic-sound.js", "kinetic-mount.js", "rtc-channel.js", "prng.js",

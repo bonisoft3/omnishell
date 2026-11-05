@@ -465,6 +465,11 @@ export function machineShape(machine) {
   const handled = new Set();
   const arrows = [];
   const effects = [];
+  const invokes = [];
+  const collectInvokes = (state, node) => {
+    for (const spec of Array.isArray(node.invoke) ? node.invoke : node.invoke ? [node.invoke] : []) invokes.push({ state, spec });
+  };
+  collectInvokes("", machine);
   const walkActions = (actions) => {
     const list = Array.isArray(actions) ? actions : (actions ? [actions] : []);
     for (const act of list) {
@@ -515,6 +520,7 @@ export function machineShape(machine) {
     walk("*", "onDone", machine.onDone);
   }
   const walkState = (name, s) => {
+    collectInvokes(name, s);
     for (const [key, value] of Object.entries(s.on ?? {})) {
       handled.add(key.split("@")[0]);
       walk(name, key, value);
@@ -548,6 +554,7 @@ export function machineShape(machine) {
     arrows,
     pointer,
     effects,
+    invokes,
   };
 }
 
@@ -812,6 +819,7 @@ export function screenEnv(cfg, over = /** @type {T} */ ({})) {
     hostDom: cfg?.hostDom ?? {},
     units: cfg?.units ?? {},
     kinetic: cfg?.kinetic ?? {},
+    actors: cfg?.actors ?? {},
     routes: cfg?.routes,
     i18n: cfg?.i18n,
     schema: cfg?.schema,

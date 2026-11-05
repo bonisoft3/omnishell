@@ -29,7 +29,8 @@ async function importClosure(roots: string[]): Promise<string[]> {
 // The door as it serves a release (server/release-addresses.ts): each
 // deployment's tree addressed, every address any deployment wrote still
 // answered, and the current entry at every route.
-async function serve(authenticated = false, automaticGuest = false, promoteTo?: string, retarget = false, mutationDrain = false, transition: { gate?: Promise<void>; fail?: number; hatches?: boolean; locales?: boolean; coldBoot?: boolean; progressive?: boolean; delayedThen?: boolean; listRedirect?: boolean; chainRedirect?: boolean; chainDelay?: boolean } = {}) {
+async function serve(authenticated = false, automaticGuest = false, promoteTo?: string, retarget = false, mutationDrain = false, transition: { gate?: Promise<void>; fail?: number; hatches?: boolean; locales?: boolean; coldBoot?: boolean; progressive?: boolean; delayedThen?: boolean; listRedirect?: boolean; chainRedirect?: boolean; chainDelay?: boolean; cortex?: boolean; cortexRows?: boolean; cortexTimer?: boolean; cortexRetain?: boolean; homeMutation?: boolean } = {}) {
+
   const screen = (name: string) => `<section class="screen" data-screen="${name}"><h1>Release</h1><input name="draft" id="draft"><input name="answer" type="radio" value="no"><input name="answer" type="radio" value="yes"><div data-live="probe"><template data-item><p data-text="{id}"></p></template></div></section>`
   const files = new Map<string, string>([
     ["shell/index.html", `<!doctype html><html><head><base href="/shell/"><link rel="stylesheet" href="shell.css"></head><body><div id="app"><div class="shell-screen" data-served>${screen("home")}</div></div><script type="module" src="boot.js"></script></body></html>`],
@@ -38,7 +39,7 @@ async function serve(authenticated = false, automaticGuest = false, promoteTo?: 
     ["shell/boot.js", `import { createShell } from "/omnishell/interpreter/shell.js";
       navigator.serviceWorker.register("/offline-first-sw.js");
       createShell({config:"./shell.json",mount:document.getElementById("app")})
-        .then(app => { window.appReady = !!app.store; window.navigate = app.navigate; });`],
+        .then(app => { window.appReady = !!app.store; window.navigate = app.navigate; window.cortex = app.cortex; });`],
     ["shell/shell.json", JSON.stringify({ app: "release", tables: automaticGuest ? ["unused"] : [], read: { unused: "lazy" }, ...(authenticated ? { auth: { required: true, service: "/auth", promote: !!promoteTo } } : {}), local: { probe: "tab" }, carriers: FIXTURE_CARRIERS, routes: [
       { path: "/", screen: "home", nav: { label: "Home" }, files: { html: "shell/screens/home.html", css: "shell/screens/home.css", handlers: [] } },
       { path: "/other", screen: "other", nav: { label: "Other" }, files: { html: "shell/screens/other.html", css: "shell/screens/other.css", handlers: [] } },
@@ -72,6 +73,18 @@ async function serve(authenticated = false, automaticGuest = false, promoteTo?: 
     files.set("shell/handlers/detail.js", '() => ({ updates: [{ op: "put", entity: "marker", id: "derived", row: { id: "derived", value: "ready" } }] })')
     files.set("shell/shell.json", JSON.stringify(config))
     files.set("shell/screens/other.html", `<section class="screen" data-screen="other"><div data-live="probe" data-empty-row='{"id":"parent"}'><template data-item><article><h1>Parent ready</h1><form data-action="update" data-entity="probe"><input name="draft"><select name="choice"><optgroup class="detail" data-live="detail" data-on-mutation="detail" data-empty=""><template data-item><option value="{id}" data-text="{value}"></option></template></optgroup></select><button type="submit">Save</button></form></article></template></div></section>`)
+  }
+  if (transition.homeMutation) {
+    const config = JSON.parse(files.get("shell/shell.json")!)
+    config.local = { probe: "tab", trigger: "tab", result: "tab" }
+    config.schema = Object.fromEntries(Object.keys(config.local).map(table => [table, { fields: [{ name: "id", type: "string" }, { name: "value", type: "string" }] }]))
+    config.routes[0].files.handlers = ["shell/handlers/home.js"]
+    files.set("shell/shell.json", JSON.stringify(config))
+    const region = '<div data-live="trigger" data-on-mutation="home"><template data-item><span data-text="{id}"></span></template></div>'
+    files.set("shell/screens/home.html", screen("home").replace("</section>", `${region}</section>`))
+    files.set("shell/index.html", files.get("shell/index.html")!.replace(screen("home"), screen("home").replace("</section>", `${region}</section>`)))
+    files.set("shell/handlers/home.js", `(state) => ({ updates: state.items.map(row => ({ op: "put", entity: "result", id: row.id, row: { id: row.id, value: row.value } })) })`)
+
   }
   if (transition.coldBoot) {
     files.set("shell/index.html", files.get("shell/index.html")!.replace(`<div class="shell-screen" data-served>${screen("home")}</div>`, ""))
@@ -144,6 +157,46 @@ async function serve(authenticated = false, automaticGuest = false, promoteTo?: 
       const next = transition.chainDelay ? '{ type: "later", delay: 0.1 }' : '{ type: "intent:navigate", with: { route: "other", replace: true } }'
       files.set("shell/handlers/redirect.js", `(world, event) => event.type === "later" ? { updates: [{ op: "put", entity: "later", id: "result", row: { id: "result" } }] } : world.items[0]?.value === "ready" ? { then: ${next} } : { updates: [{ op: "put", entity: "probe", id: "route", row: { id: "route", value: "ready" } }] }`)
     } else files.set("shell/handlers/redirect.js", `() => ({ updates: [{ op: "put", entity: "probe", id: "route", row: { id: "route" } }], then: { type: "intent:navigate", with: { route: "other", replace: true } } })`)
+  }
+  if (transition.cortex) {
+    const config = JSON.parse(files.get("shell/shell.json")!)
+    const states: Record<string, unknown> = { routing: {} }
+    const on: Record<string, unknown> = {}
+    for (const { screen } of config.routes) {
+      states[screen] = { initial: "loading", states: {
+        loading: { invoke: { src: "navigate", onDone: "ready", onError: "failed" } }, ready: {}, failed: {},
+      } }
+      on[`route:${screen}`] = { target: `.${screen}`, reenter: true }
+    }
+    const actors: Record<string, unknown> = { navigate: { via: "navigation" } }
+    if (transition.cortexRows) {
+      const chart = { field: "status", initial: "idle", states: {
+        idle: { on: { click: "selected" } }, selected: transition.cortexTimer ? { after: { 300: "idle" }, on: { click: "idle" } } : { on: { click: "idle" } },
+      } }
+      actors.homeRows = { via: "rows", screen: "home", lifetime: "attachment", charts: { toggle: chart } }
+      if (transition.cortexTimer) (states.home as any).states.ready.invoke = [{ src: "homeRows" }]
+      else (states.home as any).invoke = [{ src: "homeRows" }]
+      config.schema = { probe: { fields: [{ name: "id", type: "string", pk: true }, { name: "status", type: "string" }] } }
+      const control = `<button id="cortex-control" data-live="probe" data-filter="id=eq.toggle" data-empty-row='{"id":"toggle","status":"idle"}' data-status="{status}" data-cortex="homeRows" data-machine='${JSON.stringify(chart)}'>Toggle</button>`
+      files.set("shell/screens/home.html", screen("home").replace("</section>", `${control}</section>`))
+      files.set("shell/index.html", files.get("shell/index.html")!.replace(screen("home"), screen("home").replace("</section>", `${control}</section>`)))
+    }
+    if (transition.cortexRetain) {
+      const chart = { field: "status", initial: "idle", states: {
+        idle: { always: { guard: "isReady", target: "done" }, after: { 30: { guard: "isReady", target: "done" } } }, done: {},
+      } }
+      actors.cardRows = { via: "rows", screen: "card", lifetime: "attachment", charts: { state: chart } }
+      ;(states.card as any).invoke = [{ src: "cardRows" }]
+      const card = config.routes.find((route: { screen: string }) => route.screen === "card")
+      card.keep = 2
+      card.files.handlers = ["shell/handlers/isReady.js"]
+      config.local.flag = "tab"
+      config.schema = { flag: { fields: [{ name: "id", type: "string", pk: true }, { name: "status", type: "string" }, { name: "trigger", type: "string" }] } }
+      files.set("shell/handlers/isReady.js", `(state) => state.items[0]?.trigger === "yes"`)
+      files.set("shell/screens/card.html", files.get("shell/screens/card.html")!.replace(' data-retarget-params="card"', "").replace("</section>", `<div data-lease data-live="flag" data-filter="id=eq.{param.card}" data-status="{status}" data-cortex="cardRows" data-machine='${JSON.stringify(chart)}'></div></section>`))
+    }
+    config.cortex = { config: { initial: "routing", states, on }, actors }
+    files.set("shell/shell.json", JSON.stringify(config))
   }
   // The modules the page reaches other than by an import naming them; what
   // they import follows, as the release's addressing requires of every
@@ -1321,4 +1374,144 @@ it("previews while a nested mutation settles, with controls inert until its writ
       expect(await page.evaluate(async () => (await (window as any).__prontoStore.query("marker"))[0]?.value)).toBe("ready")
     })
   } finally { await server.close() }
+})
+
+describe("Cortex navigation", () => {
+  it("resumes automatic mutations when a catalogue fails before leaving the presented screen", async () => {
+    const server = await serve(false, false, undefined, false, false, { cortex: true, locales: true, homeMutation: true })
+    try {
+      await withPage(async page => {
+        await page.goto(server.base)
+        await ready(page, "A")
+        await page.route(/es\.json$/, route => route.abort("failed"))
+        expect(await page.evaluate(async () => {
+          try { await (window as any).navigate('/other?lang=es').finished; return 'unexpected success' }
+          catch (error) { return (error as Error).message }
+        })).toContain('Failed to fetch')
+        expect(await page.locator('[data-screen="home"]').isVisible()).toBe(true)
+        await page.evaluate(() => (window as any).__prontoStore.write('trigger', [{ key: 'after', row: { id: 'after', value: 'recovered' } }]))
+        expect(await page.evaluate(async () => {
+          const deadline = Date.now() + 3000
+          do {
+            if ((await (window as any).__prontoStore.query('result')).some((row: any) => row.value === 'recovered')) return true
+            await new Promise(resolve => setTimeout(resolve, 25))
+          } while (Date.now() < deadline)
+          return false
+        })).toBe(true)
+      })
+    } finally { await server.close() }
+  })
+
+  it("boots a deep link and follows same-screen changes and history", async () => {
+    const server = await serve(false, false, undefined, true, false, { cortex: true })
+    try {
+      await withPage(async page => {
+        await page.goto(`${server.base}/deck/a/Pikachu`)
+        await ready(page, "A")
+        await page.waitForFunction(() => document.querySelector('#card')?.textContent === 'Pikachu')
+        expect(await page.evaluate(() => (window as any).cortex.snapshot().value)).toEqual({ card: "ready" })
+        await page.evaluate(() => (window as any).navigate('/deck/a/Charmander').finished)
+        await page.waitForFunction(() => document.querySelector('#card')?.textContent === 'Charmander')
+        expect(await page.evaluate(() => (window as any).cortex.snapshot().value)).toEqual({ card: "ready" })
+        await page.goBack()
+        await page.waitForFunction(() => document.querySelector('#card')?.textContent === 'Pikachu')
+        await page.waitForFunction(() => (window as any).cortex.snapshot().matches({ card: 'ready' }))
+        await page.goForward()
+        await page.waitForFunction(() => document.querySelector('#card')?.textContent === 'Charmander')
+        await page.waitForFunction(() => (window as any).cortex.snapshot().matches({ card: 'ready' }))
+      })
+    } finally { await server.close() }
+  })
+
+  it("reattaches a cached screen's row machine when its route returns", async () => {
+    const server = await serve(false, false, undefined, false, false, { cortex: true, cortexRows: true })
+    try {
+      await withPage(async page => {
+        await page.goto(server.base)
+        await ready(page, "A")
+        await page.locator("#cortex-control").click()
+        await page.waitForFunction(() => document.querySelector('#cortex-control')?.getAttribute('data-status') === 'selected')
+        await page.evaluate(() => (window as any).navigate('/other').finished)
+        await page.evaluate(() => document.querySelector<HTMLButtonElement>('#cortex-control')!.click())
+        expect(await page.locator('#cortex-control').getAttribute('data-status')).toBe('selected')
+        await page.evaluate(() => (window as any).navigate('/').finished)
+        expect(await page.locator('#cortex-control').getAttribute('data-status')).toBe('selected')
+        await page.locator('#cortex-control').click()
+        await page.waitForFunction(() => document.querySelector('#cortex-control')?.getAttribute('data-status') === 'idle')
+      })
+    } finally { await server.close() }
+  })
+
+  it("runs a retained row family only for the active parameterized screen", async () => {
+    const server = await serve(false, false, undefined, true, false, { cortex: true, cortexRetain: true })
+    try {
+      await withPage(async page => {
+        await page.goto(server.base)
+        await ready(page, "A")
+        await page.evaluate(async () => {
+          await (window as any).__prontoStore.write("flag", [
+            { key: "First", row: { id: "First", status: "idle", trigger: "no" } },
+            { key: "Second", row: { id: "Second", status: "idle", trigger: "no" } },
+          ])
+        })
+        await page.evaluate(() => (window as any).navigate('/deck/a/First').finished)
+        await page.evaluate(() => (window as any).navigate('/deck/a/Second').finished)
+        await page.evaluate(async () => {
+          await (window as any).__prontoStore.write("flag", [
+            { key: "First", row: { id: "First", status: "idle", trigger: "yes" } },
+            { key: "Second", row: { id: "Second", status: "idle", trigger: "yes" } },
+          ])
+        })
+        await page.waitForFunction(async () => (await (window as any).__prontoStore.query('flag')).find((row: any) => row.id === 'Second')?.status === 'done')
+        await page.waitForTimeout(100)
+        expect(await page.evaluate(async () => (await (window as any).__prontoStore.query('flag')).find((row: any) => row.id === 'First').status)).toBe('idle')
+        await page.evaluate(() => (window as any).navigate('/deck/a/First').finished)
+        await page.waitForFunction(async () => (await (window as any).__prontoStore.query('flag')).find((row: any) => row.id === 'First')?.status === 'done')
+      })
+    } finally { await server.close() }
+  })
+
+  it("keeps the winning screen when a delayed navigation finishes late", async () => {
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const server = await serve(false, false, undefined, true, false, { cortex: true, gate })
+    try {
+      await withPage(async page => {
+        await page.goto(server.base)
+        await ready(page, "A")
+        await page.evaluate(() => { (window as any).navigate('/other').finished.catch((error: Error) => { if (error.name !== 'AbortError') throw error }) })
+        await page.waitForFunction(() => (window as any).cortex.snapshot().matches({ other: 'loading' }) && document.querySelectorAll('#app > .shell-screen').length === 2)
+        await page.evaluate(() => (window as any).navigate('/deck/a/Pikachu').finished)
+        expect(await page.evaluate(() => (window as any).cortex.snapshot().value)).toEqual({ card: "ready" })
+        release()
+        await page.waitForTimeout(100)
+        expect(await page.locator('[data-screen="card"]').isVisible()).toBe(true)
+        expect(await page.locator('[data-screen="other"]:visible').count()).toBe(0)
+        expect(await page.evaluate(() => (window as any).cortex.snapshot().value)).toEqual({ card: "ready" })
+      })
+    } finally { release(); await server.close() }
+  })
+
+  it("reports a failed destination and recovers on a later route", async () => {
+    const server = await serve(false, false, undefined, true, false, { cortex: true, cortexRows: true, cortexTimer: true, fail: 503 })
+    try {
+      await withPage(async page => {
+        await page.goto(server.base)
+        await ready(page, "A")
+        expect(await page.evaluate(async () => {
+          try { await (window as any).navigate('/other').finished; return 'unexpected success' }
+          catch (error) { return (error as Error).message }
+        })).toContain('503')
+        expect(await page.evaluate(() => (window as any).cortex.snapshot().value)).toEqual({ home: "ready" })
+        expect(await page.locator('[data-screen="home"]').isVisible()).toBe(true)
+        await page.locator('#cortex-control').click()
+        await page.waitForFunction(() => document.querySelector('#cortex-control')?.getAttribute('data-status') === 'selected')
+        await page.waitForFunction(() => document.querySelector('#cortex-control')?.getAttribute('data-status') === 'idle')
+        await page.evaluate(() => (window as any).navigate('/deck/a/Pikachu').finished)
+        expect(await page.locator('[data-screen="card"]').isVisible()).toBe(true)
+        expect(await page.evaluate(() => (window as any).cortex.snapshot().value)).toEqual({ card: "ready" })
+      })
+    } finally { await server.close() }
+  })
+
 })

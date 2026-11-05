@@ -23,6 +23,8 @@ import { compileCatalog } from "./vendor/messages.js";
 import { filesMoved, planRelease } from "./release-plan.js";
 import { replayEarlyGestures, takeEarlyGestures } from "./early-replay.js";
 import { navFeedback } from "./nav-feedback.js";
+import { createRowAttachments } from "./row-attachments.js";
+import { createCortexNavigation } from "./cortex-navigation.js";
 export { routeAt } from "./fragment.js";
 import { assetURL, preloadLinkedScreens, preloadScreen, releaseOf, setRelease } from "./preloads.js";
 import { startLinkPrefetch } from "./link-prefetch.js";
@@ -739,6 +741,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
     const cfg = configUrl.pathname.endsWith(".json")
       ? JSON.parse(text)
       : (await import("./vendor/js-yaml.js")).load(text);
+    const rowAttachments = createRowAttachments(Object.fromEntries(Object.entries(cfg.cortex?.actors ?? {}).filter(([, binding]) => binding.via === "rows")));
     // A served document's head already says what it is.
     if (served === null) document.title = cfg.app;
 
@@ -948,7 +951,11 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       evict(entry.route);
     };
     const restorePresentation = async (failed) => {
-      if (current !== failed || (failed && presented === failed)) return;
+      if (current !== failed) return;
+      if (failed && presented === failed) {
+        failed.mutationActive = true;
+        return;
+      }
       current = presented;
       if (failed) {
         failed.el.hidden = presented !== null;
@@ -1250,6 +1257,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
         current.written = written;
         current.seq = ++seq;
         held.set(key, current);
+        current.mutationActive = true;
         await current.handle.retarget(params);
         if (turn !== showing) return;
         feedback.settle();
@@ -1394,6 +1402,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
           ...(hostDomModules ? { hostDomModules } : {}),
           messages,
           ensureMessages,
+          rowAttachments,
           locale,
           navigate: (href, options) => {
             const target = new URL(href, location.href);
@@ -1488,8 +1497,16 @@ export async function createShell({ config, mount, preload = true, hostDomModule
         ]);
       }
     };
-    const show = async (navigationType = "push") => {
+    const activate = async (navigationType = "push", signal) => {
+      if (signal?.aborted) return;
       const turn = ++showing;
+      let resolveAbort;
+      const aborted = new Promise((resolve) => { resolveAbort = resolve; });
+      const cancel = () => {
+        if (turn === showing) showing++;
+        resolveAbort();
+      };
+      signal?.addEventListener("abort", cancel, { once: true });
       let deadline;
       let expire;
       const expired = new Promise((_, reject) => { expire = reject; });
@@ -1500,7 +1517,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       };
       boundPresentation();
       try {
-        await Promise.race([showTurn(navigationType, turn, boundPresentation), expired]);
+        await Promise.race([showTurn(navigationType, turn, boundPresentation), expired, aborted]);
       } catch (error) {
         if (turn !== showing) return;
         const recoveryTurn = ++showing;
@@ -1519,7 +1536,17 @@ export async function createShell({ config, mount, preload = true, hostDomModule
         throw error;
       } finally {
         clearTimeout(deadline);
+        signal?.removeEventListener("abort", cancel);
       }
+    };
+    const cortex = cfg.cortex === undefined ? undefined : createCortexNavigation(cfg.cortex, (request, { signal }) => {
+      if (currentRoute().route.screen !== request.screen || location.pathname !== request.pathname || location.search !== request.search) throw new ProgramError("Cortex navigation no longer matches the requested route");
+      return activate(request.navigationType, signal);
+    }, (binding, spec) => rowAttachments.attach(binding, spec));
+    const show = (navigationType = "push") => {
+      if (!cortex) return activate(navigationType);
+      if (current) current.mutationActive = false;
+      return cortex.navigate({ screen: currentRoute().route.screen, pathname: location.pathname, search: location.search, navigationType });
     };
     // A screen written in catalogues older than the ones the page holds now:
     // a deployment's, taken while it was out of sight.
@@ -1736,7 +1763,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) heed();
     });
-    return { store, navigate };
+    return { store, navigate, cortex };
   } catch (err) {
     if (heal !== null && (isMissing(err) || document.querySelector('meta[name="pronto-kept"]')) && await heal()) return;
     banner(err);

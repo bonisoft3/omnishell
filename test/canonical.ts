@@ -19,6 +19,7 @@
 type Candidate = {
   guard?: string | { type: string; params?: Record<string, unknown> };
   target?: string;
+  reenter?: boolean;
   assign?: Record<string, unknown>;
   raise?: string;
   actions?: unknown;
@@ -33,6 +34,7 @@ export type StateNode = {
   after?: Record<string, unknown>;
   entry?: unknown;
   exit?: unknown;
+  invoke?: unknown;
   states?: Record<string, StateNode>;
 };
 
@@ -46,6 +48,7 @@ export type Machine = {
   after?: Record<string, unknown>;
   entry?: unknown;
   exit?: unknown;
+  invoke?: unknown;
   states: Record<string, StateNode>;
 };
 
@@ -79,6 +82,7 @@ function transition(c: Candidate, opts: { drive: boolean; atRoot: boolean }): Re
     // A root-level transition's string target resolves among the root's
     // siblings, of which it has none; the leading dot addresses its children.
     out.target = opts.atRoot ? `.${c.target}` : c.target;
+    out.reenter = c.reenter ?? true;
   }
   const actions: Record<string, unknown>[] = [];
   if (c.assign !== undefined) actions.push({ type: "assign", params: c.assign });
@@ -94,6 +98,7 @@ const mapValue = (value: unknown, opts: { drive: boolean; atRoot: boolean }) =>
 function mapStateNode(s: StateNode, opts: { drive: boolean }): Record<string, unknown> {
   const node: Record<string, unknown> = {};
   if (s.type !== undefined) node.type = s.type;
+  if (s.invoke !== undefined) node.invoke = s.invoke;
   if (s.initial !== undefined) node.initial = s.initial;
   const on: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(s.on ?? {})) {
@@ -137,6 +142,7 @@ export function canonical(machine: Machine, opts: { drive?: boolean } = {}): Rec
     states[name] = mapStateNode(s, { drive });
   }
   const out: Record<string, unknown> = { id: "machine", states };
+  if (machine.invoke !== undefined) out.invoke = machine.invoke;
   if (machine.type !== undefined) out.type = machine.type;
   if (machine.initial !== undefined) out.initial = machine.initial;
   const rootOn: Record<string, unknown> = {};

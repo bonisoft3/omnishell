@@ -248,7 +248,7 @@ async function send(url, init) {
 }
 
 export async function http(url, init) {
-  if ((init?.method ?? "GET") === "GET") {
+  if ((init?.method ?? "GET") === "GET" && init?.cache !== "no-store") {
     const body = takeServedBody(url);
     if (body !== undefined) {
       return new Response(body, { status: 200, headers: { "Content-Type": "application/json" } });
@@ -1296,7 +1296,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   // (subscribe), until a read answers what the view holds.
   const stoodIn = new Set();
   function standIn(key, table, order, opts) {
-    if (opts.current) return undefined;
+    if (opts.current || opts.confirmed) return undefined;
     const last = kept(recalled, key);
     const carried = last !== undefined || !keepsReads ? undefined : kept(answered, memoKey(`${crud(table)}?${search(order, opts)}`));
     if (last === undefined && carried === undefined) return undefined;
@@ -1368,7 +1368,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     for (const memo of [answered, recalled]) for (const [key, entry] of memo) if (entry.tables.has(table)) memo.delete(key);
   }
   const generations = (tables) => [...tables].map((t) => generation.get(t) ?? 0).join(",");
-  const requestRows = async (url) => (await request(url)).json();
+  const requestRows = async (url, init) => (await request(url, init)).json();
   const coalescedRows = coalesceReads(requestRows, canCoalesceSchemaEq(cfg.schema, cfg.carriers));
   async function fetchServer(url) {
     const rows = await (!keepsReads || hasServedRead(url) ? requestRows(url) : coalescedRows(url));
@@ -1521,6 +1521,8 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     if (clauses?.some(({ col, op, value }) => op === "eq" && literal(table, col, value) === NOHOLD)) return [];
     const url = `${crud(table)}?${search(order, opts)}`;
     const key = memoKey(url);
+    // Absence can trigger a state transition; a document snapshot cannot prove it.
+    if (opts.confirmed) return requestRows(url, { cache: "no-store" });
     if (!hasServedRead(url) && !(keepsReads && answered.has(key))) {
       await awaitSeedForUrl(url);
     }
@@ -1573,16 +1575,18 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
 
   async function read(table, order, opts = {}) {
     order ??= opts.order;
+    // Independently synchronized collections can be ready before an accepted write arrives.
+    if (opts.confirmed && local[table] === undefined) return readServer(table, order, opts);
     const url = `${crud(table)}?${search(order, opts)}`;
     const rKey = recallKey(table, order, opts);
     const isLocalReady = () => answersLocally(table, order, opts);
-    if (!requestOnly(table) && local[table] === undefined && !recalled.has(rKey) &&
+    if (!opts.confirmed && !requestOnly(table) && local[table] === undefined && !recalled.has(rKey) &&
         !hasServedRead(url) && !(keepsReads && answered.has(memoKey(url))) &&
         !isLocalReady()) {
       await awaitSeedForUrl(url);
     }
     const heldAnswer = keepsReads ? kept(answered, memoKey(url)) : undefined;
-    const servedForPage = hasServedRead(url) || Boolean(heldAnswer?.served && isServedAtPage(heldAnswer.servedAt));
+    const servedForPage = !opts.confirmed && (hasServedRead(url) || Boolean(heldAnswer?.served && isServedAtPage(heldAnswer.servedAt)));
     if (requestOnly(table) || (servedForPage && !recalled.has(rKey))) {
       return readServer(table, order, opts);
     }

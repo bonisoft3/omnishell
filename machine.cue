@@ -23,8 +23,10 @@
 // {field: initial}; where data-empty-row is present it must agree
 // (vetted at generate, never arbitrated at runtime).
 //
-// Everything XState has beyond this shape — invoke, sendTo/emit — fails
-// unification loudly. `after` is the relocated invoke: armed on state entry,
+// Everything XState has beyond this shape — sendTo/emit — fails
+// unification loudly. Named invokes attach platform actors for their state lifetime.
+// Targeted shorthand normalizes to reenter:true; explicit reenter:false keeps
+// the state and its actors entered. `after` is armed on state entry,
 // canceled on exit, performed by the terminal's clock. `raise` is the reduce's
 // `then:` under XState's name — literal types, so the cascade stays drawable,
 // delivered depth-bounded (the deliberate SCXML deviation: a cascade with no
@@ -55,6 +57,7 @@ package terminal
 	// Root-level transitions, applied in every state unless the state declares
 	// the same event key.
 	on?:     M.#On
+	invoke?: M.#Invoke | [...M.#Invoke]
 	onDone?: M.#TransitionValue
 	always?: M.#TransitionValue
 	after?: [string]: M.#TransitionValue
@@ -65,6 +68,7 @@ package terminal
 		type?:    "final" | "parallel"
 		initial?: string
 		on?:      M.#On
+		invoke?: M.#Invoke | [...M.#Invoke]
 		onDone?:  M.#TransitionValue
 		always?:  M.#TransitionValue
 		// The relocated invoke: key is milliseconds (digits) or the name of a
@@ -78,12 +82,18 @@ package terminal
 			type?:    "final" | "parallel"
 			initial?: string
 			on?:      M.#On
+			invoke?: M.#Invoke | [...M.#Invoke]
 			onDone?:  M.#TransitionValue
 			always?:  M.#TransitionValue
 			after?: [string]: M.#TransitionValue
 			entry?:   M.#Actions
 			exit?:    M.#Actions
 		})
+	})
+
+	#Invoke: close({
+		src: string
+		id?: string
 	})
 
 	#Action: close({
@@ -135,19 +145,13 @@ package terminal
 		live:    "compensable"
 		server:  "replicated"
 	}
-	// Every op a declaration may write with, named as GraphQL names a
-	// mutation, and classified by what happens if it happens twice (a join
-	// is `x ⊔ x = x`: CRDTs, Shapiro et al. 2011). `ensure`, `upsert`,
-	// `delete` and an absolute `update` are joins — twice is once. `create`
-	// is a duplicate unless the client mints the key, which the terminal
-	// does: a retry carries the same key and is a join on the wire (the
-	// gateway's `resolution=ignore-duplicates`, mecha docs/proxy.md);
-	// data-sync.js `add` runs the entity's validations as an insert, nothing
-	// more. `accumulate` adds twice, and is exactly-once only as a fold over
-	// a keyed event set. `reduce` has the delivery of the ops it returns.
-	// `navigate` writes no row: it fills the route's params, and a second
-	// hash change lands on the same route. A consumer narrows this to the
-	// ops its performer runs; none extends it.
+	// Mutation names shared with the relational adapter. Repeating the same
+	// absolute update, delete, ensure or upsert can be idempotent; distinct
+	// values need not commute. Neither law follows from the op name alone
+	// when constraints, triggers or expressions participate. A keyed create
+	// needs duplicate rejection or acceptance at its sink; accumulate adds
+	// twice. Reduce inherits the laws of its returned effects. Navigate
+	// fills route params and repeating it selects the same route.
 	#MutationOp: "create" | "ensure" | "upsert" | "update" | "accumulate" | "delete" | "reduce" | "navigate"
 	// Declarative mutation effect executed by the terminal runtime into store.
 	// Closed and pure: never arbitrary code, never touches DOM directly. The
@@ -162,6 +166,7 @@ package terminal
 	#Transition: close({
 		guard?:   string | M.#Ref // Jessie module; (state, event, params?) => boolean
 		target?:  M.#TargetState
+		reenter?: bool
 		actions?: M.#Actions
 		// Values for the machine's own row's columns: a literal, a Jessie
 		// module name computing one, or a parameterized #Ref. All assigns read

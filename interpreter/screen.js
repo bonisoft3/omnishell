@@ -28,6 +28,9 @@ import {
 } from "./fragment.js";
 import { evaluateRole } from "./jessie.js";
 import { hostDomScreen } from "./host-dom.js";
+import { observeActor } from "./observe-actor.js";
+import { invokedActors } from "./invoked-actors.js";
+import { machineEngine } from "./machine-engine.js";
 import { assetURL, skeletonRoutes } from "./preloads.js";
 
 export class AssetMissing extends Error {
@@ -591,14 +594,14 @@ async function loadRenderers(screen, appBase, route, endowmentsMap = {}) {
 // first key forever, which is a sort that never sorts again.
 const REGION_ATTRS = new Set([
   "data-text", "data-filter", "data-select", "data-empty", "data-empty-row", "data-when",
-  "data-project", "data-order", "data-display-order", "data-exit-motion", "data-machine",
+  "data-project", "data-order", "data-display-order", "data-exit-motion", "data-machine", "data-cortex",
 ]);
 
 // What hydrating a region reads off its own element once, and holds for as
 // long as the region runs.
 const READ_ATTRS = new Set([
   "data-live", "data-template", "data-filter", "data-select", "data-order", "data-display-order", "data-project",
-  "data-exit-motion", "data-machine", "data-empty-row", "data-reads", "data-handler", "data-on-mutation",
+  "data-exit-motion", "data-machine", "data-cortex", "data-empty-row", "data-reads", "data-handler", "data-on-mutation",
 ]);
 /** A region's read as its element states it. A newer template stating another
  * is another region, hydrated in its place rather than brought to it. */
@@ -1202,6 +1205,7 @@ function declaredCharts(spec, table) {
           onDone: regionNode.onDone,
           entry: regionNode.entry,
           exit: regionNode.exit,
+          invoke: regionNode.invoke,
         });
       }
     } else {
@@ -1917,8 +1921,10 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   const derived = new Map();
   const dirty = new Set();
   let held = "shown";
+  let documentAway = false;
+  let documentEpoch = 0;
   let visitEpoch = 0;
-  const mutationActive = () => held === "shown" && (screenOpts.mutationActive?.() ?? true);
+  const mutationActive = () => !documentAway && held === "shown" && (screenOpts.mutationActive?.() ?? true);
   let failure;
   let settling;
   const failed = (err) => {
@@ -2665,6 +2671,15 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // compartment with nothing endowed, so it could not use one, and it stays
   // testable with no DOM. A region-level event (a tick) carries no id.
   function wireEvents(region, items, getRows, handlers, ctx) {
+    const gesture = (run) => {
+      let release;
+      const paused = new Promise((resolve) => { release = resolve; });
+      const running = (region._prontoGesture ?? Promise.resolve()).then(() => run(release));
+      const seat = Promise.race([running, paused]);
+      region._prontoGesture = seat.then(() => undefined, () => undefined);
+      track(seat).catch(failed);
+      return running;
+    };
     // {updates, then}. The command goes in the return, which is the whole of
     // how a reduce continues: evaluated in a compartment with nothing endowed
     // it can neither write nor wait, so it names the next event and the
@@ -2916,13 +2931,13 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       return true;
     };
 
-    const step = async (reduce, event, depth, pause, seat, automatic = event.type === "mutation") => {
-      if (held === "stopped") return;
+    const step = async (reduce, event, depth, pause, seat, automatic = event.type === "mutation", active) => {
+      if (held === "stopped" || (active && !active())) return;
       const next = await track((async () => {
         if (held === "stopped") return;
         checkSettlement(region);
         const rows = await worldOf();
-        if (automatic && !mutationActive()) return;
+        if ((automatic && !mutationActive()) || (active && !active())) return;
         if (event.type === "mutation" && seat) {
           event = { ...event, visit: seat.visitEpoch !== visitEpoch };
           seat.visitEpoch = visitEpoch;
@@ -2932,9 +2947,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         if (typeof result?.then === "function") {
           throw new Error(`handler for "${event.type}" returned a promise; a reduce returns its updates`);
         }
-        if (!await applyUpdates(result?.updates ?? [], deliver, automatic ? mutationActive : undefined)) return;
+        if (!await applyUpdates(result?.updates ?? [], deliver, active ?? (automatic ? mutationActive : undefined))) return;
         if (result?.effects && result.effects.length > 0) {
-          if (!await applyEffects(result.effects, deliver, automatic ? mutationActive : undefined)) return;
+          if (!await applyEffects(result.effects, deliver, active ?? (automatic ? mutationActive : undefined))) return;
         }
         if (automatic && seat) {
           for (const update of [...(result?.updates ?? []), ...(result?.effects ?? [])]) {
@@ -2947,7 +2962,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         }
         return result?.then;
       })());
-      if (!next?.type) return;
+      if (!next?.type || (active && !active())) return;
       if (next.delay > 0) {
         pause?.();
         await rest(next.delay / TEMPO, { kind: "then", type: next.type });
@@ -2955,6 +2970,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         // the screen is on show, settle would track its writes and keep the screen hidden.
         await screenOpts.presented;
       }
+      if (active && !active()) return;
       const carried = { type: next.type };
       // A draw the reduce asked for. It has no randomness of its own — the
       // compartment endows nothing — so it says it wants one and is called
@@ -2980,7 +2996,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       if (typeof carried.type === "string" && carried.type.startsWith("intent:")) {
         screen.dispatchEvent?.(new CustomEvent("pronto:intent", { detail: carried, bubbles: true }));
       }
-      await step(reduce, carried, depth + 1, pause, seat, automatic);
+      await step(reduce, carried, depth + 1, pause, seat, automatic, active);
     };
 
     const bind = (el, id) => {
@@ -3032,7 +3048,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             // boundary, so what a reduce reads here is strings the terminal
             // built and never the unit's own object.
             if (e?.detail !== null && typeof e?.detail === "object") fired.detail = e.detail;
-            await step(reduce, fired, 0);
+            await gesture((pause) => step(reduce, fired, 0, pause));
             // Flush only a short, complete fold: another screen's half-applied
             // writes must not reach regions through this store-wide wake.
             if (inFlight.get(store) === 0 && performance.now() - began <= PROMPT_FOLD_MS) store.flushNotifications?.();
@@ -3092,6 +3108,17 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // with the bare type as its fallback, a state's transitions hide
     // root-level `on:` per exact key, and no transition for the current
     // (state, event) is a no-op, not an error.
+    if (screenOpts.handlers !== false && screenOpts.mountUnits !== false && region.dataset.cortex !== undefined && region.dataset.machine !== undefined) {
+      if (!region.dataset.cortex || !screenOpts.rowAttachments) throw new ProgramError(`region "${region.dataset.live}": data-cortex needs a row attachment family`);
+      let declaration;
+      try { declaration = JSON.parse(region.dataset.machine); }
+      catch { throw new ProgramError(`region "${region.dataset.live}": data-machine is not JSON: ${region.dataset.machine}`); }
+      try {
+        screenOpts.rowAttachments.validate(region.dataset.cortex, route.screen, declaration);
+      } catch (error) {
+        throw new ProgramError(`region "${region.dataset.live}": ${error.message}`, { cause: error });
+      }
+    }
     const charts = (screenOpts.handlers === false || region.dataset.machine === undefined)
       ? []
       : declaredCharts(region.dataset.machine, region.dataset.live);
@@ -3099,8 +3126,31 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // they share is the ROW — `_prontoMachineRow` accumulates every chart's
     // stated columns within one tick, which is what makes two charts one write
     // — and everything a chart owns alone is keyed by its field.
+    if (screenOpts.handlers !== false && screenOpts.mountUnits !== false && region.dataset.cortex !== undefined && (!region.dataset.cortex || !screenOpts.rowAttachments)) {
+      throw new ProgramError(`region "${region.dataset.live}": data-cortex needs a row attachment family`);
+    }
+    if (screenOpts.handlers !== false && screenOpts.mountUnits !== false && region.dataset.cortex !== undefined && !charts.length) {
+      throw new ProgramError(`region "${region.dataset.live}": data-cortex needs a machine`);
+    }
     for (const machine of charts) {
       const mine = (what) => `_prontoMachine_${machine.field}_${what}`;
+      const family = screenOpts.mountUnits === false ? undefined : region.dataset.cortex;
+      let gate = region[mine("gate")];
+      if (family !== undefined && !gate) {
+        gate = region[mine("gate")] = { enabled: false, generation: 0, wake: () => {} };
+        const unregister = screenOpts.rowAttachments.register(family, {
+          start() { gate.enabled = true; gate.generation++; gate.wake(); },
+          stop() {
+            gate.enabled = false;
+            gate.generation++;
+            region[mine("afterGen")] = (region[mine("afterGen")] ?? 0) + 1;
+            region[mine("armed")] = undefined;
+            region[mine("invokes")]?.stop();
+          },
+        }, route.screen);
+        cleanups.push(() => { unregister(); delete region[mine("gate")]; });
+      }
+      const enabled = () => !gate || (gate.enabled && mutationActive());
       // Naming a field outside the allowlist is an authoring error and throws.
       // An event that simply does not carry one is this transition declining —
       // a select firing an arrow written for a checkbox must not take the
@@ -3118,19 +3168,23 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         return field in event ? event[field] : NO_FIELD;
       };
 
+      const leafResult = (name, value) => {
+        if (value && typeof value.then === "function") throw new Error(`machine leaf "${name}" returned a promise`);
+        return value;
+      };
       const leafVal = (v, world, event) => {
-        if (typeof v === "string" && handlers.has(v)) return handlers.get(v)(world, event);
+        if (typeof v === "string" && handlers.has(v)) return leafResult(v, handlers.get(v)(world, event));
         // The {type, params} object form (#Ref) is always a reference;
         // loading already threw at hydration for a name no module carries.
         if (v !== null && typeof v === "object") {
           if (v.type === "event") return eventField(event, v.params?.field);
-          return handlers.get(v.type)(world, event, v.params);
+          return leafResult(v.type, handlers.get(v.type)(world, event, v.params));
         }
         return v;
       };
 
       const resolveStateNode = (path) => {
-        if (!path) return undefined;
+        if (!path) return machine;
         if (machine.states[path]) return machine.states[path];
         const parts = path.split(".");
         let curr = machine.states[parts[0]];
@@ -3166,76 +3220,13 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         return resolved;
       };
 
-      const candidatesFor = (rawState, event) => {
-        const stateName = (rawState && rawState !== "") ? rawState : machine.initial;
-        const out = [];
-        const commandKeys = event.command ? [
+      const eventKeys = (event) => [
+        ...(event.command ? [
           ...(event.from !== undefined ? [`command:${event.command}@${event.from}`] : []),
           `command:${event.command}`,
-        ] : [];
-        const keys = [
-          ...commandKeys,
-          ...(event.from !== undefined ? [`${event.type}@${event.from}`, event.type] : [event.type]),
-        ];
-        const chain = [];
-        if (stateName) {
-          chain.push(stateName);
-          let s = stateName;
-          while (s.includes(".")) {
-            s = s.slice(0, s.lastIndexOf("."));
-            chain.push(s);
-          }
-        }
-        for (const key of keys) {
-          let foundInState = false;
-          for (const st of chain) {
-            const node = resolveStateNode(st);
-            const v = node?.on?.[key];
-            if (v !== undefined) {
-              machineCandidates(v).forEach((c, index) => out.push({ c, key, index, origin: st }));
-              foundInState = true;
-              break;
-            }
-          }
-          if (!foundInState) {
-            const v = machine.on?.[key];
-            if (v !== undefined) {
-              machineCandidates(v).forEach((c, index) => out.push({ c, key, index, origin: "*" }));
-            }
-          }
-        }
-        return out;
-      };
-
-      const getExitEnterPaths = (from, to) => {
-        if (!to) return { exit: [], enter: [] };
-        if (from === to) return { exit: [from], enter: [to] };
-        if (!from) return { exit: [], enter: to.split(".").map((_, i, a) => a.slice(0, i + 1).join(".")) };
-        const fromParts = from.split(".");
-        const toParts = to.split(".");
-        let commonDepth = 0;
-        while (
-          commonDepth < fromParts.length &&
-          commonDepth < toParts.length &&
-          fromParts[commonDepth] === toParts[commonDepth]
-        ) {
-          commonDepth++;
-        }
-        const exit = [];
-        for (let i = fromParts.length; i > commonDepth; i--) {
-          exit.push(fromParts.slice(0, i).join("."));
-        }
-        const enter = [];
-        for (let i = commonDepth; i < toParts.length; i++) {
-          enter.push(toParts.slice(0, i + 1).join("."));
-        }
-        return { exit, enter };
-      };
-
-      const normalizeActions = (actions) => {
-        if (!actions) return [];
-        return Array.isArray(actions) ? actions : [actions];
-      };
+        ] : []),
+        ...(event.from !== undefined ? [`${event.type}@${event.from}`, event.type] : [event.type]),
+      ];
 
       const parseEffect = (eff, effectiveCtx, world, event) => {
         const values = {};
@@ -3303,241 +3294,51 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         return raised;
       };
 
-      const evalCandidates = (list, world, event) => {
-        for (const entry of list) {
-          if (entry.c.guard === undefined) return entry;
-          const named = typeof entry.c.guard === "string" ? entry.c.guard : entry.c.guard.type;
-          const g = handlers.get(named);
-          if (g === undefined) throw new Error(`machine guard "${named}" names no module`);
-          if (g(world, event, typeof entry.c.guard === "object" ? entry.c.guard.params : undefined)) {
-            return entry;
-          }
-        }
-        return undefined;
+      const engine = machineEngine(machine, {
+        guard(ref, run) {
+          const name = typeof ref === "string" ? ref : ref.type;
+          const g = handlers.get(name);
+          if (g === undefined) throw new Error(`machine guard "${name}" names no module`);
+          const value = g({ items: [{ ...(run.effective ?? run.row), [machine.field]: run.guardState }] }, run.event, typeof ref === "object" ? ref.params : undefined);
+          if (value && typeof value.then === "function") throw new Error(`machine guard "${name}" returned a promise`);
+          return value;
+        },
+        action(act, run) {
+          if (run.preview) return;
+          run.patch ??= {};
+          run.effective ??= { ...run.row };
+          run.effects ??= [];
+          const raised = runAction(act, run.patch, run.effective, run.effects, { items: [run.row] }, run.event);
+          if (raised === NO_FIELD) throw NO_FIELD;
+          if (raised !== undefined) run.raised = raised;
+        },
+        trace(origin, key, index, target, run) {
+          if (run.preview) return;
+          globalThis.__prontoMachineTrace?.push({ region, field: machine.field, state: origin, key, index, to: target === undefined ? run.row[machine.field] : resolveTarget(target, run.guardState) });
+        },
+      });
+      const fire = (row, event, keys = eventKeys(event), preview = false) => {
+        const state = row[machine.field] || machine.initial;
+        if (!resolveStateNode(state)) return undefined;
+        try { return engine(row, event, keys, preview); }
+        catch (error) { if (error === NO_FIELD) return undefined; throw error; }
       };
-
-      // Ordered candidates, first guard-pass wins. All assigns read the
-      // pre-transition snapshot and merge with the field write into ONE
-      // stated row — the swap needs no temporary. A first write concluding
-      // from the fallback states the whole fallback row, or the created row
-      // falls outside the slot's filter and the machine visibly resets.
-      const apply = (row, event, list, expectState) => {
-        if (row === undefined) return { updates: [] };
-        if (expectState !== undefined && row[machine.field] !== expectState) return { updates: [] };
-        const world = { items: [row] };
-        const chosen = evalCandidates(list, world, event);
-        if (chosen === undefined) return { updates: [] };
-
-        const patch = {};
-        const effectiveCtx = { ...row };
-        const effects = [];
-        let raisedThen;
-
-        let targetState = chosen.c.target !== undefined
-          ? resolveTarget(chosen.c.target, row[machine.field])
-          : undefined;
-        const arrowTarget = targetState;
-
-        const { exit: exitStates, enter: enterStates } = getExitEnterPaths(row[machine.field], targetState);
-
-        // 1. Exit actions (innermost to outermost)
-        for (const s of exitStates) {
-          const node = resolveStateNode(s);
-          if (node?.exit) {
-            for (const act of normalizeActions(node.exit)) {
-              const r = runAction(act, patch, effectiveCtx, effects, world, event);
-              if (r === NO_FIELD) return { updates: [] };
-              if (r !== undefined) raisedThen = r;
-            }
-          }
-        }
-
-        // 2. Transition actions
-        if (chosen.c.actions) {
-          for (const act of normalizeActions(chosen.c.actions)) {
-            const r = runAction(act, patch, effectiveCtx, effects, world, event);
-            if (r === NO_FIELD) return { updates: [] };
-            if (r !== undefined) raisedThen = r;
-          }
-        }
-        const rTrans = runAction(chosen.c, patch, effectiveCtx, effects, world, event);
-        if (rTrans === NO_FIELD) return { updates: [] };
-        if (rTrans !== undefined) raisedThen = rTrans;
-
-        // 3. Entry actions (outermost to innermost)
-        for (const s of enterStates) {
-          const node = resolveStateNode(s);
-          if (node?.entry) {
-            for (const act of normalizeActions(node.entry)) {
-              const r = runAction(act, patch, effectiveCtx, effects, world, event);
-              if (r === NO_FIELD) return { updates: [] };
-              if (r !== undefined) raisedThen = r;
-            }
-          }
-        }
-
-        // Debug seam, like __prontoViews: which arrow fired, where it landed,
-        // and the region that fired it. Nothing is pushed unless something
-        // armed the array. Before the cascade its landing starts, so a replay reads them in order.
-        globalThis.__prontoMachineTrace?.push({
-          region,
-          // Which chart drew it. Two charts on one region share the element, so
-          // a walk filtering by region alone would read its sibling's arrows as
-          // its own — and the field is what tells them apart everywhere else.
-          field: machine.field,
-          state: chosen.origin,
-          key: chosen.key,
-          index: chosen.index,
-          to: arrowTarget ??
-            (Object.hasOwn(patch, machine.field) ? patch[machine.field] : row[machine.field]),
-        });
-        // 4. onDone and always cascade
-        let cascadeSteps = 0;
-        while (targetState !== undefined && cascadeSteps < 10) {
-          cascadeSteps++;
-          let progressed = false;
-          // Check if targetState is final and parent has onDone
-          const currNode = resolveStateNode(targetState);
-          if (currNode?.type === "final") {
-            const hasParent = targetState.includes(".");
-            const parentPath = hasParent ? targetState.slice(0, targetState.lastIndexOf(".")) : "";
-            const parentNode = hasParent ? resolveStateNode(parentPath) : machine;
-            if (parentNode?.onDone !== undefined) {
-              const onDoneList = machineCandidates(parentNode.onDone).map((c, index) => ({
-                c, key: "onDone", index, origin: parentPath
-              }));
-              const chosenOnDone = evalCandidates(onDoneList, { items: [{ ...effectiveCtx, [machine.field]: targetState }] }, event);
-              if (chosenOnDone !== undefined) {
-                const nextTarget = chosenOnDone.c.target !== undefined
-                  ? resolveTarget(chosenOnDone.c.target, targetState)
-                  : undefined;
-                const { exit: ex, enter: en } = getExitEnterPaths(targetState, nextTarget);
-                for (const s of ex) {
-                  const node = resolveStateNode(s);
-                  if (node?.exit) {
-                    for (const act of normalizeActions(node.exit)) {
-                      const r = runAction(act, patch, effectiveCtx, effects, world, event);
-                      if (r === NO_FIELD) return { updates: [] };
-                      if (r !== undefined) raisedThen = r;
-                    }
-                  }
-                }
-                if (chosenOnDone.c.actions) {
-                  for (const act of normalizeActions(chosenOnDone.c.actions)) {
-                    const r = runAction(act, patch, effectiveCtx, effects, world, event);
-                    if (r === NO_FIELD) return { updates: [] };
-                    if (r !== undefined) raisedThen = r;
-                  }
-                }
-                const rOD = runAction(chosenOnDone.c, patch, effectiveCtx, effects, world, event);
-                if (rOD === NO_FIELD) return { updates: [] };
-                if (rOD !== undefined) raisedThen = rOD;
-                for (const s of en) {
-                  const node = resolveStateNode(s);
-                  if (node?.entry) {
-                    for (const act of normalizeActions(node.entry)) {
-                      const r = runAction(act, patch, effectiveCtx, effects, world, event);
-                      if (r === NO_FIELD) return { updates: [] };
-                      if (r !== undefined) raisedThen = r;
-                    }
-                  }
-                }
-                globalThis.__prontoMachineTrace?.push({
-                  region,
-                  field: machine.field,
-                  state: parentPath || "*",
-                  key: "onDone",
-                  index: chosenOnDone.index,
-                  to: nextTarget,
-                });
-                targetState = nextTarget;
-                progressed = true;
-                continue;
-              }
-            }
-          }
-
-          // Check always on current targetState
-          const stateNode = resolveStateNode(targetState);
-          if (stateNode?.always !== undefined) {
-            const alwaysList = machineCandidates(stateNode.always).map((c, index) => ({
-              c, key: "always", index, origin: targetState
-            }));
-            const chosenAlways = evalCandidates(alwaysList, { items: [{ ...effectiveCtx, [machine.field]: targetState }] }, event);
-            if (chosenAlways !== undefined) {
-              const nextTarget = chosenAlways.c.target !== undefined
-                ? resolveTarget(chosenAlways.c.target, targetState)
-                : undefined;
-              const { exit: ex, enter: en } = getExitEnterPaths(targetState, nextTarget);
-              for (const s of ex) {
-                const node = resolveStateNode(s);
-                if (node?.exit) {
-                  for (const act of normalizeActions(node.exit)) {
-                    const r = runAction(act, patch, effectiveCtx, effects, world, event);
-                    if (r === NO_FIELD) return { updates: [] };
-                    if (r !== undefined) raisedThen = r;
-                  }
-                }
-              }
-              if (chosenAlways.c.actions) {
-                for (const act of normalizeActions(chosenAlways.c.actions)) {
-                  const r = runAction(act, patch, effectiveCtx, effects, world, event);
-                  if (r === NO_FIELD) return { updates: [] };
-                  if (r !== undefined) raisedThen = r;
-                }
-              }
-              const rAlw = runAction(chosenAlways.c, patch, effectiveCtx, effects, world, event);
-              if (rAlw === NO_FIELD) return { updates: [] };
-              if (rAlw !== undefined) raisedThen = rAlw;
-              for (const s of en) {
-                const node = resolveStateNode(s);
-                if (node?.entry) {
-                  for (const act of normalizeActions(node.entry)) {
-                    const r = runAction(act, patch, effectiveCtx, effects, world, event);
-                    if (r === NO_FIELD) return { updates: [] };
-                    if (r !== undefined) raisedThen = r;
-                  }
-                }
-              }
-              globalThis.__prontoMachineTrace?.push({
-                region,
-                field: machine.field,
-                state: targetState,
-                key: "always",
-                index: chosenAlways.index,
-                to: nextTarget,
-              });
-              targetState = nextTarget;
-              progressed = true;
-              continue;
-            }
-          }
-          if (!progressed) break;
-        }
-
+      const apply = (row, event, keys = eventKeys(event), expectState) => {
+        if (row === undefined || (expectState !== undefined && row[machine.field] !== expectState)) return { updates: [] };
+        const result = fire(row, event, keys);
+        if (!result?.taken) return { updates: [] };
+        const patch = result.patch ?? {};
         const out = { updates: [] };
-        if (targetState !== undefined || Object.keys(patch).length > 0) {
-          // A write concluding from the fallback states the fallback's columns for
-          // an absent row only: a handler's write may have landed in the store
-          // before this slot refreshed, and stating them over it reverted it (an
-          // audience a reader chose became the default as they typed a topic).
+        if (result.state !== row[machine.field] || Object.keys(patch).length > 0 || result.enter.length > 0) {
           const fromFallback = row === region._prontoFallbackRow;
-          // The fallback's own state is one of its columns: an arrow that names no
-          // target leaves a landed row's state as it is.
-          const stated = { id: row.id, ...(fromFallback ? {} : { [machine.field]: row[machine.field] }), ...patch };
-          if (targetState !== undefined) stated[machine.field] = targetState;
+          const stated = { id: row.id, ...(fromFallback ? {} : { [machine.field]: row[machine.field] }), ...patch, ...(result.targeted ? { [machine.field]: result.state } : {}) };
           out.updates = [{ op: "put", id: stated.id, row: stated, ...(fromFallback ? { absent: row } : {}) }];
-          // The chain's own view of the row: a raise delivered after this
-          // write must conclude from it, not from the slot's last refresh —
-          // the store's wake is asynchronous and the chain is not.
           region._prontoMachineRow = { ...row, ...stated };
         }
-        // Entered even on a self-target: re-entry is what re-arms `after`.
-        if (targetState !== undefined) entered = targetState;
-        if (effects.length > 0) out.effects = effects;
-        // raise is the reduce's then: under XState's name — delivered after
-        // the writes, depth-bounded by the terminal.
-        if (raisedThen !== undefined) out.then = { type: raisedThen };
+        if (result.enter.length) entered = result.state;
+        if (result.effects?.length) out.effects = result.effects;
+        if (result.raised !== undefined) out.then = { type: result.raised };
+        region[mine("invokes")]?.exit(result.exit);
         return out;
       };
 
@@ -3546,7 +3347,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       const machineReduce = (state, event) => {
         const row = machineRow(state);
         if (row === undefined) return { updates: [] };
-        return apply(row, event, candidatesFor(row[machine.field], event));
+        return apply(row, event);
       };
       // A chart raises, it never draws; named all the same, so a draw it
       // ever asked for would be its own.
@@ -3554,11 +3355,39 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
 
       // Every invocation arms the state its chain ended in; the entered flag
       // is set even on a self-target, which is what re-arms the timer.
-      const runMachine = (reduce, event) => finite(async (pause) => {
+      const runMachine = (reduce, event, automatic = false, release, generation = gate?.generation) => finite(async (pause) => {
+        const active = () => enabled() && (!gate || gate.generation === generation) && (!automatic || mutationActive());
+        if (!active()) return;
         entered = undefined;
-        await step(reduce, event, 0, pause);
+        await step(reduce, event, 0, () => { pause(); release?.(); }, undefined, automatic, active);
+        if (!active()) return;
         if (entered !== undefined) armAfter(entered);
+        syncInvocations();
       }).finished;
+
+      const syncInvocations = () => {
+        if (!enabled() || !mutationActive() || screenOpts.mountUnits === false) return;
+        const actors = region[mine("invokes")] ??= invokedActors(machine, screenOpts.actors ?? {}, (binding) => {
+          if (binding.via !== "observe") throw new ProgramError(`unsupported invoked actor adapter ${binding.via}`);
+          return observeActor(binding, {
+            store, readRow: () => region._prontoMachineRow ?? getRows()[0], track,
+            failed: (error) => { failed(error); setState("network-error"); },
+            send: async (event, attached) => {
+              let delivered = false;
+              const reduce = (world, fired) => {
+                if (!mutationActive() || !attached()) return { updates: [] };
+                delivered = true;
+                return machineReduce(world, fired);
+              };
+              actorOf.set(reduce, machine.field);
+              await runMachine(reduce, event, true);
+              return delivered;
+            },
+          });
+        });
+        const row = region._prontoMachineRow ?? getRows()[0];
+        if (row) actors.sync(row[machine.field] || machine.initial);
+      };
 
       // `after` is the relocated invoke: armed on state entry, canceled on
       // exit, re-armed by a self-target, performed by the terminal's clock.
@@ -3585,7 +3414,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           // while the machine still stands in the state that armed it.
           const timerReduce = (state, event) =>
             event.type === `after:${key}`
-              ? apply(machineRow(state), event, list, stateName)
+              ? apply(machineRow(state), event, [`after:${key}`], stateName)
               : machineReduce(state, event);
           actorOf.set(timerReduce, machine.field);
           // Periodic when every arrow the timer can take lands back in the
@@ -3622,6 +3451,8 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         region[once] = true;
         region.addEventListener(type, async (e) => {
           try {
+            if (!enabled()) return;
+            const generation = gate?.generation;
             const fired = { type };
             const src = e.target?.closest?.("[id]");
             if (src && src.id !== "" && region.contains(src)) fired.from = src.id;
@@ -3654,11 +3485,11 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             // data-key already admits.
             if (DISPLACING_EVENTS.has(type) || (type === "keydown" && ROVING_KEYS.has(e.key))) {
               const row = region._prontoMachineRow ?? getRows()[0];
-              if (row !== undefined && evalCandidates(candidatesFor(row[machine.field], fired), { items: [row] }, fired) !== undefined) {
+              if (row !== undefined && fire(row, fired, eventKeys(fired), true)?.taken === true) {
                 e.preventDefault();
               }
             }
-            await runMachine(machineReduce, fired);
+            await gesture((pause) => runMachine(machineReduce, fired, false, pause, generation));
           } catch (err) {
             report(err);
             setState("network-error");
@@ -3686,27 +3517,34 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           });
         });
       }
-      // A state change the machine did not make — a refusal's rollback among
-      // them — re-arms on the refresh it causes; the entered flag covers the
-      // machine's own moves.
-      const current = (region._prontoMachineRow ?? getRows()[0])?.[machine.field];
-      if (current !== undefined) {
-        if (region[mine("armed")] !== current) armAfter(current);
-        // On every refresh, not only a new state: a fold's foreign fact arrives as a column,
-        // and this is the chart reading it.
-        const node = resolveStateNode(current);
-        if (node?.always !== undefined) {
-          const alwaysList = machineCandidates(node.always).map((c, index) => ({ c, key: "always", index, origin: current }));
-          const standing = region._prontoMachineRow ?? getRows()[0];
-          // Asked of the row in hand first: a step reads the region's whole world, on every refresh.
-          // Held to the state it was asked in, which a gesture may have left by the time it runs,
-          // and a raise it chains is an ordinary event.
-          if (evalCandidates(alwaysList, { items: [standing] }, { type: "always" }) !== undefined) runMachine((state, event) => event.type === "always" ? apply(machineRow(state), event, alwaysList, current) : machineReduce(state, event), { type: "always" }).catch((err) => {
-            failed(err);
-            report(err);
-          });
+      const wake = () => {
+        if (!enabled()) return;
+        const current = (region._prontoMachineRow ?? getRows()[0])?.[machine.field];
+        if (current !== undefined && !resolveStateNode(current)) return;
+        if (screenOpts.mountUnits !== false && mutationActive()) syncInvocations();
+        // A state change the machine did not make — a refusal's rollback among
+        // them — re-arms on the refresh it causes; the entered flag covers the
+        // machine's own moves.
+        if (current !== undefined) {
+          if (region[mine("armed")] !== current) armAfter(current);
+          // On every refresh, not only a new state: a fold's foreign fact arrives as a column,
+          // and this is the chart reading it.
+          const node = resolveStateNode(current);
+          if (node?.always !== undefined) {
+            const standing = region._prontoMachineRow ?? getRows()[0];
+            // Asked of the row in hand first: a step reads the region's whole world, on every refresh.
+            // Held to the state it was asked in, which a gesture may have left by the time it runs,
+            // and a raise it chains is an ordinary event.
+            if (fire(standing, { type: "always" }, ["always"], true)?.taken === true) runMachine((state, event) => event.type === "always" ? apply(machineRow(state), event, ["always"], current) : machineReduce(state, event), { type: "always" }).catch((err) => {
+              failed(err);
+              report(err);
+            });
+          }
         }
-      }
+
+      };
+      if (gate) gate.wake = wake;
+      wake();
     }
 
     // A mutation landed on this region's collection, and the terminal knows it
@@ -4666,7 +4504,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     let running = false;
     let queued = false;
     let queuedChanges;
-    const refreshSerially = async (changes) => {
+    const refreshSerially = async (changes, begin) => {
       if (running) {
         if (!queued) queuedChanges = changes;
         else if (queuedChanges !== undefined && changes !== undefined) queuedChanges = [...queuedChanges, ...changes];
@@ -4679,6 +4517,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       try {
         do {
           queued = false;
+          begin();
           checkSettlement(region);
           await refresh(changes);
           changes = queuedChanges;
@@ -4723,13 +4562,17 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     const guarded = (changes) => {
       const wasRunning = running;
       const pass = track((async () => {
-        if (stopped) return;
+        if (stopped || documentAway) return;
+        let epoch = documentEpoch;
         clearTimeout(retryTimer);
         try {
-          // A wake queued behind a pass in flight has painted nothing; the
-          // call running the pass answers for it.
-          const ran = await refreshSerially(stale ? undefined : changes);
+          const ran = await refreshSerially(stale ? undefined : changes, () => { epoch = documentEpoch; });
           if (stopped) return;
+          if (epoch !== documentEpoch && documentAway) {
+            finishOwn();
+            paint?.resolve();
+            return;
+          }
           stale = false;
           retryMs = 2000;
           if (ran) {
@@ -4739,14 +4582,15 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           }
         } catch (err) {
           if (stopped) return;
+          if (epoch !== documentEpoch) {
+            stale = true;
+            finishOwn();
+            paint?.resolve();
+            if (!documentAway && held === "shown") return guarded();
+            return;
+          }
           failed(err);
           stale = true;
-          // A slot that matched two rows, or a row no template admits, is a
-          // broken invariant, not an outage: no retry can repair it, and the
-          // network-error dressing would say the store is down when the data is
-          // wrong. The rejection propagates — hydration fails on a first paint,
-          // a later wake rejects loudly — and the next real change re-checks
-          // without a timer.
           if (err instanceof ProgramError) {
             paint?.reject(err);
             throw err;
@@ -4783,9 +4627,12 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       // on a torn-down region must not write into the live store — and the
       // cleared mark is what lets resume's refresh re-arm the standing state.
       for (const chart of mounted) {
+        const gate = region[`_prontoMachine_${chart.field}_gate`];
+        if (gate) gate.generation++;
         const gen = `_prontoMachine_${chart.field}_afterGen`;
         region[gen] = (region[gen] ?? 0) + 1;
         region[`_prontoMachine_${chart.field}_armed`] = undefined;
+        region[`_prontoMachine_${chart.field}_invokes`]?.stop();
       }
       unsub?.();
       unsub = null;
@@ -4950,11 +4797,6 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     });
   }
 
-  await Promise.all(pending);
-  if (regions.length === 0) {
-    screen.dataset.state = route.states?.[0] ?? "populated";
-  }
-
   // The terminal owns the navigation stack, so it needs more than a teardown:
   // a screen it is holding for a back press is paused, not stopped. A morph
   // waiting on the newer template's modules meets either when it resumes.
@@ -4974,7 +4816,35 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       throw error;
     }
   };
-  if (isMountActive()) mountHostDom();
+  let hydrated = false;
+  // Browser history can suspend the document while its reads are still in flight.
+  const leaveDocument = (event) => {
+    documentAway = true;
+    documentEpoch += 1;
+    if (!event.persisted) return stopScreen();
+    for (const region of regions) region.pause();
+  };
+  const returnDocument = () => {
+    if (!documentAway || held === "stopped") return;
+    documentAway = false;
+    if (held === "shown") track(Promise.all(regions.map((region) => region.resume())).then(() => {
+      if (hydrated && !documentAway && held === "shown" && isMountActive()) mountHostDom();
+    })).catch(failed);
+  };
+  globalThis.addEventListener("pagehide", leaveDocument);
+  globalThis.addEventListener("pageshow", returnDocument);
+  cleanups.push(() => {
+    globalThis.removeEventListener("pagehide", leaveDocument);
+    globalThis.removeEventListener("pageshow", returnDocument);
+  });
+
+  await Promise.all(pending);
+  hydrated = true;
+  if (regions.length === 0) {
+    screen.dataset.state = route.states?.[0] ?? "populated";
+  }
+
+  if (!documentAway && held !== "stopped" && isMountActive()) mountHostDom();
   // A newer template for the screen on show (the service worker's
   // revalidation): its skeleton is brought to it in place, then each region
   // (retemplate). A region it adds, or whose read it changes, is hydrated

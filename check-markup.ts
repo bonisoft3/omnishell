@@ -92,7 +92,8 @@ type SchemaEntity = {
   fields: SchemaField[];
   uniques?: { name: string; cols: string[]; where?: string }[];
 };
-type Shell = { schema?: Record<string, SchemaEntity>; routes?: (LinkRoute & { hatches?: string[] })[]; hostDom?: Record<string, unknown>; units?: Record<string, UnitPorts> };
+type Shell = { schema?: Record<string, SchemaEntity>; routes?: (LinkRoute & { hatches?: string[] })[]; hostDom?: Record<string, unknown>; units?: Record<string, UnitPorts>; actors?: Record<string, import("./interpreter/lint.ts").ObservationBinding> };
+
 
 /** The schema entry as the rules take it: they are written against a whole
  * entity, whose table is the key it is filed under. */
@@ -129,6 +130,8 @@ export function screenFindings(
   units: Record<string, UnitPorts> = {},
   sites: HatchSite[] = [],
   selectedHostDom: Set<string> = new Set(),
+  actors: NonNullable<Shell["actors"]> = {},
+
 ): Finding[] {
   const out: Finding[] = [];
   const report = (message: string) => out.push({ severity: "error", path, message });
@@ -203,7 +206,7 @@ export function screenFindings(
   for (const region of read(() => machineRegions(html)) ?? []) {
     // machineRegions refuses what is not JSON, so a chart reaching here parses.
     const chart = JSON.parse(region.machine);
-    const why = machineLint(chart, available, { table: region.table, durabilityOf: (t) => schema[t]?.durability });
+    const why = machineLint(chart, available, { table: region.table, durabilityOf: (t) => schema[t]?.durability, actors, columnsOf: (t) => schema[t]?.fields.map((f) => f.name) });
     if (why !== null) report(`data-machine: ${why}`);
     writes.set(region.table, [...(writes.get(region.table) ?? []), ...machineWrites(chart, region.emptyRow)]);
     // The group's own rule, run once per group rather than once per chart.
@@ -322,6 +325,7 @@ export async function checkApp(appDir: URL): Promise<Checked> {
         units,
         sites,
         selectedHostDom,
+        shell.actors,
       ),
     );
   }
