@@ -150,3 +150,13 @@ and one that cannot are different declarations.
 - **A caret over a row another reader can write** — their write moves this
   reader's focus.
 - **An interpolated `data-order` clause** — the reads stop being enumerable.
+
+## Checking declarations
+
+`omnishell check aria <appDir>` inventories HTML under `shell/screens/` and
+prints ARIA obligations as JSON. Violations fail the command; unchecked
+obligations identify claims the inventory cannot establish. The checker tests
+current and selection cardinality, required roles and ID references against
+the pinned ARIA vocabulary. Screens are fragments with dynamic output:
+templates, CSS visibility, browser control normalization and runtime state are
+not proved by this command.

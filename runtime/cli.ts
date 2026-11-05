@@ -29,7 +29,7 @@ function toolDir(name: string): string {
 }
 
 const usage = [
-  "usage: omnishell check markup|handlers|machines|battery|parity|i18n|kinetic <appDir> | --self-test",
+  "usage: omnishell check markup|handlers|machines|battery|parity|i18n|kinetic|aria <appDir> | --self-test",
   "       omnishell read markup <appDir> | --self-test",
   "       omnishell render documents <appDir> <outDir> <origin>",
   "       omnishell mode <appDir>",
@@ -96,6 +96,12 @@ if (verb === "mode") {
   const leaf = `${verb} ${noun}`;
   if (args.length !== 1) refuse(`${leaf}: one <appDir> or --self-test`);
   switch (leaf) {
+    case "check aria": {
+      const { run } = await import("../check-aria-app.ts");
+      await narrow(false);
+      await run(args);
+      break;
+    }
     case "check markup": {
       const { run } = await import("../check-markup.ts");
       await narrow(false);
