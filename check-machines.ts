@@ -28,11 +28,12 @@
 // exit 1 when any finding is reported.
 
 import { machineRegions, paramPlans } from "./interpreter/lint.ts";
-import { ABSENT, binding, fillFilter, PLACEHOLDER, PLACEHOLDERS } from "./interpreter/fragment.js";
+import { ABSENT, binding, fillFilter, machineShape, PLACEHOLDER, PLACEHOLDERS } from "./interpreter/fragment.js";
 import { seedQuery, selectWithFields } from "./test/seed-query.ts";
 import { walkMachine, type WalkHarness } from "./test/walker.ts";
 import type { Machine } from "./test/canonical.ts";
 import {
+  appActors,
   appCluster,
   appCollections,
   appFiles,
@@ -55,7 +56,7 @@ import {
   type Catalogs,
 } from "./test/screen-harness.ts";
 
-type Finding = { severity: string; path: string; message: string };
+type Finding = { severity: string; path: string; message: string; coverage?: "unchecked" };
 
 /** Whether a run's findings fail the verb. A chart this rung cannot reach is a
  * fact about the checker, not about the app, and an app carrying one has no
@@ -81,7 +82,7 @@ export async function walkFindings(
   where: string,
   machine: Machine,
   harness: WalkHarness,
-  opts: { owner?: unknown } = {},
+  opts: { owner?: unknown; sourceEvent?: (key: string) => boolean } = {},
 ): Promise<Finding[]> {
   try {
     const walk = await walkMachine(machine, harness, opts);
@@ -98,9 +99,17 @@ export async function walkFindings(
           }`,
       });
     }
+    if (walk.unchecked.length) findings.push({
+      severity: "advisory", path, coverage: "unchecked",
+      message: `${where}: observation sources are not driven; events sharing their names are treated as source-driven; ${walk.unchecked.length} arrow(s) remain unchecked: ${walk.unchecked.map((a) => `${a.state} --${a.key}[${a.index}]-->`).join(", ")}`,
+    });
     return findings;
   } catch (err) {
-    return [{ severity: "error", path, message: `${where}: ${said(err)}` }];
+    const findings: Finding[] = [{ severity: "error", path, message: `${where}: ${said(err)}` }];
+    const sources = (machineShape(machine).arrows as { key: string }[]).filter((arrow) => opts.sourceEvent?.(arrow.key));
+    if (sources.length) findings.push({ severity: "advisory", path, coverage: "unchecked",
+      message: `${where}: observation sources are not driven; events sharing their names are treated as source-driven; source coverage is unchecked` });
+    return findings;
   }
 }
 
@@ -394,6 +403,25 @@ function stampedUnderNothing(
  * cannot tell those apart. */
 type Walked = { findings: Finding[]; abandoned: boolean; walked: number; authored: number };
 
+type ObserveBinding = { via?: string; event?: string; suffix?: boolean; missing?: string; field?: string };
+
+function observationEvents(machine: Machine, actors: Record<string, ObserveBinding>): (key: string) => boolean {
+  const bindings: ObserveBinding[] = [];
+  const visit = (node: { invoke?: unknown; states?: Record<string, unknown> }) => {
+    const invoked = Array.isArray(node.invoke) ? node.invoke : node.invoke ? [node.invoke] : [];
+    for (const value of invoked) {
+      const src = (value as { src?: unknown })?.src;
+      const binding = typeof src === "string" ? actors[src] : undefined;
+      if (binding?.via === "observe") bindings.push(binding);
+    }
+    for (const child of Object.values(node.states ?? {})) visit(child as typeof node);
+  };
+  visit(machine);
+  return (key) => bindings.some((binding) => key === binding.missing ||
+    (binding.field !== undefined && binding.event !== undefined &&
+      (binding.suffix === false ? key === binding.event : key.startsWith(binding.event))));
+}
+
 /** Every machine on one route, each walked against a mount of its own. */
 async function walkScreen(
   appDir: URL,
@@ -406,6 +434,7 @@ async function walkScreen(
   routes: Route[] = [],
   i18n?: I18n,
   endowments?: Record<string, string[]>,
+  actors: Record<string, ObserveBinding> = {},
 ): Promise<Walked> {
   const hostDom = await appHostDom(appDir);
   const html = route.files.html;
@@ -489,17 +518,16 @@ async function walkScreen(
           });
           accounted++;
         } else {
-          findings.push(
-            ...await walkFindings(
+          const result = await walkFindings(
               html,
               `${table}[${filter ?? "*"}].${machine.field}`,
               machine,
               harnessFor(m, el, machine, params, tables, cluster),
-              { owner: el },
-            ),
-          );
+              { owner: el, sourceEvent: observationEvents(machine, actors) },
+            );
+          findings.push(...result);
           accounted++;
-          walked++;
+          if (!result.some((finding) => finding.coverage === "unchecked")) walked++;
         }
       }
     } catch (err) {
@@ -594,6 +622,7 @@ export async function checkApp(appDir: URL): Promise<Walked> {
   const routes = await appRoutes(appDir);
   const i18n = await appI18n(appDir);
   const endowments = await appEndowments(appDir);
+  const actors = await appActors(appDir);
   const findings: Finding[] = [];
   let walked = 0;
   let authored = 0;
@@ -604,7 +633,7 @@ export async function checkApp(appDir: URL): Promise<Walked> {
       for (const [loc, content] of Object.entries(messages)) {
         files[`messages/${loc}.json`] = JSON.stringify(content);
       }
-      one = await walkScreen(appDir, route, tables, cluster, files, units, messages, routes, i18n, endowments);
+      one = await walkScreen(appDir, route, tables, cluster, files, units, messages, routes, i18n, endowments, actors);
     } catch (err) {
       findings.push({ severity: "error", path: route.files.html, message: said(err) });
       continue;

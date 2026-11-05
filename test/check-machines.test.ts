@@ -94,3 +94,63 @@ Deno.test({
     }
   },
 });
+
+Deno.test({
+  name: "observation-dependent machine arrows remain unchecked without hiding click failures",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const root = await Deno.makeTempDir({ prefix: "machine source " });
+    try {
+      const sourceChart = { field: "state", initial: "a", invoke: { src: "observer" }, states: {
+        a: { on: { "signal:source": "b" } }, b: { on: { "click@source-only-control": "a" } },
+      } };
+      const healthy = { field: "state", initial: "a", states: { a: { on: { click: "b" } }, b: { on: { click: "a" } } } };
+      const broken = { field: "state", initial: "a", invoke: { src: "observer" }, states: {
+        a: { on: { "click@missing-control": "b", "signal:source": "b" } }, b: {},
+      } };
+      for (const [name, charts] of [["only", [sourceChart]], ["mixed", [sourceChart, healthy]], ["broken", [broken]]] as const) {
+        const dir = `${root}/${name}`;
+        await Deno.mkdir(`${dir}/shell`, { recursive: true });
+        const local = Object.fromEntries(charts.map((_, i) => [`item${i}`, [{}]]));
+        const seed = Object.fromEntries(charts.map((_, i) => [`item${i}`, [{ id: "one", state: "a" }]]));
+        const schema = Object.fromEntries(charts.map((_, i) => [`item${i}`, { fields: [{name:"id",type:"string"}, {name:"state",type:"string"}] }]));
+        const shell = { local, seed, schema, actors: {observer:{via:"observe",field:"value",event:"signal:source",suffix:false}}, routes:[{path:"/",screen:"home",files:{html:"shell/home.html",css:"shell/home.css",handlers:[]}}] };
+        await Deno.writeTextFile(`${dir}/shell/shell.yaml`, JSON.stringify(shell));
+        await Deno.writeTextFile(`${dir}/shell/home.css`, "");
+        const regions = charts.map((chart, i) => `<div data-live="item${i}" data-machine='${JSON.stringify(chart)}'><template data-item><button>Go</button></template></div>`).join("");
+        await Deno.writeTextFile(`${dir}/shell/home.html`, `<section data-screen="home">${regions}</section>`);
+        const result = await checkApp(new URL(`file://${dir}/`));
+        if (name === "only" && (result.walked !== 0 || !result.findings.some((f) => f.coverage === "unchecked" && f.message.includes("click")) || !fails(result.findings))) throw new Error(JSON.stringify(result));
+        if (name === "mixed" && (result.walked !== 1 || fails(result.findings) || !result.findings.some((f) => f.coverage === "unchecked"))) throw new Error(JSON.stringify(result));
+        if (name === "broken" && !result.findings.some((f) => f.severity === "error" && f.message.includes("missing-control"))) throw new Error(JSON.stringify(result));
+      }
+    } finally { await Deno.remove(root, { recursive: true }); }
+  },
+});
+
+Deno.test("a source shortcut does not hide a longer supported walk", async () => {
+  const { walkMachine } = await import("./walker.ts");
+  const machine = { field: "state", initial: "a", invoke: { src: "source" }, states: {
+    a: { on: { "signal:ready": "c", "click@first": "b" } },
+    b: { on: { "click@second": "c" } },
+    c: { on: { "click@done": "a" } },
+  } };
+  let state = "a";
+  const fired: string[] = [];
+  const result = await walkMachine(machine, {
+    field: () => state,
+    wait: () => Promise.resolve(),
+    fire: (type, from) => {
+      const key = from ? `${type}@${from}` : type;
+      fired.push(key);
+      const target = (machine.states[state as keyof typeof machine.states].on as Record<string, string>)[key];
+      if (target !== undefined) {
+        (globalThis as Record<string, unknown>).__prontoMachineTrace && ((globalThis as Record<string, unknown>).__prontoMachineTrace as unknown[]).push({ state, key, index: 0, to: target });
+        state = target;
+      }
+      return Promise.resolve();
+    },
+  }, { sourceEvent: (key) => key === "signal:ready" });
+  if (fired.includes("signal:ready") || !fired.includes("click@second") || !fired.includes("click@done") || result.unchecked.length !== 1) throw new Error(JSON.stringify({fired, result}));
+});

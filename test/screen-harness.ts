@@ -859,6 +859,11 @@ export async function mountApp(
   });
 }
 
+export async function appActors(appDir: URL): Promise<Record<string, { via?: string; event?: string; suffix?: boolean; missing?: string; field?: string }>> {
+  const shell = await appShell(appDir) as { actors?: Record<string, { via?: string; event?: string; suffix?: boolean; missing?: string; field?: string }> };
+  return shell.actors ?? {};
+}
+
 /** The manifest-granted platform endowments an app declares (shell.yaml `endowments:`). */
 export async function appEndowments(appDir: URL): Promise<Record<string, string[]> | undefined> {
   const shell = await appShell(appDir) as {

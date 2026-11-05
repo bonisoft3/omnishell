@@ -166,7 +166,7 @@ Deno.test("machine effect inputs retain call-site context throughout nested acti
     on: { go: { guard: "shared", target: "a" } }, after: { shared: "a" },
   } } };
   assert.deepEqual(callSites(`<div data-live="form" data-machine='${JSON.stringify(shared)}'></div>`).get("shared"), [
-    { table: "form", leaf: true }, { table: "form" },
+    { table: "form", leaf: true }, { table: "form", delay: true },
   ]);
 });
 
@@ -200,4 +200,22 @@ Deno.test("battery exercises a module referenced only by an effect input", async
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
+});
+
+Deno.test("named delays receive only the held row and after event", async () => {
+  const dir = await Deno.makeTempDir();
+  try {
+    await Deno.mkdir(`${dir}/shell/handlers`, { recursive: true });
+    await Deno.mkdir(`${dir}/shell/screens`, { recursive: true });
+    await Deno.writeTextFile(`${dir}/shell/handlers/delay.js`, `(state, event) => {
+      if ("rows" in state || state.items.length > 1 || event.type !== "after") throw new Error("wrong delay input");
+      return 10;
+    }`);
+    const chart = {field:"phase",initial:"a",states:{a:{after:{delay:"a"}}}};
+    await Deno.writeTextFile(`${dir}/shell/screens/home.html`, `<div data-live="form" data-machine='${JSON.stringify(chart)}'></div>`);
+    await Deno.writeTextFile(`${dir}/shell/shell.yaml`, JSON.stringify({schema:{form:{durability:"device",fields:[{name:"id",type:"text",pk:true}]}},routes:[{files:{handlers:["shell/handlers/delay.js"]}}]}));
+    const result = await checkApp(new URL(`file://${dir}/`), { numRuns: 20 });
+    assert.deepEqual(result.findings, []);
+    assert.equal(result.exercised[0].delay, true);
+  } finally { await Deno.remove(dir, { recursive: true }); }
 });

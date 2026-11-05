@@ -294,6 +294,22 @@ function edgesOf(machine: Machine): Map<string, Edge[]> {
  * null when unreachable. */
 type Edge = { key: string; to: string; init?: Record<string, unknown> };
 
+function reachableFrom(edges: Map<string, Edge[]>, start: string): Set<string> {
+  const reached = new Set([start]);
+  const pending = [start];
+  while (pending.length) {
+    for (const edge of edges.get(pending.shift()!) ?? []) {
+      if (reached.has(edge.to)) continue;
+      reached.add(edge.to);
+      pending.push(edge.to);
+    }
+  }
+  return reached;
+}
+
+const includesState = (reached: Set<string>, state: string) =>
+  [...reached].some((active) => active === state || active.startsWith(`${state}.`));
+
 function routeBetween(
   edges: Map<string, Edge[]>,
   from: string,
@@ -480,12 +496,12 @@ export function differ(machine: Machine, trace: Arrow[]): void {
 /** Arrows a walk could not select because an earlier sibling admits their own
  * declared event. Reported, never thrown: the chart is sound and the walk is
  * what cannot reach them. */
-export type Walk = { arrows: Arrow[]; shadowed: Arrow[] };
+export type Walk = { arrows: Arrow[]; shadowed: Arrow[]; unchecked: Arrow[] };
 
 export async function walkMachine(
   machine: Machine,
   harness: WalkHarness,
-  opts: { rounds?: number; settleMs?: number; afterMs?: number; patience?: number; owner?: unknown } = {},
+  opts: { rounds?: number; settleMs?: number; afterMs?: number; patience?: number; owner?: unknown; sourceEvent?: (key: string) => boolean } = {},
 ): Promise<Walk> {
   const { rounds = 64, settleMs = 30, patience = 6 } = opts;
   const shape = machineShape(machine);
@@ -514,14 +530,21 @@ export async function walkMachine(
     );
   const afterMs = opts.afterMs ?? (numericAfters.length > 0 ? Math.max(...numericAfters) : 60);
 
+  const edges = edgesOf(machine);
+  const supportedEdges = new Map([...edges].map(([state, list]) => [state, list.filter((edge) => !opts.sourceEvent?.(edge.key))]));
+  const initial = resolveTarget(machine, machine.initial) ?? machine.initial ?? "";
+  const current = String(harness.field() ?? initial);
+  const start = states.has(current) ? current : initial;
+  const reachable = reachableFrom(supportedEdges, start);
+  const hasSource = [...wanted.values()].some((a) => opts.sourceEvent?.(a.key));
   const fires: { type: string; from?: string; init?: Record<string, unknown> }[] = [];
   const seen = new Set<string>();
   const keys = [
     ...Object.keys(machine.on ?? {}),
-    ...allStates(machine).flatMap((s) => Object.keys(resolveStateNode(machine, s)?.on ?? {})),
+    ...allStates(machine).filter((s) => !hasSource || includesState(reachable, s)).flatMap((s) => Object.keys(resolveStateNode(machine, s)?.on ?? {})),
   ];
   for (const key of keys) {
-    if (seen.has(key)) continue;
+    if (seen.has(key) || opts.sourceEvent?.(key)) continue;
     seen.add(key);
     for (const init of initsUnder(machine, key)) {
       const s = stimulusOf(key, init);
@@ -550,6 +573,7 @@ export async function walkMachine(
         await harness.wait(afterMs + settleMs);
         return;
       }
+      if (opts.sourceEvent?.(s.type)) return;
       if (s.type === "always") {
         if (harness.write === undefined) return;
         await harness.write(s.init ?? {});
@@ -569,7 +593,7 @@ export async function walkMachine(
       return [...wanted.keys()].every((id) => got.has(id));
     };
 
-    for (const s of planPostmanTour(machine)) {
+    for (const s of hasSource ? [] : planPostmanTour(machine)) {
       await deliver(s);
       if (done()) break;
     }
@@ -578,11 +602,10 @@ export async function walkMachine(
     // off those paths starve once the row has moved on. Route from the state
     // the row is actually in to each uncovered arrow's state and fire it;
     // guard-gated arrows that refuse the route stay the rotation's.
-    const edges = edgesOf(machine);
     for (const a of wanted.values()) {
       if (done()) break;
       if (covered().has(arrowId(a))) continue;
-      if (a.key === "onDone") continue;
+      if (a.key === "onDone" || opts.sourceEvent?.(a.key) || (hasSource && a.state !== "*" && !includesState(reachable, a.state))) continue;
       // Let any armed timer expire first. A chart whose `after` resets a column
       // its own guards read — a typeahead buffer is the case — is reachable
       // only from the state that timer restores, and an arrow-seek that fired
@@ -590,7 +613,7 @@ export async function walkMachine(
       if (restoringAfter) await harness.wait(afterMs + settleMs);
       const startState = resolveTarget(machine, machine.initial) ?? machine.initial;
       const targetState = a.state === "*" ? String(harness.field() ?? startState) : a.state;
-      const route = routeBetween(edges, String(harness.field() ?? startState), targetState);
+      const route = routeBetween(supportedEdges, String(harness.field() ?? startState), targetState);
       if (route === null) continue;
       for (const step of route) await deliver(step);
       // And again after the route, for the same reason: the steps that carried
@@ -619,13 +642,18 @@ export async function walkMachine(
       if (stale >= patience) break;
     }
 
+    const unchecked: Arrow[] = [];
     if (!done()) {
       const got = covered();
       const missing = [...wanted.values()].filter((a) => !got.has(arrowId(a)));
       // An arrow an earlier sibling shadows is not one the chart failed to
       // reach; it is one this walk cannot select, and saying so is the whole
       // report. Everything else uncovered is the finding it always was.
-      const dead = missing.filter((a) => !shadowed(machine, a));
+      const allReachable = reachableFrom(edges, start);
+      const sourceDependent = (a: Arrow) => opts.sourceEvent?.(a.key) ||
+        (a.state !== "*" && includesState(allReachable, a.state) && !includesState(reachable, a.state));
+      unchecked.push(...missing.filter((a) => !shadowed(machine, a) && sourceDependent(a)));
+      const dead = missing.filter((a) => !shadowed(machine, a) && !sourceDependent(a));
       if (dead.length > 0) {
         throw new Error(
           `walk: ${dead.length} arrow(s) never fired: ${
@@ -633,10 +661,10 @@ export async function walkMachine(
           }`,
         );
       }
-      shadows.push(...missing);
+      shadows.push(...missing.filter((a) => shadowed(machine, a)));
     }
     differ(machine, mine());
-    return { arrows: [...wanted.values()], shadowed: shadows };
+    return { arrows: [...wanted.values()], shadowed: shadows, unchecked };
   } finally {
     delete (globalThis as Record<string, unknown>).__prontoMachineTrace;
   }

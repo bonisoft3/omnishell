@@ -101,6 +101,7 @@ export type Exercised = {
   role: "handler" | "validation";
   table?: string;
   leaf?: boolean;
+  delay?: boolean;
   params?: Record<string, unknown>;
   runs: number;
   maxFuel: number;
@@ -112,10 +113,10 @@ export type Exercised = {
  * its own literals; a reduce bound to a gesture (data-handler, data-on-*)
  * states neither, because which region encloses the element is a fact about
  * the tree and not about the attribute. */
-export type CallSite = { table?: string; leaf?: boolean; params?: Record<string, unknown> };
+export type CallSite = { table?: string; leaf?: boolean; delay?: boolean; params?: Record<string, unknown> };
 
 const sameSite = (a: CallSite, b: CallSite) =>
-  a.table === b.table && a.leaf === b.leaf && JSON.stringify(a.params ?? null) === JSON.stringify(b.params ?? null);
+  a.table === b.table && a.leaf === b.leaf && a.delay === b.delay && JSON.stringify(a.params ?? null) === JSON.stringify(b.params ?? null);
 
 /**
  * The call sites one screen's markup states, by the basename it names each
@@ -175,7 +176,7 @@ export function callSites(html: string): Map<string, CallSite[]> {
       if (node.always !== undefined) walk(node.always);
       if (node.onDone !== undefined) walk(node.onDone);
       for (const [delay, value] of Object.entries(node.after ?? {})) {
-        if (!/^\d+$/.test(delay)) take(delay, { table });
+        if (!/^\d+$/.test(delay)) take(delay, { table, delay: true });
         walk(value);
       }
       actions(node.entry);
@@ -243,6 +244,7 @@ export async function exercise(
     role,
     table: site.table,
     leaf: site.leaf,
+    delay: site.delay,
     params: site.params,
     runs,
     maxFuel,
@@ -268,6 +270,7 @@ export async function exercise(
     return result(0, `${role} source does not end in a function`);
   }
 
+  const call = (state: unknown, event: unknown) => site.delay ? target(state, event) : target(state, event, params);
   let maxFuel = 0;
   const details = fc.check(
     propertyFor(({ state, event }) => {
@@ -275,7 +278,7 @@ export async function exercise(
       const frozenEvent = deepFreeze(structuredClone(event));
 
       meter.reset();
-      const first = target(frozenState, frozenEvent, params);
+      const first = call(frozenState, frozenEvent);
       const firstFuel = meter.consumed();
       if (firstFuel > maxFuel) maxFuel = firstFuel;
 
@@ -283,7 +286,7 @@ export async function exercise(
       if (wrong !== null) throw new Error(wrong);
 
       meter.reset();
-      const second = target(frozenState, frozenEvent, params);
+      const second = call(frozenState, frozenEvent);
       if (meter.consumed() !== firstFuel) {
         throw new Error(`the same input cost ${firstFuel} steps and then ${meter.consumed()}`);
       }
@@ -307,7 +310,7 @@ export async function exercise(
           meter.reset();
           let reversed: unknown;
           try {
-            reversed = target(reversedState, frozenEvent, params);
+            reversed = call(reversedState, frozenEvent);
           } catch (err) {
             throw new Error(`on reversed row order: ${said(err)}`);
           }
@@ -434,7 +437,7 @@ export async function checkApp(appDir: URL, options: BatteryOptions = {}): Promi
       exercised.push({ path, role, runs: 0, maxFuel: 0, error: said(err) });
       return;
     }
-    const keyOf = (site: CallSite) => JSON.stringify([site.table, site.leaf === true]);
+    const keyOf = (site: CallSite) => JSON.stringify([site.table, site.leaf === true, site.delay === true]);
     const uses = new Map<string, number>();
     for (const site of sites) uses.set(keyOf(site), (uses.get(keyOf(site)) ?? 0) + 1);
     const inputStreams = new Map<string, {
@@ -451,6 +454,9 @@ export async function checkApp(appDir: URL, options: BatteryOptions = {}): Promi
           inputs = inputsFor(site.table);
           if (site.leaf) inputs = inputs.map(({ state, event }) => ({
             state: { items: [(state as { items: unknown[] }).items[0]] }, event,
+          }));
+          if (site.delay) inputs = fc.tuple(inputs, fc.boolean()).map(([{ state }, present]) => ({
+            state: { items: present ? [(state as { items: unknown[] }).items[0]] : [] }, event: { type: "after" },
           }));
           stream = {
             inputs,
