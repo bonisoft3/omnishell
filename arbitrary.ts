@@ -8,8 +8,8 @@
 // rows for an app whose constraints it cannot parse.
 //
 // Generation is boundary-biased by construction rather than by rejection: a
-// column's arbitrary is built from its domain, so every sample is a row the
-// program would accept and no run is spent discarding ones it would not.
+// column's arbitrary is built from its supported field domain. Cross-field
+// invariants and producer preconditions require relational witnesses.
 
 import fc from "npm:fast-check@3.23.2";
 
@@ -63,10 +63,34 @@ export function arbitraryField(field: FieldDef, bounds: FieldBounds): fc.Arbitra
     return enumArb;
   }
 
+  if (field.type === "int64") {
+    const limit = 1n << 63n;
+    const bound = (value: number | undefined, fallback: bigint, lower: boolean) => {
+      if (value === undefined || value === (lower ? -Infinity : Infinity)) return fallback;
+      const rounded = lower ? Math.ceil(value) : Math.floor(value);
+      if (!Number.isSafeInteger(rounded)) throw new Error(`${field.name}: int64 bound must be an exact safe integer`);
+      return BigInt(rounded);
+    };
+    const lo = bound(bounds.intMin, -limit, true), hi = bound(bounds.intMax, limit - 1n, false);
+    const min = lo < -limit ? -limit : lo, max = hi >= limit ? limit - 1n : hi;
+    if (min > max) throw new Error(`${field.name}: integer constraints admit no int64 value`);
+    const boundaries = [...new Set([min, min + 1n, -1n, 0n, 1n, max - 1n, max])].filter(value => value >= min && value <= max);
+    const values = fc.oneof(
+      { arbitrary: fc.constantFrom(...boundaries), weight: 1 },
+      { arbitrary: fc.bigInt({ min, max }), weight: 3 },
+    ).map(String);
+    return field.required === false ? fc.option(values, { nil: null }) : values;
+  }
+
   if (field.type === "int" || field.type === "int32" || bounds.intMin !== undefined || bounds.intMax !== undefined) {
-    const min = bounds.intMin !== undefined && bounds.intMin !== -Infinity ? bounds.intMin : -1000;
-    const max = bounds.intMax !== undefined && bounds.intMax !== Infinity ? bounds.intMax : 1000;
-    const intArb = fc.integer({ min, max });
+    const min = Math.max(-2147483648, Math.ceil(bounds.intMin ?? -Infinity));
+    const max = Math.min(2147483647, Math.floor(bounds.intMax ?? Infinity));
+    if (min > max) throw new Error(`${field.name}: integer constraints admit no int32 value`);
+    const boundaries = [...new Set([min, min + 1, -1, 0, 1, max - 1, max])].filter(value => value >= min && value <= max);
+    const intArb = fc.oneof(
+      { arbitrary: fc.constantFrom(...boundaries), weight: 1 },
+      { arbitrary: fc.integer({ min, max }), weight: 3 },
+    );
     if (field.required === false) {
       return fc.option(intArb, { nil: null });
     }
@@ -85,7 +109,6 @@ export function arbitraryField(field: FieldDef, bounds: FieldBounds): fc.Arbitra
     return fc.date({ min: new Date("0001-01-01"), max: new Date("9999-12-31") })
       .map((d) => d.toISOString().replace("Z", "000Z"));
   }
-  if (field.type === "int64") return fc.bigInt({ min: -(1n << 63n), max: (1n << 63n) - 1n }).map(String);
   if (field.type === "double") return fc.double({ noNaN: true, noDefaultInfinity: true });
   if (field.type === "bytes") return fc.uint8Array().map((bytes) => btoa(String.fromCharCode(...bytes)));
   if (field.type === "time") {
