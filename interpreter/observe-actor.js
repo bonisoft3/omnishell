@@ -8,6 +8,7 @@ export function observationIdentity(binding, row) {
 }
 
 export function observationSnapshot(binding, identity, rows, cursors) {
+  if (binding.suffix !== undefined && typeof binding.suffix !== "boolean") throw new Error("Observation suffix must be a boolean");
   if (!Array.isArray(rows)) throw new Error(`Observation needs a read of ${binding.table}`);
   const found = rows.filter((row) => matches(row, identity.key));
   if (found.length > 1) throw new Error(`Observation ${binding.table} has more than one source`);
@@ -24,7 +25,7 @@ export function observationSnapshot(binding, identity, rows, cursors) {
   const prior = cursors.get(key);
   if (prior && (revision !== undefined && prior.revision !== undefined ? revision < prior.revision || revision === prior.revision && prior.value === value : prior.value === value)) return;
   return {
-    event: row ? { type: `${binding.event}${value}`, value } : { type: binding.missing },
+    event: row ? { type: binding.suffix === false ? binding.event : `${binding.event}${value}`, value } : { type: binding.missing },
     acknowledge() { cursors.set(key, { revision, value }); },
   };
 }
@@ -43,7 +44,7 @@ export function observeActor(binding, { store, readRow, send, track, failed }) {
     const held = current();
     if (!active || !held) return;
     const turn = generation;
-    const attached = () => active && turn === generation && same(held, current());
+    const attached = (row) => active && turn === generation && same(held, row === undefined ? current() : observationIdentity(binding, row));
     const filter = Object.entries(held.key).map(([column, value]) => `${column}=eq.${encodeURIComponent(String(value))}`).join("&");
     let rows;
     try {

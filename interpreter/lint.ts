@@ -1220,7 +1220,7 @@ export const DURABILITY_EFFECT_LEVEL: Record<string, string> = {
 };
 /** Where a chart's writes land: the region's table for an effect naming no
  * entity, and the durability of any table the emitted schema declares. */
-export type ObservationBinding = { via: string; table: string; field?: string; match: Record<string, string>; require?: string[] };
+export type ObservationBinding = { via: string; table: string; field?: string; suffix?: boolean; match: Record<string, string>; require?: string[] };
 export type Reach = { table: string; durabilityOf: (table: string) => string | undefined; actors?: Record<string, ObservationBinding>; columnsOf?: (table: string) => string[] | undefined };
 
 /** The reason an object in a value position is not a well-formed {type,
@@ -1400,6 +1400,7 @@ export function machineLint(machine: Machine, available: Set<string>, reach: Rea
       const binding = reach.actors[spec.src];
       if (!binding) return `invoke names undeclared actor "${spec.src}"`;
       if (binding.via !== "observe") return `invoke actor "${spec.src}" uses unsupported adapter "${binding.via}"`;
+      if (binding.suffix !== undefined && typeof binding.suffix !== "boolean") return `invoke actor "${spec.src}" suffix must be a boolean`;
       const source = reach.columnsOf?.(binding.table);
       const target = reach.columnsOf?.(reach.table);
       if (reach.columnsOf && !source) return `invoke actor "${spec.src}" reads undeclared table "${binding.table}"`;

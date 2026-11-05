@@ -2670,7 +2670,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // handler never receives a node or an Event — it is evaluated in a
   // compartment with nothing endowed, so it could not use one, and it stays
   // testable with no DOM. A region-level event (a tick) carries no id.
-  function wireEvents(region, items, getRows, handlers, ctx) {
+  function wireEvents(region, items, getRows, handlers, ctx, readCurrent) {
     const gesture = (run) => {
       let release;
       const paused = new Promise((resolve) => { release = resolve; });
@@ -2931,18 +2931,19 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       return true;
     };
 
-    const step = async (reduce, event, depth, pause, seat, automatic = event.type === "mutation", active) => {
+    const step = async (reduce, event, depth, pause, seat, automatic = event.type === "mutation", active, readItems) => {
       if (held === "stopped" || (active && !active())) return;
       const next = await track((async () => {
         if (held === "stopped") return;
         checkSettlement(region);
         const rows = await worldOf();
+        const items = readItems ? await readItems() : getRows();
         if ((automatic && !mutationActive()) || (active && !active())) return;
         if (event.type === "mutation" && seat) {
           event = { ...event, visit: seat.visitEpoch !== visitEpoch };
           seat.visitEpoch = visitEpoch;
         }
-        const result = reduce({ items: getRows(), rows, params: { ...ctx.params }, locale: currentLocale, ssr: opts.mountUnits === false }, event);
+        const result = reduce({ items, rows, params: { ...ctx.params }, locale: currentLocale, ssr: opts.mountUnits === false }, event);
         // A promise is not a continuation command and cannot be a reduce.
         if (typeof result?.then === "function") {
           throw new Error(`handler for "${event.type}" returned a promise; a reduce returns its updates`);
@@ -2996,7 +2997,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       if (typeof carried.type === "string" && carried.type.startsWith("intent:")) {
         screen.dispatchEvent?.(new CustomEvent("pronto:intent", { detail: carried, bubbles: true }));
       }
-      await step(reduce, carried, depth + 1, pause, seat, automatic, active);
+      await step(reduce, carried, depth + 1, pause, seat, automatic, active, readItems);
     };
 
     const bind = (el, id) => {
@@ -3355,11 +3356,11 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
 
       // Every invocation arms the state its chain ended in; the entered flag
       // is set even on a self-target, which is what re-arms the timer.
-      const runMachine = (reduce, event, automatic = false, release, generation = gate?.generation) => finite(async (pause) => {
+      const runMachine = (reduce, event, automatic = false, release, generation = gate?.generation, readItems) => finite(async (pause) => {
         const active = () => enabled() && (!gate || gate.generation === generation) && (!automatic || mutationActive());
         if (!active()) return;
         entered = undefined;
-        await step(reduce, event, 0, () => { pause(); release?.(); }, undefined, automatic, active);
+        await step(reduce, event, 0, () => { pause(); release?.(); }, undefined, automatic, active, readItems);
         if (!active()) return;
         if (entered !== undefined) armAfter(entered);
         syncInvocations();
@@ -3374,13 +3375,15 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             failed: (error) => { failed(error); setState("network-error"); },
             send: async (event, attached) => {
               let delivered = false;
+              const receiver = (region._prontoMachineRow ?? getRows()[0])?.id;
               const reduce = (world, fired) => {
-                if (!mutationActive() || !attached()) return { updates: [] };
+                const row = world.items[0];
+                if (!row || row.id !== receiver || !mutationActive() || !attached(row)) return { updates: [] };
                 delivered = true;
-                return machineReduce(world, fired);
+                return apply(row, fired);
               };
               actorOf.set(reduce, machine.field);
-              await runMachine(reduce, event, true);
+              await gesture((release) => runMachine(reduce, event, true, release, undefined, readCurrent));
               return delivered;
             },
           });
@@ -3805,6 +3808,10 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // Read back by the machine reduce (wired per refresh, outside this scope):
     // a write concluding from the fallback must state the whole fallback row.
     region._prontoFallbackRow = fallbackRow;
+    const readCurrent = async () => {
+      const rows = await store.query(table, opts.order, { ...opts, current: true });
+      return rows.length === 0 && region._prontoFallbackRow === currentRow && fallbackRow !== undefined ? [fallbackRow] : rows;
+    };
     let currentRow;
     // The slot's one ctx, mutated in place across refreshes. bind() wires each
     // listener once, and the step/worldOf closures it captures read this
@@ -4340,7 +4347,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             wireKeysOn(region);
             const nodes = fresh.map((f) => f.node);
             for (const f of fresh) if (f.tmpl._prontoHasKeys) wireKeysIn(f.node);
-            const { deliver, apply } = wireEvents(region, nodes, () => currentRows, handlers, ctx);
+            const { deliver, apply } = wireEvents(region, nodes, () => currentRows, handlers, ctx, readCurrent);
             const dragName = region.dataset.handler;
             if (handlers.has(dragName) && dragging) {
               wireDrag(region, nodes, () => currentRows, lateReduce(handlers, dragName), deliver, apply);
@@ -4454,7 +4461,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         slotCtx.row = row;
         // A singleton has affordances too, and its one row is what they act
         // on: the reduce is handed it the way a list's is handed its rows.
-        wireEvents(region, null, () => (currentRow === undefined ? [] : [currentRow]), handlers, slotCtx);
+        wireEvents(region, null, () => (currentRow === undefined ? [] : [currentRow]), handlers, slotCtx, readCurrent);
         finishActions();
         bindAttributes(region, slotCtx);
         wireKeysIn(region);

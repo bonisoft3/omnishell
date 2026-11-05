@@ -176,3 +176,55 @@ for (const initialState of [undefined, ""]) Deno.test({
     }
   },
 });
+
+for (const changedIdentity of [true, false]) Deno.test({
+  name: changedIdentity ? "an old source read cannot settle a receiver changed before its render wake" : "an observer reduces the current receiver even before its render wake",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const { interpretScreen } = await import("./screen.js");
+    const { document } = parseHTML("<html><head></head><body><main id='shell'></main></body></html>");
+    const previousDocument = globalThis.document, previousFetch = globalThis.fetch;
+    const chart = { field: "status", initial: "generating", states: {
+      generating: { invoke: { src: "progress" }, on: { "signal:progress.done": { target: "done", guard: "admit", assign: { run: "run-4" } } } }, done: {},
+    } };
+    const rows = { form: [{ id: "draft", status: "generating", set_id: "old-deck", run: "run-4", allow: "no" }], progress: [{ id: "old-deck", run: "run-4", status: "done" }] };
+    const subscribers = new Map();
+    let release, entered;
+    const started = new Promise((resolve) => { entered = resolve; });
+    const hold = new Promise((resolve) => { release = resolve; });
+    const base = {
+      async query(table, _order, options) {
+        const result = rows[table].map((row) => ({ ...row }));
+        if (table === "progress" && options?.current) { entered(); await hold; }
+        return result;
+      },
+      subscribe(table, fn) { const group = subscribers.get(table) ?? new Set(); group.add(fn); subscribers.set(table, group); return () => group.delete(fn); },
+      async put(table, row) { Object.assign(rows[table].find((held) => held.id === row.id), row); for (const fn of subscribers.get(table) ?? []) fn(); },
+    };
+    globalThis.document = document;
+    globalThis.fetch = async (url) => new Response(String(url).endsWith(".css") ? "" : String(url).endsWith("admit.js") ? '(state) => state.items[0].allow === "yes"' : `<section data-screen="generate"><div data-live="form" data-filter="id=eq.draft" data-reads="form" data-machine='${JSON.stringify(chart)}'></div></section>`);
+    let screen;
+    try {
+      screen = await interpretScreen(document.getElementById("shell"), "http://localhost/", { screen: "generate", files: { html: "generate.html", css: "generate.css", handlers: ["admit.js"] }, states: ["populated"] }, batched(base), {}, {
+        schema: { form: { fields: [{ name: "id", type: "string", pk: true }] }, progress: { fields: [{ name: "id", type: "string", pk: true }] } },
+        actors: { progress: { via: "observe", table: "progress", field: "status", match: { id: "set_id", run: "run" }, event: "signal:progress." } },
+      });
+      await started;
+      rows.form[0] = changedIdentity
+        ? { id: "draft", status: "generating", set_id: "new-deck", run: "run-5", allow: "yes" }
+        : { id: "draft", status: "generating", set_id: "old-deck", run: "run-4", allow: "yes" };
+      release();
+      await screen.settle();
+      assert.deepEqual(rows.form[0], changedIdentity
+        ? { id: "draft", status: "generating", set_id: "new-deck", run: "run-5", allow: "yes" }
+        : { id: "draft", status: "done", set_id: "old-deck", run: "run-4", allow: "yes" });
+    } finally {
+      release();
+      await screen?.stop();
+      globalThis.document = previousDocument;
+      globalThis.fetch = previousFetch;
+    }
+  },
+});

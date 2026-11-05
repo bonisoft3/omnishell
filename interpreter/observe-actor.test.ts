@@ -78,5 +78,41 @@ Deno.test("hatch lint preserves snake_case and numbered correlation props", asyn
   const { hatchSites, hatchLint } = await import("./lint.ts");
   const sites = hatchSites('<div data-live="form" data-reads="draft"><div data-hatch="drafting" data-prop-set_id="{set_id}" data-prop-run2="{run}"></div></div>');
   assert.deepEqual(sites[0].props, ["set_id", "run2"]);
-  assert.deepEqual(hatchLint(sites, { drafting: { ports: { reads: ["form"], raises: [] }, memo: { table: "draft", key: ["set_id", "run2"], columns: ["set_id", "run2"] } } }), []);
+  assert.deepEqual(hatchLint(sites, { drafting: { ports: { reads: ["form"], raises: {} }, memo: { table: "draft", key: ["set_id", "run2"], columns: ["set_id", "run2"] } } }), []);
+});
+
+Deno.test("fixed observation events keep source values out of the event name", () => {
+  const fixed = { ...binding, field: "run", event: "adopt", suffix: false };
+  const key = observationIdentity(fixed, form)!;
+  const cursors = new Map();
+  const delivery = observationSnapshot(fixed, key, rows("done", "8"), cursors)!;
+  assert.deepEqual(delivery.event, { type: "adopt", value: "run-2" });
+  delivery.acknowledge();
+  assert.equal(observationSnapshot(fixed, key, rows("done", "8"), cursors), undefined);
+  assert.throws(() => observationSnapshot({ ...fixed, suffix: "false" }, key, [], cursors), /suffix must be a boolean/);
+});
+
+Deno.test("fixed observations discard a held read after attachment identity changes", async () => {
+  const fixed = { table: "progress", field: "run", match: { id: "set_id" }, event: "adopt", suffix: false };
+  let row = { set_id: "old" };
+  let release!: (rows: object[]) => void;
+  let first = true;
+  const pending: Promise<unknown>[] = [], events: object[] = [];
+  const actor = observeActor(fixed, {
+    store: { subscribe: () => () => {}, query: async () => {
+      if (first) { first = false; return await new Promise<object[]>((resolve) => { release = resolve; }); }
+      return [{ id: "new", run: "run-new", txid: "2" }];
+    } },
+    readRow: () => row,
+    send: async (event: object, attached: () => boolean) => { if (!attached()) return false; events.push(event); return true; },
+    track: (p: Promise<unknown>) => { pending.push(p); return p; },
+    failed: (error: unknown) => { throw error; },
+  });
+  actor.update();
+  row = { set_id: "new" };
+  actor.update();
+  release([{ id: "old", run: "run-old", txid: "1" }]);
+  await Promise.all(pending);
+  actor.stop();
+  assert.deepEqual(events, [{ type: "adopt", value: "run-new" }]);
 });
