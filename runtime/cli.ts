@@ -1,7 +1,7 @@
 // omnishell's command line: the entry point every consumer of the terminal
 // reaches its checkers through.
 //
-//   omnishell check markup|handlers|machines|battery <appDir> | --self-test
+//   omnishell check markup|handlers|presentation|machines|battery <appDir> | --self-test
 //   omnishell read markup <appDir> | --self-test
 //   omnishell render documents <appDir> <outDir> <origin>
 //   omnishell mode <appDir>
@@ -29,7 +29,7 @@ function toolDir(name: string): string {
 }
 
 const usage = [
-  "usage: omnishell check markup|handlers|machines|battery|parity|i18n|kinetic|aria <appDir> | --self-test",
+  "usage: omnishell check markup|handlers|presentation|machines|battery|parity|i18n|kinetic|aria <appDir> | --self-test",
   "       omnishell read markup <appDir> | --self-test",
   "       omnishell render documents <appDir> <outDir> <origin>",
   "       omnishell mode <appDir>",
@@ -117,6 +117,12 @@ if (verb === "mode") {
     case "check battery": {
       const { run } = await import("../check-battery.ts");
       await narrow(true);
+      await run(args);
+      break;
+    }
+    case "check presentation": {
+      const { run } = await import("../check-presentation.ts");
+      await narrow(false);
       await run(args);
       break;
     }

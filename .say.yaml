@@ -29,6 +29,10 @@ say:
         cmds:
           - do: "deno test --config test/deno.json --no-check --allow-env --allow-read --allow-write --allow-import --allow-net --allow-sys --allow-run=cue,deno interpreter/cortex-navigation.test.ts interpreter/row-attachments.test.js interpreter/observe-actor.test.ts interpreter/invoked-actors.test.ts interpreter/machine-engine.test.ts interpreter/cortex-mount.test.js"
           - do: "deno test --config test/deno.json --no-lock --no-check --allow-env --allow-read --allow-write --allow-import --allow-net --allow-sys interpreter/document-lifecycle.test.js"
+      machine-obligations:
+        priority: -1
+        cmds:
+          - do: "deno test --config test/deno.json --allow-read --allow-write --allow-env test/check-presentation.test.ts test/check-presentation-apps.test.ts"
       kinetic:
         platform: kinetic
         priority: -2

@@ -37,6 +37,20 @@ Deno.test("an installed terminal is named from its own root, a checkout's from t
   }
 });
 
+Deno.test("presentation command reads the declared route", async () => {
+  const app = await Deno.makeTempDir({ prefix: "omnishell presentation " });
+  try {
+    await Deno.mkdir(join(app, "shell"));
+    await Deno.writeTextFile(join(app, "shell", "home.html"), '<button aria-label="Save">Save</button>');
+    await Deno.writeTextFile(join(app, "shell", "home.css"), '');
+    await Deno.writeTextFile(join(app, "shell", "shell.json"), JSON.stringify({ routes: [{ files: { html: "shell/home.html", css: "shell/home.css" } }] }));
+    const report = JSON.parse(await run(app, ["check", "presentation", app]));
+    assert(Array.isArray(report.obligations) && report.counts.violation === 0, "presentation command did not return the route inventory");
+  } finally {
+    await Deno.remove(app, { recursive: true });
+  }
+});
+
 Deno.test("the runtime image's tree holds everything its entry points import", async () => {
   // The image's tree as bayt builds it: the runtime-image target's srcs.
   const target = JSON.parse(await Deno.readTextFile(join(terminal, ".bayt/bayt.runtime-image.json")));
