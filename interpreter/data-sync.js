@@ -42,21 +42,35 @@ const HEADERS = { "Content-Type": "application/json" };
  * four milliseconds, and a region wakes once per write — so every write past
  * the first few pays the clamp, most of what clearing a thousand rows costs.
  * A posted message is a task with no such floor.
+ *
+ * And the next frame, whichever comes first. After a click, Chrome renders
+ * before it runs the tasks the click posted, so a wake that waits for its
+ * message paints one frame late; an animation frame callback runs before that
+ * frame's paint. Both come after the current task and its microtasks, so a
+ * fold's awaited writes still land first. A hidden tab gets no frames, and
+ * there the message wakes it.
  */
 const later = (fn) => {
   // A channel per wake, closed as it fires: an open port is a resource a
   // runtime keeps alive, and a wake owns nothing once it has run.
   const channel = new MessageChannel();
-  channel.port1.onmessage = () => {
+  let frame;
+  let done = false;
+  const cancel = () => {
+    done = true;
     channel.port1.close();
     channel.port2.close();
+    if (frame !== undefined) globalThis.cancelAnimationFrame?.(frame);
+  };
+  const run = () => {
+    if (done) return;
+    cancel();
     fn();
   };
+  channel.port1.onmessage = run;
   channel.port2.postMessage(null);
-  return () => {
-    channel.port1.close();
-    channel.port2.close();
-  };
+  if (typeof globalThis.requestAnimationFrame === "function") frame = globalThis.requestAnimationFrame(run);
+  return cancel;
 };
 
 function token() {
