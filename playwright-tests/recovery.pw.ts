@@ -29,7 +29,7 @@ async function importClosure(roots: string[]): Promise<string[]> {
 // The door as it serves a release (server/release-addresses.ts): each
 // deployment's tree addressed, every address any deployment wrote still
 // answered, and the current entry at every route.
-async function serve(authenticated = false, automaticGuest = false, promoteTo?: string, retarget = false, mutationDrain = false, transition: { gate?: Promise<void>; fail?: number; hatches?: boolean; locales?: boolean; coldBoot?: boolean; delayedThen?: boolean } = {}) {
+async function serve(authenticated = false, automaticGuest = false, promoteTo?: string, retarget = false, mutationDrain = false, transition: { gate?: Promise<void>; fail?: number; hatches?: boolean; locales?: boolean; coldBoot?: boolean; progressive?: boolean; delayedThen?: boolean; listRedirect?: boolean; chainRedirect?: boolean; chainDelay?: boolean } = {}) {
   const screen = (name: string) => `<section class="screen" data-screen="${name}"><h1>Release</h1><input name="draft" id="draft"><input name="answer" type="radio" value="no"><input name="answer" type="radio" value="yes"><div data-live="probe"><template data-item><p data-text="{id}"></p></template></div></section>`
   const files = new Map<string, string>([
     ["shell/index.html", `<!doctype html><html><head><base href="/shell/"><link rel="stylesheet" href="shell.css"></head><body><div id="app"><div class="shell-screen" data-served>${screen("home")}</div></div><script type="module" src="boot.js"></script></body></html>`],
@@ -63,9 +63,20 @@ async function serve(authenticated = false, automaticGuest = false, promoteTo?: 
     files.set("shell/messages/en.json", "{}")
     files.set("shell/messages/es.json", "{")
   }
+  if (transition.progressive) {
+    const config = JSON.parse(files.get("shell/shell.json")!)
+    config.local.detail = "tab"
+    config.local.marker = "tab"
+    config.seed = { probe: [{ id: "parent" }], detail: [{ id: "child", value: "Child ready" }] }
+    config.routes.find((route: { screen: string }) => route.screen === "other").files.handlers = ["shell/handlers/detail.js"]
+    files.set("shell/handlers/detail.js", '() => ({ updates: [{ op: "put", entity: "marker", id: "derived", row: { id: "derived", value: "ready" } }] })')
+    files.set("shell/shell.json", JSON.stringify(config))
+    files.set("shell/screens/other.html", `<section class="screen" data-screen="other"><div data-live="probe" data-empty-row='{"id":"parent"}'><template data-item><article><h1>Parent ready</h1><form data-action="update" data-entity="probe"><input name="draft"><select name="choice"><optgroup class="detail" data-live="detail" data-on-mutation="detail" data-empty=""><template data-item><option value="{id}" data-text="{value}"></option></template></optgroup></select><button type="submit">Save</button></form></article></template></div></section>`)
+  }
   if (transition.coldBoot) {
     files.set("shell/index.html", files.get("shell/index.html")!.replace(`<div class="shell-screen" data-served>${screen("home")}</div>`, ""))
     files.set("shell/shell.css", ".shell-screen[data-entering] { opacity: 0 }")
+    files.set("shell/screens/home.css", ".screen { --cold-boot-style: applied }")
     files.set("shell/screens/home.html", screen("home").replace("</section>", '<div data-live="probe"><template data-item><p data-text="{id}"></p></template></div></section>'))
   }
   if (mutationDrain) {
@@ -114,10 +125,25 @@ async function serve(authenticated = false, automaticGuest = false, promoteTo?: 
   if (transition.gate) {
     const config = JSON.parse(files.get("shell/shell.json")!)
     config.routes.push({ path: "/resolver", screen: "resolver", nav: { strip: false }, files: { html: "shell/screens/resolver.html", css: "shell/screens/resolver.css", handlers: ["shell/handlers/redirect.js"] } })
+    if (transition.chainRedirect || transition.chainDelay) {
+      config.local.marker = "tab"
+      config.local.later = "tab"
+      config.seed = { probe: [{ id: "route", value: "initial" }], marker: [{ id: "marker" }] }
+    }
+    if (transition.listRedirect) {
+      config.local.detail = "tab"
+      config.seed = { probe: [{ id: "route" }], detail: [{ id: "nested" }] }
+    }
     files.set("shell/shell.json", JSON.stringify(config))
-    files.set("shell/screens/resolver.html", `<section class="screen" data-screen="resolver"><p>Resolving destination</p><div data-live="probe" data-empty-row='{"id":"route"}' data-on-mutation="redirect"><span data-text="{id}"></span></div></section>`)
+    files.set("shell/screens/resolver.html", transition.listRedirect
+      ? `<section class="screen" data-screen="resolver"><p>Resolving destination</p><div data-live="probe" data-on-mutation="redirect"><template data-item><div><span data-text="{id}"></span><div data-live="detail" data-empty=""><template data-item><i data-text="{id}"></i></template></div></div></template></div></section>`
+      : `<section class="screen" data-screen="resolver"><p>Resolving destination</p><div data-live="probe" data-empty-row='{"id":"route"}' data-on-mutation="redirect"><span data-text="{id}"></span></div></section>`)
     files.set("shell/screens/resolver.css", "")
-    files.set("shell/handlers/redirect.js", `() => ({ updates: [{ op: "put", entity: "probe", id: "route", row: { id: "route" } }], then: { type: "intent:navigate", with: { route: "other", replace: true } } })`)
+    if (transition.chainRedirect || transition.chainDelay) {
+      files.set("shell/screens/resolver.html", `<section class="screen" data-screen="resolver"><p>Resolving destination</p><div data-live="probe" data-filter="id=eq.route" data-on-mutation="redirect" data-read-marker="marker?limit=1"><span data-text="{id}"></span></div></section>`)
+      const next = transition.chainDelay ? '{ type: "later", delay: 0.1 }' : '{ type: "intent:navigate", with: { route: "other", replace: true } }'
+      files.set("shell/handlers/redirect.js", `(world, event) => event.type === "later" ? { updates: [{ op: "put", entity: "later", id: "result", row: { id: "result" } }] } : world.items[0]?.value === "ready" ? { then: ${next} } : { updates: [{ op: "put", entity: "probe", id: "route", row: { id: "route", value: "ready" } }] }`)
+    } else files.set("shell/handlers/redirect.js", `() => ({ updates: [{ op: "put", entity: "probe", id: "route", row: { id: "route" } }], then: { type: "intent:navigate", with: { route: "other", replace: true } } })`)
   }
   // The modules the page reaches other than by an import naming them; what
   // they import follows, as the release's addressing requires of every
@@ -574,6 +600,156 @@ it("retains the presented screen through a resolving route", async () => {
   } finally { release(); await server.close() }
 })
 
+for (const listRedirect of [false, true]) it(`never reveals a ${listRedirect ? "list" : "slot"} redirect while its write or destination is pending`, async () => {
+  let releaseDestination!: () => void
+  const gate = new Promise<void>(resolve => { releaseDestination = resolve })
+  const server = await serve(false, false, undefined, false, false, { gate, listRedirect })
+  try {
+    await withPage(async page => {
+      await page.goto(server.base)
+      await ready(page, "A")
+      await page.evaluate((listRedirect) => {
+        const state = window as any
+        const store = state.__prontoStore
+        const query = store.query.bind(store)
+        const nested = new Promise<void>(resolve => { state.releaseNested = resolve })
+        store.query = async (...args: any[]) => {
+          if (listRedirect && args[0] === "detail") { state.nestedBlocked = true; await nested }
+          return query(...args)
+        }
+        const write = store.write.bind(store)
+        state.holdRedirect = () => {
+          state.redirectBlocked = false
+          state.redirectGate = new Promise<void>(resolve => { state.releaseRedirect = resolve })
+        }
+        state.holdRedirect()
+        store.write = async (...args: any[]) => {
+          if (args[0] === "probe" && args[1]?.some((item: any) => item.key === "route")) {
+            state.redirectBlocked = true
+            await state.redirectGate
+          }
+          return write(...args)
+        }
+        state.revealedScreens = []
+        const observer = new MutationObserver(records => {
+          for (const record of records) {
+            if (record.type !== "attributes" || record.attributeName !== "hidden" || record.oldValue === null) continue
+            const mount = record.target as Element
+            if (!mount.classList.contains("shell-screen") || mount.hasAttribute("hidden")) continue
+            const screen = mount.querySelector("[data-screen]")?.getAttribute("data-screen")
+            if (screen) state.revealedScreens.push(screen)
+          }
+        })
+        observer.observe(document.querySelector("#app")!, { subtree: true, attributes: true, attributeFilter: ["hidden"], attributeOldValue: true })
+        state.visibilityObserver = observer
+        state.navigate("/resolver").finished.catch((error: Error) => {
+          if (error.name !== "AbortError") state.navigationError = error.message
+        })
+      }, listRedirect)
+      if (listRedirect) {
+        await page.waitForFunction(() => (window as any).nestedBlocked)
+        await page.waitForTimeout(100)
+        expect(await page.locator('[data-screen="home"]').isVisible()).toBe(true)
+        expect(await page.evaluate(() => (window as any).revealedScreens.includes("resolver"))).toBe(false)
+        await page.evaluate(() => (window as any).releaseNested())
+      }
+      await page.waitForFunction(() => (window as any).redirectBlocked)
+      await page.waitForTimeout(100)
+      expect(await page.locator('[data-screen="home"]').isVisible()).toBe(true)
+      expect(await page.evaluate(() => (window as any).revealedScreens.includes("resolver"))).toBe(false)
+      await page.evaluate(() => (window as any).releaseRedirect())
+      await page.waitForURL("**/other")
+      await page.waitForTimeout(100)
+      expect(await page.locator('[data-screen="home"]').isVisible()).toBe(true)
+      expect(await page.evaluate(() => (window as any).revealedScreens.includes("resolver"))).toBe(false)
+      releaseDestination()
+      await page.locator('[data-screen="other"]').waitFor({ state: "visible" })
+      expect(await page.evaluate(() => (window as any).revealedScreens.includes("resolver"))).toBe(false)
+      expect(await page.evaluate(() => (window as any).navigationError ?? null)).toBe(null)
+      await page.evaluate(() => (window as any).navigate("/").finished)
+      expect(await page.locator('[data-screen="home"]').isVisible()).toBe(true)
+      await page.evaluate(() => {
+        const state = window as any
+        state.holdRedirect()
+        state.navigate("/resolver").finished.catch((error: Error) => {
+          if (error.name !== "AbortError") state.navigationError = error.message
+        })
+      })
+      await page.waitForFunction(() => (window as any).redirectBlocked)
+      expect(await page.locator('[data-screen="home"]').isVisible()).toBe(true)
+      expect(await page.evaluate(() => (window as any).revealedScreens.includes("resolver"))).toBe(false)
+      await page.evaluate(() => (window as any).releaseRedirect())
+      await page.waitForURL("**/other")
+      await page.locator('[data-screen="other"]').waitFor({ state: "visible" })
+      expect(await page.evaluate(() => (window as any).revealedScreens.includes("resolver"))).toBe(false)
+      expect(await page.evaluate(() => (window as any).navigationError ?? null)).toBe(null)
+      await page.evaluate(() => (window as any).visibilityObserver.disconnect())
+    })
+  } finally { releaseDestination(); await server.close() }
+})
+
+it("holds a self-woken initial action until its redirect resolves", async () => {
+  let releaseDestination!: () => void
+  const gate = new Promise<void>(resolve => { releaseDestination = resolve })
+  const server = await serve(false, false, undefined, false, false, { gate, chainRedirect: true })
+  try {
+    await withPage(async page => {
+      await page.goto(server.base)
+      await ready(page, "A")
+      await page.evaluate(() => {
+        const state = window as any
+        const store = state.__prontoStore
+        const query = store.query.bind(store)
+        const gate = new Promise<void>(resolve => { state.releaseSecond = resolve })
+        state.markerReads = 0
+        store.query = async (...args: any[]) => {
+          if (args[0] === "marker" && ++state.markerReads > 1) { state.secondBlocked = true; await gate }
+          return query(...args)
+        }
+        state.navigate("/resolver").finished.catch((error: Error) => { if (error.name !== "AbortError") state.navigationError = error.message })
+      })
+      await page.waitForFunction(() => (window as any).secondBlocked, undefined, { timeout: 5000 })
+      await page.waitForTimeout(100)
+      const homeWhileBlocked = await page.locator('[data-screen="home"]').isVisible()
+      await page.evaluate(() => (window as any).releaseSecond())
+      await page.waitForURL("**/other")
+      releaseDestination()
+      await page.locator('[data-screen="other"]').waitFor({ state: "visible" })
+      expect(homeWhileBlocked).toBe(true)
+    })
+  } finally { releaseDestination(); await server.close() }
+})
+
+it("presents a self-woken action that hands a delayed continuation to the future", async () => {
+  let releaseDestination!: () => void
+  const gate = new Promise<void>(resolve => { releaseDestination = resolve })
+  const server = await serve(false, false, undefined, false, false, { gate, chainDelay: true })
+  try {
+    await withPage(async page => {
+      await page.goto(server.base)
+      await ready(page, "A")
+      await page.evaluate(() => {
+        const state = window as any
+        const store = state.__prontoStore
+        const query = store.query.bind(store)
+        const gate = new Promise<void>(resolve => { state.releaseSecond = resolve })
+        state.markerReads = 0
+        store.query = async (...args: any[]) => {
+          if (args[0] === "marker" && ++state.markerReads > 1) { state.secondBlocked = true; await gate }
+          return query(...args)
+        }
+        state.navigate("/resolver").finished.then(() => { state.destinationDone = true }, (error: Error) => { state.navigationError = error.message })
+      })
+      await page.waitForFunction(() => (window as any).secondBlocked, undefined, { timeout: 5000 })
+      await page.evaluate(() => (window as any).releaseSecond())
+      await page.locator('[data-screen="resolver"]').waitFor({ state: "visible", timeout: 5000 })
+      await page.waitForFunction(() => (window as any).destinationDone, undefined, { timeout: 5000 })
+      await page.waitForFunction(async () => (await (window as any).__prontoStore.query("later")).some((row: { id: string }) => row.id === "result"), undefined, { timeout: 5000 })
+      expect(await page.evaluate(() => (window as any).navigationError ?? null)).toBe(null)
+    })
+  } finally { releaseDestination(); await server.close() }
+})
+
 it("restores interaction with the presented screen when a destination fails", async () => {
   const server = await serve(false, false, undefined, false, false, { fail: 503 })
   try {
@@ -819,8 +995,10 @@ it("holds the first screen through initial reads and releases later updates", as
       await page.locator('.shell-screen[data-entering]').waitFor()
       expect(await page.locator("[data-initial-loading]").count()).toBe(1)
       expect(await page.locator('.shell-screen').evaluate(el => getComputedStyle(el).opacity)).toBe("0")
+      const initialTop = await page.locator(".shell-screen").evaluate(el => el.getBoundingClientRect().top)
       await page.evaluate(() => (window as any).releaseInitialRead())
       await ready(page, "A")
+      expect(await page.locator(".shell-screen").evaluate(el => el.getBoundingClientRect().top)).toBe(initialTop)
       expect(await page.locator('.shell-screen').evaluate(el => getComputedStyle(el).opacity)).toBe("1")
       expect(await page.locator('[role="status"]').count()).toBe(0)
       await page.evaluate(() => (window as any).__prontoStore.write("probe", [{ key: "later", row: { id: "later" } }]))
@@ -845,10 +1023,13 @@ it("reveals a slow first screen after a bounded wait", async () => {
       })
       await page.goto(server.base)
       await page.locator('.shell-screen[data-entering]').waitFor()
+      await page.waitForFunction(() => document.getElementById('screen-css-home'))
+      expect(await page.locator('#screen-css-home').evaluate((el: HTMLStyleElement) => el.disabled)).toBe(false)
       await page.locator('[data-screen="home"] input[name="draft"]').focus()
       expect(await page.evaluate(() => document.activeElement?.id)).not.toBe("draft")
       await page.waitForFunction(() => !document.querySelector('.shell-screen[data-entering]'))
       expect(await page.locator('[data-screen="home"] h1').isVisible()).toBe(true)
+      expect(await page.locator('[data-screen="home"]').evaluate(el => getComputedStyle(el).getPropertyValue('--cold-boot-style').trim())).toBe('applied')
       expect(await page.locator('[role="status"]').count()).toBe(0)
       await page.locator('[data-screen="home"] input[name="draft"]').focus()
       expect(await page.evaluate(() => document.activeElement?.id)).toBe("draft")
@@ -959,6 +1140,185 @@ it("does not restore an old error after a newer navigation overtakes recovery", 
       expect(await page.locator('[data-screen="card"]').isVisible()).toBe(true)
       expect(await page.locator('[data-shell-error]').count()).toBe(0)
       expect(await page.locator('.shell-screen:not([hidden])[inert]').count()).toBe(0)
+    })
+  } finally { await server.close() }
+})
+
+
+it("presents a cold destination before its nested reads finish", async () => {
+  const server = await serve(false, false, undefined, false, false, { progressive: true })
+  try {
+    await withPage(async page => {
+      await page.goto(server.base)
+      await ready(page, "A")
+      await page.evaluate(() => {
+        const state = window as any
+        const store = state.__prontoStore
+        const query = store.query.bind(store)
+        const gate = new Promise<void>(resolve => { state.releaseDetail = resolve })
+        store.query = async (...args: unknown[]) => {
+          if (args[0] === "detail") { state.detailBlocked = true; await gate }
+          return query(...args)
+        }
+        state.destinationDone = false
+        state.navigate("/other").finished.then(() => { state.destinationDone = true })
+      })
+      await page.waitForFunction(() => (window as any).detailBlocked)
+      await page.locator('[data-screen="other"] h1').waitFor({ state: "visible" })
+      expect(await page.locator('[data-screen="home"]').isVisible()).toBe(false)
+      expect(await page.evaluate(() => (window as any).destinationDone)).toBe(false)
+      expect(await page.locator('[data-screen="other"]').evaluate(el => el.closest('.shell-screen')!.inert)).toBe(true)
+      expect(await page.locator('[data-screen="other"]').evaluate(el => el.closest('.shell-screen')!.getAttribute('aria-busy'))).toBe('true')
+      let blocked = false
+      try { await page.locator('[data-screen="other"] button').click({ timeout: 300 }) } catch { blocked = true }
+      expect(blocked).toBe(true)
+      await page.evaluate(() => (window as any).releaseDetail())
+      await page.waitForFunction(() => (window as any).destinationDone)
+      expect(await page.locator('[data-screen="other"] option').innerText()).toBe("Child ready")
+      expect(await page.locator('[data-screen="other"]').evaluate(el => el.closest('.shell-screen')!.inert)).toBe(false)
+      expect(await page.locator('[data-screen="other"]').evaluate(el => el.closest('.shell-screen')!.hasAttribute('aria-busy'))).toBe(false)
+      await page.locator('[data-screen="other"] input').fill("ready to edit")
+      expect(await page.locator('[data-screen="other"] input').inputValue()).toBe("ready to edit")
+    })
+  } finally { await server.close() }
+})
+
+
+it("previews while unrelated notification wakes continue during a nested read", async () => {
+  const server = await serve(false, false, undefined, false, false, { progressive: true })
+  try {
+    await withPage(async page => {
+      await page.goto(server.base)
+      await ready(page, "A")
+      await page.evaluate(() => {
+        const state = window as any
+        const store = state.__prontoStore
+        const query = store.query.bind(store)
+        const flush = store.flushNotifications.bind(store)
+        const gate = new Promise<void>(resolve => { state.releaseDetail = resolve })
+        store.flushNotifications = () => Math.max(1, flush())
+        store.query = async (...args: unknown[]) => {
+          if (args[0] === "detail") { state.detailBlocked = true; await gate }
+          return query(...args)
+        }
+        state.finishRead = () => { store.flushNotifications = flush; state.releaseDetail() }
+        state.navigate("/other").finished.then(() => { state.destinationDone = true }, (error: Error) => { state.navigationError = error.message })
+      })
+      await page.waitForFunction(() => (window as any).detailBlocked)
+      await page.locator('[data-screen="other"] h1').waitFor({ state: "visible", timeout: 5000 })
+      expect(await page.evaluate(() => (window as any).__prontoStore.flushNotifications() > 0)).toBe(true)
+      expect(await page.evaluate(() => (window as any).destinationDone === true)).toBe(false)
+      expect(await page.evaluate(() => (window as any).navigationError ?? null)).toBe(null)
+      await page.evaluate(() => (window as any).finishRead())
+      await page.waitForFunction(() => (window as any).destinationDone)
+      expect(await page.locator('[data-screen="other"] option').innerText()).toBe("Child ready")
+    })
+  } finally { await server.close() }
+})
+
+it("restores the committed screen after a preview's nested invariant fails", async () => {
+  const server = await serve(false, false, undefined, false, false, { progressive: true })
+  try {
+    await withPage(async page => {
+      await page.goto(server.base)
+      await ready(page, "A")
+      await page.evaluate(() => {
+        const state = window as any
+        const store = state.__prontoStore
+        const query = store.query.bind(store)
+        const gate = new Promise<void>(resolve => { state.releaseDetail = resolve })
+        store.query = async (...args: unknown[]) => {
+          if (args[0] === "detail") { state.detailBlocked = true; await gate; return [{ id: "broken" }] }
+          return query(...args)
+        }
+        state.navigate("/other").finished.catch((error: Error) => { state.navigationError = error.message })
+      })
+      await page.waitForFunction(() => (window as any).detailBlocked)
+      await page.locator('[data-screen="other"] h1').waitFor({ state: "visible" })
+      expect(await page.title()).toBe("Parent ready — release")
+      expect(await page.locator('link[rel=canonical]').getAttribute('href')).toBe(`${server.base}/other`)
+      await page.evaluate(() => (window as any).releaseDetail())
+      await page.waitForFunction(() => (window as any).navigationError)
+      expect(await page.locator('[data-screen="home"]').isVisible()).toBe(true)
+      expect(await page.title()).toBe("Release — release")
+      expect(await page.locator('link[rel=canonical]').getAttribute('href')).toBe(`${server.base}/`)
+      expect(await page.locator('[data-screen="home"]').evaluate(el => el.closest('.shell-screen')!.inert)).toBe(false)
+      expect(await page.locator('[data-screen="other"]').count()).toBe(0)
+      await page.locator('[data-screen="home"] input[name=draft]').fill("still usable")
+    })
+  } finally { await server.close() }
+})
+
+it("restores the committed view while a newer navigation overtakes a preview", async () => {
+  const server = await serve(false, false, undefined, true, false, { progressive: true })
+  try {
+    await withPage(async page => {
+      await page.goto(server.base)
+      await ready(page, "A")
+      await page.evaluate(() => {
+        const state = window as any
+        const store = state.__prontoStore
+        const query = store.query.bind(store)
+        const detail = new Promise<void>(resolve => { state.releaseDetail = resolve })
+        const next = new Promise<void>(resolve => { state.releaseNext = resolve })
+        store.query = async (...args: unknown[]) => {
+          if (args[0] === "detail") { state.detailBlocked = true; await detail }
+          if (args[0] === "probe" && state.blockNext) { state.nextBlocked = true; await next }
+          return query(...args)
+        }
+        state.navigate("/other").finished.catch(() => {})
+      })
+      await page.waitForFunction(() => (window as any).detailBlocked)
+      await page.locator('[data-screen="other"] h1').waitFor({ state: "visible" })
+      expect(await page.title()).toBe("Parent ready — release")
+      expect(await page.locator('link[rel=canonical]').getAttribute('href')).toBe(`${server.base}/other`)
+      await page.evaluate(() => {
+        const state = window as any
+        state.blockNext = true
+        state.navigate("/deck/a/Pikachu").finished.then(() => { state.nextDone = true })
+      })
+      await page.waitForFunction(() => (window as any).nextBlocked)
+      expect(await page.locator('[data-screen="home"]').isVisible()).toBe(true)
+      expect(await page.title()).toBe("Release — release")
+      expect(await page.locator('link[rel=canonical]').getAttribute('href')).toBe(`${server.base}/`)
+      expect(await page.locator('[data-screen="other"]').isVisible()).toBe(false)
+      await page.evaluate(() => { (window as any).releaseDetail(); (window as any).releaseNext() })
+      await page.waitForFunction(() => (window as any).nextDone)
+      expect(await page.locator('[data-screen="card"]').isVisible()).toBe(true)
+      expect(await page.locator('[data-screen="home"]').isVisible()).toBe(false)
+    })
+  } finally { await server.close() }
+})
+
+
+it("previews while a nested mutation settles, with controls inert until its write lands", async () => {
+  const server = await serve(false, false, undefined, false, false, { progressive: true, hatches: true })
+  try {
+    await withPage(async page => {
+      await page.goto(server.base)
+      await ready(page, "A")
+      await page.evaluate(() => {
+        const state = window as any
+        const store = state.__prontoStore
+        const write = store.write.bind(store)
+        const gate = new Promise<void>(resolve => { state.releaseMutation = resolve })
+        store.write = async (...args: unknown[]) => {
+          if (args[0] === "marker") { state.mutationBlocked = true; await gate }
+          return write(...args)
+        }
+        state.navigate("/other").finished.then(() => { state.destinationDone = true })
+      })
+      await page.waitForFunction(() => (window as any).mutationBlocked)
+      await page.locator('[data-screen="other"] h1').waitFor({ state: "visible" })
+      expect(await page.locator('[data-screen="other"]').evaluate(el => el.closest('.shell-screen')!.inert)).toBe(true)
+      expect(await page.evaluate(() => (window as any).destinationDone === true)).toBe(false)
+      expect(await page.locator('[data-screen="other"] .presentation-probe').count()).toBe(0)
+      await page.evaluate(() => (window as any).releaseMutation())
+      await page.waitForFunction(() => (window as any).destinationDone)
+      expect(await page.locator('[data-screen="other"]').evaluate(el => el.closest('.shell-screen')!.inert)).toBe(false)
+      expect(await page.locator('[data-screen="other"] .presentation-probe').count()).toBe(1)
+      expect(await page.evaluate(() => (window as any).hatchSizes.every((size: number) => size > 0))).toBe(true)
+      expect(await page.evaluate(async () => (await (window as any).__prontoStore.query("marker"))[0]?.value)).toBe("ready")
     })
   } finally { await server.close() }
 })

@@ -166,10 +166,33 @@ export function snapshotStore(cfg, appBase, reader) {
 		}
 		return order;
 	};
-	const readCoalesced = coalesceReads(
-		(url) => reader.read(url.pathname.slice("/crud".length) + url.search),
-		canCoalesceSchemaEq(cfg.schema, cfg.carriers),
-	);
+	let boundedReads = [];
+	let boundedScheduled = false;
+	const readSnapshot = (url) => {
+		const path = url.pathname.slice("/crud".length) + url.search;
+		const limits = url.searchParams.getAll("limit");
+		if (!reader.readMany || limits.length !== 1 || !/^\d+$/.test(limits[0]) || Number(limits[0]) > 1000) return reader.read(path);
+		const result = new Promise((resolve, reject) => boundedReads.push({ path, resolve, reject }));
+		if (!boundedScheduled) {
+			boundedScheduled = true;
+			queueMicrotask(() => {
+				const pending = boundedReads;
+				boundedReads = [];
+				boundedScheduled = false;
+				for (let at = 0; at < pending.length; at += 32) {
+					const group = pending.slice(at, at + 32);
+					Promise.resolve().then(() => group.length === 1
+						? reader.read(group[0].path).then((rows) => [rows])
+						: reader.readMany(group.map((entry) => entry.path))).then((rows) => {
+						if (rows.length !== group.length) throw new Error("snapshot batch returned an invalid result count");
+						group.forEach((entry, i) => entry.resolve(rows[i]));
+					}).catch((error) => { for (const entry of group) entry.reject(error); });
+				}
+			});
+		}
+		return result;
+	};
+	const readCoalesced = coalesceReads(readSnapshot, canCoalesceSchemaEq(cfg.schema, cfg.carriers));
 	const schema = Object.fromEntries(
 		Object.entries(cfg.schema).map((
 			[table, value],

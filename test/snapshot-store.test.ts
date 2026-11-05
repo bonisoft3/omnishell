@@ -887,3 +887,35 @@ Deno.test({
 		});
 	},
 });
+
+Deno.test({
+  name: 'snapshot batches bounded parent reads without sharing their limits',
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withBrowser({ fetch: () => { throw new Error('unexpected fetch') } }, async () => {
+      const batches: string[][] = []
+      const cfg = {
+        tables: ['standing'], carriers: FIXTURE_CARRIERS,
+        schema: { standing: { durability: 'server', fields: [
+          { name: 'id', type: 'string' }, { name: 'group_id', type: 'string' }, { name: 'position', type: 'number' },
+        ] } },
+      }
+      const makeRows = (path: string) => {
+        const params = new URL('https://snapshot.test' + path).searchParams
+        const group = params.get('group_id')!.slice(3)
+        return [{ id: group, group_id: group, position: 1 }]
+      }
+      const store = snapshotStore(cfg, new URL('https://snapshot.test/'), {
+        read: async (path: string) => makeRows(path),
+        readMany: async (paths: string[]) => { batches.push(paths); return paths.map(makeRows) },
+      })
+      try {
+        const rows = await Promise.all(Array.from({ length: 40 }, (_, i) => store.query('standing', 'position.asc,id.asc', { filter: `group_id=eq.g${i}&limit=40` })))
+        assertEquals(rows.map((r: { id: string }[]) => r[0].id), Array.from({ length: 40 }, (_, i) => `g${i}`))
+        assertEquals(batches.map(batch => batch.length), [32, 8])
+        assertEquals(batches.flat().every(path => new URL('https://snapshot.test' + path).searchParams.get('limit') === '41'), true)
+      } finally { await store.close() }
+    })
+  },
+})

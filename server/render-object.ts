@@ -7,11 +7,28 @@ interface StreamHooks {
   onHead?: (info: { status: number; gone: boolean }) => void
   onChunk?: (chunk: string) => void
 }
+type Render = (request: Request, reader: Reader, stream?: StreamHooks) => Promise<{ html: string; status: number }>
 
-export function renderObject(render: (request: Request, reader: Reader, stream?: StreamHooks) => Promise<{ html: string; status: number }>, version = '') {
-  return class Renderer extends DurableObject {
-    async render(request: Request, revision: string, reader: Reader): Promise<Response> {
-      if (request.method !== 'GET' && request.method !== 'HEAD') return new Response(null, { status: 405, headers: { Allow: 'GET, HEAD' } })
+export function renderTask(render: Render, request: Request, revision: string, reader: Reader, version = '') {
+  let resolveResponse!: (response: Response) => void
+  let rejectResponse!: (error: unknown) => void
+  let resolveRendered!: () => void
+  let rejectRendered!: (error: unknown) => void
+  const response = new Promise<Response>((resolve, reject) => { resolveResponse = resolve; rejectResponse = reject })
+  const rendered = new Promise<void>((resolve, reject) => { resolveRendered = resolve; rejectRendered = reject })
+  // The snapshot and transport have independent consumers and can fail before either attaches.
+  response.catch(() => {})
+  rendered.catch(() => {})
+  const finished = (async () => {
+    let settledResponse = false
+    let writer: WritableStreamDefaultWriter<Uint8Array> | undefined
+    try {
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        settledResponse = true
+        resolveResponse(new Response(null, { status: 405, headers: { Allow: 'GET, HEAD' } }))
+        resolveRendered()
+        return
+      }
       const encoder = new TextEncoder()
       const identity = JSON.stringify([version, revision, request.url, request.headers.get('accept-language') ?? ''])
       const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(identity)))
@@ -24,88 +41,82 @@ export function renderObject(render: (request: Request, reader: Reader, stream?:
       })
       const matches = request.headers.get('if-none-match')?.split(',').some(tag => tag.trim() === '*' || tag.trim().replace(/^W\//, '') === etag)
       if (request.method === 'HEAD') {
-        let result
-        try {
-          result = await serially(() => render(request, reader))
-        } catch (error) {
-          if (!(error instanceof RenderCapacity)) throw error
-          return new Response(null, { status: 503, headers: { 'Cache-Control': 'no-store', 'Retry-After': '1' } })
-        }
+        const result = await serially(() => render(request, reader))
         const headers = headersFor(result.status)
-        if (result.status === 200 && matches) return new Response(null, { status: 304, headers })
-        return new Response(null, { status: result.status, headers })
+        settledResponse = true
+        resolveResponse(new Response(null, { status: result.status === 200 && matches ? 304 : result.status, headers }))
+        resolveRendered()
+        return
       }
-      const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
-      const writer = writable.getWriter()
-      let resolveResponse!: (res: Response) => void
-      let rejectResponse!: (err: unknown) => void
-      const responsePromise = new Promise<Response>((resolve, reject) => {
-        resolveResponse = resolve
-        rejectResponse = reject
-      })
-      let settledResponse = false
+      const stream = new TransformStream<Uint8Array, Uint8Array>()
+      writer = stream.writable.getWriter()
+      const output = writer
       let notModified = false
       let streamFailed = false
+      let streamed = false
       let writeChain: Promise<unknown> = Promise.resolve()
       const writeChunk = (bytes: Uint8Array) => {
         if (notModified || streamFailed) return
         writeChain = writeChain.then(() => {
           if (notModified || streamFailed) return
-          return writer.write(bytes).catch(() => { streamFailed = true })
+          return output.write(bytes).catch(() => { streamFailed = true })
         })
       }
-      const streamTask = (async () => {
-        let streamed = false
-        const result = await serially(() => render(request, reader, {
-          onHead: ({ status }) => {
-            if (settledResponse) return
-            settledResponse = true
-            const headers = headersFor(status)
-            if (status === 200 && matches) {
-              notModified = true
-              writer.close().catch(() => {})
-              resolveResponse(new Response(null, { status: 304, headers }))
-              return
-            }
-            resolveResponse(new Response(readable, { status, headers }))
-          },
-          onChunk: (chunk) => {
-            streamed = true
-            writeChunk(encoder.encode(chunk))
-          },
-        }))
-        if (!settledResponse) {
+      const result = await serially(() => render(request, reader, {
+        onHead: ({ status }) => {
+          if (settledResponse) return
           settledResponse = true
-          await writer.close().catch(() => {})
-          const headers = headersFor(result.status)
-          if (result.status === 200 && matches) {
+          const headers = headersFor(status)
+          if (status === 200 && matches) {
+            notModified = true
+            output.close().catch(() => {})
             resolveResponse(new Response(null, { status: 304, headers }))
             return
           }
-          resolveResponse(new Response(result.html, { status: result.status, headers }))
-          return
-        }
-        if (notModified || streamFailed) return
-        if (!streamed && !(result.status === 200 && matches)) {
-          writeChunk(encoder.encode(result.html))
-        }
-        await writeChain
-        await writer.close().catch(() => {})
-      })().catch((error) => {
-        writer.abort(error).catch(() => {})
-        if (!settledResponse) {
-          settledResponse = true
-          if (error instanceof RenderCapacity) {
-            resolveResponse(new Response('render queue full\n', { status: 503, headers: { 'Cache-Control': 'no-store', 'Retry-After': '1' } }))
-          } else {
-            rejectResponse(error)
-          }
-          return
-        }
-        throw error
-      })
-      this.ctx?.waitUntil?.(streamTask)
-      return responsePromise
+          resolveResponse(new Response(stream.readable, { status, headers }))
+        },
+        onChunk: chunk => {
+          streamed = true
+          writeChunk(encoder.encode(chunk))
+        },
+      }))
+      resolveRendered()
+      if (!settledResponse) {
+        settledResponse = true
+        output.close().catch(() => {})
+        const headers = headersFor(result.status)
+        resolveResponse(result.status === 200 && matches
+          ? new Response(null, { status: 304, headers })
+          : new Response(result.html, { status: result.status, headers }))
+        return
+      }
+      if (notModified || streamFailed) return
+      if (!streamed) writeChunk(encoder.encode(result.html))
+      await writeChain
+      await output.close().catch(() => {})
+    } catch (error) {
+      writer?.abort(error).catch(() => {})
+      if (!settledResponse && error instanceof RenderCapacity) {
+        settledResponse = true
+        resolveResponse(new Response(request.method === 'HEAD' ? null : 'render queue full\n', { status: 503, headers: { 'Cache-Control': 'no-store', 'Retry-After': '1' } }))
+        resolveRendered()
+        return
+      }
+      rejectRendered(error)
+      if (!settledResponse) rejectResponse(error)
+      throw error
+    }
+  })()
+  finished.catch(() => {})
+  return { response, rendered, finished }
+}
+
+export function renderObject(render: Render, version = '') {
+  return class Renderer extends DurableObject {
+    render(request: Request, revision: string, reader: Reader): Promise<Response> {
+      const task = renderTask(render, request, revision, reader, version)
+      this.ctx?.waitUntil?.(task.finished)
+      return task.response
     }
   }
 }

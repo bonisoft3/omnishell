@@ -1746,8 +1746,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // on show is replaced and nothing the reader has done to it is lost.
   const served = opts.served;
   if (opts.mountHostDom !== false) ensureHydrationStyle(document);
-  const isMountActive = () => !mount.hidden && (!mount.ownerDocument?.body || mount.ownerDocument.body.contains(mount));
-  await installStyle(styleId, css, isMountActive);
+  const isMountVisible = () => !mount.hidden && (!mount.ownerDocument?.body || mount.ownerDocument.body.contains(mount));
+  const isMountActive = () => !mount.inert && isMountVisible();
+  await installStyle(styleId, css, isMountVisible);
 
   // Subscriptions of the previously mounted screen would refresh dead DOM and
   // keep their poll keys hot — stop them before mounting the next one.
@@ -1757,7 +1758,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   cleanups.push(hostDom.stop);
   // One seat per data-on-mutation handler, screen-wide (see wireEvents).
   const folds = new Map();
+  const refreshes = new WeakMap();
   const work = new Set();
+  const actions = new Set();
   const mutationWrites = new Set();
   // A fold reads its named reads afresh on every wake, and with nothing holding
   // their views between wakes each read was a new load whose rows woke the fold
@@ -1803,10 +1806,19 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     const waiting = new Promise((resolve) => (pause = resolve));
     const running = run(pause);
     busy += 1;
-    track(Promise.race([running, waiting]).finally(() => {
+    const action = track(Promise.race([running, waiting]).finally(() => {
       busy -= 1;
-    })).catch(failed);
-    return running;
+      actions.delete(action);
+    }));
+    actions.add(action);
+    action.catch(failed);
+    return { finished: running, ready: action };
+  };
+  const settleActions = async () => {
+    await Promise.all(regions.map((region) => region.actionsReady));
+    if (failure !== undefined) throw failure;
+    await Promise.all([...actions]);
+    if (failure !== undefined) throw failure;
   };
   const checkSettlement = (region) => {
     if (settling === undefined) return;
@@ -2782,6 +2794,12 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         if (result?.effects && result.effects.length > 0) {
           if (!await applyEffects(result.effects, deliver, automatic ? mutationActive : undefined)) return;
         }
+        if (automatic && seat) {
+          for (const update of [...(result?.updates ?? []), ...(result?.effects ?? [])]) {
+            const entity = update.entity ?? region.dataset.live;
+            if (entity === region.dataset.live || reads.includes(entity) || named.some((read) => read.table === entity)) seat.refresh = true;
+          }
+        }
         if (result?.then?.type && depth + 1 >= STEPS) {
           throw new Error(`handler chain did not settle in ${STEPS} steps at "${result.then.type}"`);
         }
@@ -3378,7 +3396,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         entered = undefined;
         await step(reduce, event, 0, pause);
         if (entered !== undefined) armAfter(entered);
-      });
+      }).finished;
 
       // `after` is the relocated invoke: armed on state entry, canceled on
       // exit, re-armed by a self-target, performed by the terminal's clock.
@@ -3573,20 +3591,28 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         const wake = () => {
           if (held === "stopped") return;
           seat.running = true;
+          seat.refresh = false;
           let rejected = false;
-          finite((pause) => step(rowsReduce, mutEvent, 0, pause, seat)
+          return finite((pause) => step(rowsReduce, mutEvent, 0, pause, seat)
             .catch((err) => {
               rejected = true;
               failed(err);
               report(err);
               setState("network-error");
             })
-            .finally(() => {
-              seat.running = false;
+            .finally(async () => {
+              try {
+                if (!rejected && seat.refresh && held !== "stopped") {
+                  store.flushNotifications?.();
+                  await refreshes.get(region);
+                }
+              } finally {
+                seat.running = false;
+              }
               if (!seat.again || rejected || held === "stopped") return;
               seat.again = false;
-              wake();
-            }));
+              return wake();
+            })).ready;
         };
         wake();
       }
@@ -3622,6 +3648,10 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // (inside a parent's template item) bind silently.
   function hydrateRegion(region, ctx, top) {
     ensureOwnReady(region);
+    let resolveActions;
+    const actionsReady = new Promise((resolve) => { resolveActions = resolve; });
+    const finishActions = () => resolveActions();
+    if (!region.dataset.onMutation && !region.dataset.machine) finishActions();
     const finishOwn = () => {
       region._prontoOwnDone = true;
       if (region.hasAttribute("data-hydrating")) region.removeAttribute("data-hydrating");
@@ -4269,6 +4299,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             }
             for (const f of fresh) f.wired = true;
             first = false;
+            finishActions();
           };
           const progressive = first && served === undefined && screenOpts.fixtures !== true;
           if (progressive) {
@@ -4376,6 +4407,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         // A singleton has affordances too, and its one row is what they act
         // on: the reduce is handed it the way a list's is handed its rows.
         wireEvents(region, null, () => (currentRow === undefined ? [] : [currentRow]), handlers, slotCtx);
+        finishActions();
         bindAttributes(region, slotCtx);
         wireKeysIn(region);
         bindTexts(region, slotCtx, renderers);
@@ -4478,46 +4510,51 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       const said = outages.delete(guarded);
       if ((clears || said) && outages.size === 0 && screen.dataset.state === "network-error") setState(base);
     };
-    const guarded = (changes) => track((async () => {
-      if (stopped) return;
-      clearTimeout(retryTimer);
-      try {
-        // A wake queued behind a pass in flight has painted nothing; the
-        // call running the pass answers for it.
-        const ran = await refreshSerially(stale ? undefined : changes);
+    const guarded = (changes) => {
+      const wasRunning = running;
+      const pass = track((async () => {
         if (stopped) return;
-        stale = false;
-        retryMs = 2000;
-        if (ran) {
-          shown = true;
+        clearTimeout(retryTimer);
+        try {
+          // A wake queued behind a pass in flight has painted nothing; the
+          // call running the pass answers for it.
+          const ran = await refreshSerially(stale ? undefined : changes);
+          if (stopped) return;
+          stale = false;
+          retryMs = 2000;
+          if (ran) {
+            shown = true;
+            paint?.resolve();
+            recovered(top);
+          }
+        } catch (err) {
+          if (stopped) return;
+          failed(err);
+          stale = true;
+          // A slot that matched two rows, or a row no template admits, is a
+          // broken invariant, not an outage: no retry can repair it, and the
+          // network-error dressing would say the store is down when the data is
+          // wrong. The rejection propagates — hydration fails on a first paint,
+          // a later wake rejects loudly — and the next real change re-checks
+          // without a timer.
+          if (err instanceof ProgramError) {
+            paint?.reject(err);
+            throw err;
+          }
+          report(err);
+          if (top || (reading && !shown)) {
+            outages.add(guarded);
+            setState("network-error");
+          }
+          finishOwn();
           paint?.resolve();
-          recovered(top);
+          retryTimer = setTimeout(guarded, retryMs);
+          retryMs = Math.min(retryMs * 2, 15000);
         }
-      } catch (err) {
-        if (stopped) return;
-        failed(err);
-        stale = true;
-        // A slot that matched two rows, or a row no template admits, is a
-        // broken invariant, not an outage: no retry can repair it, and the
-        // network-error dressing would say the store is down when the data is
-        // wrong. The rejection propagates — hydration fails on a first paint,
-        // a later wake rejects loudly — and the next real change re-checks
-        // without a timer.
-        if (err instanceof ProgramError) {
-          paint?.reject(err);
-          throw err;
-        }
-        report(err);
-        if (top || (reading && !shown)) {
-          outages.add(guarded);
-          setState("network-error");
-        }
-        finishOwn();
-        paint?.resolve();
-        retryTimer = setTimeout(guarded, retryMs);
-        retryMs = Math.min(retryMs * 2, 15000);
-      }
-    })());
+      })());
+      if (!wasRunning) refreshes.set(region, pass);
+      return pass;
+    };
     const dependencies = new Set([
       ...(region.dataset.reads ?? "").split(",").map((table) => table.trim()).filter(Boolean),
       ...[...region.attributes].filter((attr) => attr.name.startsWith("data-read-"))
@@ -4550,6 +4587,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       detach();
       dropAll();
       finishOwn();
+      finishActions();
       paint?.resolve();
       recovered(false);
     };
@@ -4564,10 +4602,12 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     };
     if (templates.length === 0) wireSlotForms();
     const attempt = guarded();
+    attempt.then(finishActions, finishActions);
     // A nested region's ProgramError reaches its enclosing row through
     // `painted`, which rejects with it.
     if (!top) attempt.catch(() => {});
     return {
+      actionsReady,
       // The read it was hydrated with (moved).
       read: readOf(region),
       // Whether this region binds its own element from the row it hangs under
@@ -4687,11 +4727,11 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   wireScreen();
 
   if (opts.onHeadReady) {
-    (async () => {
+    track((async () => {
       await Promise.all(regions.map((r) => r.el._prontoOwnReady));
-      await opts.onHeadReady(screen, cas);
       setTimeout(resolveHeadFlushed, 0);
-    })().catch((err) => {
+      await opts.onHeadReady(screen, cas, settleActions);
+    })()).catch((err) => {
       resolveHeadFlushed?.();
       failed(err);
     });
@@ -4792,7 +4832,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     settle,
     present: mountHostDom,
     updateStyle: async (css) => {
-      await installStyle(styleId, css, isMountActive);
+      await installStyle(styleId, css, isMountVisible);
     },
     // A release's handlers, by pathname. A chain already running ends on the one it began on.
     updateHandlers: async (paths) => {

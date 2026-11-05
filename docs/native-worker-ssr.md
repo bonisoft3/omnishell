@@ -1,17 +1,15 @@
 # Native Worker SSR
 
-The Cloudflare release builder accepts `--ssr-origin <https-origin>`. By default
-it keeps the entry Worker's existing Mecha/PGlite database namespace and adds a
-separate renderer Durable Object running M-SSR. New deployments can opt into
-`--ssr-database separate` for a thin entry and a separate compressed database. PostgreSQL and the DOM interpreter occupy
-separate isolates. See [[../../pronto/docs/release-targets#cloudflare]] for the
-build and publish contract. The container server remains described in [[terminal]].
+The Cloudflare release builder accepts `--ssr-origin <https-origin>`. Rendering
+runs inside the existing Mecha/PGlite `Cluster` object in the entry Worker.
+See [[../../pronto/docs/release-targets#cloudflare]] for the build and publish
+contract. The container server remains described in [[terminal]].
 
-The entry passes its release's renderer capability to the database. The database
-opens a public, read-only repeatable-read transaction and supplies a temporary RPC
-reader to the renderer. The response body is consumed before that transaction
-ends. All reads obey PostgreSQL RLS without minting a guest or using browser
-credentials. Ordinary writes wait for the snapshot to close.
+The object opens a public, read-only repeatable-read transaction and passes a
+local reader to the renderer. All reads obey PostgreSQL RLS without minting a
+guest or using browser credentials. The transaction closes after rendering and
+nested reads finish; response consumption does not extend it. Ordinary writes
+wait for that snapshot to close.
 
 `server/worker-document.ts` uses the release's real templates, catalogues, roles
 and request-local browser tables. Startup-compiled role factories create a fresh

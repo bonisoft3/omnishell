@@ -900,6 +900,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
     const held = new Map();
     let current = null;
     let presented = null;
+    let preview = null;
     let seq = 0;
     const keepOf = (route) => route.keep ?? 1;
     const keyOf = (route, params) => `${route.screen} ${JSON.stringify(params)}`;
@@ -922,11 +923,16 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       for (const e of mine.slice(Math.max(keepOf(route) - 1, 0))) discard(e);
     };
     const feedback = navFeedback(globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true);
+    const describeEntry = (entry) => describe(document, cfg, { route: entry.route, params: entry.params, locale: entry.locale, written: entry.written, el: entry.el, origin: location.origin });
     const present = (entry) => {
       feedback.settle();
       const previous = presented;
+      if (preview && preview !== entry) preview.el.hidden = true;
+      preview = null;
+      entry.committed = true;
       entry.el.hidden = false;
       entry.el.inert = false;
+      entry.el.removeAttribute("aria-busy");
       delete entry.el.dataset.entering;
       activateScreenStyle(`screen-css-${entry.route.screen}`);
       entry.handle?.present();
@@ -947,6 +953,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       if (failed) {
         failed.el.hidden = presented !== null;
         failed.mutationActive = false;
+        if (preview === failed) preview = null;
       }
       const previous = current;
       mutationDrain = Promise.all([failed?.handle?.pause(), failed?.mutationDrain?.()]);
@@ -955,7 +962,9 @@ export async function createShell({ config, mount, preload = true, hostDomModule
         previous.el.hidden = false;
         previous.el.inert = false;
         activateScreenStyle(`screen-css-${previous.route.screen}`);
+        describeEntry(previous);
         previous.mutationActive = true;
+        window.scrollTo(0, previous.scrollY);
         await previous.handle?.resume();
       }
     };
@@ -1258,12 +1267,23 @@ export async function createShell({ config, mount, preload = true, hostDomModule
         boundPresentation();
         if (current !== presented) {
           current.el.hidden = true;
+          if (preview === current) {
+            preview = null;
+            if (presented) {
+              presented.el.hidden = false;
+              activateScreenStyle(`screen-css-${presented.route.screen}`);
+              describeEntry(presented);
+              window.scrollTo(0, presented.scrollY);
+            }
+          }
           if (keepOf(current.route) === 0) discard(current);
         }
         current = null;
         await mutationDrain;
         if (turn !== showing) return;
       }
+      const prior = held.get(key);
+      if (prior?.navigating) discard(prior);
       const entry = held.get(key);
       if (entry !== undefined) {
         entry.locale = locale;
@@ -1349,7 +1369,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
           initialLoading = document.createElement("div");
           initialLoading.dataset.initialLoading = "";
           initialLoading.setAttribute("aria-hidden", "true");
-          initialLoading.style.cssText = "min-block-size:100dvh;background:currentColor;opacity:.05";
+          initialLoading.style.cssText = "position:fixed;inset:0;pointer-events:none;background:currentColor;opacity:.05";
           if (!globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
             initialLoading.animate?.([{ opacity: 0.03 }, { opacity: 0.1 }], { duration: 1100, iterations: Infinity, direction: "alternate", easing: "ease-in-out" });
           }
@@ -1375,10 +1395,29 @@ export async function createShell({ config, mount, preload = true, hostDomModule
           messages,
           ensureMessages,
           locale,
-          navigate,
+          navigate: (href, options) => {
+            const target = new URL(href, location.href);
+            if (!fresh.committed && (target.origin !== location.origin || target.pathname !== location.pathname || target.search !== (location.search ?? ""))) fresh.navigating = true;
+            return navigate(href, options);
+          },
           mutationActive: () => fresh.mutationActive,
           registerMutationDrain: (drain) => { fresh.mutationDrain = drain; },
           presented: new Promise((resolve) => { fresh.onPresented = resolve; }),
+          ...(!adopting && presented !== null ? { onHeadReady: async (_screen, cas, settleActions) => {
+            await settleActions();
+            if (current !== fresh || turn !== showing || fresh.gone || fresh.navigating) return;
+            fresh.cas = cas;
+            feedback.settle();
+            preview = fresh;
+            presented.el.hidden = true;
+            el.hidden = false;
+            el.inert = true;
+            el.setAttribute("aria-busy", "true");
+            delete el.dataset.entering;
+            activateScreenStyle(`screen-css-${route.screen}`);
+            window.scrollTo(0, 0);
+            describe(document, cfg, { route, params, locale, written, el, origin: location.origin });
+          } } : {}),
           ...(seeded ? { seeded } : {}),
           ...(adopting ? { served: { screen: adopting.firstElementChild, cas: servedCas } } : {}),
         }));
@@ -1406,7 +1445,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
         }
         retainRecovery();
         await replayEarlyGestures(document, () => fresh.handle.settle());
-        if (current !== fresh || turn !== showing) return fresh.handle.pause();
+        if (current !== fresh || turn !== showing || fresh.navigating) return fresh.handle.pause();
         if (route.screen === "cards") {
           applyPendingAuthor();
           await fresh.handle.settle();
