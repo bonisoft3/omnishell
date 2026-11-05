@@ -1,13 +1,4 @@
-// interpreter/vendor/mecha-client.js is built from the client's source by
-// package.json's `bundle:mecha-client`, and nothing until now noticed when the
-// checked-in copy stopped matching what that produces. A stale bundle does not
-// fail: the terminal runs the old data plane, and every suite that imports it —
-// the smokes, the order tests, an app's own checks — grades platform code that
-// is no longer the platform's. This rebuilds it and compares.
-//
-// Host-only, like the other tests that read outside this plugin: the bundle's
-// source is libraries/mecha, which the image does not carry (bayt.cue leaves it
-// out of the image's test run for that reason).
+// Compare rebuilt bundles with the shipped bytes so tests cannot grade stale engines.
 import { assertEquals } from "jsr:@std/assert@1";
 import { encodeHex } from "jsr:@std/encoding@1/hex";
 import { join } from "node:path";
@@ -21,8 +12,8 @@ async function digest(path: string): Promise<string> {
 
 const PLUGIN = fileURLToPath(new URL("../", import.meta.url));
 
-Deno.test({
-  name: "the vendored client bundle is what its source builds",
+for (const name of ["mecha-client", "xstate"]) Deno.test({
+  name: `the vendored ${name} bundle is what its source builds`,
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -31,11 +22,11 @@ Deno.test({
       // The script package.json states, which bayt's `bundle` target also
       // runs (bayt.cue reads it from there): a command spelled again here
       // could rebuild something the build never would.
-      const script: string = JSON.parse(await Deno.readTextFile(join(PLUGIN, "package.json"))).scripts["bundle:mecha-client"];
-      const built = join(scratch, "mecha-client.js");
+      const script: string = JSON.parse(await Deno.readTextFile(join(PLUGIN, "package.json"))).scripts[`bundle:${name}`];
+      const built = join(scratch, `${name}.js`);
       const argv = script.split(" ");
       const target = argv.lastIndexOf("-o");
-      if (argv[0] !== "deno" || target < 0) throw new Error(`bundle:mecha-client is not a deno bundle with an -o target: ${script}`);
+      if (argv[0] !== "deno" || target < 0) throw new Error(`bundle:${name} is not a deno bundle with an -o target: ${script}`);
       argv[target + 1] = built;
       const bundle = await new Deno.Command(argv[0], {
         args: argv.slice(1),
@@ -45,9 +36,9 @@ Deno.test({
       }).output();
       if (!bundle.success) throw new Error(`deno bundle failed: ${new TextDecoder().decode(bundle.stderr)}`);
       assertEquals(
-        await digest(join(PLUGIN, "interpreter", "vendor", "mecha-client.js")),
+        await digest(join(PLUGIN, "interpreter", "vendor", `${name}.js`)),
         await digest(built),
-        "the checked-in bundle is stale: run `pnpm run bundle:mecha-client` (package.json) and commit it",
+        `the checked-in bundle is stale: run pnpm run bundle:${name} and commit it`,
       );
     } finally {
       await Deno.remove(scratch, { recursive: true });

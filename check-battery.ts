@@ -13,7 +13,7 @@
 // Three properties, held over every input:
 //
 //   confinement   the module runs in the compartment production runs it in
-//                 (interpreter/jessie.js), endowed with nothing but its meter
+//                 (interpreter/jessie.js), endowed with its declared grants and meter
 //   termination   every loop head and function entry spends a step of a fixed
 //                 budget, so a module that does not finish is stopped by a
 //                 counter rather than by CI's wall clock. The steps are spent
@@ -48,7 +48,7 @@
 import fc from "npm:fast-check@3.23.2";
 import { sharedInputs, type PropertyFor } from "./battery-inputs.ts";
 import { load as parseYaml } from "./interpreter/vendor/js-yaml.js";
-import { evaluateCaged } from "./interpreter/jessie.js";
+import { buildEndowments, ensureSes, evaluateCaged, SAFE_ENDOWMENTS } from "./interpreter/jessie.js";
 import { machineRegions, scanScreen } from "./interpreter/lint.ts";
 import { machineCandidates, RESERVED_LEAVES } from "./interpreter/fragment.js";
 import {
@@ -217,6 +217,7 @@ export async function exercise(
   site: CallSite = {},
   options: BatteryOptions = {},
   propertyFor: PropertyFor<BatteryInput> = (predicate) => fc.property(inputs, predicate),
+  endowments: string[] = [],
 ): Promise<Exercised> {
   const runs = options.numRuns ?? RUNS;
   const meter = fuelMeter(options.fuelLimit ?? FUEL);
@@ -237,7 +238,10 @@ export async function exercise(
 
   let target: (...args: unknown[]) => unknown;
   try {
-    target = await evaluateCaged(instrument(source), meter.endowments) as (...args: unknown[]) => unknown;
+    await ensureSes();
+    const granted = [...new Set(endowments)];
+    const undeclared = Object.fromEntries(Object.keys(SAFE_ENDOWMENTS).filter((name) => !granted.includes(name)).map((name) => [name, `${role}: ${name} is not endowed; declare it among the module's endowments`]));
+    target = await evaluateCaged(instrument(source), { ...buildEndowments(granted), ...meter.endowments }, undeclared) as (...args: unknown[]) => unknown;
   } catch (err) {
     return result(meter.consumed(), said(err));
   }
@@ -319,6 +323,7 @@ type Shell = {
   schema?: Record<string, SchemaEntity>;
   routes?: { files?: { handlers?: string[] } }[];
   validations?: Record<string, Record<string, { src?: string; edges?: Edge[] }>>;
+  endowments?: Record<string, string[]>;
 };
 
 /** The entities as the generators take them, keyed by the table they are
@@ -439,7 +444,7 @@ export async function checkApp(appDir: URL, options: BatteryOptions = {}): Promi
         exercised.push({ path, role, table: site.table, params: site.params, runs: 0, maxFuel: 0, error: said(err) });
         continue;
       }
-      exercised.push(await exercise(path, role, source, inputs, site, options, propertyFor));
+      exercised.push(await exercise(path, role, source, inputs, site, options, propertyFor, shell.endowments?.[path] ?? []));
       const remaining = uses.get(site.table)! - 1;
       uses.set(site.table, remaining);
       if (remaining === 0) inputStreams.delete(site.table);

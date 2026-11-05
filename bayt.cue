@@ -174,6 +174,7 @@ _omnishell: bayt.#project & {
 				"interpreter/vendor/entry-morphlex.ts",
 				"interpreter/vendor/bundle-morphlex.ts",
 				"interpreter/vendor/entry-js-yaml.ts",
+				"interpreter/vendor/entry-xstate.ts",
 				"interpreter/deno.json",
 				"src/messages.ts",
 				"package.json",
@@ -182,6 +183,7 @@ _omnishell: bayt.#project & {
 				"interpreter/vendor/mecha-client.js",
 				"interpreter/vendor/morphlex.js",
 				"interpreter/vendor/js-yaml.js",
+				"interpreter/vendor/xstate.js",
 				"interpreter/vendor/messages.js",
 			]
 			// Each leg runs package.json's script by name, rather than a second
@@ -190,7 +192,7 @@ _omnishell: bayt.#project & {
 			// two ways is one of them can be wrong about.
 			cmd: "builtin": {
 				shell: "sh"
-				do:    "sh -c 'pnpm run bundle:mecha-client && pnpm run bundle:morphlex && pnpm run bundle:js-yaml && pnpm run bundle:messages'"
+				do:    "sh -c 'pnpm run bundle:mecha-client && pnpm run bundle:morphlex && pnpm run bundle:js-yaml && pnpm run bundle:xstate && pnpm run bundle:messages'"
 			}
 			dockerfile: from: ref: ":setup"
 		}

@@ -29,6 +29,7 @@
       "interpreter/vendor/entry-morphlex.ts",
       "interpreter/vendor/bundle-morphlex.ts",
       "interpreter/vendor/entry-js-yaml.ts",
+      "interpreter/vendor/entry-xstate.ts",
       "interpreter/deno.json",
       "src/messages.ts",
       "package.json"
@@ -40,6 +41,7 @@
       "interpreter/vendor/mecha-client.js",
       "interpreter/vendor/morphlex.js",
       "interpreter/vendor/js-yaml.js",
+      "interpreter/vendor/xstate.js",
       "interpreter/vendor/messages.js"
     ],
     "exclude": []
@@ -100,6 +102,7 @@
           "interpreter/vendor/mecha-client.js",
           "interpreter/vendor/morphlex.js",
           "interpreter/vendor/js-yaml.js",
+          "interpreter/vendor/xstate.js",
           "interpreter/vendor/messages.js"
         ],
         "exclude": []
@@ -136,6 +139,7 @@
           "interpreter/vendor/entry-morphlex.ts",
           "interpreter/vendor/bundle-morphlex.ts",
           "interpreter/vendor/entry-js-yaml.ts",
+          "interpreter/vendor/entry-xstate.ts",
           "interpreter/deno.json",
           "src/messages.ts",
           "package.json",
@@ -269,6 +273,7 @@
           "interpreter/vendor/entry-morphlex.ts",
           "interpreter/vendor/bundle-morphlex.ts",
           "interpreter/vendor/entry-js-yaml.ts",
+          "interpreter/vendor/entry-xstate.ts",
           "interpreter/deno.json",
           "src/messages.ts",
           "package.json"
@@ -278,7 +283,7 @@
         "defaultExclude": null
       },
       "shell": "sh",
-      "do": "sh -c 'pnpm run bundle:mecha-client && pnpm run bundle:morphlex && pnpm run bundle:js-yaml && pnpm run bundle:messages'",
+      "do": "sh -c 'pnpm run bundle:mecha-client && pnpm run bundle:morphlex && pnpm run bundle:js-yaml && pnpm run bundle:xstate && pnpm run bundle:messages'",
       "name": "builtin",
       "stop": false
     }

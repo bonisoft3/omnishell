@@ -2,6 +2,7 @@
 // did not write. Nothing here endows ambient authority — an absent global
 // cannot be argued with, which is the only reason app source is safe to run
 // unread.
+import { Statechart } from "./statechart.js";
 
 // ses pin: the vendored umd dist (bundle:ses), loaded beside this module —
 // same-origin, so the platform's own image is the integrity boundary. One
@@ -66,7 +67,7 @@ export function ensureSes(install = () => import(SES_URL)) {
 // authored file is adapted to a script.
 // What roles are endowed with: pure, deterministic platform primitives
 // granted via manifest endowments or requestedEndowments (SAFE_ENDOWMENTS: tamed Intl,
-// TextEncoder, TextDecoder, URL, URLSearchParams). An adapter is endowed with
+// TextEncoder, TextDecoder, URL, URLSearchParams, Statechart). An adapter is endowed with
 // Intl by default; other roles receive no endowments unless granted, and one
 // reached undeclared throws, naming itself.
 // Intl has the host's defaults refused — a module states its locale, its zone
@@ -177,6 +178,7 @@ export const SAFE_ENDOWMENTS = {
   TextDecoder: () => TextDecoder,
   URL: () => URL,
   URLSearchParams: () => URLSearchParams,
+  Statechart: () => harden(Statechart),
 };
 
 export function buildEndowments(names = []) {

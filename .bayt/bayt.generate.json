@@ -65,6 +65,7 @@
           "interpreter/vendor/mecha-client.js",
           "interpreter/vendor/morphlex.js",
           "interpreter/vendor/js-yaml.js",
+          "interpreter/vendor/xstate.js",
           "interpreter/vendor/messages.js"
         ],
         "exclude": []
