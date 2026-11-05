@@ -60,3 +60,37 @@ Deno.test({
     }
   },
 });
+
+Deno.test({
+  name: "machine walks honor each handler's emitted Statechart grant",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const root = await Deno.makeTempDir({ prefix: "machine grant " });
+    try {
+      for (const [name, granted] of [["allowed", true], ["denied", false]] as const) {
+        const dir = `${root}/${name}`;
+        await Deno.mkdir(`${dir}/shell/handlers`, { recursive: true });
+        const handler = "shell/handlers/step.js";
+        const shell = {
+          local: { toggle: [{}] },
+          schema: { toggle: { fields: [{ name: "id", type: "string" }, { name: "state", type: "string" }] } },
+          seed: { toggle: [{ id: "one", state: "off" }] },
+          routes: [{ path: "/", screen: "home", files: { html: "shell/home.html", css: "shell/home.css", handlers: [handler] } }],
+          endowments: granted ? { [handler]: ["Statechart"] } : {},
+        };
+        await Deno.writeTextFile(`${dir}/shell/shell.yaml`, JSON.stringify(shell));
+        await Deno.writeTextFile(`${dir}/shell/home.css`, "");
+        await Deno.writeTextFile(`${dir}/${handler}`, 'const step = Statechart({initial:"a", states:{a:{final:true,on:{}}}}, {guard:()=>true,reduce:(row)=>row}); (state,event)=>({updates:[]});');
+        await Deno.writeTextFile(`${dir}/shell/home.html`, `<section data-screen="home"><div data-live="toggle" data-on-mutation="step" data-machine='{"field":"state","initial":"off","states":{"off":{"on":{"click":"on"}},"on":{"on":{"click":"off"}}}}'><template data-item><button>Toggle</button></template></div></section>`);
+        const result = await checkApp(new URL(`file://${dir}/`));
+        if (granted && (result.walked !== 1 || fails(result.findings))) throw new Error(`granted handler failed: ${JSON.stringify(result)}`);
+        if (!granted && !result.findings.some((f) => f.severity === "error" && f.message.includes("Statechart is not endowed"))) {
+          throw new Error(`missing grant was not refused: ${JSON.stringify(result)}`);
+        }
+      }
+    } finally {
+      await Deno.remove(root, { recursive: true });
+    }
+  },
+});

@@ -36,6 +36,7 @@ import {
   appCluster,
   appCollections,
   appFiles,
+  appEndowments,
   appI18n,
   appMessages,
   appRoutes,
@@ -404,6 +405,7 @@ async function walkScreen(
   messages: Catalogs = {},
   routes: Route[] = [],
   i18n?: I18n,
+  endowments?: Record<string, string[]>,
 ): Promise<Walked> {
   const hostDom = await appHostDom(appDir);
   const html = route.files.html;
@@ -451,6 +453,7 @@ async function walkScreen(
         // The table a data-route link on the screen composes its href from.
         routes,
         i18n,
+        endowments,
       });
       // Quiet, not settled: the clock must not move before the walk arms its
       // trace, or a state whose way out is `after: 0` has already taken it and
@@ -590,6 +593,7 @@ export async function checkApp(appDir: URL): Promise<Walked> {
   const messages = await appMessages(appDir);
   const routes = await appRoutes(appDir);
   const i18n = await appI18n(appDir);
+  const endowments = await appEndowments(appDir);
   const findings: Finding[] = [];
   let walked = 0;
   let authored = 0;
@@ -600,7 +604,7 @@ export async function checkApp(appDir: URL): Promise<Walked> {
       for (const [loc, content] of Object.entries(messages)) {
         files[`messages/${loc}.json`] = JSON.stringify(content);
       }
-      one = await walkScreen(appDir, route, tables, cluster, files, units, messages, routes, i18n);
+      one = await walkScreen(appDir, route, tables, cluster, files, units, messages, routes, i18n, endowments);
     } catch (err) {
       findings.push({ severity: "error", path: route.files.html, message: said(err) });
       continue;

@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import fc from "npm:fast-check@3.23.2";
 import { sharedInputs } from "../battery-inputs.ts";
-import { checkApp, exercise } from "../check-battery.ts";
+import { callSites, checkApp, exercise } from "../check-battery.ts";
 
 Deno.test("shared draws preserve seeded coverage and generate each input only once", () => {
   const inputs = fc.array(fc.integer(), { maxLength: 5 }).chain((rows) => fc.record({ rows: fc.constant(rows), extra: fc.integer() }));
@@ -142,6 +142,61 @@ endowments:
     assert.equal(validation?.error, undefined);
     assert.match(denied?.error ?? "", /Statechart is not endowed/);
     assert.equal(checked.findings.length, 1);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test("machine effect inputs retain call-site context throughout nested actions", () => {
+  const leaf = (name: string) => ({ type: name, params: { column: "topic" } });
+  const effect = (name: string) => ({ op: "create", entity: "job", values: { input: leaf(name), value: { type: "event", params: { field: "value" } } } });
+  const chart = { field: "status", initial: "editing", states: { editing: {
+    initial: "ready", states: { ready: {
+      entry: { effect: effect("entry-input") }, exit: [{ effect: [effect("exit-input")] }],
+      on: { submit: { effect: effect("submit-input"), actions: [{ effect: [effect("action-input")] }] } },
+      onDone: { effect: effect("done-input") },
+    } },
+  } } };
+  const sites = callSites(`<div data-live="form" data-machine='${JSON.stringify(chart)}'></div>`);
+  for (const name of ["entry-input", "exit-input", "submit-input", "action-input", "done-input"]) {
+    assert.deepEqual(sites.get(name), [{ table: "form", leaf: true, params: { column: "topic" } }]);
+  }
+  assert.equal(sites.has("event"), false);
+  const shared = { field: "status", initial: "a", states: { a: {
+    on: { go: { guard: "shared", target: "a" } }, after: { shared: "a" },
+  } } };
+  assert.deepEqual(callSites(`<div data-live="form" data-machine='${JSON.stringify(shared)}'></div>`).get("shared"), [
+    { table: "form", leaf: true }, { table: "form" },
+  ]);
+});
+
+Deno.test("battery exercises a module referenced only by an effect input", async () => {
+  const dir = await Deno.makeTempDir();
+  try {
+    await Deno.mkdir(`${dir}/shell/handlers`, { recursive: true });
+    await Deno.mkdir(`${dir}/shell/screens`, { recursive: true });
+    await Deno.writeTextFile(`${dir}/shell/handlers/input.js`, `(state, event, params) => {
+      if (params.column !== "ready") throw new Error("missing literal parameters");
+      if (state.items.length !== 1 || "rows" in state) throw new Error("wrong leaf world");
+      for (const row of state.items) if (typeof row[params.column] !== "boolean") throw new Error("wrong row domain");
+      return state.items.length;
+    }`);
+    await Deno.writeTextFile(`${dir}/shell/handlers/world.js`, `(state) => state.rows.form.length`);
+    const chart = { field: "status", initial: "editing", states: { editing: { on: { submit: {
+      effect: { op: "create", entity: "job", values: { input: { type: "input", params: { column: "ready" } }, invalid: { type: "world" } } },
+    } } } } };
+    await Deno.writeTextFile(`${dir}/shell/screens/home.html`, `<main data-live="form" data-machine='${JSON.stringify(chart)}'></main>`);
+    await Deno.writeTextFile(`${dir}/shell/shell.yaml`, JSON.stringify({
+      schema: { form: { durability: "device", fields: [{ name: "id", type: "text", pk: true }, { name: "ready", type: "bool" }] } },
+      routes: [{ files: { handlers: ["shell/handlers/input.js", "shell/handlers/world.js"] } }],
+    }));
+    const checked = await checkApp(new URL(`file://${dir}/`), { numRuns: 10 });
+    assert.equal(checked.findings.length, 1);
+    assert.equal(checked.findings[0].path, "shell/handlers/world.js");
+    assert.equal(checked.exercised.length, 2);
+    assert.equal(checked.exercised[0].error, undefined);
+    assert.equal(checked.exercised[0].table, "form");
+    assert.equal(checked.exercised[0].runs, 10);
   } finally {
     await Deno.remove(dir, { recursive: true });
   }

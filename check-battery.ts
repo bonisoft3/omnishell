@@ -100,6 +100,7 @@ export type Exercised = {
   path: string;
   role: "handler" | "validation";
   table?: string;
+  leaf?: boolean;
   params?: Record<string, unknown>;
   runs: number;
   maxFuel: number;
@@ -111,10 +112,10 @@ export type Exercised = {
  * its own literals; a reduce bound to a gesture (data-handler, data-on-*)
  * states neither, because which region encloses the element is a fact about
  * the tree and not about the attribute. */
-export type CallSite = { table?: string; params?: Record<string, unknown> };
+export type CallSite = { table?: string; leaf?: boolean; params?: Record<string, unknown> };
 
 const sameSite = (a: CallSite, b: CallSite) =>
-  a.table === b.table && JSON.stringify(a.params ?? null) === JSON.stringify(b.params ?? null);
+  a.table === b.table && a.leaf === b.leaf && JSON.stringify(a.params ?? null) === JSON.stringify(b.params ?? null);
 
 /**
  * The call sites one screen's markup states, by the basename it names each
@@ -140,33 +141,48 @@ export function callSites(html: string): Map<string, CallSite[]> {
     // machineRegions refuses what is not JSON, so a chart reaching here parses.
     const chart = JSON.parse(region.machine);
     const table = region.table;
+    const values = (fields: Record<string, unknown>) => {
+      for (const value of Object.values(fields)) {
+        if (typeof value === "string") take(value, { table, leaf: true });
+        else if (value !== null && typeof value === "object" && "type" in value &&
+          typeof value.type === "string" && !RESERVED_LEAVES.has(value.type)) {
+          take(value.type, { table, leaf: true, params: (value as { params?: Record<string, unknown> }).params });
+        }
+      }
+    };
+    // deno-lint-ignore no-explicit-any
+    const actions = (value: any) => {
+      for (const action of Array.isArray(value) ? value : value ? [value] : []) {
+        values(action.assign ?? {});
+        for (const effect of Array.isArray(action.effect) ? action.effect : action.effect ? [action.effect] : []) {
+          values(effect.values ?? {});
+        }
+      }
+    };
     const walk = (value: unknown) => {
       // deno-lint-ignore no-explicit-any
       for (const candidate of machineCandidates(value) as any[]) {
         const guard = candidate.guard;
-        if (typeof guard === "string") take(guard, { table });
-        else if (guard !== null && typeof guard === "object") take(guard.type, { table, params: guard.params });
-        for (const v of Object.values(candidate.assign ?? {})) {
-          if (typeof v === "string") take(v, { table });
-          // deno-lint-ignore no-explicit-any
-          else if (v !== null && typeof v === "object" && !RESERVED_LEAVES.has((v as any).type)) {
-            // deno-lint-ignore no-explicit-any
-            take((v as any).type, { table, params: (v as any).params });
-          }
-        }
+        if (typeof guard === "string") take(guard, { table, leaf: true });
+        else if (guard !== null && typeof guard === "object") take(guard.type, { table, leaf: true, params: guard.params });
+        actions(candidate);
+        actions(candidate.actions);
       }
     };
-    for (const value of Object.values(chart.on ?? {})) walk(value);
     // deno-lint-ignore no-explicit-any
-    for (const state of Object.values(chart.states ?? {}) as any[]) {
-      for (const value of Object.values(state.on ?? {})) walk(value);
-      if (state.always !== undefined) walk(state.always);
-      for (const [delay, value] of Object.entries(state.after ?? {})) {
-        // A non-numeric delay is a module answering the milliseconds.
+    const state = (node: any) => {
+      for (const value of Object.values(node.on ?? {})) walk(value);
+      if (node.always !== undefined) walk(node.always);
+      if (node.onDone !== undefined) walk(node.onDone);
+      for (const [delay, value] of Object.entries(node.after ?? {})) {
         if (!/^\d+$/.test(delay)) take(delay, { table });
         walk(value);
       }
-    }
+      actions(node.entry);
+      actions(node.exit);
+      for (const child of Object.values(node.states ?? {})) state(child);
+    };
+    state(chart);
   }
   return sites;
 }
@@ -226,6 +242,7 @@ export async function exercise(
     path,
     role,
     table: site.table,
+    leaf: site.leaf,
     params: site.params,
     runs,
     maxFuel,
@@ -417,24 +434,29 @@ export async function checkApp(appDir: URL, options: BatteryOptions = {}): Promi
       exercised.push({ path, role, runs: 0, maxFuel: 0, error: said(err) });
       return;
     }
-    const uses = new Map<string | undefined, number>();
-    for (const site of sites) uses.set(site.table, (uses.get(site.table) ?? 0) + 1);
-    const inputStreams = new Map<string | undefined, {
+    const keyOf = (site: CallSite) => JSON.stringify([site.table, site.leaf === true]);
+    const uses = new Map<string, number>();
+    for (const site of sites) uses.set(keyOf(site), (uses.get(keyOf(site)) ?? 0) + 1);
+    const inputStreams = new Map<string, {
       inputs: fc.Arbitrary<BatteryInput>;
       propertyFor: PropertyFor<BatteryInput>;
     }>();
     for (const site of sites) {
+      const key = keyOf(site);
       let inputs: fc.Arbitrary<{ state: unknown; event: unknown }>;
       let propertyFor: PropertyFor<BatteryInput>;
       try {
-        let stream = inputStreams.get(site.table);
+        let stream = inputStreams.get(key);
         if (stream === undefined) {
           inputs = inputsFor(site.table);
+          if (site.leaf) inputs = inputs.map(({ state, event }) => ({
+            state: { items: [(state as { items: unknown[] }).items[0]] }, event,
+          }));
           stream = {
             inputs,
-            propertyFor: uses.get(site.table)! > 1 ? sharedInputs(inputs) : (predicate) => fc.property(inputs, predicate),
+            propertyFor: uses.get(key)! > 1 ? sharedInputs(inputs) : (predicate) => fc.property(inputs, predicate),
           };
-          inputStreams.set(site.table, stream);
+          inputStreams.set(key, stream);
         }
         ({ inputs, propertyFor } = stream);
       } catch (err) {
@@ -445,9 +467,9 @@ export async function checkApp(appDir: URL, options: BatteryOptions = {}): Promi
         continue;
       }
       exercised.push(await exercise(path, role, source, inputs, site, options, propertyFor, shell.endowments?.[path] ?? []));
-      const remaining = uses.get(site.table)! - 1;
-      uses.set(site.table, remaining);
-      if (remaining === 0) inputStreams.delete(site.table);
+      const remaining = uses.get(key)! - 1;
+      uses.set(key, remaining);
+      if (remaining === 0) inputStreams.delete(key);
     }
   };
 
