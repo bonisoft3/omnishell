@@ -708,11 +708,13 @@ pub fn read_index_slice(
 }
 
 
-pub const PROP_ATLAS_DIM: usize = 4096;
-pub const PROP_ATLAS_TILE: usize = 512;
+pub const PROP_ATLAS_DIM: usize = 8192;
+pub const PROP_ATLAS_TILE: usize = 1024;
 pub const PROP_ATLAS_GRID: usize = PROP_ATLAS_DIM / PROP_ATLAS_TILE; // 8x8 = 64 tiles
 pub const PROP_ATLAS_MAX_TILES: usize = PROP_ATLAS_GRID * PROP_ATLAS_GRID;
 
+/// 8192x8192 64-tile (8x8 x 1024x1024) opaque prop texture mega-atlas.
+/// Channel layout: RGB = sRGB base color; A = normalized luma-gradient impasto relief height (0.5 = neutral).
 pub struct PropAtlasBuilder {
     pub rgba: Vec<u8>,
     pub next_tile: usize,
@@ -723,7 +725,7 @@ pub struct PropAtlasBuilder {
 impl PropAtlasBuilder {
     pub fn new() -> Self {
         Self {
-            rgba: vec![255u8; PROP_ATLAS_DIM * PROP_ATLAS_DIM * 4],
+            rgba: vec![128u8; PROP_ATLAS_DIM * PROP_ATLAS_DIM * 4],
             next_tile: 0,
             hash_to_tile: std::collections::HashMap::new(),
         }
@@ -745,17 +747,25 @@ impl PropAtlasBuilder {
         self.next_tile += 1;
         let tx = (tile_id % PROP_ATLAS_GRID) * PROP_ATLAS_TILE;
         let ty = (tile_id / PROP_ATLAS_GRID) * PROP_ATLAS_TILE;
+        let step_uv = 2.0 / (PROP_ATLAS_TILE as f32);
         for y in 0..PROP_ATLAS_TILE {
             let v = (y as f32 + 0.5) / (PROP_ATLAS_TILE as f32);
             let dst_row = (ty + y) * PROP_ATLAS_DIM;
             for x in 0..PROP_ATLAS_TILE {
                 let u = (x as f32 + 0.5) / (PROP_ATLAS_TILE as f32);
                 let c = img.sample_srgb(u, v);
+                let cx = img.sample_srgb((u + step_uv).min(0.999), v);
+                let cy = img.sample_srgb(u, (v + step_uv).min(0.999));
+                let luma = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+                let luma_n = 0.5
+                    * ((0.299 * cx[0] + 0.587 * cx[1] + 0.114 * cx[2])
+                        + (0.299 * cy[0] + 0.587 * cy[1] + 0.114 * cy[2]));
+                let impasto_h = (0.5 + (luma - luma_n) * 2.5).clamp(0.0, 1.0);
                 let dst_idx = (dst_row + tx + x) * 4;
                 self.rgba[dst_idx] = (c[0] * 255.0).round().clamp(0.0, 255.0) as u8;
                 self.rgba[dst_idx + 1] = (c[1] * 255.0).round().clamp(0.0, 255.0) as u8;
                 self.rgba[dst_idx + 2] = (c[2] * 255.0).round().clamp(0.0, 255.0) as u8;
-                self.rgba[dst_idx + 3] = (c[3] * 255.0).round().clamp(0.0, 255.0) as u8;
+                self.rgba[dst_idx + 3] = (impasto_h * 255.0).round().clamp(0.0, 255.0) as u8;
             }
         }
         self.hash_to_tile.insert(h, tile_id);
