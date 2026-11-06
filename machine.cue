@@ -44,6 +44,84 @@
 // cancel the terminal makes already belongs to.
 package terminal
 
+#Invoke: close({
+	src: string
+	id?: string
+})
+
+// A parameterized reference in XState's own spelling: the module is
+// called (state, event, params), params are literals only — thresholds
+// live in the chart as data, so one module serves every instance a
+// component generates.
+// `event` is the terminal's own leaf (#EventRef), never a module.
+#Ref: close({
+	type: string & !="event"
+	params?: [string]: string | number | bool
+})
+
+// The one leaf a machine states instead of importing: the value the control
+// was showing when it fired. It reads the EVENT, never another row, so the
+// closure above holds — a transition is still decidable from the row and
+// the event, and the chart is still a whole inventory of what can happen.
+//
+// pointerX/pointerY are where in the AFFORDANCE's own box the pointer was,
+// in parts per thousand of it — never viewport pixels. The frame of
+// reference is an element a replay also renders, so no viewport is pinned
+// and no chart can reach the geometry the value was measured against. An
+// integer because a column a replay must reproduce exactly should not be a
+// float, and because the stylesheet is where the pixels come back.
+#EventRef: close({
+	type: "event"
+	params: close({field: "value" | "checked" | "valueAsNumber" | "key" | "pointerX" | "pointerY"})
+})
+
+#AnyRef: {
+	type: string
+	if type == "event" {#EventRef}
+	if type != "event" {#Ref}
+}
+
+// Declarative mutation effect executed by the terminal runtime into store.
+// Closed and pure: never arbitrary code, never touches DOM directly. The
+// four ops the store performs.
+#Effect: close({
+	op:      #Machine.#MutationOp & ("create" | "update" | "delete" | "upsert")
+	entity?: string
+	token?:  string
+	filter?: string
+	values?: [string]: null | string | number | bool | #AnyRef
+})
+
+#Action: close({
+	assign?: [string]: null | string | number | bool | #AnyRef
+	effect?: #Effect | [...#Effect]
+	raise?: string
+})
+#Actions: #Action | [...#Action]
+
+#TargetState: string
+#Transition: close({
+	guard?:   string | #Ref // Jessie module; (state, event, params?) => boolean
+	target?:  #TargetState
+	reenter?: bool
+	actions?: #Actions
+	// Values for the machine's own row's columns: a literal, a Jessie
+	// module name computing one, or a parameterized #Ref. All assigns read
+	// the pre-transition snapshot and merge with the field write into ONE
+	// stated row.
+	assign?: [string]: null | string | number | bool | #AnyRef
+	// Declarative effect executed by the terminal runtime into store.
+	effect?: #Effect | [...#Effect]
+	// A self-addressed event, XState's raise ≡ the reduce's then: literal
+	// type, delivered by the terminal after the writes.
+	raise?: string
+})
+
+// A bare state name is the v1 shorthand for {target}; an array is XState's
+// ordered candidate list — first guard-pass wins, every arrow drawn.
+#TransitionValue: #TargetState | #Transition | [...#Transition]
+#On: [Event=string]: #TransitionValue
+
 #Machine: M={
 	// The row column the state lives in. The machine's current state IS this
 	// field's value — no second store of truth, no `initial` beside the row.
@@ -56,83 +134,41 @@ package terminal
 	}
 	// Root-level transitions, applied in every state unless the state declares
 	// the same event key.
-	on?:     M.#On
-	invoke?: M.#Invoke | [...M.#Invoke]
-	onDone?: M.#TransitionValue
-	always?: M.#TransitionValue
-	after?: [string]: M.#TransitionValue
-	entry?: M.#Actions
-	exit?:  M.#Actions
+	on?:     #On
+	invoke?: #Invoke | [...#Invoke]
+	onDone?: #TransitionValue
+	always?: #TransitionValue
+	after?: [string]: #TransitionValue
+	entry?: #Actions
+	exit?:  #Actions
 	states: [Name=string]: close({
 		field?:   string
 		type?:    "final" | "parallel"
 		initial?: string
-		on?:      M.#On
-		invoke?: M.#Invoke | [...M.#Invoke]
-		onDone?:  M.#TransitionValue
-		always?:  M.#TransitionValue
+		on?:      #On
+		invoke?:  #Invoke | [...#Invoke]
+		onDone?:  #TransitionValue
+		always?:  #TransitionValue
 		// The relocated invoke: key is milliseconds (digits) or the name of a
 		// Jessie module returning them; armed on entry, canceled on exit,
 		// re-armed by a self-target.
-		after?: [string]: M.#TransitionValue
-		entry?:   M.#Actions
-		exit?:    M.#Actions
+		after?: [string]: #TransitionValue
+		entry?:   #Actions
+		exit?:    #Actions
 		states?: [SubName=string]: close({
 			field?:   string
 			type?:    "final" | "parallel"
 			initial?: string
-			on?:      M.#On
-			invoke?: M.#Invoke | [...M.#Invoke]
-			onDone?:  M.#TransitionValue
-			always?:  M.#TransitionValue
-			after?: [string]: M.#TransitionValue
-			entry?:   M.#Actions
-			exit?:    M.#Actions
+			on?:      #On
+			invoke?:  #Invoke | [...#Invoke]
+			onDone?:  #TransitionValue
+			always?:  #TransitionValue
+			after?: [string]: #TransitionValue
+			entry?:   #Actions
+			exit?:    #Actions
 		})
 	})
 
-	#Invoke: close({
-		src: string
-		id?: string
-	})
-
-	#Action: close({
-		assign?: [string]: null | string | number | bool | M.#EventRef | M.#Ref
-		effect?: M.#Effect | [...M.#Effect]
-		raise?:  string
-	})
-	#Actions: #Action | [...#Action]
-
-	#TargetState: string
-	// A bare state name is the v1 shorthand for {target}; an array is XState's
-	// ordered candidate list — first guard-pass wins, every arrow drawn.
-	#TransitionValue: M.#TargetState | M.#Transition | [...M.#Transition]
-	// A parameterized reference in XState's own spelling: the module is
-	// called (state, event, params), params are literals only — thresholds
-	// live in the chart as data, so one module serves every instance a
-	// component generates.
-	// `event` is the terminal's own leaf, never a module — excluded here so the
-	// disjunction cannot fall through to this and leave #EventRef's field enum
-	// deciding nothing.
-	#Ref: close({
-		type: string & !="event"
-		params?: [string]: string | number | bool
-	})
-	// The one leaf a machine states instead of importing: the value the control
-	// was showing when it fired. It reads the EVENT, never another row, so the
-	// closure above holds — a transition is still decidable from the row and
-	// the event, and the chart is still a whole inventory of what can happen.
-	//
-	// pointerX/pointerY are where in the AFFORDANCE's own box the pointer was,
-	// in parts per thousand of it — never viewport pixels. The frame of
-	// reference is an element a replay also renders, so no viewport is pinned
-	// and no chart can reach the geometry the value was measured against. An
-	// integer because a column a replay must reproduce exactly should not be a
-	// float, and because the stylesheet is where the pixels come back.
-	#EventRef: close({
-		type: "event"
-		params: close({field: "value" | "checked" | "valueAsNumber" | "key" | "pointerX" | "pointerY"})
-	})
 	// What can be claimed of a write is the durability of the row it lands on
 	// (REFERENCE.md, "Effects"): a chart states no level, the lint reads it off
 	// the entity, and a compensable write wants a `refused` arrow.
@@ -153,31 +189,4 @@ package terminal
 	// twice. Reduce inherits the laws of its returned effects. Navigate
 	// fills route params and repeating it selects the same route.
 	#MutationOp: "create" | "ensure" | "upsert" | "update" | "accumulate" | "delete" | "reduce" | "navigate"
-	// Declarative mutation effect executed by the terminal runtime into store.
-	// Closed and pure: never arbitrary code, never touches DOM directly. The
-	// four ops the store performs.
-	#Effect: close({
-		op:      M.#MutationOp & ("create" | "update" | "delete" | "upsert")
-		entity?: string
-		token?:  string
-		filter?: string
-		values?: [string]: null | string | number | bool | M.#EventRef | M.#Ref
-	})
-	#Transition: close({
-		guard?:   string | M.#Ref // Jessie module; (state, event, params?) => boolean
-		target?:  M.#TargetState
-		reenter?: bool
-		actions?: M.#Actions
-		// Values for the machine's own row's columns: a literal, a Jessie
-		// module name computing one, or a parameterized #Ref. All assigns read
-		// the pre-transition snapshot and merge with the field write into ONE
-		// stated row.
-		assign?: [string]: null | string | number | bool | M.#EventRef | M.#Ref
-		// Declarative effect executed by the terminal runtime into store.
-		effect?: M.#Effect | [...M.#Effect]
-		// A self-addressed event, XState's raise ≡ the reduce's then: literal
-		// type, delivered by the terminal after the writes.
-		raise?: string
-	})
-	#On: [Event=string]: M.#TransitionValue
 }
