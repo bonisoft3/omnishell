@@ -1817,7 +1817,7 @@ function bindElementAttributes(el, ctx, insideWalk = false) {
     // never declared is a different thing and still raises: routeHref reads
     // undefined, and the link lint refused it at generate.
     const explicitLocale = (el.dataset.locale !== undefined && el.dataset.locale !== ctx.locale) || Boolean(ctx.cfg?.i18n && ctx.locale === ctx.cfg.i18n.default && (ctx.params?.locale === ctx.locale || (typeof location !== "undefined" && new URLSearchParams(location.search).has("lang"))));
-    const href = routeHref(ctx.cfg, el.dataset.route, args, el.dataset.locale ?? ctx.locale, { explicitLocale });
+    const href = routeHref(ctx.cfg, el.dataset.route, args, el.dataset.locale ?? ctx.locale, { explicitLocale, fragment: el.dataset.routeFragment });
     if (href === undefined) el.removeAttribute("href");
     else el.setAttribute("href", href);
     if (el.dataset.localeCurrent !== undefined) {
@@ -2087,7 +2087,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       const routeArgs = routeParams(el);
       if (Object.values(routeArgs).some((v) => PLACEHOLDER.test(v))) continue;
       const explicitLocale = (el.dataset.locale !== undefined && el.dataset.locale !== currentLocale) || Boolean(cfg.i18n && currentLocale === cfg.i18n.default && (params?.locale === currentLocale || (typeof location !== "undefined" && new URLSearchParams(location.search).has("lang"))));
-      const href = routeHref(cfg, el.dataset.route, routeArgs, el.dataset.locale ?? currentLocale, { explicitLocale });
+      const href = routeHref(cfg, el.dataset.route, routeArgs, el.dataset.locale ?? currentLocale, { explicitLocale, fragment: el.dataset.routeFragment });
       if (href === undefined) el.removeAttribute("href");
       else if (el.getAttribute("href") !== href) el.setAttribute("href", href);
       // Which option of a language switcher is the page the reader is already

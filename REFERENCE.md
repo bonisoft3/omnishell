@@ -247,6 +247,7 @@ from the route table and the page's locale (`routeHref`,
 |---|---|
 | `data-route="<screen>"` | the route whose address becomes this element's `href`. A screen no route serves is a `ProgramError` |
 | `data-param-<name>` | the route's `:name`. A param the route takes and the markup does not declare is a `ProgramError`; one declared and bound empty drops the `href`, because the row is saying there is nowhere to go |
+| `data-route-fragment` | a section id appended to a routed link, encoded after its locale query. The full address works with an asset `<base>`, copied links, and new tabs |
 | `data-locale="<tag>"` | address the link in that locale instead of the page's — a language switcher is the same link in another locale |
 | `data-locale-current` | on a link naming a locale, `aria-current` (the attribute's value, or `page`) when that locale is the page's |
 

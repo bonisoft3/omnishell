@@ -5,6 +5,7 @@ import { acceptedLanguages, routeAt } from '../interpreter/fragment.js'
 import { compileCatalog } from '../interpreter/vendor/messages.js'
 import { controlProperties } from './linkedom-controls.ts'
 import { snapshotStore } from './snapshot-store.js'
+import { publicSSR } from './render-eligibility.ts'
 
 export function appRenderer(assets: Record<string, string>, origin: string) {
   const cfg = JSON.parse(assets['/shell/shell.json'])
@@ -41,6 +42,7 @@ export function appRenderer(assets: Record<string, string>, origin: string) {
     const preferred = typeof address === 'string' ? [] : acceptedLanguages(address.headers.get('accept-language') ?? '')
     const found = routeAt(cfg, url.pathname, url.search, preferred)
     if (!found) throw new Error(`unknown screen: ${url.pathname}`)
+    if (!publicSSR(cfg, found.route)) return { html: 'no such address\n', status: 404 }
     const prefetch = typeof address !== 'string' && address.headers.get('x-pronto-prefetch') === '1'
     const store = snapshotStore(cfg, appBase, reader)
     const sentReads = new Set<string>()

@@ -735,7 +735,7 @@ export function restatedHref(canonical, search, hash = "") {
   return `${target.pathname}${target.search}${hash}`;
 }
 
-export function routeHref(cfg, screen, params, locale, { explicitLocale = false } = {}) {
+export function routeHref(cfg, screen, params, locale, { explicitLocale = false, fragment = "" } = {}) {
   const route = cfg.routes?.find((r) => r.screen === screen);
   if (route === undefined) throw new ProgramError(`data-route names "${screen}", which is no route of this app`);
   const pattern = routePattern(route, locale);
@@ -758,14 +758,15 @@ export function routeHref(cfg, screen, params, locale, { explicitLocale = false 
     return encodeURIComponent(value);
   });
   if (unaddressed) return undefined;
+  const hash = fragment === "" ? "" : `#${encodeURIComponent(fragment)}`;
   // An app declaring no locales has one language and no prefixes at all.
-  if (cfg.i18n === undefined) return mounted(cfg, filled);
+  if (cfg.i18n === undefined) return mounted(cfg, filled + hash);
   if (locale === cfg.i18n.default) {
-    return mounted(cfg, explicitLocale ? `${filled}?lang=${encodeURIComponent(locale)}` : filled);
+    return mounted(cfg, (explicitLocale ? `${filled}?lang=${encodeURIComponent(locale)}` : filled) + hash);
   }
   const declared = localeTable(cfg.i18n)[locale];
   if (declared === undefined) throw new ProgramError(`locale "${locale}" is not one this app declares`);
-  return mounted(cfg, `/${declared.path}${filled === "/" ? "" : filled}`);
+  return mounted(cfg, `/${declared.path}${filled === "/" ? "" : filled}${hash}`);
 }
 
 /** The data-param-<name> values an element carries. Read off the attributes

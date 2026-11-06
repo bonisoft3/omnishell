@@ -39,7 +39,7 @@ const routes = [
   { screen: "campaign", path: "/equipe-campeonato/:slug/:championship_slug", paths: { "pt-BR": "/equipe-campeonato/:slug/:championship_slug", en: "/team-championship/:slug/:championship_slug" } },
   { screen: "team", path: "/equipe/:slug", paths: { "pt-BR": "/equipe/:slug", en: "/team/:slug" } },
   { screen: "games", path: "/jogos", paths: { "pt-BR": "/jogos", en: "/games" } },
-].map(route => ({ ...route, nav: { strip: false }, files: { html: `screens/${route.screen}.html`, css: `screens/${route.screen}.css`, handlers: [] } }))
+].map(route => ({ ...route, ssr: "ssr", nav: { strip: false }, files: { html: `screens/${route.screen}.html`, css: `screens/${route.screen}.css`, handlers: [] } }))
 const cfg = {
   app: "Football",
   routes,

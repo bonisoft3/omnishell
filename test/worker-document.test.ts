@@ -2,12 +2,40 @@ import assert from 'node:assert/strict'
 import { parseHTML } from 'linkedom'
 import { appRenderer } from '../server/worker-document.ts'
 
+Deno.test('native SSR refuses matched SPA and private routes before reading or streaming', async () => {
+  const keys = ['fetch', 'location', 'sessionStorage', 'CSS', 'requestAnimationFrame']
+  const saved = keys.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const)
+  const cfg = { tables: [], schema: {}, routes: [
+    { path: '/match/:id/edit', screen: 'editor', ssr: 'spa', access: 'private' },
+    { path: '/match/:id/score/edit', screen: 'score', ssr: 'spa' },
+    { path: '/private/:id', screen: 'private', ssr: 'ssr', access: 'private' },
+    { path: '/static/:id', screen: 'static', ssr: 'ssg' },
+    { path: '/default/:id', screen: 'default' },
+  ] }
+  try {
+    const render = appRenderer({ '/shell/shell.json': JSON.stringify(cfg) }, 'https://app.example')
+    for (const path of ['/match/1/edit', '/match/1/score/edit', '/private/1', '/static/1', '/default/1']) {
+      let streamed = false
+      const result = await render(new Request(`https://app.example${path}`), {
+        read() { throw new Error('ineligible route read the database') },
+      }, { onHead: () => { streamed = true }, onChunk: () => { streamed = true } })
+      assert.equal(result.status, 404)
+      assert.equal(streamed, false)
+    }
+  } finally {
+    for (const [key, descriptor] of saved) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor)
+      else Reflect.deleteProperty(globalThis, key)
+    }
+  }
+})
+
 Deno.test('native SSR renders an app without locale configuration and preserves its declared language', async () => {
   const keys = ['fetch', 'location', 'sessionStorage', 'CSS', 'requestAnimationFrame', '__mechaClient', '__prontoViews']
   const saved = keys.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const)
   const cfg = {
     app: 'Plain app', tables: [], schema: {},
-    routes: [{ path: '/', screen: 'home', nav: { strip: false }, files: { html: 'home.html', css: 'home.css', handlers: [] } }],
+    routes: [{ path: '/', screen: 'home', ssr: 'ssr', nav: { strip: false }, files: { html: 'home.html', css: 'home.css', handlers: [] } }],
   }
   try {
     const render = appRenderer({
@@ -44,7 +72,7 @@ Deno.test('native SSR embeds snapshot /crud reads in #pronto-reads and omits the
     tables: ['team'],
     carriers: FIXTURE_CARRIERS,
     schema: { team: { fields: [{ name: 'id', type: 'text' }, { name: 'name', type: 'text' }] } },
-    routes: [{ path: '/team/:id', screen: 'team', states: ['loading', 'empty', 'populated', 'gone'], nav: { strip: false }, files: { html: 'team.html', css: 'team.css', handlers: [] } }],
+    routes: [{ path: '/team/:id', screen: 'team', ssr: 'ssr', states: ['loading', 'empty', 'populated', 'gone'], nav: { strip: false }, files: { html: 'team.html', css: 'team.css', handlers: [] } }],
   }
   try {
     const render = appRenderer({
@@ -89,7 +117,7 @@ Deno.test('native SSR streams top-down chunks and progressive prefetch reads bef
       team: { fields: [{ name: 'id', type: 'text' }, { name: 'name', type: 'text' }] },
       match: { fields: [{ name: 'id', type: 'text' }, { name: 'team_id', type: 'text' }, { name: 'score', type: 'text' }] },
     },
-    routes: [{ path: '/team/:id', screen: 'team', states: ['loading', 'empty', 'populated', 'gone'], nav: { strip: false }, files: { html: 'team.html', css: 'team.css', handlers: [] } }],
+    routes: [{ path: '/team/:id', screen: 'team', ssr: 'ssr', states: ['loading', 'empty', 'populated', 'gone'], nav: { strip: false }, files: { html: 'team.html', css: 'team.css', handlers: [] } }],
   }
   try {
     const render = appRenderer({

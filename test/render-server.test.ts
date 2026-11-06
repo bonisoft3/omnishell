@@ -40,7 +40,7 @@ const route = (pathname: string, search: string) => {
   const id = pathname.match(/^\/jogo\/([^/]+)$/)?.[1]
   if (id === undefined) return null
   return {
-    route: { screen: "jogo", path: "/jogo/:id" },
+    route: { screen: "jogo", path: "/jogo/:id", ssr: "ssr" },
     params: { ...Object.fromEntries(new URLSearchParams(search)), id },
   }
 }
@@ -100,6 +100,36 @@ function harness({
 }
 
 describe("the server terminal", () => {
+  it("refuses matched non-public or non-SSR routes before rendering or caching", async () => {
+    const fake = fakeStore()
+    let renders = 0
+    const routes: Record<string, { screen: string; path: string; ssr?: string; access?: string }> = {
+      "/match/1": { screen: "match", path: "/match/:id", ssr: "ssr" },
+      "/match/1/edit": { screen: "editor", path: "/match/:id/edit", ssr: "spa", access: "private" },
+      "/match/1/score/edit": { screen: "score", path: "/match/:id/score/edit", ssr: "spa" },
+      "/private": { screen: "private", path: "/private", ssr: "ssr", access: "private" },
+      "/static": { screen: "static", path: "/static", ssr: "ssg" },
+      "/default": { screen: "default", path: "/default" },
+    }
+    const renderer = createRenderer({ store: fake.store, origin: ORIGIN, capacity: 2, queue: 8,
+      route: path => routes[path] ? { route: routes[path], params: {} } : null,
+      render: async () => { renders++; return { html: 'public', gone: false } },
+    })
+    for (const path of Object.keys(routes).filter(path => path !== '/match/1')) {
+      expect((await renderer.handle(new Request(ORIGIN + path))).status).toBe(404)
+    }
+    expect(renders).toBe(0)
+    expect(renderer.held).toBe(0)
+    expect((await renderer.handle(new Request(ORIGIN + '/match/1'))).status).toBe(200)
+    expect(renders).toBe(1)
+    const protectedApp = createRenderer({ store: fake.store, origin: ORIGIN, capacity: 2, queue: 8,
+      authRequired: true,
+      route: () => ({ route: routes['/match/1'], params: {} }),
+      render: async () => { throw new Error('a signed-in app must not render publicly') },
+    })
+    expect((await protectedApp.handle(new Request(ORIGIN + '/match/1'))).status).toBe(404)
+  })
+
   it("becomes warm without querying archive snapshots or request-only rows", async () => {
     const queried: string[] = []
     let finish!: () => void

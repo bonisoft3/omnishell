@@ -26,12 +26,13 @@
 
 import { parseHTML } from "linkedom";
 import { controlProperties } from "./linkedom-controls.ts";
+import { publicSSR } from "./render-eligibility.ts";
 
 type Store = {
   subscribe(table: string, fn: () => void, opts?: unknown): () => void;
   query(...args: unknown[]): Promise<unknown[]>;
 };
-type Route = { screen: string; path: string; states?: string[] };
+type Route = { screen: string; path: string; states?: string[]; ssr?: string; access?: string };
 type Found = { route: Route; params: Record<string, unknown>; locale?: string; written?: string };
 type Drawn = { html: string; gone: boolean };
 /** One render's listening: what it heard, and how to stop hearing. */
@@ -88,6 +89,7 @@ export function createRenderer({
   capacity,
   queue,
   cacheableRead = () => true,
+  authRequired = false,
 }: {
   store: Store;
   /** What every document's absolute links are spelled against. */
@@ -99,6 +101,7 @@ export function createRenderer({
   queue: number;
   /** Whether changes to this read can invalidate a retained document. */
   cacheableRead?: (table: string) => boolean;
+  authRequired?: boolean;
 }): Renderer {
   // The render in progress. Each read it makes is listened to at once, beside
   // the region that made it and on the same view: a change landing anywhere
@@ -229,7 +232,7 @@ export function createRenderer({
     async handle(req) {
       const url = new URL(req.url);
       const found = route(url.pathname, url.search);
-      if (found === null) return new Response("no such address\n", { status: 404 });
+      if (found === null || !publicSSR({ auth: { required: authRequired } }, found.route)) return new Response("no such address\n", { status: 404 });
       const base = addressOf(url, found.route.screen);
       const key = base.href;
       const hit = held.get(key);
@@ -428,6 +431,7 @@ export async function serve(env: (name: string) => string | undefined = (name) =
     capacity,
     queue,
     cacheableRead,
+    authRequired: cfg.auth?.required,
     // The door has already chosen the language: an unprefixed address reaching
     // here is the default's, so no preference is consulted.
     route: (pathname, search) => routeAt(cfg, pathname, search, []) as Found | null,

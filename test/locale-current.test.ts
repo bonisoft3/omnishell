@@ -18,6 +18,7 @@ const SWITCHER = `<section class="screen" data-screen="arena">
     <a id="ar" data-route="arena" data-locale="es-AR" data-locale-current="page">Argentina</a>
     <a id="uy" data-route="arena" data-locale="es-UY" data-locale-current="page">Uruguay</a>
     <a id="plain" data-route="arena">Mesa</a>
+    <a id="section" data-route="arena" data-route-fragment="statistics">Statistics</a>
   </section>`
 
 const at = (locale: string) =>
@@ -35,6 +36,13 @@ const current = (m: Awaited<ReturnType<typeof at>>, id: string) =>
   (m.one(`#${id}`) as El).getAttribute("aria-current")
 
 describe("a language switcher's current option", () => {
+  it("binds section destinations in the screen's language without waiting for a click", async () => {
+    const spanish = await at("es-AR")
+    expect((spanish.one("#section") as El).getAttribute("href")).toBe("/ar#statistics")
+    const portuguese = await at("pt-BR")
+    expect((portuguese.one("#section") as El).getAttribute("href")).toBe("/#statistics")
+  })
+
   it("is the one naming the locale the screen is in", async () => {
     const m = await at("es-AR")
     expect(current(m, "ar")).toBe("page")

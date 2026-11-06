@@ -1180,6 +1180,20 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       syncExtraNav(currentRoute().locale);
     }
     let restating = false;
+    const scrollFragment = (root, hash) => {
+      if (!hash) return false;
+      let id;
+      try {
+        id = decodeURIComponent(hash.slice(1));
+      } catch (error) {
+        if (error instanceof URIError) return false;
+        throw error;
+      }
+      const target = [...root.querySelectorAll("[id]")].find((el) => el.id === id);
+      if (!target) return false;
+      target.scrollIntoView();
+      return true;
+    };
     const restate = (href) => {
       restating = true;
       try {
@@ -1331,6 +1345,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
         }
         describe(document, cfg, { route, params, locale, written, el: entry.el, origin: location.origin });
         try { applyThemeMode(sessionStorage.getItem("omnishell-theme") || "auto"); } catch (_e) {}
+        if (navigationType === "push") scrollFragment(entry.el, location.hash);
         linkPrefetch.idle();
         if (preload) {
           preloadLinkedScreens(document, appBase, cfg, route.screen, [
@@ -1464,12 +1479,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
         try { applyThemeMode(sessionStorage.getItem("omnishell-theme") || "auto"); } catch (_e) {}
         // After the render: the screen's own h1 is where its name comes from.
         describe(document, cfg, { route, params, locale, written, el, origin: location.origin });
-        // A screen arrived at starts at its own top. This lands there anyway
-        // today, but only because hiding the outgoing screen collapses the page
-        // and the browser clamps — an accident of ordering that any overlap of
-        // the two screens would undo, and a cross-fade needs exactly that
-        // overlap.
-        if (!adopting) window.scrollTo(0, 0);
+        if (!adopting && !scrollFragment(el, location.hash)) window.scrollTo(0, 0);
       } catch (err) {
         takeEarlyGestures();
         feedback.settle();
@@ -1637,7 +1647,10 @@ export async function createShell({ config, mount, preload = true, hostDomModule
         // chrome's own sign-out anchor) changes nothing the stack owns, and a
         // path this app has no route for belongs to the server.
         if (url.origin !== location.origin) return;
-        if (url.pathname === location.pathname && url.search === (location.search ?? "")) return;
+        if (url.pathname === location.pathname && url.search === (location.search ?? "")) {
+          if (url.hash && current) e.intercept({ scroll: "manual", handler: () => scrollFragment(current.el, url.hash) });
+          return;
+        }
         if (addresses(url) === null) return;
         e.intercept({scroll: "manual", handler: () => show(e.navigationType)});
       });
@@ -1650,11 +1663,25 @@ export async function createShell({ config, mount, preload = true, hostDomModule
         if (href.startsWith("#")) return;
         const url = new URL(href, location.href);
         if (url.origin !== location.origin || addresses(url) === null) return;
-        if (url.pathname === location.pathname && url.search === (location.search ?? "")) return;
+        if (url.pathname === location.pathname && url.search === (location.search ?? "")) {
+          if (url.hash && current) {
+            e.preventDefault();
+            history.pushState(null, "", url.href);
+            scrollFragment(current.el, url.hash);
+          }
+          return;
+        }
         e.preventDefault();
-        navigate(url.pathname + url.search);
+        navigate(url.pathname + url.search + url.hash);
       }, true);
-      addEventListener("popstate", () => show("traverse"));
+      addEventListener("popstate", () => {
+        const { route, params } = currentRoute();
+        if (current?.key === keyOf(route, params)) {
+          if (!scrollFragment(current.el, location.hash)) window.scrollTo(0, 0);
+          return;
+        }
+        show("traverse");
+      });
     }
 
     // A deployment is a newer entry at this address. What changed between the

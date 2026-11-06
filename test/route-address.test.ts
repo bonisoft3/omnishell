@@ -44,6 +44,15 @@ describe("a route's pattern", () => {
 })
 
 describe("a route's address", () => {
+  it("addresses a section before an asset base or a modified click can redirect it", () => {
+    expect(routeHref(CFG, "article", { slug: "porto" }, "en", { fragment: "stats & notes" }))
+      .toBe("/en/article/porto#stats%20%26%20notes")
+    expect(routeHref(CFG, "article", { slug: "porto" }, "pt-BR", { explicitLocale: true, fragment: "stats" }))
+      .toBe("/artigo/porto?lang=pt-BR#stats")
+    expect(routeHref(PLAIN, "note", { id: "7" }, "pt", { fragment: "stats" })).toBe("/note/7#stats")
+    expect(routeHref(CFG, "article", { slug: "" }, "en", { fragment: "stats" })).toBe(undefined)
+  })
+
   it("wears no prefix in the default locale", () => {
     // The Brazilian reader is most of them, and pays no redirect to arrive.
     expect(routeHref(CFG, "regras", {}, "pt-BR")).toBe("/regras")

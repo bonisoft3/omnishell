@@ -55,7 +55,7 @@ Deno.test({
         expect(requests).toHaveLength(0)
         const renderer = createRenderer({
           store, origin: "https://example.test", capacity: 1, queue: 2,
-          route: pathname => ({ route: { screen: "card", path: "/:id" }, params: { id: pathname.slice(1) } }),
+          route: pathname => ({ route: { screen: "card", path: "/:id", ssr: "ssr" }, params: { id: pathname.slice(1) } }),
           async render(found, watched) {
             const opts = { filter: `id=eq.${found.params.id}` }
             const stop = watched.subscribe("card", () => {}, opts)

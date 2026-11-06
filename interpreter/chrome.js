@@ -142,7 +142,7 @@ export function guestBox(doc, cfg) {
 export function localizeStrip(nav, cfg, { locale, here, search = "", messages, explicitLocale = false } = {}) {
   if (!nav) return;
   for (const a of nav.querySelectorAll("a[data-route]")) {
-    const href = routeHref(cfg, a.getAttribute("data-route"), routeParams(a), locale, { explicitLocale });
+    const href = routeHref(cfg, a.getAttribute("data-route"), routeParams(a), locale, { explicitLocale, fragment: a.dataset.routeFragment });
     if (href === undefined) a.removeAttribute("href");
     else a.setAttribute("href", href);
     if (href !== undefined && (a.getAttribute("href") === here || new URL(href, "https://shell.local").pathname === here)) a.setAttribute("aria-current", "page");
