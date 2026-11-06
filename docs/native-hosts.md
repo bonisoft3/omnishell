@@ -1,16 +1,27 @@
 ---
 type: concept
 title: Native hosts
-description: How a pronto app runs on Android and iOS — a headless JS engine behind native bridges, a DivKit SDUI renderer, and realworld's parity check against the web screens.
+description: How a pronto app runs on Android, iOS, and Desktop — a headless JS/Rust engine behind native bridges, deterministic DivKit and winio projection from Omnishell screen markup, and native 3D + audio presenters.
 ---
 
 # Native hosts
 
 The web terminal is a browser host: it owns the DOM, the SES compartments and
-the binding vocabulary ([the terminal](terminal.md)). On Android and iOS **a
-headless JS engine runs the app, and a declarative server-driven UI renderer
-draws it**, held to the web screens by a parity check. `android/` is the
-Android host and `ios/` the iOS one, with the same shape.
+the binding vocabulary ([the terminal](terminal.md)). On phone and desktop **a
+headless engine runs the app, and deterministic projections of `shell/screens/*.{html,css}`
+drive the native UI**:
+
+- **Phone** (`android/`, `ios/`): upstream DivKit (`com.yandex.div:div` `Div2View` on Android, `divkit-ios` `DivView` on iOS) with `DivVariableController` / `DivVariableStorage` for fast scalar updates and `div-custom` (`DivCustomContainerViewAdapter` / `DivCustomBlockFactory`) mounting Filament (`filament-android` Vulkan, iOS Metal) for `data-kinetic` 3D scenes.
+- **Desktop** (`desktop/`): Rust [`winio`](https://github.com/compio-rs/winio) (AppKit on macOS, WinUI 3 on Windows, GTK 4 / Qt 6 on Linux) mounting a Bevy `wgpu` 3D child view (`RawWindowHandle`) for `data-kinetic` scenes.
+
+## Deterministic projection from screen markup
+
+`omnishell project native <appDir>` ([`project-native.ts`](../project-native.ts)) parses an app's `shell/screens/*.{html,css}`, `shell/design.css`, and `shell/shell.yaml` once into a bound `NativeScreenIr` and lowers it deterministically to two native back-ends:
+
+1. **Phone (`projectScreenToDivKit`)**: emits a DivKit card JSON with `DivVariableController` variables for every input and `canvas[data-layer]` fast HUD slot, `div-custom` mounts for `data-kinetic="<actor>"` (`custom_type: "kinetic:<actor>"`) and `canvas[data-layer="<layer>"]` (`custom_type: "kinetic-layer:<layer>"`), and touch zone extensions (`data-touch-zone`, `data-touch-tap`), while omitting `.keys-only` nodes.
+2. **Desktop (`projectScreenToWinio` / `emitWinioRustSource`)**: emits a Rust `winio` Elm-like (`init` / `update` / `render`) widget specification (`Window`, `StackPanel`, `Label`, `Button`, `Edit`, `Slider`, `LiveRegion`, `KineticSurface`, `HudLayer`) and evaluates CSS `[data-phase="..."]` state rules while omitting `.touch-only` nodes.
+
+Because both native targets are pure functions of the vetted Omnishell screen markup, `realworld` and `apexrun` require no hand-authored per-platform UI trees or post-hoc parity diffing (`test/project-native.test.ts`).
 
 ## The headless engine
 
@@ -34,45 +45,37 @@ tree as a stream — and are handed two native bridges:
 ## The renderer
 
 Instead of HTML, the engine calls `emitUiAst(json)` with a tree in DivKit's
-server-driven UI format, and the platform renders it natively —
-[`DivKitAndroidViewRenderer`](../../../apps/realworld/android/app/src/main/kotlin/com/pronto/realworld/DivKitAndroidViewRenderer.kt)
-mounts a `Div2View` in Jetpack Compose,
-[`DivKitSwiftUIRenderer`](../../../apps/realworld/ios/Sources/RealWorld/DivKitSwiftUIRenderer.swift)
-a `DivViewProvider` in SwiftUI. An interaction comes back as a URI intent,
-`pronto://event/<ACTION>?<PARAMS>`, dispatched to the engine.
+server-driven UI format on phone (`OmnishellDivKitHost` in `android/` and `ios/`),
+or renders the projected `WinioScreenSpec` on desktop (`omnishell-winio` in `desktop/`).
+In-place scalar updates (such as 60–120 Hz HUD values) bypass JSON AST re-parsing
+via `DivVariableController` (Android), `DivVariableStorage` (iOS), and direct
+`winio` model messages (`DesktopMessage::UpdateScalar`) + orthographic HUD passes.
+An interaction comes back as a URI intent, `pronto://event/<ACTION>?<PARAMS>`,
+dispatched to the engine.
 
-`apps/truco`'s motion would map onto DivKit's primitives: phase changes onto
-`div-state` transitions run on the OS render thread, card and score movement
-onto `div-animator`, celebrations onto the Lottie extension, and continuous
-gesture physics onto a `div-custom` block mounting a native canvas inside the
-layout tree.
+For `data-kinetic="<actor>"` 3D scenes (`apps/apexrun`), DivKit mounts a
+`div-custom` view (`KineticDivCustomAdapter` on Android, `KineticDivCustomBlockFactory`
+on iOS) backed by `FilamentKineticPresenter` (Vulkan/Metal), while `winio` mounts
+a `KineticSurface` child view backed by `omnishell-bevy-presenter` (`wgpu` Metal/DX12/Vulkan),
+driven by the deterministic stage `.glb` builder (`stage_gltf.js`) and C-ABI pose
+struct (`pose_buffer.js`).
 
-## Declaring it, and holding it to the web
+## Declaring it
 
 An app opts in with `capabilities: native: true` in its program, which the
 emitter writes into `shell.yaml` beside `server:`; omitting it makes the app
-web-only. `omnishell check parity <appDir>` (`check-parity.ts`) compares each
-declared route's DivKit tree with the web screen's affordances: every input
-with the same name and input mode, every action or navigation trigger with a
-native peer. An app declaring no native target gets an advisory finding rather
-than a failure.
-
-The check is realworld's, not general. It evaluates
-`ios/bundle/realworld_bundle.js`, else `android/bundle/realworld_bundle.js`,
-unless `shell.yaml`'s `native` names a `bundle`, which the emitter never
-writes; it reaches each route by dispatching realworld's own events; a route
-the bundle did not draw falls back to static JSON (`shell/native/<screen>.json`,
-`screens/<screen>.json`); and `normalizeTarget` knows realworld's routes and
-actions by name. `test/check-parity.test.ts` runs it over realworld, and no
-app's verbs run it ([pronto's pending](../../pronto/PENDING.md#screens)).
+web-only. `omnishell project native --emit-bundle <appDir>` emits the runtime
+bundle (`realworld_bundle.js`) directly from `shell/screens/*.{html,css}`, and
+`test/project-native.test.ts` verifies that `apps/realworld` and `apps/apexrun`
+project 100% of their inputs, actions, HUD layers, and touch zones with zero
+opt-outs.
 
 ## Building and testing
 
-`just test` in `android/` or `ios/` runs that platform's suite, `./gradlew test`
-or `swift test`, through the directory's own `.vscode/tasks.json` test task. In
-`plugins/omnishell`, `.say.yaml`'s `native` rule names both, but it ties
-`builtin` at priority 0 and sorts after it by name, and `builtin`'s default
-`stop` ends the verb, so `just test` there never reaches them.
+- `deno test --config test/deno.json --allow-read test/project-native.test.ts` runs the markup projection suite.
+- `./gradlew test` in `android/` and `apps/realworld/android/` runs the Android JUnit suites.
+- `swift test` in `ios/` and `apps/realworld/ios/` runs the Swift Package suites.
+- `cargo test` in `desktop/` runs the reusable `winio`, Bevy presenter, and synth audio suites, and `cargo test` in `apps/apexrun/desktop/` runs the Apex Run GGRS rollback and headless simulation host suites.
 
 ## Rejected
 

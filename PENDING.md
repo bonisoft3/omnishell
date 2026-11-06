@@ -243,14 +243,7 @@ that binds, and `gone` releases what `populated` held.
 
 ## Native hosts
 
-**No desktop host.** A Tauri host would pair a Rust runtime with the operating
-system's own webview (WebKit on macOS, WebKitGTK on Linux, WebView2 on
-Windows), mount the web terminal unchanged, and bridge the filesystem, SQLite
-and notifications through Tauri's IPC commands, mirroring `StorageBridge` and
-`NetworkBridge`. Nothing in the tree builds one.
-
-**A parity check any native app can run**
-([native hosts](docs/native-hosts.md#declaring-it-and-holding-it-to-the-web)).
+**External `winio`, `bevy_render`, `com.yandex.div:div`, `divkit-ios`, and `filament-android` SDK bindings.** `project-native.ts`, `omnishell-winio`, `omnishell-bevy-presenter` (over `wgpu` on macOS Metal), `OmnishellDivKitHost`, and `FilamentKineticPresenter` implement the deterministic screen projection, accessibility tree, stage `.glb` instancing, and C-ABI pose/audio contracts in-tree ([[../pronto/docs/decisions/2026-11-04-kinetic-native-targets|the kinetic-native-targets record]]), while linking the external upstream UI/3D SDK distributions on Windows/Linux/Android/iOS remains pending.
 
 **The native suites under `just test` in `plugins/omnishell`**
 ([native hosts](docs/native-hosts.md#building-and-testing)).

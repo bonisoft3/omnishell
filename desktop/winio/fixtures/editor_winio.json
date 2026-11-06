@@ -1,0 +1,1212 @@
+{
+  "screen": "editor",
+  "route": "/editor",
+  "stateRules": [
+    {
+      "selector": "[data-screen=\"editor\"] .latest-line",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "latest-line",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .latest > *:not(:first-child)",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "latest",
+      "visible": false,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .latest .empty",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "empty",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .landing",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "landing",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .sheet",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "sheet",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .commit",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "commit",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .published",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "published",
+      "visible": false,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .sheet .invalid:not([hidden])",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "invalid",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .sheet .store-error:not([hidden])",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "store-error",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .invalid .need-title",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "need-title",
+      "visible": false,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .invalid .need-body",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "need-body",
+      "visible": false,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .sheet:has(input[name=\"title\"]:invalid) .need-title",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "need-title",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .sheet:has(textarea[name=\"body\"]:invalid) .need-body",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "need-body",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .skeleton",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "skeleton",
+      "visible": false,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"][data-state=\"loading\"] .skeleton",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "skeleton",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"][data-state=\"loading\"] .byline-strip",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "byline-strip",
+      "visible": false,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"][data-state=\"loading\"] .sheet",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "sheet",
+      "visible": false,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .skel-strip",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "skel-strip",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .skel-bar",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "skel-bar",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .skel-sheet",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "skel-sheet",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .skel-field",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "skel-field",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"][data-state=\"validation-error\"] .sheet .invalid",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "invalid",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"][data-state=\"success\"] .published",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "published",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .stamp",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "stamp",
+      "visible": false,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .sending",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "sending",
+      "visible": false,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"][data-state=\"success\"] .landing",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "landing",
+      "visible": false,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .latest-item[data-pending=\"true\"] .landing",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "landing",
+      "visible": false,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"][data-state=\"success\"] .stamp",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "stamp",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"][data-state=\"success\"] .sending",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "sending",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .latest-item[data-pending=\"true\"] .stamp",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "stamp",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .latest-item[data-pending=\"true\"] .sending",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "sending",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "}\n\n\n[data-screen=\"editor\"] .ready",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "ready",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"] .ready li",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "ready",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"editor\"][data-state=\"network-error\"] .offline",
+      "attr": "screen",
+      "op": "eq",
+      "value": "editor",
+      "targetClass": "offline",
+      "visible": true,
+      "negated": false
+    }
+  ],
+  "root": {
+    "id": "editor_section_1",
+    "widget": "Window",
+    "orientation": "Vertical",
+    "classes": [
+      "screen"
+    ],
+    "stateAttrs": {},
+    "children": [
+      {
+        "id": "editor_details_2",
+        "widget": "StackPanel",
+        "orientation": "Vertical",
+        "classes": [
+          "lang-picker"
+        ],
+        "stateAttrs": {},
+        "children": [
+          {
+            "id": "editor_summary_3",
+            "widget": "StackPanel",
+            "orientation": "Vertical",
+            "classes": [
+              "lang-summary",
+              "role-meta-sm"
+            ],
+            "stateAttrs": {},
+            "children": [
+              {
+                "id": "editor_span_4",
+                "widget": "Label",
+                "classes": [
+                  "lang-globe"
+                ],
+                "accessibilityLabel": "🌐",
+                "text": "🌐",
+                "stateAttrs": {},
+                "children": []
+              },
+              {
+                "id": "editor_span_5",
+                "widget": "StackPanel",
+                "orientation": "Vertical",
+                "classes": [
+                  "lang-current"
+                ],
+                "stateAttrs": {},
+                "children": [
+                  {
+                    "id": "editor_i_6",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "Bahasa Indonesia",
+                    "text": "Bahasa Indonesia",
+                    "textBinding": "Bahasa Indonesia",
+                    "stateAttrs": {
+                      "t": "id"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "editor_i_7",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "Deutsch",
+                    "text": "Deutsch",
+                    "textBinding": "Deutsch",
+                    "stateAttrs": {
+                      "t": "de"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "editor_i_8",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "English",
+                    "text": "English",
+                    "textBinding": "English",
+                    "stateAttrs": {
+                      "t": "en"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "editor_i_9",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "Español",
+                    "text": "Español",
+                    "textBinding": "Español",
+                    "stateAttrs": {
+                      "t": "es"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "editor_i_10",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "Français",
+                    "text": "Français",
+                    "textBinding": "Français",
+                    "stateAttrs": {
+                      "t": "fr"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "editor_i_11",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "Kiswahili",
+                    "text": "Kiswahili",
+                    "textBinding": "Kiswahili",
+                    "stateAttrs": {
+                      "t": "sw"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "editor_i_12",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "Português",
+                    "text": "Português",
+                    "textBinding": "Português",
+                    "stateAttrs": {
+                      "t": "pt"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "editor_i_13",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "Türkçe",
+                    "text": "Türkçe",
+                    "textBinding": "Türkçe",
+                    "stateAttrs": {
+                      "t": "tr"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "editor_i_14",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "Русский",
+                    "text": "Русский",
+                    "textBinding": "Русский",
+                    "stateAttrs": {
+                      "t": "ru"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "editor_i_15",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "اردو",
+                    "text": "اردو",
+                    "textBinding": "اردو",
+                    "stateAttrs": {
+                      "t": "ur"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "editor_i_16",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "العربية",
+                    "text": "العربية",
+                    "textBinding": "العربية",
+                    "stateAttrs": {
+                      "t": "ar"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "editor_i_17",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "हिन्दी",
+                    "text": "हिन्दी",
+                    "textBinding": "हिन्दी",
+                    "stateAttrs": {
+                      "t": "hi"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "editor_i_18",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "বাংলা",
+                    "text": "বাংলা",
+                    "textBinding": "বাংলা",
+                    "stateAttrs": {
+                      "t": "bn"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "editor_i_19",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "中文",
+                    "text": "中文",
+                    "textBinding": "中文",
+                    "stateAttrs": {
+                      "t": "zh"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "editor_i_20",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "日本語",
+                    "text": "日本語",
+                    "textBinding": "日本語",
+                    "stateAttrs": {
+                      "t": "ja"
+                    },
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "editor_nav_21",
+            "widget": "StackPanel",
+            "orientation": "Horizontal",
+            "classes": [
+              "lang-menu"
+            ],
+            "accessibilityLabel": "Language",
+            "stateAttrs": {},
+            "children": [
+              {
+                "id": "editor_a_22",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "Bahasa Indonesia",
+                "text": "Bahasa Indonesia",
+                "stateAttrs": {
+                  "locale": "id",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=editor&locale=id",
+                "children": []
+              },
+              {
+                "id": "editor_a_24",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "Deutsch",
+                "text": "Deutsch",
+                "stateAttrs": {
+                  "locale": "de",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=editor&locale=de",
+                "children": []
+              },
+              {
+                "id": "editor_a_26",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "English",
+                "text": "English",
+                "stateAttrs": {
+                  "locale": "en",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=editor&locale=en",
+                "children": []
+              },
+              {
+                "id": "editor_a_28",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "Español",
+                "text": "Español",
+                "stateAttrs": {
+                  "locale": "es",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=editor&locale=es",
+                "children": []
+              },
+              {
+                "id": "editor_a_30",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "Français",
+                "text": "Français",
+                "stateAttrs": {
+                  "locale": "fr",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=editor&locale=fr",
+                "children": []
+              },
+              {
+                "id": "editor_a_32",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "Kiswahili",
+                "text": "Kiswahili",
+                "stateAttrs": {
+                  "locale": "sw",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=editor&locale=sw",
+                "children": []
+              },
+              {
+                "id": "editor_a_34",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "Português",
+                "text": "Português",
+                "stateAttrs": {
+                  "locale": "pt",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=editor&locale=pt",
+                "children": []
+              },
+              {
+                "id": "editor_a_36",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "Türkçe",
+                "text": "Türkçe",
+                "stateAttrs": {
+                  "locale": "tr",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=editor&locale=tr",
+                "children": []
+              },
+              {
+                "id": "editor_a_38",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "Русский",
+                "text": "Русский",
+                "stateAttrs": {
+                  "locale": "ru",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=editor&locale=ru",
+                "children": []
+              },
+              {
+                "id": "editor_a_40",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "اردو",
+                "text": "اردو",
+                "stateAttrs": {
+                  "locale": "ur",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=editor&locale=ur",
+                "children": []
+              },
+              {
+                "id": "editor_a_42",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "العربية",
+                "text": "العربية",
+                "stateAttrs": {
+                  "locale": "ar",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=editor&locale=ar",
+                "children": []
+              },
+              {
+                "id": "editor_a_44",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "हिन्दी",
+                "text": "हिन्दी",
+                "stateAttrs": {
+                  "locale": "hi",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=editor&locale=hi",
+                "children": []
+              },
+              {
+                "id": "editor_a_46",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "বাংলা",
+                "text": "বাংলা",
+                "stateAttrs": {
+                  "locale": "bn",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=editor&locale=bn",
+                "children": []
+              },
+              {
+                "id": "editor_a_48",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "中文",
+                "text": "中文",
+                "stateAttrs": {
+                  "locale": "zh",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=editor&locale=zh",
+                "children": []
+              },
+              {
+                "id": "editor_a_50",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "日本語",
+                "text": "日本語",
+                "stateAttrs": {
+                  "locale": "ja",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=editor&locale=ja",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "editor_a_52",
+        "widget": "Button",
+        "classes": [
+          "back",
+          "role-meta-sm"
+        ],
+        "role": "link",
+        "accessibilityLabel": "← Community",
+        "text": "← Community",
+        "textBinding": "← Community",
+        "stateAttrs": {},
+        "actionUri": "pronto://event/NAVIGATE?screen=home",
+        "children": []
+      },
+      {
+        "id": "editor_h1_53",
+        "widget": "Label",
+        "classes": [
+          "masthead",
+          "role-body-md"
+        ],
+        "accessibilityLabel": "New Article",
+        "text": "New Article",
+        "textBinding": "New Article",
+        "stateAttrs": {},
+        "children": []
+      },
+      {
+        "id": "editor_div_54",
+        "widget": "LiveRegion",
+        "orientation": "Horizontal",
+        "classes": [
+          "byline-strip"
+        ],
+        "stateAttrs": {},
+        "liveTable": "me",
+        "children": [
+          {
+            "id": "editor_div_55",
+            "widget": "StackPanel",
+            "orientation": "Vertical",
+            "classes": [
+              "who"
+            ],
+            "stateAttrs": {},
+            "children": [
+              {
+                "id": "editor_p_56",
+                "widget": "StackPanel",
+                "orientation": "Vertical",
+                "classes": [
+                  "writing-as",
+                  "role-meta-sm"
+                ],
+                "stateAttrs": {},
+                "children": [
+                  {
+                    "id": "editor_span_57",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "Writing as",
+                    "text": "Writing as",
+                    "textBinding": "Writing as",
+                    "stateAttrs": {},
+                    "children": []
+                  },
+                  {
+                    "id": "editor_bdi_58",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "{handle}",
+                    "text": "{handle}",
+                    "textBinding": "{handle}",
+                    "stateAttrs": {},
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "id": "editor_div_59",
+                "widget": "StackPanel",
+                "orientation": "Vertical",
+                "classes": [
+                  "latest-line"
+                ],
+                "stateAttrs": {},
+                "children": [
+                  {
+                    "id": "editor_span_60",
+                    "widget": "Label",
+                    "classes": [
+                      "latest-label",
+                      "role-meta-sm"
+                    ],
+                    "accessibilityLabel": "Last published:",
+                    "text": "Last published:",
+                    "textBinding": "Last published:",
+                    "stateAttrs": {},
+                    "children": []
+                  },
+                  {
+                    "id": "editor_div_61",
+                    "widget": "LiveRegion",
+                    "orientation": "Vertical",
+                    "classes": [
+                      "latest"
+                    ],
+                    "stateAttrs": {},
+                    "liveTable": "article",
+                    "liveFilter": "author_id=eq.{id}",
+                    "children": [
+                      {
+                        "id": "editor_span_62",
+                        "widget": "StackPanel",
+                        "orientation": "Vertical",
+                        "classes": [
+                          "latest-item"
+                        ],
+                        "stateAttrs": {},
+                        "children": [
+                          {
+                            "id": "editor_a_63",
+                            "widget": "Button",
+                            "classes": [
+                              "landing"
+                            ],
+                            "role": "link",
+                            "accessibilityLabel": "{title} →",
+                            "text": "{title} →",
+                            "stateAttrs": {},
+                            "actionUri": "pronto://event/VIEW_ARTICLE?screen=article&slug=%7Bslug%7D",
+                            "children": []
+                          },
+                          {
+                            "id": "editor_span_66",
+                            "widget": "Label",
+                            "classes": [
+                              "stamp",
+                              "role-prose"
+                            ],
+                            "accessibilityLabel": "{title}",
+                            "text": "{title}",
+                            "textBinding": "{title}",
+                            "stateAttrs": {},
+                            "children": []
+                          },
+                          {
+                            "id": "editor_span_67",
+                            "widget": "Label",
+                            "classes": [
+                              "sending",
+                              "role-meta-sm"
+                            ],
+                            "accessibilityLabel": "· sending",
+                            "text": "· sending",
+                            "textBinding": "· sending",
+                            "stateAttrs": {},
+                            "children": []
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "editor_form_68",
+        "widget": "StackPanel",
+        "orientation": "Vertical",
+        "classes": [
+          "sheet"
+        ],
+        "stateAttrs": {},
+        "children": [
+          {
+            "id": "title",
+            "widget": "Edit",
+            "classes": [
+              "field",
+              "title",
+              "role-display-md"
+            ],
+            "role": "textbox",
+            "accessibilityLabel": "Title",
+            "stateAttrs": {},
+            "inputField": "title",
+            "inputKind": "text",
+            "inputPlaceholder": "Title",
+            "children": []
+          },
+          {
+            "id": "description",
+            "widget": "Edit",
+            "classes": [
+              "field",
+              "description",
+              "role-prose"
+            ],
+            "role": "textbox",
+            "accessibilityLabel": "A one-line standfirst",
+            "stateAttrs": {},
+            "inputField": "description",
+            "inputKind": "text",
+            "inputPlaceholder": "A one-line standfirst",
+            "children": []
+          },
+          {
+            "id": "body",
+            "widget": "Edit",
+            "classes": [
+              "field",
+              "body",
+              "role-prose"
+            ],
+            "role": "textbox",
+            "accessibilityLabel": "Write your piece. Markdown works: # headings, **bold**, > quotes, `code`, - lists.",
+            "stateAttrs": {},
+            "inputField": "body",
+            "inputKind": "multiline",
+            "inputPlaceholder": "Write your piece. Markdown works: # headings, **bold**, > quotes, `code`, - lists.",
+            "children": []
+          },
+          {
+            "id": "cover_url",
+            "widget": "Edit",
+            "classes": [
+              "field",
+              "cover",
+              "role-meta-sm"
+            ],
+            "role": "textbox",
+            "accessibilityLabel": "Paste a link to a cover image",
+            "stateAttrs": {},
+            "inputField": "cover_url",
+            "inputKind": "text",
+            "inputPlaceholder": "Paste a link to a cover image",
+            "children": []
+          },
+          {
+            "id": "cover_credit",
+            "widget": "Edit",
+            "classes": [
+              "field",
+              "credit",
+              "role-meta-sm"
+            ],
+            "role": "textbox",
+            "accessibilityLabel": "Who the picture belongs to (optional)",
+            "stateAttrs": {},
+            "inputField": "cover_credit",
+            "inputKind": "text",
+            "inputPlaceholder": "Who the picture belongs to (optional)",
+            "children": []
+          },
+          {
+            "id": "tags",
+            "widget": "Edit",
+            "classes": [
+              "field",
+              "tags",
+              "role-meta-sm"
+            ],
+            "role": "textbox",
+            "accessibilityLabel": "Tags, separated by spaces",
+            "stateAttrs": {},
+            "inputField": "tags",
+            "inputKind": "text",
+            "inputPlaceholder": "Tags, separated by spaces",
+            "children": []
+          },
+          {
+            "id": "editor_ul_76",
+            "widget": "StackPanel",
+            "orientation": "Vertical",
+            "classes": [
+              "ready"
+            ],
+            "accessibilityLabel": "Before you publish",
+            "stateAttrs": {},
+            "children": [
+              {
+                "id": "editor_li_77",
+                "widget": "Label",
+                "classes": [
+                  "ready-title"
+                ],
+                "accessibilityLabel": "A title",
+                "text": "A title",
+                "textBinding": "A title",
+                "stateAttrs": {},
+                "children": []
+              },
+              {
+                "id": "editor_li_78",
+                "widget": "Label",
+                "classes": [
+                  "ready-body"
+                ],
+                "accessibilityLabel": "Something written",
+                "text": "Something written",
+                "textBinding": "Something written",
+                "stateAttrs": {},
+                "children": []
+              },
+              {
+                "id": "editor_li_79",
+                "widget": "Label",
+                "classes": [
+                  "ready-desc"
+                ],
+                "accessibilityLabel": "A standfirst — it is what a reader sees in every list",
+                "text": "A standfirst — it is what a reader sees in every list",
+                "textBinding": "A standfirst — it is what a reader sees in every list",
+                "stateAttrs": {},
+                "children": []
+              },
+              {
+                "id": "editor_li_80",
+                "widget": "Label",
+                "classes": [
+                  "ready-cover"
+                ],
+                "accessibilityLabel": "A cover image — it is the first thing a reader meets in every list",
+                "text": "A cover image — it is the first thing a reader meets in every list",
+                "textBinding": "A cover image — it is the first thing a reader meets in every list",
+                "stateAttrs": {},
+                "children": []
+              },
+              {
+                "id": "editor_li_81",
+                "widget": "Label",
+                "classes": [
+                  "ready-tags"
+                ],
+                "accessibilityLabel": "A tag or two, so it can be found",
+                "text": "A tag or two, so it can be found",
+                "textBinding": "A tag or two, so it can be found",
+                "stateAttrs": {},
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "editor_div_82",
+            "widget": "StackPanel",
+            "orientation": "Vertical",
+            "classes": [
+              "commit"
+            ],
+            "stateAttrs": {},
+            "children": [
+              {
+                "id": "editor_button_83",
+                "widget": "Button",
+                "classes": [],
+                "role": "button",
+                "accessibilityLabel": "Publish",
+                "text": "Publish",
+                "textBinding": "Publish",
+                "stateAttrs": {},
+                "actionUri": "pronto://event/PUBLISH_ARTICLE",
+                "children": []
+              },
+              {
+                "id": "editor_span_84",
+                "widget": "Label",
+                "classes": [
+                  "published",
+                  "role-meta-sm"
+                ],
+                "accessibilityLabel": "Published.",
+                "text": "Published.",
+                "textBinding": "Published.",
+                "stateAttrs": {},
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "editor_p_85",
+        "widget": "Label",
+        "classes": [
+          "offline"
+        ],
+        "accessibilityLabel": "Conduit isn't answering. It keeps trying — this will fill in when it does.",
+        "text": "Conduit isn't answering. It keeps trying — this will fill in when it does.",
+        "textBinding": "Conduit isn't answering. It keeps trying — this will fill in when it does.",
+        "stateAttrs": {},
+        "children": []
+      }
+    ]
+  }
+}

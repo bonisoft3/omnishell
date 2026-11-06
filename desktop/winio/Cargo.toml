@@ -1,0 +1,5 @@
+[package]
+name = "omnishell-winio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true

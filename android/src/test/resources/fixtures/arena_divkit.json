@@ -1,0 +1,3708 @@
+{
+  "card": {
+    "log_id": "omnishell_arena",
+    "variables": [
+      {
+        "name": "hud_haze",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_drift",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_fork_dist",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_route_progress",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_score",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_timer",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_timer_dec",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_rival_gap",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_rival_fill",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_matrix_fork",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_eq",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_radar",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_rival_split",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_gforce",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_slipstream",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_draft_status",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_gear",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_rpm",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_tacho",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_velo_mode",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_speed",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_nitro_text",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_nitro_bar",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "hud_effects",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "input_volume",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "input_join",
+        "type": "string",
+        "value": ""
+      },
+      {
+        "name": "kinetic_race_seed",
+        "type": "string",
+        "value": "{seed}"
+      },
+      {
+        "name": "kinetic_race_phase",
+        "type": "string",
+        "value": "{phase}"
+      },
+      {
+        "name": "kinetic_race_mode",
+        "type": "string",
+        "value": "{mode}"
+      },
+      {
+        "name": "kinetic_race_input",
+        "type": "string",
+        "value": "{input}"
+      },
+      {
+        "name": "kinetic_race_clock",
+        "type": "string",
+        "value": "{clock}"
+      },
+      {
+        "name": "kinetic_race_seat",
+        "type": "string",
+        "value": "{seat}"
+      },
+      {
+        "name": "kinetic_race_stage",
+        "type": "string",
+        "value": "{duel_stage}"
+      },
+      {
+        "name": "kinetic_race_peer",
+        "type": "string",
+        "value": "{peer}"
+      },
+      {
+        "name": "kinetic_race_replay",
+        "type": "string",
+        "value": "{replay}"
+      },
+      {
+        "name": "kinetic_race_station",
+        "type": "string",
+        "value": "{station}"
+      },
+      {
+        "name": "kinetic_race_muted",
+        "type": "string",
+        "value": "{muted}"
+      },
+      {
+        "name": "kinetic_race_volume",
+        "type": "string",
+        "value": "{volume}"
+      }
+    ],
+    "states": [
+      {
+        "state_id": 0,
+        "div": {
+          "type": "container",
+          "id": "arena_div_1",
+          "orientation": "vertical",
+          "items": [
+            {
+              "type": "container",
+              "id": "arena_div_2",
+              "orientation": "vertical",
+              "items": [
+                {
+                  "type": "custom",
+                  "id": "kinetic_race",
+                  "custom_type": "kinetic:race",
+                  "width": {
+                    "type": "match_parent"
+                  },
+                  "height": {
+                    "type": "match_parent"
+                  },
+                  "custom_props": {
+                    "actor": "race",
+                    "props": {
+                      "seed": "{seed}",
+                      "phase": "{phase}",
+                      "mode": "{mode}",
+                      "input": "{input}",
+                      "clock": "{clock}",
+                      "seat": "{seat}",
+                      "stage": "{duel_stage}",
+                      "peer": "{peer}",
+                      "replay": "{replay}",
+                      "station": "{station}",
+                      "muted": "{muted}",
+                      "volume": "{volume}"
+                    },
+                    "events": {
+                      "milestone": "run",
+                      "menu": "run",
+                      "describe": "run",
+                      "replayed": "run"
+                    }
+                  }
+                },
+                {
+                  "type": "text",
+                  "id": "arena_p_4",
+                  "text": "APEX RUN · LOADING",
+                  "font_size": 15,
+                  "font_weight": "regular",
+                  "font_family": "sans-serif",
+                  "text_color": "#1E1A17"
+                },
+                {
+                  "type": "custom",
+                  "id": "layer_haze",
+                  "custom_type": "kinetic-layer:haze",
+                  "width": {
+                    "type": "match_parent"
+                  },
+                  "height": {
+                    "type": "wrap_content"
+                  },
+                  "custom_props": {
+                    "layer": "haze",
+                    "variable": "@{hud_haze}",
+                    "fill": true
+                  }
+                },
+                {
+                  "type": "container",
+                  "id": "arena_div_6",
+                  "orientation": "vertical",
+                  "items": [
+                    {
+                      "type": "container",
+                      "id": "arena_header_7",
+                      "orientation": "horizontal",
+                      "items": [
+                        {
+                          "type": "container",
+                          "id": "arena_div_8",
+                          "orientation": "vertical",
+                          "items": [
+                            {
+                              "type": "container",
+                              "id": "arena_div_9",
+                              "orientation": "horizontal",
+                              "items": [
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_10",
+                                  "orientation": "vertical",
+                                  "items": [
+                                    {
+                                      "type": "container",
+                                      "id": "arena_span_11",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "text",
+                                          "id": "arena_span_12",
+                                          "text": "1",
+                                          "font_size": 15,
+                                          "font_weight": "regular",
+                                          "font_family": "sans-serif",
+                                          "text_color": "#1E1A17"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_13",
+                                  "orientation": "vertical",
+                                  "items": [
+                                    {
+                                      "type": "container",
+                                      "id": "arena_span_14",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "custom",
+                                          "id": "layer_drift",
+                                          "custom_type": "kinetic-layer:drift",
+                                          "width": {
+                                            "type": "fixed",
+                                            "value": 134
+                                          },
+                                          "height": {
+                                            "type": "wrap_content"
+                                          },
+                                          "custom_props": {
+                                            "layer": "drift",
+                                            "variable": "@{hud_drift}",
+                                            "fill": false
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "arena_span_16",
+                                  "text": "CHECKPOINT A-1",
+                                  "font_size": 15,
+                                  "font_weight": "regular",
+                                  "font_family": "sans-serif",
+                                  "text_color": "#1E1A17"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "container",
+                              "id": "arena_div_17",
+                              "orientation": "vertical",
+                              "items": [
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_18",
+                                  "orientation": "horizontal",
+                                  "items": [
+                                    {
+                                      "type": "text",
+                                      "id": "arena_h1_19",
+                                      "text": "COCONUT BEACH",
+                                      "font_size": 22,
+                                      "font_weight": "bold",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#1E1A17"
+                                    },
+                                    {
+                                      "type": "container",
+                                      "id": "arena_span_20",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "custom",
+                                          "id": "layer_fork-dist",
+                                          "custom_type": "kinetic-layer:fork-dist",
+                                          "width": {
+                                            "type": "fixed",
+                                            "value": 143
+                                          },
+                                          "height": {
+                                            "type": "wrap_content"
+                                          },
+                                          "custom_props": {
+                                            "layer": "fork-dist",
+                                            "variable": "@{hud_fork_dist}",
+                                            "fill": false
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_22",
+                                  "orientation": "vertical",
+                                  "items": [
+                                    {
+                                      "type": "custom",
+                                      "id": "layer_route-progress",
+                                      "custom_type": "kinetic-layer:route-progress",
+                                      "width": {
+                                        "type": "match_parent"
+                                      },
+                                      "height": {
+                                        "type": "wrap_content"
+                                      },
+                                      "custom_props": {
+                                        "layer": "route-progress",
+                                        "variable": "@{hud_route_progress}",
+                                        "fill": true
+                                      }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_24",
+                                  "orientation": "horizontal",
+                                  "items": [
+                                    {
+                                      "type": "text",
+                                      "id": "arena_span_25",
+                                      "text": "SCORE",
+                                      "font_size": 12,
+                                      "font_weight": "regular",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#1E1A17"
+                                    },
+                                    {
+                                      "type": "container",
+                                      "id": "arena_div_26",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "custom",
+                                          "id": "layer_score",
+                                          "custom_type": "kinetic-layer:score",
+                                          "width": {
+                                            "type": "fixed",
+                                            "value": 70
+                                          },
+                                          "height": {
+                                            "type": "wrap_content"
+                                          },
+                                          "custom_props": {
+                                            "layer": "score",
+                                            "variable": "@{hud_score}",
+                                            "fill": false
+                                          }
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "arena_span_28",
+                                          "text": "PTS",
+                                          "font_size": 15,
+                                          "font_weight": "regular",
+                                          "font_family": "sans-serif",
+                                          "text_color": "#1E1A17"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "container",
+                          "id": "arena_div_29",
+                          "orientation": "vertical",
+                          "items": [
+                            {
+                              "type": "container",
+                              "id": "arena_div_30",
+                              "orientation": "vertical",
+                              "items": [
+                                {
+                                  "type": "text",
+                                  "id": "arena_span_31",
+                                  "text": "REMAINING TIME",
+                                  "font_size": 12,
+                                  "font_weight": "regular",
+                                  "font_family": "sans-serif",
+                                  "text_color": "#1E1A17"
+                                },
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_32",
+                                  "orientation": "vertical",
+                                  "items": [
+                                    {
+                                      "type": "container",
+                                      "id": "arena_span_33",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "custom",
+                                          "id": "layer_timer",
+                                          "custom_type": "kinetic-layer:timer",
+                                          "width": {
+                                            "type": "fixed",
+                                            "value": 22
+                                          },
+                                          "height": {
+                                            "type": "wrap_content"
+                                          },
+                                          "custom_props": {
+                                            "layer": "timer",
+                                            "variable": "@{hud_timer}",
+                                            "fill": false
+                                          }
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "container",
+                                      "id": "arena_span_35",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "custom",
+                                          "id": "layer_timer-dec",
+                                          "custom_type": "kinetic-layer:timer-dec",
+                                          "width": {
+                                            "type": "fixed",
+                                            "value": 15
+                                          },
+                                          "height": {
+                                            "type": "wrap_content"
+                                          },
+                                          "custom_props": {
+                                            "layer": "timer-dec",
+                                            "variable": "@{hud_timer_dec}",
+                                            "fill": false
+                                          }
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "arena_span_37",
+                                      "text": "SEC",
+                                      "font_size": 15,
+                                      "font_weight": "regular",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#1E1A17"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_38",
+                                  "orientation": "vertical",
+                                  "items": [
+                                    {
+                                      "type": "text",
+                                      "id": "arena_span_40",
+                                      "text": "TIMER ACTIVE",
+                                      "font_size": 15,
+                                      "font_weight": "regular",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#1E1A17"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "container",
+                              "id": "arena_div_41",
+                              "orientation": "vertical",
+                              "items": [
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_42",
+                                  "orientation": "horizontal",
+                                  "items": [
+                                    {
+                                      "type": "text",
+                                      "id": "arena_span_43",
+                                      "text": "RIVAL · STAGE 1",
+                                      "font_size": 15,
+                                      "font_weight": "regular",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#1E1A17"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "arena_span_44",
+                                      "text": "+1,000 IF PASSED",
+                                      "font_size": 15,
+                                      "font_weight": "regular",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#1E1A17"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_45",
+                                  "orientation": "vertical",
+                                  "items": [
+                                    {
+                                      "type": "custom",
+                                      "id": "layer_rival-gap",
+                                      "custom_type": "kinetic-layer:rival-gap",
+                                      "width": {
+                                        "type": "match_parent"
+                                      },
+                                      "height": {
+                                        "type": "wrap_content"
+                                      },
+                                      "custom_props": {
+                                        "layer": "rival-gap",
+                                        "variable": "@{hud_rival_gap}",
+                                        "fill": false
+                                      }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_47",
+                                  "orientation": "horizontal",
+                                  "items": [
+                                    {
+                                      "type": "custom",
+                                      "id": "layer_rival-fill",
+                                      "custom_type": "kinetic-layer:rival-fill",
+                                      "width": {
+                                        "type": "match_parent"
+                                      },
+                                      "height": {
+                                        "type": "wrap_content"
+                                      },
+                                      "custom_props": {
+                                        "layer": "rival-fill",
+                                        "variable": "@{hud_rival_fill}",
+                                        "fill": true
+                                      }
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "container",
+                          "id": "arena_div_49",
+                          "orientation": "vertical",
+                          "items": [
+                            {
+                              "type": "container",
+                              "id": "arena_div_50",
+                              "orientation": "vertical",
+                              "items": [
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_51",
+                                  "orientation": "horizontal",
+                                  "items": [
+                                    {
+                                      "type": "container",
+                                      "id": "arena_div_52",
+                                      "orientation": "horizontal",
+                                      "items": [
+                                        {
+                                          "type": "text",
+                                          "id": "arena_span_54",
+                                          "text": "SEGA ROUTE MATRIX",
+                                          "font_size": 22,
+                                          "font_weight": "bold",
+                                          "font_family": "sans-serif",
+                                          "text_color": "#1E1A17"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "container",
+                                      "id": "arena_span_55",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "custom",
+                                          "id": "layer_matrix-fork",
+                                          "custom_type": "kinetic-layer:matrix-fork",
+                                          "width": {
+                                            "type": "fixed",
+                                            "value": 185
+                                          },
+                                          "height": {
+                                            "type": "wrap_content"
+                                          },
+                                          "custom_props": {
+                                            "layer": "matrix-fork",
+                                            "variable": "@{hud_matrix_fork}",
+                                            "fill": false
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_57",
+                                  "orientation": "vertical",
+                                  "items": [
+                                    {
+                                      "type": "container",
+                                      "id": "arena_div_58",
+                                      "orientation": "horizontal",
+                                      "items": [
+                                        {
+                                          "type": "container",
+                                          "id": "arena_div_59",
+                                          "orientation": "vertical",
+                                          "items": [
+                                            {
+                                              "type": "container",
+                                              "id": "arena_span_60",
+                                              "orientation": "vertical",
+                                              "items": [
+                                                {
+                                                  "type": "text",
+                                                  "id": "arena_span_61",
+                                                  "text": "DESERT CANYONS",
+                                                  "font_size": 15,
+                                                  "font_weight": "regular",
+                                                  "font_family": "sans-serif",
+                                                  "text_color": "#1E1A17"
+                                                },
+                                                {
+                                                  "type": "container",
+                                                  "id": "arena_span_62",
+                                                  "orientation": "vertical",
+                                                  "items": [
+                                                    {
+                                                      "type": "text",
+                                                      "id": "arena_span_63",
+                                                      "text": "2",
+                                                      "font_size": 15,
+                                                      "font_weight": "regular",
+                                                      "font_family": "sans-serif",
+                                                      "text_color": "#1E1A17"
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "arena_span_64",
+                                              "text": "🏁 [FINAL DESTINATION]",
+                                              "font_size": 15,
+                                              "font_weight": "regular",
+                                              "font_family": "sans-serif",
+                                              "text_color": "#1E1A17"
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "container",
+                                          "id": "arena_div_65",
+                                          "orientation": "vertical",
+                                          "items": [
+                                            {
+                                              "type": "container",
+                                              "id": "arena_span_66",
+                                              "orientation": "vertical",
+                                              "items": [
+                                                {
+                                                  "type": "text",
+                                                  "id": "arena_span_67",
+                                                  "text": "GATEWAY PASS",
+                                                  "font_size": 15,
+                                                  "font_weight": "regular",
+                                                  "font_family": "sans-serif",
+                                                  "text_color": "#1E1A17"
+                                                },
+                                                {
+                                                  "type": "container",
+                                                  "id": "arena_span_68",
+                                                  "orientation": "vertical",
+                                                  "items": [
+                                                    {
+                                                      "type": "text",
+                                                      "id": "arena_span_69",
+                                                      "text": "2",
+                                                      "font_size": 15,
+                                                      "font_weight": "regular",
+                                                      "font_family": "sans-serif",
+                                                      "text_color": "#1E1A17"
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "arena_span_70",
+                                              "text": "GOAL AHEAD 🏁",
+                                              "font_size": 15,
+                                              "font_weight": "regular",
+                                              "font_family": "sans-serif",
+                                              "text_color": "#1E1A17"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "container",
+                              "id": "arena_div_71",
+                              "orientation": "vertical",
+                              "items": [
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_72",
+                                  "orientation": "vertical",
+                                  "items": [
+                                    {
+                                      "type": "container",
+                                      "id": "arena_div_73",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "custom",
+                                          "id": "layer_eq",
+                                          "custom_type": "kinetic-layer:eq",
+                                          "width": {
+                                            "type": "match_parent"
+                                          },
+                                          "height": {
+                                            "type": "wrap_content"
+                                          },
+                                          "custom_props": {
+                                            "layer": "eq",
+                                            "variable": "@{hud_eq}",
+                                            "fill": false
+                                          }
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "container",
+                                      "id": "arena_div_75",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "container",
+                                          "id": "arena_div_76",
+                                          "orientation": "vertical",
+                                          "items": [
+                                            {
+                                              "type": "container",
+                                              "id": "arena_span_77",
+                                              "orientation": "vertical",
+                                              "items": [
+                                                {
+                                                  "type": "text",
+                                                  "id": "arena_span_78",
+                                                  "text": "FM 88.5",
+                                                  "font_size": 15,
+                                                  "font_weight": "regular",
+                                                  "font_family": "sans-serif",
+                                                  "text_color": "#1E1A17"
+                                                },
+                                                {
+                                                  "type": "text",
+                                                  "id": "arena_span_79",
+                                                  "text": "FM 92.1",
+                                                  "font_size": 15,
+                                                  "font_weight": "regular",
+                                                  "font_family": "sans-serif",
+                                                  "text_color": "#1E1A17"
+                                                },
+                                                {
+                                                  "type": "text",
+                                                  "id": "arena_span_80",
+                                                  "text": "FM 97.3",
+                                                  "font_size": 15,
+                                                  "font_weight": "regular",
+                                                  "font_family": "sans-serif",
+                                                  "text_color": "#1E1A17"
+                                                },
+                                                {
+                                                  "type": "text",
+                                                  "id": "arena_span_81",
+                                                  "text": "FM --.-",
+                                                  "font_size": 15,
+                                                  "font_weight": "regular",
+                                                  "font_family": "sans-serif",
+                                                  "text_color": "#1E1A17"
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "container",
+                                          "id": "arena_div_82",
+                                          "orientation": "vertical",
+                                          "items": [
+                                            {
+                                              "type": "text",
+                                              "id": "arena_span_83",
+                                              "text": "Palm Drive",
+                                              "font_size": 15,
+                                              "font_weight": "regular",
+                                              "font_family": "sans-serif",
+                                              "text_color": "#1E1A17"
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "arena_span_84",
+                                              "text": "Tidal Breeze",
+                                              "font_size": 15,
+                                              "font_weight": "regular",
+                                              "font_family": "sans-serif",
+                                              "text_color": "#1E1A17"
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "arena_span_85",
+                                              "text": "Neon Surf",
+                                              "font_size": 15,
+                                              "font_weight": "regular",
+                                              "font_family": "sans-serif",
+                                              "text_color": "#1E1A17"
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "arena_span_86",
+                                              "text": "RADIO OFF",
+                                              "font_size": 15,
+                                              "font_weight": "regular",
+                                              "font_family": "sans-serif",
+                                              "text_color": "#1E1A17"
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "container",
+                                          "id": "arena_div_87",
+                                          "orientation": "vertical",
+                                          "items": [
+                                            {
+                                              "type": "text",
+                                              "id": "arena_span_88",
+                                              "text": "synth samba",
+                                              "font_size": 15,
+                                              "font_weight": "regular",
+                                              "font_family": "sans-serif",
+                                              "text_color": "#1E1A17"
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "arena_span_89",
+                                              "text": "jazz fusion",
+                                              "font_size": 15,
+                                              "font_weight": "regular",
+                                              "font_family": "sans-serif",
+                                              "text_color": "#1E1A17"
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "arena_span_90",
+                                              "text": "synthwave",
+                                              "font_size": 15,
+                                              "font_weight": "regular",
+                                              "font_family": "sans-serif",
+                                              "text_color": "#1E1A17"
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "arena_span_91",
+                                              "text": "ENGINE ONLY",
+                                              "font_size": 15,
+                                              "font_weight": "regular",
+                                              "font_family": "sans-serif",
+                                              "text_color": "#1E1A17"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_92",
+                                  "orientation": "horizontal",
+                                  "items": [
+                                    {
+                                      "type": "text",
+                                      "id": "stk-radio-skip",
+                                      "text": "NEXT ›",
+                                      "font_size": 15,
+                                      "font_weight": "bold",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#C2410C",
+                                      "actions": [
+                                        {
+                                          "log_id": "stk-radio-skip",
+                                          "url": "pronto://event/CLICK?handler=run&id=stk-radio-skip"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "stk-radio-mute",
+                                      "text": "MUTE",
+                                      "font_size": 15,
+                                      "font_weight": "bold",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#C2410C",
+                                      "actions": [
+                                        {
+                                          "log_id": "stk-radio-mute",
+                                          "url": "pronto://event/CLICK?handler=run&id=stk-radio-mute"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "container",
+                      "id": "arena_footer_98",
+                      "orientation": "horizontal",
+                      "items": [
+                        {
+                          "type": "container",
+                          "id": "arena_div_99",
+                          "orientation": "vertical",
+                          "items": [
+                            {
+                              "type": "container",
+                              "id": "arena_div_100",
+                              "orientation": "vertical",
+                              "items": [
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_101",
+                                  "orientation": "horizontal",
+                                  "items": [
+                                    {
+                                      "type": "text",
+                                      "id": "arena_span_102",
+                                      "text": "HIGHWAY TELEMETRY",
+                                      "font_size": 22,
+                                      "font_weight": "bold",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#1E1A17"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "arena_span_103",
+                                      "text": "LIVELINK 60 FPS",
+                                      "font_size": 15,
+                                      "font_weight": "regular",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#1E1A17"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_104",
+                                  "orientation": "horizontal",
+                                  "items": [
+                                    {
+                                      "type": "container",
+                                      "id": "arena_div_105",
+                                      "orientation": "horizontal",
+                                      "items": [
+                                        {
+                                          "type": "container",
+                                          "id": "arena_span_108",
+                                          "orientation": "vertical",
+                                          "items": [
+                                            {
+                                              "type": "custom",
+                                              "id": "layer_radar",
+                                              "custom_type": "kinetic-layer:radar",
+                                              "width": {
+                                                "type": "fixed",
+                                                "value": 168
+                                              },
+                                              "height": {
+                                                "type": "wrap_content"
+                                              },
+                                              "custom_props": {
+                                                "layer": "radar",
+                                                "variable": "@{hud_radar}",
+                                                "fill": false
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "container",
+                                      "id": "arena_div_110",
+                                      "orientation": "horizontal",
+                                      "items": [
+                                        {
+                                          "type": "text",
+                                          "id": "arena_span_111",
+                                          "text": "RIVAL SPLIT",
+                                          "font_size": 15,
+                                          "font_weight": "regular",
+                                          "font_family": "sans-serif",
+                                          "text_color": "#1E1A17"
+                                        },
+                                        {
+                                          "type": "container",
+                                          "id": "arena_span_112",
+                                          "orientation": "vertical",
+                                          "items": [
+                                            {
+                                              "type": "custom",
+                                              "id": "layer_rival-split",
+                                              "custom_type": "kinetic-layer:rival-split",
+                                              "width": {
+                                                "type": "fixed",
+                                                "value": 109
+                                              },
+                                              "height": {
+                                                "type": "wrap_content"
+                                              },
+                                              "custom_props": {
+                                                "layer": "rival-split",
+                                                "variable": "@{hud_rival_split}",
+                                                "fill": false
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "container",
+                                      "id": "arena_div_114",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "container",
+                                          "id": "arena_div_115",
+                                          "orientation": "vertical",
+                                          "items": [
+                                            {
+                                              "type": "text",
+                                              "id": "arena_span_116",
+                                              "text": "LATERAL G-FORCE",
+                                              "font_size": 12,
+                                              "font_weight": "regular",
+                                              "font_family": "sans-serif",
+                                              "text_color": "#1E1A17"
+                                            },
+                                            {
+                                              "type": "container",
+                                              "id": "arena_span_117",
+                                              "orientation": "vertical",
+                                              "items": [
+                                                {
+                                                  "type": "custom",
+                                                  "id": "layer_gforce",
+                                                  "custom_type": "kinetic-layer:gforce",
+                                                  "width": {
+                                                    "type": "fixed",
+                                                    "value": 50
+                                                  },
+                                                  "height": {
+                                                    "type": "wrap_content"
+                                                  },
+                                                  "custom_props": {
+                                                    "layer": "gforce",
+                                                    "variable": "@{hud_gforce}",
+                                                    "fill": false
+                                                  }
+                                                },
+                                                {
+                                                  "type": "text",
+                                                  "id": "arena_span_119",
+                                                  "text": "G",
+                                                  "font_size": 15,
+                                                  "font_weight": "regular",
+                                                  "font_family": "sans-serif",
+                                                  "text_color": "#1E1A17"
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "container",
+                                          "id": "arena_div_120",
+                                          "orientation": "vertical",
+                                          "items": [
+                                            {
+                                              "type": "text",
+                                              "id": "arena_span_121",
+                                              "text": "SLIPSTREAM GAIN",
+                                              "font_size": 12,
+                                              "font_weight": "regular",
+                                              "font_family": "sans-serif",
+                                              "text_color": "#1E1A17"
+                                            },
+                                            {
+                                              "type": "container",
+                                              "id": "arena_span_122",
+                                              "orientation": "vertical",
+                                              "items": [
+                                                {
+                                                  "type": "custom",
+                                                  "id": "layer_slipstream",
+                                                  "custom_type": "kinetic-layer:slipstream",
+                                                  "width": {
+                                                    "type": "fixed",
+                                                    "value": 42
+                                                  },
+                                                  "height": {
+                                                    "type": "wrap_content"
+                                                  },
+                                                  "custom_props": {
+                                                    "layer": "slipstream",
+                                                    "variable": "@{hud_slipstream}",
+                                                    "fill": false
+                                                  }
+                                                },
+                                                {
+                                                  "type": "text",
+                                                  "id": "arena_span_124",
+                                                  "text": "KM/H",
+                                                  "font_size": 15,
+                                                  "font_weight": "regular",
+                                                  "font_family": "sans-serif",
+                                                  "text_color": "#1E1A17"
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "container",
+                                      "id": "arena_div_125",
+                                      "orientation": "horizontal",
+                                      "items": [
+                                        {
+                                          "type": "container",
+                                          "id": "arena_span_126",
+                                          "orientation": "vertical",
+                                          "items": [
+                                            {
+                                              "type": "custom",
+                                              "id": "layer_draft-status",
+                                              "custom_type": "kinetic-layer:draft-status",
+                                              "width": {
+                                                "type": "fixed",
+                                                "value": 202
+                                              },
+                                              "height": {
+                                                "type": "wrap_content"
+                                              },
+                                              "custom_props": {
+                                                "layer": "draft-status",
+                                                "variable": "@{hud_draft_status}",
+                                                "fill": false
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "container",
+                          "id": "arena_div_135",
+                          "orientation": "vertical",
+                          "items": [
+                            {
+                              "type": "container",
+                              "id": "arena_div_136",
+                              "orientation": "vertical",
+                              "items": [
+                                {
+                                  "type": "container",
+                                  "id": "arena_span_137",
+                                  "orientation": "vertical",
+                                  "items": [
+                                    {
+                                      "type": "text",
+                                      "id": "arena_strong_138",
+                                      "text": "DRY ASPHALT",
+                                      "font_size": 15,
+                                      "font_weight": "bold",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#1E1A17"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "container",
+                                  "id": "arena_span_140",
+                                  "orientation": "vertical",
+                                  "items": [
+                                    {
+                                      "type": "text",
+                                      "id": "arena_strong_141",
+                                      "text": "100%",
+                                      "font_size": 15,
+                                      "font_weight": "bold",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#1E1A17"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "container",
+                                  "id": "arena_span_143",
+                                  "orientation": "vertical",
+                                  "items": [
+                                    {
+                                      "type": "text",
+                                      "id": "arena_strong_144",
+                                      "text": "SUNSET",
+                                      "font_size": 15,
+                                      "font_weight": "bold",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#1E1A17"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "container",
+                          "id": "arena_div_145",
+                          "orientation": "vertical",
+                          "items": [
+                            {
+                              "type": "container",
+                              "id": "arena_div_146",
+                              "orientation": "vertical",
+                              "items": [
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_147",
+                                  "orientation": "horizontal",
+                                  "items": [
+                                    {
+                                      "type": "text",
+                                      "id": "arena_span_148",
+                                      "text": "TRANSMISSION",
+                                      "font_size": 12,
+                                      "font_weight": "regular",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#1E1A17"
+                                    },
+                                    {
+                                      "type": "container",
+                                      "id": "arena_div_149",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "custom",
+                                          "id": "layer_gear",
+                                          "custom_type": "kinetic-layer:gear",
+                                          "width": {
+                                            "type": "match_parent"
+                                          },
+                                          "height": {
+                                            "type": "wrap_content"
+                                          },
+                                          "custom_props": {
+                                            "layer": "gear",
+                                            "variable": "@{hud_gear}",
+                                            "fill": false
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_151",
+                                  "orientation": "vertical",
+                                  "items": [
+                                    {
+                                      "type": "container",
+                                      "id": "arena_div_152",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "text",
+                                          "id": "arena_span_153",
+                                          "text": "TACHOMETER",
+                                          "font_size": 15,
+                                          "font_weight": "regular",
+                                          "font_family": "sans-serif",
+                                          "text_color": "#1E1A17"
+                                        },
+                                        {
+                                          "type": "container",
+                                          "id": "arena_span_154",
+                                          "orientation": "vertical",
+                                          "items": [
+                                            {
+                                              "type": "custom",
+                                              "id": "layer_rpm",
+                                              "custom_type": "kinetic-layer:rpm",
+                                              "width": {
+                                                "type": "fixed",
+                                                "value": 94
+                                              },
+                                              "height": {
+                                                "type": "wrap_content"
+                                              },
+                                              "custom_props": {
+                                                "layer": "rpm",
+                                                "variable": "@{hud_rpm}",
+                                                "fill": false
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "container",
+                                      "id": "arena_div_156",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "custom",
+                                          "id": "layer_tacho",
+                                          "custom_type": "kinetic-layer:tacho",
+                                          "width": {
+                                            "type": "match_parent"
+                                          },
+                                          "height": {
+                                            "type": "wrap_content"
+                                          },
+                                          "custom_props": {
+                                            "layer": "tacho",
+                                            "variable": "@{hud_tacho}",
+                                            "fill": true
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_158",
+                                  "orientation": "horizontal",
+                                  "items": [
+                                    {
+                                      "type": "container",
+                                      "id": "arena_div_159",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "text",
+                                          "id": "arena_span_160",
+                                          "text": "VELOCITY",
+                                          "font_size": 12,
+                                          "font_weight": "regular",
+                                          "font_family": "sans-serif",
+                                          "text_color": "#1E1A17"
+                                        },
+                                        {
+                                          "type": "container",
+                                          "id": "arena_span_161",
+                                          "orientation": "vertical",
+                                          "items": [
+                                            {
+                                              "type": "custom",
+                                              "id": "layer_velo-mode",
+                                              "custom_type": "kinetic-layer:velo-mode",
+                                              "width": {
+                                                "type": "fixed",
+                                                "value": 134
+                                              },
+                                              "height": {
+                                                "type": "wrap_content"
+                                              },
+                                              "custom_props": {
+                                                "layer": "velo-mode",
+                                                "variable": "@{hud_velo_mode}",
+                                                "fill": false
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "container",
+                                      "id": "arena_div_163",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "container",
+                                          "id": "arena_span_164",
+                                          "orientation": "vertical",
+                                          "items": [
+                                            {
+                                              "type": "custom",
+                                              "id": "layer_speed",
+                                              "custom_type": "kinetic-layer:speed",
+                                              "width": {
+                                                "type": "fixed",
+                                                "value": 27
+                                              },
+                                              "height": {
+                                                "type": "wrap_content"
+                                              },
+                                              "custom_props": {
+                                                "layer": "speed",
+                                                "variable": "@{hud_speed}",
+                                                "fill": false
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "arena_span_166",
+                                          "text": "KM/H",
+                                          "font_size": 15,
+                                          "font_weight": "regular",
+                                          "font_family": "sans-serif",
+                                          "text_color": "#1E1A17"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_167",
+                                  "orientation": "horizontal",
+                                  "items": [
+                                    {
+                                      "type": "container",
+                                      "id": "arena_span_168",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "text",
+                                          "id": "arena_strong_169",
+                                          "text": "315 KM/H",
+                                          "font_size": 15,
+                                          "font_weight": "bold",
+                                          "font_family": "sans-serif",
+                                          "text_color": "#1E1A17"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "container",
+                                      "id": "arena_span_170",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "custom",
+                                          "id": "layer_nitro-text",
+                                          "custom_type": "kinetic-layer:nitro-text",
+                                          "width": {
+                                            "type": "fixed",
+                                            "value": 77
+                                          },
+                                          "height": {
+                                            "type": "wrap_content"
+                                          },
+                                          "custom_props": {
+                                            "layer": "nitro-text",
+                                            "variable": "@{hud_nitro_text}",
+                                            "fill": false
+                                          }
+                                        },
+                                        {
+                                          "type": "container",
+                                          "id": "arena_span_172",
+                                          "orientation": "horizontal",
+                                          "items": [
+                                            {
+                                              "type": "custom",
+                                              "id": "layer_nitro-bar",
+                                              "custom_type": "kinetic-layer:nitro-bar",
+                                              "width": {
+                                                "type": "match_parent"
+                                              },
+                                              "height": {
+                                                "type": "wrap_content"
+                                              },
+                                              "custom_props": {
+                                                "layer": "nitro-bar",
+                                                "variable": "@{hud_nitro_bar}",
+                                                "fill": true
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "custom",
+                  "id": "layer_effects",
+                  "custom_type": "kinetic-layer:effects",
+                  "width": {
+                    "type": "match_parent"
+                  },
+                  "height": {
+                    "type": "wrap_content"
+                  },
+                  "custom_props": {
+                    "layer": "effects",
+                    "variable": "@{hud_effects}",
+                    "fill": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "id": "arena_p_175",
+                  "text": "LOADING THE ROAD AHEAD",
+                  "font_size": 15,
+                  "font_weight": "regular",
+                  "font_family": "sans-serif",
+                  "text_color": "#1E1A17"
+                },
+                {
+                  "type": "text",
+                  "id": "arena_p_176",
+                  "text": "CONNECTING TO RACER…",
+                  "font_size": 15,
+                  "font_weight": "regular",
+                  "font_family": "sans-serif",
+                  "text_color": "#1E1A17"
+                },
+                {
+                  "type": "container",
+                  "id": "arena_div_177",
+                  "orientation": "vertical",
+                  "items": [
+                    {
+                      "type": "container",
+                      "id": "arena_div_178",
+                      "orientation": "vertical",
+                      "items": [
+                        {
+                          "type": "container",
+                          "id": "arena_div_179",
+                          "orientation": "horizontal",
+                          "items": [
+                            {
+                              "type": "text",
+                              "id": "arena_span_180",
+                              "text": "◀",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17",
+                              "actions": [
+                                {
+                                  "log_id": "touch_drive",
+                                  "url": "pronto://touch/drive%20left?tap=0"
+                                }
+                              ],
+                              "extension_props": {
+                                "touch_zone": "drive left",
+                                "touch_tap": false,
+                                "seat": 1
+                              }
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_181",
+                              "text": "span",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17",
+                              "actions": [
+                                {
+                                  "log_id": "touch_drive",
+                                  "url": "pronto://touch/drive?tap=0"
+                                }
+                              ],
+                              "extension_props": {
+                                "touch_zone": "drive",
+                                "touch_tap": false,
+                                "seat": 1
+                              }
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_182",
+                              "text": "▶",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17",
+                              "actions": [
+                                {
+                                  "log_id": "touch_drive",
+                                  "url": "pronto://touch/drive%20right?tap=0"
+                                }
+                              ],
+                              "extension_props": {
+                                "touch_zone": "drive right",
+                                "touch_tap": false,
+                                "seat": 1
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "type": "container",
+                          "id": "arena_div_183",
+                          "orientation": "horizontal",
+                          "items": [
+                            {
+                              "type": "text",
+                              "id": "arena_span_184",
+                              "text": "NITRO",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17",
+                              "actions": [
+                                {
+                                  "log_id": "touch_nitro",
+                                  "url": "pronto://touch/nitro?tap=0"
+                                }
+                              ],
+                              "extension_props": {
+                                "touch_zone": "nitro",
+                                "touch_tap": false,
+                                "seat": 1
+                              }
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_185",
+                              "text": "BRAKE",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17",
+                              "actions": [
+                                {
+                                  "log_id": "touch_brake",
+                                  "url": "pronto://touch/brake?tap=0"
+                                }
+                              ],
+                              "extension_props": {
+                                "touch_zone": "brake",
+                                "touch_tap": false,
+                                "seat": 1
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "container",
+                      "id": "arena_div_186",
+                      "orientation": "vertical",
+                      "items": [
+                        {
+                          "type": "container",
+                          "id": "arena_div_187",
+                          "orientation": "horizontal",
+                          "items": [
+                            {
+                              "type": "text",
+                              "id": "arena_span_188",
+                              "text": "NITRO",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17",
+                              "actions": [
+                                {
+                                  "log_id": "touch_nitro-2",
+                                  "url": "pronto://touch/nitro-2?tap=0"
+                                }
+                              ],
+                              "extension_props": {
+                                "touch_zone": "nitro-2",
+                                "touch_tap": false,
+                                "seat": 2
+                              }
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_189",
+                              "text": "BRAKE",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17",
+                              "actions": [
+                                {
+                                  "log_id": "touch_brake-2",
+                                  "url": "pronto://touch/brake-2?tap=0"
+                                }
+                              ],
+                              "extension_props": {
+                                "touch_zone": "brake-2",
+                                "touch_tap": false,
+                                "seat": 2
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "type": "container",
+                          "id": "arena_div_190",
+                          "orientation": "horizontal",
+                          "items": [
+                            {
+                              "type": "text",
+                              "id": "arena_span_191",
+                              "text": "◀",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17",
+                              "actions": [
+                                {
+                                  "log_id": "touch_drive-2",
+                                  "url": "pronto://touch/drive-2%20left-2?tap=0"
+                                }
+                              ],
+                              "extension_props": {
+                                "touch_zone": "drive-2 left-2",
+                                "touch_tap": false,
+                                "seat": 2
+                              }
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_192",
+                              "text": "span",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17",
+                              "actions": [
+                                {
+                                  "log_id": "touch_drive-2",
+                                  "url": "pronto://touch/drive-2?tap=0"
+                                }
+                              ],
+                              "extension_props": {
+                                "touch_zone": "drive-2",
+                                "touch_tap": false,
+                                "seat": 2
+                              }
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_193",
+                              "text": "▶",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17",
+                              "actions": [
+                                {
+                                  "log_id": "touch_drive-2",
+                                  "url": "pronto://touch/drive-2%20right-2?tap=0"
+                                }
+                              ],
+                              "extension_props": {
+                                "touch_zone": "drive-2 right-2",
+                                "touch_tap": false,
+                                "seat": 2
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "arena_span_194",
+                      "text": "span",
+                      "font_size": 15,
+                      "font_weight": "regular",
+                      "font_family": "sans-serif",
+                      "text_color": "#1E1A17",
+                      "actions": [
+                        {
+                          "log_id": "touch_pause",
+                          "url": "pronto://touch/pause?tap=1"
+                        }
+                      ],
+                      "extension_props": {
+                        "touch_zone": "pause",
+                        "touch_tap": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "id": "arena_span_195",
+                      "text": "SKIP ▸▸",
+                      "font_size": 15,
+                      "font_weight": "regular",
+                      "font_family": "sans-serif",
+                      "text_color": "#1E1A17",
+                      "actions": [
+                        {
+                          "log_id": "touch_skip",
+                          "url": "pronto://touch/skip?tap=1"
+                        }
+                      ],
+                      "extension_props": {
+                        "touch_zone": "skip",
+                        "touch_tap": true
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "container",
+                  "id": "arena_div_196",
+                  "orientation": "vertical",
+                  "items": [
+                    {
+                      "type": "container",
+                      "id": "arena_div_197",
+                      "orientation": "vertical",
+                      "items": [
+                        {
+                          "type": "text",
+                          "id": "arena_h1_198",
+                          "text": "APEX RUN",
+                          "font_size": 22,
+                          "font_weight": "bold",
+                          "font_family": "sans-serif",
+                          "text_color": "#1E1A17"
+                        },
+                        {
+                          "type": "text",
+                          "id": "arena_p_199",
+                          "text": "Branching Highway Simcade",
+                          "font_size": 22,
+                          "font_weight": "bold",
+                          "font_family": "sans-serif",
+                          "text_color": "#1E1A17"
+                        },
+                        {
+                          "type": "container",
+                          "id": "arena_div_200",
+                          "orientation": "vertical",
+                          "items": [
+                            {
+                              "type": "container",
+                              "id": "arena_div_201",
+                              "orientation": "vertical",
+                              "items": [
+                                {
+                                  "type": "text",
+                                  "id": "arena_b_202",
+                                  "text": "Left thumb",
+                                  "font_size": 15,
+                                  "font_weight": "bold",
+                                  "font_family": "sans-serif",
+                                  "text_color": "#1E1A17"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "container",
+                              "id": "arena_div_203",
+                              "orientation": "vertical",
+                              "items": [
+                                {
+                                  "type": "text",
+                                  "id": "arena_b_204",
+                                  "text": "Right thumb",
+                                  "font_size": 15,
+                                  "font_weight": "bold",
+                                  "font_family": "sans-serif",
+                                  "text_color": "#1E1A17"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "container",
+                              "id": "arena_div_205",
+                              "orientation": "vertical",
+                              "items": [
+                                {
+                                  "type": "text",
+                                  "id": "arena_b_206",
+                                  "text": "❚❚",
+                                  "font_size": 15,
+                                  "font_weight": "bold",
+                                  "font_family": "sans-serif",
+                                  "text_color": "#1E1A17"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "arena_div_218",
+                          "text": "PICK A STATION",
+                          "font_size": 22,
+                          "font_weight": "bold",
+                          "font_family": "sans-serif",
+                          "text_color": "#1E1A17"
+                        },
+                        {
+                          "type": "container",
+                          "id": "arena_div_219",
+                          "orientation": "horizontal",
+                          "items": [
+                            {
+                              "type": "container",
+                              "id": "stk-station-0",
+                              "orientation": "vertical",
+                              "items": [
+                                {
+                                  "type": "text",
+                                  "id": "arena_span_220",
+                                  "text": "FM 88.5",
+                                  "font_size": 15,
+                                  "font_weight": "regular",
+                                  "font_family": "sans-serif",
+                                  "text_color": "#1E1A17"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "arena_b_221",
+                                  "text": "Palm Drive",
+                                  "font_size": 15,
+                                  "font_weight": "bold",
+                                  "font_family": "sans-serif",
+                                  "text_color": "#1E1A17"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "arena_span_222",
+                                  "text": "synth samba",
+                                  "font_size": 15,
+                                  "font_weight": "regular",
+                                  "font_family": "sans-serif",
+                                  "text_color": "#1E1A17"
+                                }
+                              ],
+                              "actions": [
+                                {
+                                  "log_id": "stk-station-0",
+                                  "url": "pronto://event/CLICK?handler=run&id=stk-station-0"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "container",
+                              "id": "stk-station-1",
+                              "orientation": "vertical",
+                              "items": [
+                                {
+                                  "type": "text",
+                                  "id": "arena_span_223",
+                                  "text": "FM 92.1",
+                                  "font_size": 15,
+                                  "font_weight": "regular",
+                                  "font_family": "sans-serif",
+                                  "text_color": "#1E1A17"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "arena_b_224",
+                                  "text": "Tidal Breeze",
+                                  "font_size": 15,
+                                  "font_weight": "bold",
+                                  "font_family": "sans-serif",
+                                  "text_color": "#1E1A17"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "arena_span_225",
+                                  "text": "jazz fusion",
+                                  "font_size": 15,
+                                  "font_weight": "regular",
+                                  "font_family": "sans-serif",
+                                  "text_color": "#1E1A17"
+                                }
+                              ],
+                              "actions": [
+                                {
+                                  "log_id": "stk-station-1",
+                                  "url": "pronto://event/CLICK?handler=run&id=stk-station-1"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "container",
+                              "id": "stk-station-2",
+                              "orientation": "vertical",
+                              "items": [
+                                {
+                                  "type": "text",
+                                  "id": "arena_span_226",
+                                  "text": "FM 97.3",
+                                  "font_size": 15,
+                                  "font_weight": "regular",
+                                  "font_family": "sans-serif",
+                                  "text_color": "#1E1A17"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "arena_b_227",
+                                  "text": "Neon Surf",
+                                  "font_size": 15,
+                                  "font_weight": "bold",
+                                  "font_family": "sans-serif",
+                                  "text_color": "#1E1A17"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "arena_span_228",
+                                  "text": "synthwave",
+                                  "font_size": 15,
+                                  "font_weight": "regular",
+                                  "font_family": "sans-serif",
+                                  "text_color": "#1E1A17"
+                                }
+                              ],
+                              "actions": [
+                                {
+                                  "log_id": "stk-station-2",
+                                  "url": "pronto://event/CLICK?handler=run&id=stk-station-2"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "container",
+                          "id": "arena_form_229",
+                          "orientation": "vertical",
+                          "items": [
+                            {
+                              "type": "text",
+                              "id": "arena_label_230",
+                              "text": "VOLUME",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17"
+                            },
+                            {
+                              "type": "input",
+                              "id": "volume",
+                              "hint_text": "volume",
+                              "text_variable": "input_volume",
+                              "keyboard_type": "single_line_text",
+                              "font_size": 15,
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17"
+                            },
+                            {
+                              "type": "container",
+                              "id": "arena_span_231",
+                              "orientation": "vertical",
+                              "items": [
+                                {
+                                  "type": "text",
+                                  "id": "arena_span_232",
+                                  "text": "70",
+                                  "font_size": 15,
+                                  "font_weight": "regular",
+                                  "font_family": "sans-serif",
+                                  "text_color": "#1E1A17"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "container",
+                          "id": "arena_div_233",
+                          "orientation": "horizontal",
+                          "items": [
+                            {
+                              "type": "text",
+                              "id": "stk-btn-start",
+                              "text": "START RACE (ENTER)",
+                              "font_size": 15,
+                              "font_weight": "bold",
+                              "font_family": "sans-serif",
+                              "text_color": "#C2410C",
+                              "actions": [
+                                {
+                                  "log_id": "stk-btn-start",
+                                  "url": "pronto://event/CLICK?handler=run&id=stk-btn-start"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "stk-btn-duel",
+                              "text": "DUEL · 2 PLAYERS (2)",
+                              "font_size": 15,
+                              "font_weight": "bold",
+                              "font_family": "sans-serif",
+                              "text_color": "#C2410C",
+                              "actions": [
+                                {
+                                  "log_id": "stk-btn-duel",
+                                  "url": "pronto://event/CLICK?handler=run&id=stk-btn-duel"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "stk-btn-pit",
+                              "text": "TELEMETRY",
+                              "font_size": 15,
+                              "font_weight": "bold",
+                              "font_family": "sans-serif",
+                              "text_color": "#C2410C",
+                              "actions": [
+                                {
+                                  "log_id": "stk-btn-pit",
+                                  "url": "pronto://event/CLICK?handler=run&id=stk-btn-pit"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "container",
+                              "id": "arena_div_236",
+                              "orientation": "vertical",
+                              "items": [
+                                {
+                                  "type": "text",
+                                  "id": "stk-btn-lobby",
+                                  "text": "ONLINE DUEL",
+                                  "font_size": 15,
+                                  "font_weight": "bold",
+                                  "font_family": "sans-serif",
+                                  "text_color": "#C2410C",
+                                  "actions": [
+                                    {
+                                      "log_id": "stk-btn-lobby",
+                                      "url": "pronto://event/CLICK?handler=lobby&id=stk-btn-lobby"
+                                    }
+                                  ]
+                                }
+                              ],
+                              "extension_props": {
+                                "data_live": "lobby_tab",
+                                "data_filter": "id=eq.the"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "container",
+                      "id": "arena_div_237",
+                      "orientation": "vertical",
+                      "items": [
+                        {
+                          "type": "container",
+                          "id": "arena_div_239",
+                          "orientation": "horizontal",
+                          "items": [
+                            {
+                              "type": "container",
+                              "id": "arena_div_240",
+                              "orientation": "horizontal",
+                              "items": [
+                                {
+                                  "type": "text",
+                                  "id": "arena_h2_241",
+                                  "text": "ONLINE DUEL",
+                                  "font_size": 22,
+                                  "font_weight": "bold",
+                                  "font_family": "sans-serif",
+                                  "text_color": "#1E1A17"
+                                },
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_242",
+                                  "orientation": "horizontal",
+                                  "items": [
+                                    {
+                                      "type": "container",
+                                      "id": "arena_span_243",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "text",
+                                          "id": "arena_b_244",
+                                          "text": "{name}",
+                                          "font_size": 15,
+                                          "font_weight": "bold",
+                                          "font_family": "sans-serif",
+                                          "text_color": "#1E1A17"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "container",
+                                      "id": "btn-toggle-online",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "container",
+                                          "id": "arena_span_245",
+                                          "orientation": "vertical",
+                                          "items": [
+                                            {
+                                              "type": "text",
+                                              "id": "arena_span_246",
+                                              "text": "●",
+                                              "font_size": 15,
+                                              "font_weight": "regular",
+                                              "font_family": "sans-serif",
+                                              "text_color": "#1E1A17"
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "arena_span_247",
+                                          "text": "GO ONLINE",
+                                          "font_size": 15,
+                                          "font_weight": "regular",
+                                          "font_family": "sans-serif",
+                                          "text_color": "#1E1A17"
+                                        }
+                                      ],
+                                      "actions": [
+                                        {
+                                          "log_id": "btn-toggle-online",
+                                          "url": "pronto://event/COMMAND?handler=lobby&command=toggle-online&id=btn-toggle-online"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "btn-lobby-close-top",
+                              "text": "✕",
+                              "font_size": 15,
+                              "font_weight": "bold",
+                              "font_family": "sans-serif",
+                              "text_color": "#C2410C",
+                              "actions": [
+                                {
+                                  "log_id": "btn-lobby-close-top",
+                                  "url": "pronto://event/COMMAND?handler=lobby&command=close&id=btn-lobby-close-top"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "container",
+                          "id": "arena_div_248",
+                          "orientation": "vertical",
+                          "items": [
+                            {
+                              "type": "container",
+                              "id": "arena_div_249",
+                              "orientation": "vertical",
+                              "items": [
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_250",
+                                  "orientation": "horizontal",
+                                  "items": [
+                                    {
+                                      "type": "text",
+                                      "id": "arena_span_251",
+                                      "text": "DIRECT CHALLENGE LINK",
+                                      "font_size": 22,
+                                      "font_weight": "bold",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#1E1A17"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "arena_span_252",
+                                      "text": "PLAY WITH A FRIEND",
+                                      "font_size": 15,
+                                      "font_weight": "regular",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#1E1A17"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_253",
+                                  "orientation": "horizontal",
+                                  "items": [
+                                    {
+                                      "type": "text",
+                                      "id": "btn-challenge-link",
+                                      "text": "CHALLENGE LINK",
+                                      "font_size": 15,
+                                      "font_weight": "bold",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#C2410C",
+                                      "actions": [
+                                        {
+                                          "log_id": "btn-challenge-link",
+                                          "url": "pronto://event/COMMAND?handler=lobby&command=challenge-link&id=btn-challenge-link"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "container",
+                                      "id": "arena_form_254",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "container",
+                                          "id": "arena_div_255",
+                                          "orientation": "vertical",
+                                          "items": [
+                                            {
+                                              "type": "input",
+                                              "id": "join",
+                                              "hint_text": "PASTE CHALLENGE LINK…",
+                                              "text_variable": "input_join",
+                                              "keyboard_type": "single_line_text",
+                                              "font_size": 15,
+                                              "font_family": "sans-serif",
+                                              "text_color": "#1E1A17",
+                                              "accessibility": {
+                                                "description": "PASTE CHALLENGE LINK…"
+                                              }
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "btn-paste-link",
+                                              "text": "PASTE",
+                                              "font_size": 15,
+                                              "font_weight": "bold",
+                                              "font_family": "sans-serif",
+                                              "text_color": "#C2410C",
+                                              "actions": [
+                                                {
+                                                  "log_id": "btn-paste-link",
+                                                  "url": "pronto://event/UPDATE"
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "btn-join-link",
+                                          "text": "JOIN LINK",
+                                          "font_size": 15,
+                                          "font_weight": "bold",
+                                          "font_family": "sans-serif",
+                                          "text_color": "#C2410C",
+                                          "actions": [
+                                            {
+                                              "log_id": "btn-join-link",
+                                              "url": "pronto://event/UPDATE"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_256",
+                                  "orientation": "vertical",
+                                  "items": [
+                                    {
+                                      "type": "container",
+                                      "id": "arena_div_257",
+                                      "orientation": "horizontal",
+                                      "items": [
+                                        {
+                                          "type": "container",
+                                          "id": "arena_div_258",
+                                          "orientation": "vertical",
+                                          "items": [
+                                            {
+                                              "type": "text",
+                                              "id": "arena_span_259",
+                                              "text": "●",
+                                              "font_size": 15,
+                                              "font_weight": "regular",
+                                              "font_family": "sans-serif",
+                                              "text_color": "#1E1A17"
+                                            },
+                                            {
+                                              "type": "container",
+                                              "id": "arena_span_260",
+                                              "orientation": "vertical",
+                                              "items": [
+                                                {
+                                                  "type": "text",
+                                                  "id": "arena_b_261",
+                                                  "text": "{stage}",
+                                                  "font_size": 15,
+                                                  "font_weight": "bold",
+                                                  "font_family": "sans-serif",
+                                                  "text_color": "#1E1A17"
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "container",
+                                          "id": "arena_div_262",
+                                          "orientation": "horizontal",
+                                          "items": [
+                                            {
+                                              "type": "container",
+                                              "id": "challenge-link-{id}",
+                                              "orientation": "vertical",
+                                              "items": [
+                                                {
+                                                  "type": "text",
+                                                  "id": "arena_span_263",
+                                                  "text": "{instance_id}",
+                                                  "font_size": 15,
+                                                  "font_weight": "regular",
+                                                  "font_family": "sans-serif",
+                                                  "text_color": "#1E1A17"
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "copy-duel-{id}",
+                                              "text": "COPY LINK",
+                                              "font_size": 15,
+                                              "font_weight": "bold",
+                                              "font_family": "sans-serif",
+                                              "text_color": "#C2410C"
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "cancel-duel-{id}",
+                                              "text": "CANCEL",
+                                              "font_size": 15,
+                                              "font_weight": "bold",
+                                              "font_family": "sans-serif",
+                                              "text_color": "#C2410C",
+                                              "actions": [
+                                                {
+                                                  "log_id": "cancel-duel-{id}",
+                                                  "url": "pronto://event/COMMAND?handler=lobby&command=cancel&id=cancel-duel-%7Bid%7D"
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ],
+                                  "extension_props": {
+                                    "data_live": "apexrun_duel_seat",
+                                    "data_filter": "phase=eq.waiting",
+                                    "data_order": "id.asc"
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "type": "container",
+                              "id": "arena_div_264",
+                              "orientation": "vertical",
+                              "items": [
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_265",
+                                  "orientation": "horizontal",
+                                  "items": [
+                                    {
+                                      "type": "text",
+                                      "id": "arena_span_266",
+                                      "text": "THE STAGE YOU CHALLENGE ON",
+                                      "font_size": 22,
+                                      "font_weight": "bold",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#1E1A17"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_267",
+                                  "orientation": "vertical",
+                                  "items": [
+                                    {
+                                      "type": "text",
+                                      "id": "stage-coconut-beach",
+                                      "text": "COCONUT BEACH",
+                                      "font_size": 15,
+                                      "font_weight": "bold",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#C2410C",
+                                      "actions": [
+                                        {
+                                          "log_id": "stage-coconut-beach",
+                                          "url": "pronto://event/CLICK?handler=lobby&id=stage-coconut-beach"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "stage-desert-canyons",
+                                      "text": "DESERT CANYONS",
+                                      "font_size": 15,
+                                      "font_weight": "bold",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#C2410C",
+                                      "actions": [
+                                        {
+                                          "log_id": "stage-desert-canyons",
+                                          "url": "pronto://event/CLICK?handler=lobby&id=stage-desert-canyons"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "stage-gateway-pass",
+                                      "text": "GATEWAY PASS",
+                                      "font_size": 15,
+                                      "font_weight": "bold",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#C2410C",
+                                      "actions": [
+                                        {
+                                          "log_id": "stage-gateway-pass",
+                                          "url": "pronto://event/CLICK?handler=lobby&id=stage-gateway-pass"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "stage-alpine-peaks",
+                                      "text": "ALPINE PEAKS",
+                                      "font_size": 15,
+                                      "font_weight": "bold",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#C2410C",
+                                      "actions": [
+                                        {
+                                          "log_id": "stage-alpine-peaks",
+                                          "url": "pronto://event/CLICK?handler=lobby&id=stage-alpine-peaks"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "stage-wilderness-run",
+                                      "text": "WILDERNESS RUN",
+                                      "font_size": 15,
+                                      "font_weight": "bold",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#C2410C",
+                                      "actions": [
+                                        {
+                                          "log_id": "stage-wilderness-run",
+                                          "url": "pronto://event/CLICK?handler=lobby&id=stage-wilderness-run"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "stage-tulip-gardens",
+                                      "text": "TULIP GARDENS",
+                                      "font_size": 15,
+                                      "font_weight": "bold",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#C2410C",
+                                      "actions": [
+                                        {
+                                          "log_id": "stage-tulip-gardens",
+                                          "url": "pronto://event/CLICK?handler=lobby&id=stage-tulip-gardens"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "stage-sunset-highway",
+                                      "text": "SUNSET HIGHWAY",
+                                      "font_size": 15,
+                                      "font_weight": "bold",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#C2410C",
+                                      "actions": [
+                                        {
+                                          "log_id": "stage-sunset-highway",
+                                          "url": "pronto://event/CLICK?handler=lobby&id=stage-sunset-highway"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "stage-ancient-ruins",
+                                      "text": "ANCIENT RUINS",
+                                      "font_size": 15,
+                                      "font_weight": "bold",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#C2410C",
+                                      "actions": [
+                                        {
+                                          "log_id": "stage-ancient-ruins",
+                                          "url": "pronto://event/CLICK?handler=lobby&id=stage-ancient-ruins"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "stage-metropolis-night",
+                                      "text": "METROPOLIS NIGHT",
+                                      "font_size": 15,
+                                      "font_weight": "bold",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#C2410C",
+                                      "actions": [
+                                        {
+                                          "log_id": "stage-metropolis-night",
+                                          "url": "pronto://event/CLICK?handler=lobby&id=stage-metropolis-night"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "stage-coastal-cliffs",
+                                      "text": "COASTAL CLIFFS",
+                                      "font_size": 15,
+                                      "font_weight": "bold",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#C2410C",
+                                      "actions": [
+                                        {
+                                          "log_id": "stage-coastal-cliffs",
+                                          "url": "pronto://event/CLICK?handler=lobby&id=stage-coastal-cliffs"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "container",
+                              "id": "arena_div_268",
+                              "orientation": "vertical",
+                              "items": [
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_269",
+                                  "orientation": "horizontal",
+                                  "items": [
+                                    {
+                                      "type": "text",
+                                      "id": "arena_span_270",
+                                      "text": "RACERS ONLINE",
+                                      "font_size": 22,
+                                      "font_weight": "bold",
+                                      "font_family": "sans-serif",
+                                      "text_color": "#1E1A17"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_271",
+                                  "orientation": "vertical",
+                                  "items": [
+                                    {
+                                      "type": "container",
+                                      "id": "arena_div_272",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "container",
+                                          "id": "arena_div_273",
+                                          "orientation": "vertical",
+                                          "items": [
+                                            {
+                                              "type": "text",
+                                              "id": "arena_span_274",
+                                              "text": "⚡",
+                                              "font_size": 15,
+                                              "font_weight": "regular",
+                                              "font_family": "sans-serif",
+                                              "text_color": "#1E1A17"
+                                            },
+                                            {
+                                              "type": "container",
+                                              "id": "arena_span_275",
+                                              "orientation": "vertical",
+                                              "items": [
+                                                {
+                                                  "type": "text",
+                                                  "id": "arena_b_276",
+                                                  "text": "{inviter_name}",
+                                                  "font_size": 15,
+                                                  "font_weight": "bold",
+                                                  "font_family": "sans-serif",
+                                                  "text_color": "#1E1A17"
+                                                },
+                                                {
+                                                  "type": "text",
+                                                  "id": "arena_b_277",
+                                                  "text": "{stage}",
+                                                  "font_size": 15,
+                                                  "font_weight": "bold",
+                                                  "font_family": "sans-serif",
+                                                  "text_color": "#1E1A17"
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "container",
+                                          "id": "arena_div_278",
+                                          "orientation": "horizontal",
+                                          "items": [
+                                            {
+                                              "type": "text",
+                                              "id": "accept-{id}",
+                                              "text": "ACCEPT",
+                                              "font_size": 15,
+                                              "font_weight": "bold",
+                                              "font_family": "sans-serif",
+                                              "text_color": "#C2410C",
+                                              "actions": [
+                                                {
+                                                  "log_id": "accept-{id}",
+                                                  "url": "pronto://event/COMMAND?handler=lobby&command=accept&id=accept-%7Bid%7D"
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "decline-{id}",
+                                              "text": "DECLINE",
+                                              "font_size": 15,
+                                              "font_weight": "bold",
+                                              "font_family": "sans-serif",
+                                              "text_color": "#C2410C",
+                                              "actions": [
+                                                {
+                                                  "log_id": "decline-{id}",
+                                                  "url": "pronto://event/COMMAND?handler=lobby&command=decline&id=decline-%7Bid%7D"
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "container",
+                                      "id": "arena_div_279",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "container",
+                                          "id": "arena_span_280",
+                                          "orientation": "vertical",
+                                          "items": [
+                                            {
+                                              "type": "text",
+                                              "id": "arena_b_281",
+                                              "text": "{target_name}",
+                                              "font_size": 15,
+                                              "font_weight": "bold",
+                                              "font_family": "sans-serif",
+                                              "text_color": "#1E1A17"
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "arena_b_282",
+                                              "text": "{stage}",
+                                              "font_size": 15,
+                                              "font_weight": "bold",
+                                              "font_family": "sans-serif",
+                                              "text_color": "#1E1A17"
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "cancel-{id}",
+                                          "text": "CANCEL",
+                                          "font_size": 15,
+                                          "font_weight": "bold",
+                                          "font_family": "sans-serif",
+                                          "text_color": "#C2410C",
+                                          "actions": [
+                                            {
+                                              "log_id": "cancel-{id}",
+                                              "url": "pronto://event/COMMAND?handler=lobby&command=cancel&id=cancel-%7Bid%7D"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ],
+                                  "extension_props": {
+                                    "data_live": "apexrun_challenge_seat",
+                                    "data_filter": "phase=eq.offered",
+                                    "data_order": "id.asc"
+                                  }
+                                },
+                                {
+                                  "type": "container",
+                                  "id": "arena_div_283",
+                                  "orientation": "vertical",
+                                  "items": [
+                                    {
+                                      "type": "container",
+                                      "id": "arena_div_284",
+                                      "orientation": "vertical",
+                                      "items": [
+                                        {
+                                          "type": "text",
+                                          "id": "arena_span_285",
+                                          "text": "🏎️",
+                                          "font_size": 15,
+                                          "font_weight": "regular",
+                                          "font_family": "sans-serif",
+                                          "text_color": "#1E1A17"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "arena_b_286",
+                                          "text": "{name}",
+                                          "font_size": 15,
+                                          "font_weight": "bold",
+                                          "font_family": "sans-serif",
+                                          "text_color": "#1E1A17"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "arena_span_287",
+                                          "text": "READY",
+                                          "font_size": 15,
+                                          "font_weight": "regular",
+                                          "font_family": "sans-serif",
+                                          "text_color": "#1E1A17"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "challenge-{id}",
+                                          "text": "CHALLENGE",
+                                          "font_size": 15,
+                                          "font_weight": "bold",
+                                          "font_family": "sans-serif",
+                                          "text_color": "#C2410C",
+                                          "actions": [
+                                            {
+                                              "log_id": "challenge-{id}",
+                                              "url": "pronto://event/COMMAND?handler=lobby&command=challenge&id=challenge-%7Bid%7D"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ],
+                                  "extension_props": {
+                                    "data_live": "apexrun_presence_public",
+                                    "data_order": "name.asc"
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "arena_p_289",
+                          "text": "{note}",
+                          "font_size": 15,
+                          "font_weight": "regular",
+                          "font_family": "sans-serif",
+                          "text_color": "#1E1A17"
+                        },
+                        {
+                          "type": "container",
+                          "id": "arena_div_290",
+                          "orientation": "horizontal",
+                          "items": [
+                            {
+                              "type": "text",
+                              "id": "btn-lobby-close",
+                              "text": "← BACK",
+                              "font_size": 15,
+                              "font_weight": "bold",
+                              "font_family": "sans-serif",
+                              "text_color": "#C2410C",
+                              "actions": [
+                                {
+                                  "log_id": "btn-lobby-close",
+                                  "url": "pronto://event/CLICK?handler=lobby&id=btn-lobby-close"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "container",
+                              "id": "arena_span_291",
+                              "orientation": "vertical",
+                              "items": [
+                                {
+                                  "type": "text",
+                                  "id": "arena_kbd_292",
+                                  "text": "ESC",
+                                  "font_size": 15,
+                                  "font_weight": "regular",
+                                  "font_family": "sans-serif",
+                                  "text_color": "#1E1A17"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      "extension_props": {
+                        "data_live": "lobby_tab",
+                        "data_filter": "id=eq.the",
+                        "state_attrs": {
+                          "open": "{open}",
+                          "shown": "{shown}",
+                          "pick": "{stage}"
+                        }
+                      }
+                    },
+                    {
+                      "type": "container",
+                      "id": "arena_div_293",
+                      "orientation": "vertical",
+                      "items": [
+                        {
+                          "type": "text",
+                          "id": "arena_h2_294",
+                          "text": "PAUSED",
+                          "font_size": 22,
+                          "font_weight": "bold",
+                          "font_family": "sans-serif",
+                          "text_color": "#1E1A17"
+                        },
+                        {
+                          "type": "container",
+                          "id": "arena_div_295",
+                          "orientation": "horizontal",
+                          "items": [
+                            {
+                              "type": "text",
+                              "id": "stk-pause-resume",
+                              "text": "RESUME (ESC)",
+                              "font_size": 15,
+                              "font_weight": "bold",
+                              "font_family": "sans-serif",
+                              "text_color": "#C2410C",
+                              "actions": [
+                                {
+                                  "log_id": "stk-pause-resume",
+                                  "url": "pronto://event/CLICK?handler=run&id=stk-pause-resume"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "stk-pause-restart",
+                              "text": "RESTART",
+                              "font_size": 15,
+                              "font_weight": "bold",
+                              "font_family": "sans-serif",
+                              "text_color": "#C2410C",
+                              "actions": [
+                                {
+                                  "log_id": "stk-pause-restart",
+                                  "url": "pronto://event/CLICK?handler=run&id=stk-pause-restart"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "container",
+                      "id": "arena_div_297",
+                      "orientation": "vertical",
+                      "items": [
+                        {
+                          "type": "text",
+                          "id": "arena_div_298",
+                          "text": "{res_kicker}",
+                          "font_size": 15,
+                          "font_weight": "regular",
+                          "font_family": "sans-serif",
+                          "text_color": "#1E1A17"
+                        },
+                        {
+                          "type": "text",
+                          "id": "arena_h2_299",
+                          "text": "{res_title}",
+                          "font_size": 22,
+                          "font_weight": "bold",
+                          "font_family": "sans-serif",
+                          "text_color": "#1E1A17",
+                          "extension_props": {
+                            "state_attrs": {
+                              "over": "{res_over}"
+                            }
+                          }
+                        },
+                        {
+                          "type": "container",
+                          "id": "arena_dl_300",
+                          "orientation": "horizontal",
+                          "items": [
+                            {
+                              "type": "text",
+                              "id": "arena_span_301",
+                              "text": "{line1_label}",
+                              "font_size": 12,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17"
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_302",
+                              "text": "{line1_value}",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17"
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_303",
+                              "text": "{line2_label}",
+                              "font_size": 12,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17"
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_304",
+                              "text": "{line2_value}",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17"
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_305",
+                              "text": "{line3_label}",
+                              "font_size": 12,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17"
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_306",
+                              "text": "{line3_value}",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17"
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_307",
+                              "text": "{line4_label}",
+                              "font_size": 12,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17"
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_308",
+                              "text": "{line4_value}",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17"
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_309",
+                              "text": "TOTAL",
+                              "font_size": 12,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17"
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_310",
+                              "text": "{total}",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "container",
+                          "id": "arena_p_311",
+                          "orientation": "vertical",
+                          "items": [
+                            {
+                              "type": "text",
+                              "id": "arena_span_312",
+                              "text": "CONFIRMING WITH YOUR OPPONENT…",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17"
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_313",
+                              "text": "RESULT RECORDED · YOU WON",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17"
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_314",
+                              "text": "RESULT RECORDED · YOU LOST",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17"
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_315",
+                              "text": "RESULT RECORDED · DRAW",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17"
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_316",
+                              "text": "DISPUTED · THE TWO RACES DISAGREE",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17"
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_317",
+                              "text": "ABANDONED · NO RESULT",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "stk-res-restart",
+                          "text": "TRY AGAIN",
+                          "font_size": 15,
+                          "font_weight": "bold",
+                          "font_family": "sans-serif",
+                          "text_color": "#C2410C",
+                          "actions": [
+                            {
+                              "log_id": "stk-res-restart",
+                              "url": "pronto://event/CLICK?handler=run&id=stk-res-restart"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "stk-res-lobby",
+                          "text": "BACK TO THE LOBBY",
+                          "font_size": 15,
+                          "font_weight": "bold",
+                          "font_family": "sans-serif",
+                          "text_color": "#C2410C",
+                          "actions": [
+                            {
+                              "log_id": "stk-res-lobby",
+                              "url": "pronto://event/CLICK?handler=run&id=stk-res-lobby"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "container",
+                  "id": "arena_section_318",
+                  "orientation": "vertical",
+                  "items": [
+                    {
+                      "type": "container",
+                      "id": "arena_div_319",
+                      "orientation": "vertical",
+                      "items": [
+                        {
+                          "type": "text",
+                          "id": "arena_p_320",
+                          "text": "NEW HIGH SCORE · ENTER YOUR INITIALS",
+                          "font_size": 12,
+                          "font_weight": "regular",
+                          "font_family": "sans-serif",
+                          "text_color": "#1E1A17"
+                        },
+                        {
+                          "type": "container",
+                          "id": "arena_div_321",
+                          "orientation": "horizontal",
+                          "items": [
+                            {
+                              "type": "text",
+                              "id": "arena_span_322",
+                              "text": "▲",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17",
+                              "actions": [
+                                {
+                                  "log_id": "touch_menu-up",
+                                  "url": "pronto://touch/menu-up?tap=1"
+                                }
+                              ],
+                              "extension_props": {
+                                "touch_zone": "menu-up",
+                                "touch_tap": true
+                              }
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_323",
+                              "text": "◀",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17",
+                              "actions": [
+                                {
+                                  "log_id": "touch_menu-left",
+                                  "url": "pronto://touch/menu-left?tap=1"
+                                }
+                              ],
+                              "extension_props": {
+                                "touch_zone": "menu-left",
+                                "touch_tap": true
+                              }
+                            },
+                            {
+                              "type": "container",
+                              "id": "arena_p_324",
+                              "orientation": "vertical",
+                              "items": [
+                                {
+                                  "type": "text",
+                                  "id": "arena_span_325",
+                                  "text": "A",
+                                  "font_size": 15,
+                                  "font_weight": "regular",
+                                  "font_family": "sans-serif",
+                                  "text_color": "#1E1A17"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "arena_span_326",
+                                  "text": "A",
+                                  "font_size": 15,
+                                  "font_weight": "regular",
+                                  "font_family": "sans-serif",
+                                  "text_color": "#1E1A17"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "arena_span_327",
+                                  "text": "A",
+                                  "font_size": 15,
+                                  "font_weight": "regular",
+                                  "font_family": "sans-serif",
+                                  "text_color": "#1E1A17"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_328",
+                              "text": "▶",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17",
+                              "actions": [
+                                {
+                                  "log_id": "touch_menu-right",
+                                  "url": "pronto://touch/menu-right?tap=1"
+                                }
+                              ],
+                              "extension_props": {
+                                "touch_zone": "menu-right",
+                                "touch_tap": true
+                              }
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_329",
+                              "text": "▼",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17",
+                              "actions": [
+                                {
+                                  "log_id": "touch_menu-down",
+                                  "url": "pronto://touch/menu-down?tap=1"
+                                }
+                              ],
+                              "extension_props": {
+                                "touch_zone": "menu-down",
+                                "touch_tap": true
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "arena_p_331",
+                          "text": "▲▼ change the letter, ◀▶ move to the next. Then save.",
+                          "font_size": 15,
+                          "font_weight": "regular",
+                          "font_family": "sans-serif",
+                          "text_color": "#1E1A17"
+                        },
+                        {
+                          "type": "text",
+                          "id": "arena_p_332",
+                          "text": "Three letters, A to Z, and not a word the board refuses.",
+                          "font_size": 15,
+                          "font_weight": "regular",
+                          "font_family": "sans-serif",
+                          "text_color": "#1E1A17"
+                        },
+                        {
+                          "type": "text",
+                          "id": "arena-finish-save",
+                          "text": "SAVE",
+                          "font_size": 15,
+                          "font_weight": "bold",
+                          "font_family": "sans-serif",
+                          "text_color": "#C2410C",
+                          "actions": [
+                            {
+                              "log_id": "arena-finish-save",
+                              "url": "pronto://event/CLICK?handler=run&id=arena-finish-save"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "arena_p_333",
+                          "text": "SAVED · your run is on the board.",
+                          "font_size": 15,
+                          "font_weight": "regular",
+                          "font_family": "sans-serif",
+                          "text_color": "#1E1A17"
+                        },
+                        {
+                          "type": "text",
+                          "id": "arena_p_334",
+                          "text": "Not saved: one score per run, and a run takes at least 75 seconds. Race again to post another.",
+                          "font_size": 15,
+                          "font_weight": "regular",
+                          "font_family": "sans-serif",
+                          "text_color": "#1E1A17"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "arena_h3_335",
+                      "text": "HIGH SCORES",
+                      "font_size": 22,
+                      "font_weight": "bold",
+                      "font_family": "sans-serif",
+                      "text_color": "#1E1A17"
+                    },
+                    {
+                      "type": "container",
+                      "id": "arena_ol_336",
+                      "orientation": "vertical",
+                      "items": [
+                        {
+                          "type": "container",
+                          "id": "arena_li_337",
+                          "orientation": "horizontal",
+                          "items": [
+                            {
+                              "type": "text",
+                              "id": "arena_span_338",
+                              "text": "{initials}",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17"
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_339",
+                              "text": "{outcome}",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17"
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_340",
+                              "text": "{run_ms}",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17"
+                            },
+                            {
+                              "type": "text",
+                              "id": "arena_span_341",
+                              "text": "{score}",
+                              "font_size": 15,
+                              "font_weight": "regular",
+                              "font_family": "sans-serif",
+                              "text_color": "#1E1A17"
+                            }
+                          ],
+                          "extension_props": {
+                            "state_attrs": {
+                              "mine-score": "{mine_score}",
+                              "mine-initials": "{mine_initials}"
+                            }
+                          }
+                        }
+                      ],
+                      "extension_props": {
+                        "data_live": "high_score",
+                        "data_filter": "limit=10",
+                        "data_order": "score.desc,run_ms.asc,id.asc"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "pitlane-toggle",
+                  "text": "🏁 PIT-LANE TELEMETRY",
+                  "font_size": 15,
+                  "font_weight": "bold",
+                  "font_family": "sans-serif",
+                  "text_color": "#C2410C",
+                  "actions": [
+                    {
+                      "log_id": "pitlane-toggle",
+                      "url": "pronto://event/CLICK?handler=run&id=pitlane-toggle"
+                    }
+                  ]
+                },
+                {
+                  "type": "container",
+                  "id": "arena_div_342",
+                  "orientation": "vertical",
+                  "items": [
+                    {
+                      "type": "container",
+                      "id": "arena_div_343",
+                      "orientation": "horizontal",
+                      "items": [
+                        {
+                          "type": "text",
+                          "id": "arena_span_344",
+                          "text": "STK PIT-LANE TELEMETRY",
+                          "font_size": 22,
+                          "font_weight": "bold",
+                          "font_family": "sans-serif",
+                          "text_color": "#1E1A17"
+                        },
+                        {
+                          "type": "text",
+                          "id": "pitlane-close",
+                          "text": "✕",
+                          "font_size": 15,
+                          "font_weight": "bold",
+                          "font_family": "sans-serif",
+                          "text_color": "#C2410C",
+                          "actions": [
+                            {
+                              "log_id": "pitlane-close",
+                              "url": "pronto://event/CLICK?handler=run&id=pitlane-close"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "extension_props": {
+                "data_live": "run",
+                "data_filter": "id=eq.run",
+                "state_attrs": {
+                  "phase": "{phase}",
+                  "mode": "{mode}",
+                  "racing": "{racing}",
+                  "final": "{final}",
+                  "station": "{station}",
+                  "pitlane": "{pitlane}",
+                  "verdict": "{verdict}",
+                  "saved": "{saved}",
+                  "denied": "{denied}",
+                  "cursor": "{cursor}",
+                  "visited": "{route}",
+                  "stage": "{stage_id}"
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

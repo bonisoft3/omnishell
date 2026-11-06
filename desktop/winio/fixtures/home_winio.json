@@ -1,0 +1,1189 @@
+{
+  "screen": "home",
+  "route": "/",
+  "stateRules": [
+    {
+      "selector": "[data-screen=\"home\"] .search",
+      "attr": "screen",
+      "op": "eq",
+      "value": "home",
+      "targetClass": "search",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"home\"] .columns",
+      "attr": "screen",
+      "op": "eq",
+      "value": "home",
+      "targetClass": "columns",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"home\"] .list",
+      "attr": "screen",
+      "op": "eq",
+      "value": "home",
+      "targetClass": "list",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"home\"] .rail-label",
+      "attr": "screen",
+      "op": "eq",
+      "value": "home",
+      "targetClass": "rail-label",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"home\"] .tags",
+      "attr": "screen",
+      "op": "eq",
+      "value": "home",
+      "targetClass": "tags",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"home\"] .tag-chip",
+      "attr": "screen",
+      "op": "eq",
+      "value": "home",
+      "targetClass": "tag-chip",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"home\"] .older",
+      "attr": "screen",
+      "op": "eq",
+      "value": "home",
+      "targetClass": "older",
+      "visible": false,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"home\"] .list > :nth-child(20) .older",
+      "attr": "screen",
+      "op": "eq",
+      "value": "home",
+      "targetClass": "older",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"home\"] .list > [data-pending=\"true\"] .older",
+      "attr": "screen",
+      "op": "eq",
+      "value": "home",
+      "targetClass": "older",
+      "visible": false,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"home\"] .tagline",
+      "attr": "screen",
+      "op": "eq",
+      "value": "home",
+      "targetClass": "tagline",
+      "visible": false,
+      "negated": false
+    },
+    {
+      "selector": "}\n\n\n[data-screen=\"home\"] .skeleton",
+      "attr": "screen",
+      "op": "eq",
+      "value": "home",
+      "targetClass": "skeleton",
+      "visible": false,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"home\"] .skeleton-rail",
+      "attr": "screen",
+      "op": "eq",
+      "value": "home",
+      "targetClass": "skeleton-rail",
+      "visible": false,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"home\"] .offline",
+      "attr": "screen",
+      "op": "eq",
+      "value": "home",
+      "targetClass": "offline",
+      "visible": false,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"home\"][data-state=\"loading\"] .skeleton",
+      "attr": "screen",
+      "op": "eq",
+      "value": "home",
+      "targetClass": "skeleton",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"home\"][data-state=\"loading\"] .skeleton-rail",
+      "attr": "screen",
+      "op": "eq",
+      "value": "home",
+      "targetClass": "skeleton-rail",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"home\"][data-state=\"loading\"] .list",
+      "attr": "screen",
+      "op": "eq",
+      "value": "home",
+      "targetClass": "list",
+      "visible": false,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"home\"][data-state=\"loading\"] .tags",
+      "attr": "screen",
+      "op": "eq",
+      "value": "home",
+      "targetClass": "tags",
+      "visible": false,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"home\"][data-state=\"network-error\"] .offline",
+      "attr": "screen",
+      "op": "eq",
+      "value": "home",
+      "targetClass": "offline",
+      "visible": true,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"home\"][data-state=\"network-error\"] .columns",
+      "attr": "screen",
+      "op": "eq",
+      "value": "home",
+      "targetClass": "columns",
+      "visible": false,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"home\"][data-state=\"favorited\"] .list > :not(:nth-child(2)) .when-set",
+      "attr": "screen",
+      "op": "eq",
+      "value": "home",
+      "targetClass": "when-set",
+      "visible": false,
+      "negated": false
+    },
+    {
+      "selector": "[data-screen=\"home\"][data-state=\"favorited\"] .list > :not(:nth-child(2)) .when-unset",
+      "attr": "screen",
+      "op": "eq",
+      "value": "home",
+      "targetClass": "when-unset",
+      "visible": true,
+      "negated": false
+    }
+  ],
+  "root": {
+    "id": "home_section_1",
+    "widget": "Window",
+    "orientation": "Vertical",
+    "classes": [
+      "screen"
+    ],
+    "stateAttrs": {},
+    "children": [
+      {
+        "id": "home_details_2",
+        "widget": "StackPanel",
+        "orientation": "Vertical",
+        "classes": [
+          "lang-picker"
+        ],
+        "stateAttrs": {},
+        "children": [
+          {
+            "id": "home_summary_3",
+            "widget": "StackPanel",
+            "orientation": "Vertical",
+            "classes": [
+              "lang-summary",
+              "role-meta-sm"
+            ],
+            "stateAttrs": {},
+            "children": [
+              {
+                "id": "home_span_4",
+                "widget": "Label",
+                "classes": [
+                  "lang-globe"
+                ],
+                "accessibilityLabel": "🌐",
+                "text": "🌐",
+                "stateAttrs": {},
+                "children": []
+              },
+              {
+                "id": "home_span_5",
+                "widget": "StackPanel",
+                "orientation": "Vertical",
+                "classes": [
+                  "lang-current"
+                ],
+                "stateAttrs": {},
+                "children": [
+                  {
+                    "id": "home_i_6",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "Bahasa Indonesia",
+                    "text": "Bahasa Indonesia",
+                    "textBinding": "Bahasa Indonesia",
+                    "stateAttrs": {
+                      "t": "id"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "home_i_7",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "Deutsch",
+                    "text": "Deutsch",
+                    "textBinding": "Deutsch",
+                    "stateAttrs": {
+                      "t": "de"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "home_i_8",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "English",
+                    "text": "English",
+                    "textBinding": "English",
+                    "stateAttrs": {
+                      "t": "en"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "home_i_9",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "Español",
+                    "text": "Español",
+                    "textBinding": "Español",
+                    "stateAttrs": {
+                      "t": "es"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "home_i_10",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "Français",
+                    "text": "Français",
+                    "textBinding": "Français",
+                    "stateAttrs": {
+                      "t": "fr"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "home_i_11",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "Kiswahili",
+                    "text": "Kiswahili",
+                    "textBinding": "Kiswahili",
+                    "stateAttrs": {
+                      "t": "sw"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "home_i_12",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "Português",
+                    "text": "Português",
+                    "textBinding": "Português",
+                    "stateAttrs": {
+                      "t": "pt"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "home_i_13",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "Türkçe",
+                    "text": "Türkçe",
+                    "textBinding": "Türkçe",
+                    "stateAttrs": {
+                      "t": "tr"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "home_i_14",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "Русский",
+                    "text": "Русский",
+                    "textBinding": "Русский",
+                    "stateAttrs": {
+                      "t": "ru"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "home_i_15",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "اردو",
+                    "text": "اردو",
+                    "textBinding": "اردو",
+                    "stateAttrs": {
+                      "t": "ur"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "home_i_16",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "العربية",
+                    "text": "العربية",
+                    "textBinding": "العربية",
+                    "stateAttrs": {
+                      "t": "ar"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "home_i_17",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "हिन्दी",
+                    "text": "हिन्दी",
+                    "textBinding": "हिन्दी",
+                    "stateAttrs": {
+                      "t": "hi"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "home_i_18",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "বাংলা",
+                    "text": "বাংলা",
+                    "textBinding": "বাংলা",
+                    "stateAttrs": {
+                      "t": "bn"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "home_i_19",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "中文",
+                    "text": "中文",
+                    "textBinding": "中文",
+                    "stateAttrs": {
+                      "t": "zh"
+                    },
+                    "children": []
+                  },
+                  {
+                    "id": "home_i_20",
+                    "widget": "Label",
+                    "classes": [],
+                    "accessibilityLabel": "日本語",
+                    "text": "日本語",
+                    "textBinding": "日本語",
+                    "stateAttrs": {
+                      "t": "ja"
+                    },
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "home_nav_21",
+            "widget": "StackPanel",
+            "orientation": "Horizontal",
+            "classes": [
+              "lang-menu"
+            ],
+            "accessibilityLabel": "Language",
+            "stateAttrs": {},
+            "children": [
+              {
+                "id": "home_a_22",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "Bahasa Indonesia",
+                "text": "Bahasa Indonesia",
+                "stateAttrs": {
+                  "locale": "id",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=home&locale=id",
+                "children": []
+              },
+              {
+                "id": "home_a_24",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "Deutsch",
+                "text": "Deutsch",
+                "stateAttrs": {
+                  "locale": "de",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=home&locale=de",
+                "children": []
+              },
+              {
+                "id": "home_a_26",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "English",
+                "text": "English",
+                "stateAttrs": {
+                  "locale": "en",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=home&locale=en",
+                "children": []
+              },
+              {
+                "id": "home_a_28",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "Español",
+                "text": "Español",
+                "stateAttrs": {
+                  "locale": "es",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=home&locale=es",
+                "children": []
+              },
+              {
+                "id": "home_a_30",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "Français",
+                "text": "Français",
+                "stateAttrs": {
+                  "locale": "fr",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=home&locale=fr",
+                "children": []
+              },
+              {
+                "id": "home_a_32",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "Kiswahili",
+                "text": "Kiswahili",
+                "stateAttrs": {
+                  "locale": "sw",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=home&locale=sw",
+                "children": []
+              },
+              {
+                "id": "home_a_34",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "Português",
+                "text": "Português",
+                "stateAttrs": {
+                  "locale": "pt",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=home&locale=pt",
+                "children": []
+              },
+              {
+                "id": "home_a_36",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "Türkçe",
+                "text": "Türkçe",
+                "stateAttrs": {
+                  "locale": "tr",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=home&locale=tr",
+                "children": []
+              },
+              {
+                "id": "home_a_38",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "Русский",
+                "text": "Русский",
+                "stateAttrs": {
+                  "locale": "ru",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=home&locale=ru",
+                "children": []
+              },
+              {
+                "id": "home_a_40",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "اردو",
+                "text": "اردو",
+                "stateAttrs": {
+                  "locale": "ur",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=home&locale=ur",
+                "children": []
+              },
+              {
+                "id": "home_a_42",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "العربية",
+                "text": "العربية",
+                "stateAttrs": {
+                  "locale": "ar",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=home&locale=ar",
+                "children": []
+              },
+              {
+                "id": "home_a_44",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "हिन्दी",
+                "text": "हिन्दी",
+                "stateAttrs": {
+                  "locale": "hi",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=home&locale=hi",
+                "children": []
+              },
+              {
+                "id": "home_a_46",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "বাংলা",
+                "text": "বাংলা",
+                "stateAttrs": {
+                  "locale": "bn",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=home&locale=bn",
+                "children": []
+              },
+              {
+                "id": "home_a_48",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "中文",
+                "text": "中文",
+                "stateAttrs": {
+                  "locale": "zh",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=home&locale=zh",
+                "children": []
+              },
+              {
+                "id": "home_a_50",
+                "widget": "Button",
+                "classes": [
+                  "lang-item",
+                  "role-meta-sm"
+                ],
+                "role": "link",
+                "accessibilityLabel": "日本語",
+                "text": "日本語",
+                "stateAttrs": {
+                  "locale": "ja",
+                  "locale-current": "page"
+                },
+                "actionUri": "pronto://event/NAVIGATE?screen=home&locale=ja",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "home_header_52",
+        "widget": "StackPanel",
+        "orientation": "Horizontal",
+        "classes": [
+          "masthead"
+        ],
+        "stateAttrs": {},
+        "children": [
+          {
+            "id": "home_h1_53",
+            "widget": "Label",
+            "classes": [
+              "role-display-md"
+            ],
+            "accessibilityLabel": "Conduit",
+            "text": "Conduit",
+            "textBinding": "Conduit",
+            "stateAttrs": {},
+            "children": []
+          },
+          {
+            "id": "home_p_54",
+            "widget": "Label",
+            "classes": [
+              "tagline",
+              "role-meta-sm"
+            ],
+            "accessibilityLabel": "A place to read and write, in public.",
+            "text": "A place to read and write, in public.",
+            "textBinding": "A place to read and write, in public.",
+            "stateAttrs": {},
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "home_form_55",
+        "widget": "StackPanel",
+        "orientation": "Vertical",
+        "classes": [
+          "search"
+        ],
+        "stateAttrs": {},
+        "actionUri": "pronto://event/NAVIGATE?screen=search&q=%7Bq%7D",
+        "children": [
+          {
+            "id": "q",
+            "widget": "Edit",
+            "classes": [
+              "role-body-md"
+            ],
+            "role": "textbox",
+            "accessibilityLabel": "Search Conduit",
+            "stateAttrs": {},
+            "inputField": "q",
+            "inputKind": "text",
+            "inputPlaceholder": "Search Conduit",
+            "children": []
+          },
+          {
+            "id": "home_button_56",
+            "widget": "Button",
+            "classes": [
+              "role-body-md",
+              "outline"
+            ],
+            "role": "button",
+            "accessibilityLabel": "Search",
+            "text": "Search",
+            "textBinding": "Search",
+            "stateAttrs": {},
+            "actionUri": "pronto://event/SEARCH",
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "home_p_58",
+        "widget": "Label",
+        "classes": [
+          "offline",
+          "role-meta-sm"
+        ],
+        "accessibilityLabel": "Conduit isn't answering. It keeps trying — this will fill in when it does.",
+        "text": "Conduit isn't answering. It keeps trying — this will fill in when it does.",
+        "textBinding": "Conduit isn't answering. It keeps trying — this will fill in when it does.",
+        "stateAttrs": {},
+        "children": []
+      },
+      {
+        "id": "home_div_59",
+        "widget": "StackPanel",
+        "orientation": "Vertical",
+        "classes": [
+          "columns"
+        ],
+        "stateAttrs": {},
+        "children": [
+          {
+            "id": "home_div_60",
+            "widget": "StackPanel",
+            "orientation": "Vertical",
+            "classes": [
+              "stream"
+            ],
+            "stateAttrs": {},
+            "children": [
+              {
+                "id": "home_div_61",
+                "widget": "LiveRegion",
+                "orientation": "Vertical",
+                "classes": [
+                  "list"
+                ],
+                "stateAttrs": {},
+                "liveTable": "article",
+                "liveFilter": "limit=20",
+                "children": [
+                  {
+                    "id": "home_article_62",
+                    "widget": "StackPanel",
+                    "orientation": "Vertical",
+                    "classes": [
+                      "preview"
+                    ],
+                    "stateAttrs": {},
+                    "children": [
+                      {
+                        "id": "home_div_63",
+                        "widget": "StackPanel",
+                        "orientation": "Horizontal",
+                        "classes": [
+                          "preview-head"
+                        ],
+                        "stateAttrs": {},
+                        "children": [
+                          {
+                            "id": "home_a_64",
+                            "widget": "Button",
+                            "classes": [
+                              "byline",
+                              "role-meta-sm"
+                            ],
+                            "role": "link",
+                            "accessibilityLabel": "{author.display_name} {author.handle}",
+                            "text": "{author.display_name} {author.handle}",
+                            "stateAttrs": {},
+                            "actionUri": "pronto://event/NAVIGATE?screen=profile&handle=%7Bauthor.handle%7D",
+                            "children": []
+                          },
+                          {
+                            "id": "home_time_68",
+                            "widget": "Label",
+                            "classes": [
+                              "date",
+                              "role-meta-sm"
+                            ],
+                            "accessibilityLabel": "{created_at}",
+                            "text": "{created_at}",
+                            "textBinding": "{created_at}",
+                            "stateAttrs": {},
+                            "children": []
+                          },
+                          {
+                            "id": "home_span_69",
+                            "widget": "Label",
+                            "classes": [
+                              "read",
+                              "role-meta-sm"
+                            ],
+                            "accessibilityLabel": "{reading_minutes, plural, one {{reading_minutes} min read} other {{reading_minutes} min read}}",
+                            "text": "{reading_minutes, plural, one {{reading_minutes} min read} other {{reading_minutes} min read}}",
+                            "textBinding": "{reading_minutes, plural, one {{reading_minutes} min read} other {{reading_minutes} min read}}",
+                            "stateAttrs": {},
+                            "children": []
+                          }
+                        ]
+                      },
+                      {
+                        "id": "home_div_70",
+                        "widget": "StackPanel",
+                        "orientation": "Vertical",
+                        "classes": [
+                          "preview-open"
+                        ],
+                        "stateAttrs": {},
+                        "children": [
+                          {
+                            "id": "home_span_71",
+                            "widget": "Label",
+                            "classes": [
+                              "thumb"
+                            ],
+                            "stateAttrs": {},
+                            "children": []
+                          },
+                          {
+                            "id": "home_a_73",
+                            "widget": "Button",
+                            "classes": [
+                              "card-open"
+                            ],
+                            "role": "link",
+                            "accessibilityLabel": "Open this piece",
+                            "text": "Open this piece",
+                            "stateAttrs": {},
+                            "actionUri": "pronto://event/VIEW_ARTICLE?screen=article&slug=%7Bslug%7D",
+                            "children": []
+                          },
+                          {
+                            "id": "home_span_74",
+                            "widget": "Label",
+                            "classes": [
+                              "preview-title",
+                              "role-display-md"
+                            ],
+                            "accessibilityLabel": "{title}",
+                            "text": "{title}",
+                            "textBinding": "{title}",
+                            "stateAttrs": {},
+                            "children": []
+                          },
+                          {
+                            "id": "home_span_75",
+                            "widget": "Label",
+                            "classes": [
+                              "preview-desc",
+                              "role-prose"
+                            ],
+                            "accessibilityLabel": "{description}",
+                            "text": "{description}",
+                            "textBinding": "{description}",
+                            "stateAttrs": {},
+                            "children": []
+                          }
+                        ]
+                      },
+                      {
+                        "id": "home_div_76",
+                        "widget": "StackPanel",
+                        "orientation": "Horizontal",
+                        "classes": [
+                          "preview-foot"
+                        ],
+                        "stateAttrs": {},
+                        "children": [
+                          {
+                            "id": "home_ul_77",
+                            "widget": "LiveRegion",
+                            "orientation": "Horizontal",
+                            "classes": [
+                              "chips"
+                            ],
+                            "stateAttrs": {},
+                            "liveTable": "article_tag",
+                            "liveFilter": "article_id=eq.{id}",
+                            "children": [
+                              {
+                                "id": "home_li_78",
+                                "widget": "StackPanel",
+                                "orientation": "Vertical",
+                                "classes": [],
+                                "stateAttrs": {},
+                                "children": [
+                                  {
+                                    "id": "home_a_79",
+                                    "widget": "Button",
+                                    "classes": [
+                                      "chip",
+                                      "role-meta-sm"
+                                    ],
+                                    "role": "link",
+                                    "accessibilityLabel": "{tag}",
+                                    "text": "{tag}",
+                                    "textBinding": "{tag}",
+                                    "stateAttrs": {},
+                                    "actionUri": "pronto://event/SELECT_TAG?screen=tag&name=%7Btag%7D&tag=%7Btag%7D",
+                                    "children": []
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "id": "home_span_80",
+                            "widget": "StackPanel",
+                            "orientation": "Horizontal",
+                            "classes": [
+                              "arms"
+                            ],
+                            "stateAttrs": {},
+                            "children": [
+                              {
+                                "id": "home_span_81",
+                                "widget": "Label",
+                                "classes": [
+                                  "fav-probe"
+                                ],
+                                "stateAttrs": {},
+                                "children": []
+                              },
+                              {
+                                "id": "home_form_83",
+                                "widget": "StackPanel",
+                                "orientation": "Vertical",
+                                "classes": [
+                                  "when-unset"
+                                ],
+                                "stateAttrs": {},
+                                "children": [
+                                  {
+                                    "id": "home_button_84",
+                                    "widget": "Button",
+                                    "classes": [
+                                      "pill",
+                                      "role-meta-sm"
+                                    ],
+                                    "role": "button",
+                                    "accessibilityLabel": "0",
+                                    "text": "0",
+                                    "stateAttrs": {},
+                                    "actionUri": "pronto://event/FAVORITE",
+                                    "children": []
+                                  }
+                                ]
+                              },
+                              {
+                                "id": "home_form_88",
+                                "widget": "StackPanel",
+                                "orientation": "Vertical",
+                                "classes": [
+                                  "when-set"
+                                ],
+                                "stateAttrs": {},
+                                "children": [
+                                  {
+                                    "id": "home_button_89",
+                                    "widget": "Button",
+                                    "classes": [
+                                      "pill",
+                                      "set",
+                                      "role-meta-sm"
+                                    ],
+                                    "role": "button",
+                                    "accessibilityLabel": "0",
+                                    "text": "0",
+                                    "stateAttrs": {},
+                                    "actionUri": "pronto://event/UNFAVORITE",
+                                    "children": []
+                                  }
+                                ]
+                              },
+                              {
+                                "id": "home_span_93",
+                                "widget": "Label",
+                                "classes": [
+                                  "save-probe"
+                                ],
+                                "stateAttrs": {},
+                                "children": []
+                              },
+                              {
+                                "id": "home_form_95",
+                                "widget": "StackPanel",
+                                "orientation": "Vertical",
+                                "classes": [
+                                  "when-unsaved"
+                                ],
+                                "stateAttrs": {},
+                                "children": [
+                                  {
+                                    "id": "home_button_96",
+                                    "widget": "Button",
+                                    "classes": [
+                                      "mark",
+                                      "role-meta-sm"
+                                    ],
+                                    "role": "button",
+                                    "accessibilityLabel": "Save this piece to read later",
+                                    "text": "Save",
+                                    "stateAttrs": {},
+                                    "actionUri": "pronto://event/SAVE",
+                                    "children": []
+                                  }
+                                ]
+                              },
+                              {
+                                "id": "home_form_100",
+                                "widget": "StackPanel",
+                                "orientation": "Vertical",
+                                "classes": [
+                                  "when-saved"
+                                ],
+                                "stateAttrs": {},
+                                "children": [
+                                  {
+                                    "id": "home_button_101",
+                                    "widget": "Button",
+                                    "classes": [
+                                      "mark",
+                                      "set",
+                                      "role-meta-sm"
+                                    ],
+                                    "role": "button",
+                                    "accessibilityLabel": "Saved — take this off your reading list",
+                                    "text": "Saved",
+                                    "stateAttrs": {},
+                                    "actionUri": "pronto://event/UNSAVE",
+                                    "children": []
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "id": "home_a_105",
+                        "widget": "Button",
+                        "classes": [
+                          "older",
+                          "role-meta-sm"
+                        ],
+                        "role": "link",
+                        "accessibilityLabel": "Older writing →",
+                        "text": "Older writing →",
+                        "textBinding": "Older writing →",
+                        "stateAttrs": {},
+                        "actionUri": "pronto://event/NAVIGATE?screen=older&when=%7Bcreated_at%7D",
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "home_aside_106",
+            "widget": "StackPanel",
+            "orientation": "Vertical",
+            "classes": [
+              "rail"
+            ],
+            "stateAttrs": {},
+            "children": [
+              {
+                "id": "home_span_107",
+                "widget": "Label",
+                "classes": [
+                  "rail-label",
+                  "role-meta-sm"
+                ],
+                "accessibilityLabel": "Popular tags",
+                "text": "Popular tags",
+                "textBinding": "Popular tags",
+                "stateAttrs": {},
+                "children": []
+              },
+              {
+                "id": "home_nav_108",
+                "widget": "LiveRegion",
+                "orientation": "Horizontal",
+                "classes": [
+                  "tags"
+                ],
+                "stateAttrs": {},
+                "liveTable": "tag_count",
+                "liveFilter": "article_count=gt.0",
+                "children": [
+                  {
+                    "id": "home_a_109",
+                    "widget": "Button",
+                    "classes": [
+                      "tag-chip",
+                      "role-meta-sm"
+                    ],
+                    "role": "link",
+                    "accessibilityLabel": "{id} {article_count}",
+                    "text": "{id} {article_count}",
+                    "stateAttrs": {},
+                    "actionUri": "pronto://event/SELECT_TAG?screen=tag&name=%7Bid%7D&tag=%7Bid%7D",
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
