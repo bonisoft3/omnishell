@@ -113,9 +113,13 @@ export function renderTask(render: Render, request: Request, revision: string, r
 
 export function renderObject(render: Render, version = '') {
   return class Renderer extends DurableObject {
-    render(request: Request, revision: string, reader: Reader): Promise<Response> {
-      const task = renderTask(render, request, revision, reader, version)
-      this.ctx?.waitUntil?.(task.finished)
+    render(request: Request, revision: string, reader: Reader & { dup(): Reader & Disposable }): Promise<Response> {
+      // The RPC returns at the head; its reader must outlive that call until all nested reads finish.
+      const retained = reader.dup()
+      const task = renderTask(render, request, revision, retained, version)
+      const release = () => retained[Symbol.dispose]()
+      const released = task.rendered.then(release, release)
+      this.ctx?.waitUntil?.(Promise.all([released, task.finished]))
       return task.response
     }
   }

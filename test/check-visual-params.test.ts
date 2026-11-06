@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@test/harness"
-import { ftsWords, type Reader, renderedRouteParams, resolveRenderedFixture, resolveParams, tiersFrom } from "../check-visual.ts"
+import { ftsWords, type Reader, renderedRouteParams, resolveRenderedFixture, resolveParams, resolveReadyParams, tiersFrom } from "../check-visual.ts"
 import { paramPlans, type ParamPlan } from "../interpreter/lint.ts"
 
 // The battery fills a `:param` with a row the route's read can match, and the
@@ -34,6 +34,89 @@ describe("check-visual param resolution follows the app's declared tier", () => 
     }
     return { api, calls }
   }
+
+  it("waits for derived route fixtures without rereading ready routes or mixing related params", async () => {
+    const route = "/jogador-campeonato/:slug/:team/:championship"
+    const filter = "player.slug=eq.{param.slug}&team.slug=eq.{param.team}&championship.slug=eq.{param.championship}"
+    const plans = [
+      plan("/equipe/:slug", "slug", "team", "slug"),
+      plan(route, "slug", "player_stat", "player.slug", "eq", filter),
+      plan(route, "team", "player_stat", "team.slug", "eq", filter),
+      plan(route, "championship", "player_stat", "championship.slug", "eq", filter),
+      plan("/jogo/:slug", "slug", "game_card", "game.slug"),
+      plan("/editar/:slug", "slug", "game_card", "game.slug"),
+    ]
+    const calls: string[] = []
+    let published = false
+    const api: Reader = (query) => {
+      calls.push(query)
+      if (query.startsWith("team?")) return Promise.resolve([{ slug: "ready" }])
+      if (query.startsWith("player_stat?")) {
+        if (!published) return Promise.resolve([])
+        if (query.includes("select=team(")) expect(query).toContain("player.slug=eq.player")
+        if (query.includes("select=championship(")) {
+          expect(query).toContain("player.slug=eq.player")
+          expect(query).toContain("team.slug=eq.team")
+        }
+        return Promise.resolve([{ player: { slug: "player" }, team: { slug: "team" }, championship: { slug: "cup" } }])
+      }
+      if (!published) {
+        if (calls.length === plans.length) published = true
+        return Promise.resolve([])
+      }
+      return Promise.resolve([{ game: { slug: "match" } }])
+    }
+    const once = await resolveParams(plans, tier(true), api)
+    expect(once.unresolved.length).toBe(5)
+    calls.length = 0
+    published = false
+    const ready = await resolveReadyParams(plans, tier(true), api, 2000)
+    expect(ready.unresolved).toEqual([])
+    expect(ready.params.get(route)).toEqual({ slug: "player", team: "team", championship: "cup" })
+    expect(ready.params.get("/jogo/:slug")).toEqual({ slug: "match" })
+    expect(ready.params.get("/editar/:slug")).toEqual({ slug: "match" })
+    expect(calls.filter((query) => query.startsWith("team?")).length).toBe(1)
+  })
+
+  it("keeps absent fixtures as coverage holes after one shared readiness deadline", async () => {
+    const plans = [plan("/a/:id", "id", "a", "id"), plan("/b/:id", "id", "b", "id")]
+    const { api, calls } = reader({ a: [], b: [] })
+    const result = await resolveReadyParams(plans, tier(true), api, 100)
+    expect(result.unresolved).toEqual([{ route: "/a/:id", param: "id" }, { route: "/b/:id", param: "id" }])
+    expect(calls.length).toBe(2)
+  })
+
+  it("does not retry immutable seed holes or failed API reads", async () => {
+    const plans = [plan("/a/:id", "id", "a", "id")]
+    const unavailable = reader()
+    const result = await resolveReadyParams(plans, tier(false, "local:\n  a: device\n"), unavailable.api, 1000)
+    expect(result.unresolved).toEqual([{ route: "/a/:id", param: "id" }])
+    expect(unavailable.calls).toEqual([])
+    await expect(resolveReadyParams(plans, tier(true), unavailable.api, 1000)).rejects.toThrow("502")
+    expect(unavailable.calls.length).toBe(1)
+  })
+
+  it("bounds a pending retry read by the original deadline and propagates retry errors", async () => {
+    const plans = [plan("/a/:id", "id", "a", "id")]
+    let reads = 0
+    await expect(resolveReadyParams(plans, tier(true), () => {
+      reads++
+      return reads === 1 ? Promise.resolve([]) : new Promise(() => {})
+    }, 400)).rejects.toThrow("fixture readiness timed out")
+    expect(reads).toBe(2)
+    reads = 0
+    await expect(resolveReadyParams(plans, tier(true), () => {
+      reads++
+      return reads === 1 ? Promise.resolve([]) : Promise.reject(new Error("GET failed"))
+    }, 2000)).rejects.toThrow("GET failed")
+    expect(reads).toBe(2)
+  })
+
+  it("fails an initial API read that never answers within the readiness deadline", async () => {
+    await expect(resolveReadyParams(
+      [plan("/a/:id", "id", "a", "id")], tier(true), () => new Promise(() => {}), 50,
+    )).rejects.toThrow("fixture readiness timed out")
+  })
 
   it("reads the tier off shell.yaml: the server fact, and the local tables with their seed", () => {
     const device = tier(false, "local:\n  theme: tab\nseed:\n  theme:\n    - id: light\n")

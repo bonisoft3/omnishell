@@ -2117,6 +2117,13 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     screen.dataset.state = s;
   };
   setState(base);
+  const populatedLists = new Set();
+  const setListState = (region, count) => {
+    if (count > 0) populatedLists.add(region);
+    else populatedLists.delete(region);
+    base = populatedLists.size > 0 ? "populated" : "empty";
+    if (["loading", "empty", "populated"].includes(screen.dataset.state)) setState(base);
+  };
   // The regions whose outage the screen says: a top region whose read failed,
   // a nested region whose first read did. Whichever reads again last puts the
   // state back, so a region nested two deep that recovers on its own pass
@@ -2580,7 +2587,11 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           // store's question, answered against the collection.
           else if (action === "upsert") await store.upsertBy(entity, await values(), refused);
           else if (action === "update") {
-            await store.patch(entity, [{ key: wiring().rowId(), changes: await values() }], refused);
+            const changes = await values();
+            // A derived row can edit another entity by naming its id explicitly.
+            const key = changes.id ?? wiring().rowId();
+            delete changes.id;
+            await store.patch(entity, [{ key, changes }], refused);
           }
           else if (action === "delete" && form.dataset.filter !== undefined) {
             // Filter-scoped bulk delete: the filter, not the row context,
@@ -4363,10 +4374,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             for (const entry of toSync) for (const child of entry.node.querySelectorAll("[data-live]")) holdUnboundLoads(child);
             placeListNodes();
             for (const entry of toSync) markChildRegionsHydrating(entry.node, region);
-            if (top) {
-              base = rows.length === 0 ? "empty" : "populated";
-              if (["loading", "empty", "populated"].includes(screen.dataset.state)) setState(base);
-            }
+            if (top) setListState(region, rows.length);
             finishOwn();
             if (screenOpts.onHeadReady && toSync.length > 0) {
               if (top && headFlushed) await headFlushed;
@@ -4383,10 +4391,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           }
           wireListNodes();
         }
-        if (top) {
-          base = rows.length === 0 ? "empty" : "populated";
-          if (["loading", "empty", "populated"].includes(screen.dataset.state)) setState(base);
-        }
+        if (top) setListState(region, rows.length);
       } else {
         // Singleton region: the row must exist (seed doctrine), except where
         // data-empty-row supplies the fallback for pipeline sinks whose row
@@ -4647,6 +4652,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     const stop = () => {
       if (stopped) return;
       stopped = true;
+      if (top) populatedLists.delete(region);
       for (const dependency of dependencies) derived.get(dependency).delete(guarded);
       detach();
       dropAll();
@@ -4887,9 +4893,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     const pairs = new Map();
     adoptTree(next, screen, { rows: true, live: true, pairs });
     localize(screen);
-    // Every list re-binds its rows, and a top region's pass names the
-    // screen's state after its own rows: the region settling last would
-    // decide it, though a template moving on changes no row.
+    // Every list re-binds its rows, but a template moving on changes no row.
     const [state, standing] = [screen.dataset.state, base];
     const ready = [];
     for (const r of [...regions]) {

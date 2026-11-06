@@ -32,6 +32,11 @@ and a reset request another read, closing the gap before observation began.
 Grant families retain their authorized collection union, since their visibility
 already requires that state. Each wake re-reads and [[screen-updates#When data changes|patches by key]].
 
+An `update` form patches its enclosing row. A hidden `name="id"` field can
+name a different target, such as a seeded Filter edited from a derived choice
+row. That id selects the row and is omitted from the PATCH payload; other
+fields are changes. The form never creates a missing row.
+
 The store has many writers — forms, reduces, machine effects, sync, other tabs —
 so no writer knows a region changed; the renderer does, having just applied the
 rows. Elm's one funnel knows what it changed and needs no hook; here the

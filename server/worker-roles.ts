@@ -18,4 +18,4 @@ export async function evaluateRole(source, role = 'handler', endowments = []) {
   return factory()
 }
 export async function evaluateCaged() { throw new Error('runtime compilation is unavailable') }
-export async function evaluateEngine() { throw new Error('runtime compilation is unavailable') }
+export async function evaluateEngine() { throw new Error('kinetic engines cannot run during server rendering') }

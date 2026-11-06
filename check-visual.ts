@@ -426,6 +426,38 @@ export async function resolveParams(
   return { params, unresolved }
 }
 
+export async function resolveReadyParams(plans: ParamPlan[], tiers: Tiers, api: Reader, timeoutMs: number) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error("fixture readiness timeout must be positive")
+  const deadline = Date.now() + timeoutMs
+  const expired = new Error("fixture readiness timed out")
+  const read: Reader = async (query) => {
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) throw expired
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await Promise.race([
+        api(query),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(expired), remaining) }),
+      ])
+    } finally { clearTimeout(timer) }
+  }
+  let result = await resolveParams(plans, tiers, read)
+  for (;;) {
+    const routes = new Set(result.unresolved.filter((hole) =>
+      plans.some((plan) => plan.route === hole.route && plan.param === hole.param && !onDevice(plan, tiers))
+    ).map((hole) => hole.route))
+    const remaining = deadline - Date.now()
+    if (!routes.size || remaining <= 0) return result
+    await new Promise((resolve) => setTimeout(resolve, Math.min(250, remaining)))
+    if (Date.now() >= deadline) return result
+    // Re-resolve the entire missing route so later params stay bound to its selected row.
+    const next = await resolveParams(plans.filter((plan) => routes.has(plan.route)), tiers, read)
+    for (const route of routes) result.params.delete(route)
+    for (const [route, params] of next.params) result.params.set(route, params)
+    result = { params: result.params, unresolved: [...result.unresolved.filter((hole) => !routes.has(hole.route)), ...next.unresolved] }
+  }
+}
+
 /**
  * Never wait for networkidle: Electric holds its shape connections open, so
  * that state never arrives and the wait consumes the whole timeout.
@@ -744,7 +776,7 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
     markup[route.path] = await Deno.readTextFile(`${appDir}/${route.files.html}`).catch(() => "")
   }
   const { plans, unplanned } = paramPlans(routes, markup)
-  const { params, unresolved } = await resolveParams(plans, tiers, crudReader(base, session?.token))
+  const { params, unresolved } = await resolveReadyParams(plans, tiers, crudReader(base, session?.token), settleTimeout())
   // Only browser-owned tab views can be materialized by a live screen; a
   // missing server row stays the coverage hole the reader found.
   const tabHoles = unresolved.filter((hole) => {
