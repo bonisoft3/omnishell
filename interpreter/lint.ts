@@ -1,3 +1,4 @@
+import { referencedChart } from "./row-attachments.js";
 // The terminal's markup rules: what a screen's data-* vocabulary may say,
 // stated beside the vocabulary itself (fragment.js) so the plugin that
 // publishes the grammar also publishes its rules. pronto's derive.ts
@@ -56,6 +57,19 @@ const ATTR = /\s(data-[a-z][a-z0-9_-]*)=(?:"([^"]*)"|'([^']*)')/g;
 const decode = (v: string) =>
   v.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+
+export function resolveMachineMarkup(html: string, bindings: Record<string, unknown> = {}, screen = ""): string {
+  return html.replace(new RegExp(`${COMMENT.source}|${SCRIPT.source}|${STYLE.source}|${ANY_TAG.source}`, "gi"), (tag, closing, _name, attrText) => {
+    if (closing === undefined || closing) return tag;
+    const attrs = attrMap(attrText);
+    if (!attrs.has("data-machine-ref")) return tag;
+    if (!attrs.has("data-live")) throw new Error("data-machine-ref on a tag with no data-live");
+    if (attrs.has("data-machine")) throw new Error("data-machine-ref and data-machine cannot share a region");
+    const chart = referencedChart(bindings, attrs.get("data-cortex"), attrs.get("data-machine-ref"), screen);
+    const json = JSON.stringify(chart).replace(/&/g, "&amp;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return tag.replace(QATTR("data-machine-ref"), () => ` data-machine='${json}'`);
+  });
+}
 
 /** Tables read, handler modules bound, and filter fragments authored by one
  * screen's markup. A filter's table is the tag's own anchor: `data-live` on a

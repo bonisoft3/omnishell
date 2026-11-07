@@ -3,8 +3,7 @@
 # break a rule live here beside the one that breaks none rather than in an app.
 #
 # `schema:` and `routes:` are declared, which is what the check reads; the
-# screens come off shell/screens/ and the shipped modules off shell/handlers/,
-# so the rest of an emitted shell.yaml would be shape nothing here reads.
+# screens come from route files and the shipped modules from shell/handlers/.
 # `routes:` carries the two shapes the link rule distinguishes — a pattern with
 # no hole, and one with a `:param` a link has to fill.
 #
@@ -41,8 +40,22 @@ schema:
       - {name: id, type: text, pk: true}
       - {name: cursor, type: text}
 routes:
-  - {path: /, screen: sound}
-  - {path: /note/:id, screen: detail}
+  - {path: /, screen: sound, files: {html: shell/screens/sound.html}}
+  - {path: /note/:id, screen: detail, files: {html: shell/screens/sound.html}}
+  - {path: /arity, screen: arity, files: {html: shell/screens/arity.html}}
+  - {path: /columns, screen: columns, files: {html: shell/screens/columns.html}}
+  - {path: /control, screen: control, files: {html: shell/screens/control.html}}
+  - {path: /format, screen: format, files: {html: shell/screens/format.html}}
+  - {path: /hatch, screen: hatch, files: {html: shell/screens/hatch.html}}
+  - {path: /kinds, screen: kinds, files: {html: shell/screens/kinds.html}}
+  - {path: /link, screen: link, files: {html: shell/screens/link.html}}
+  - {path: /machine, screen: machine, files: {html: shell/screens/machine.html}}
+  - {path: /nested, screen: nested, files: {html: shell/screens/nested.html}}
+  - {path: /parallel, screen: parallel, files: {html: shell/screens/parallel.html}}
+  - {path: /refuses, screen: refuses, files: {html: shell/screens/refuses.html}}
+  - {path: /slot, screen: slot, files: {html: shell/screens/slot.html}}
+  - {path: /unknown, screen: unknown, files: {html: shell/screens/unknown.html}}
+  - {path: /writes, screen: writes, files: {html: shell/screens/writes.html}}
 units:
   oracle:
     isolation: agent

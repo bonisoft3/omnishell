@@ -99,18 +99,22 @@ Deno.test("the runtime image's tree holds everything its entry points import", a
   }
 });
 
-Deno.test("ARIA command scans app screens and fails on duplicate current links", async () => {
+Deno.test("ARIA command reads declared screens and fails on duplicate current links", async () => {
   const app = await Deno.makeTempDir({ prefix: "omnishell aria " });
   try {
-    await Deno.mkdir(join(app, "shell", "screens"), { recursive: true });
-    await Deno.writeTextFile(join(app, "shell", "screens", "home.html"), '<nav><a aria-current="page">A</a><a aria-current="page">B</a></nav>');
+    await Deno.mkdir(join(app, "shell"));
+    await Deno.mkdir(join(app, "screens"));
+    await Deno.writeTextFile(join(app, "shell", "shell.json"), JSON.stringify({ routes: [{ files: { html: "screens/home.html" } }] }));
+    await Deno.writeTextFile(join(app, "screens", "home.html"), '<nav><a aria-current="page">A</a></nav>');
+    await run(app, ["check", "aria", app]);
+    await Deno.writeTextFile(join(app, "screens", "home.html"), '<nav><a aria-current="page">A</a><a aria-current="page">B</a></nav>');
     const result = await new Deno.Command(Deno.execPath(), {
       args: ["run", "--no-check", "--config", join(terminal, "test/deno.json"), "--allow-read", "--allow-write=.", "--allow-env", join(terminal, "runtime/cli.ts"), "check", "aria", app],
       stdout: "piped", stderr: "piped",
     }).output();
     assert(result.code === 1, `expected violation exit, got ${result.code}: ${decoder.decode(result.stderr)}`);
     const obligations = JSON.parse(decoder.decode(result.stdout));
-    assert(obligations.some((o: { path: string; property: string; status: string }) => o.path === "shell/screens/home.html" && o.property === "aria-current-cardinality" && o.status === "violation"), "missing screen violation");
+    assert(obligations.some((o: { path: string; property: string; status: string }) => o.path === "screens/home.html" && o.property === "aria-current-cardinality" && o.status === "violation"), "missing screen violation");
   } finally {
     await Deno.remove(app, { recursive: true });
   }

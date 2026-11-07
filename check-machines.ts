@@ -27,13 +27,14 @@
 // Findings print as {severity, path, message} JSON (SPEC.md lint format);
 // exit 1 when any finding is reported.
 
-import { machineRegions, paramPlans } from "./interpreter/lint.ts";
+import { machineRegions, resolveMachineMarkup, paramPlans } from "./interpreter/lint.ts";
 import { ABSENT, binding, fillFilter, machineShape, PLACEHOLDER, PLACEHOLDERS } from "./interpreter/fragment.js";
 import { seedQuery, selectWithFields } from "./test/seed-query.ts";
 import { walkMachine, type WalkHarness } from "./test/walker.ts";
 import type { Machine } from "./test/canonical.ts";
 import {
   appActors,
+  appChartBindings,
   appCluster,
   appCollections,
   appFiles,
@@ -438,7 +439,8 @@ async function walkScreen(
 ): Promise<Walked> {
   const hostDom = await appHostDom(appDir);
   const html = route.files.html;
-  const markup = await Deno.readTextFile(new URL(html, appDir));
+  const chartBindings = await appChartBindings(appDir);
+  const markup = resolveMachineMarkup(await Deno.readTextFile(new URL(html, appDir)), chartBindings, route.screen);
   const authored = machineRegions(markup);
   if (authored.length === 0) return { findings: [], abandoned: false, walked: 0, authored: 0 };
 
@@ -483,6 +485,7 @@ async function walkScreen(
         routes,
         i18n,
         endowments,
+        cortex: { actors: chartBindings },
       });
       // Quiet, not settled: the clock must not move before the walk arms its
       // trace, or a state whose way out is `after: 0` has already taken it and

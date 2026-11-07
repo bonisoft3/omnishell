@@ -10,3 +10,8 @@ schema:
     fields:
       - {name: id, type: string, pk: true}
       - {name: label, type: string}
+
+routes:
+  - screen: control
+    path: /
+    files: {html: shell/screens/control.html, css: shell/screens/control.css}

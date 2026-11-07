@@ -61,6 +61,7 @@ type Route = {
 type I18n = { default: string; locales: Record<string, { path: string }> };
 
 type ShellConfig = {
+  cortex?: { actors?: Record<string, unknown> };
   app?: string;
   i18n?: I18n;
   // The facts that decide which of the terminal's own chrome a reader reaches:
@@ -673,6 +674,7 @@ export async function checkMemoryApp(
             // A money binding resolves its currency and its scale off the bound
             // column, so a screen carrying one renders only where the schema does.
             schema: shell.schema,
+            cortex: shell.cortex,
             hostDom: shell.hostDom,
           });
         } catch (err) {
@@ -986,6 +988,7 @@ export async function checkPseudoLocale(
             routes,
             i18n: view,
             schema: shell.schema,
+            cortex: shell.cortex,
             hostDom: shell.hostDom,
           });
         } catch (err) {

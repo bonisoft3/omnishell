@@ -124,7 +124,9 @@ schema:
     fields:
       - {name: id, type: text, pk: true}
 routes:
-  - files:
+  - screen: home
+    files:
+      html: shell/screens/home.html
       handlers: [shell/handlers/allowed.js, shell/handlers/denied.js]
 validations:
   note:
@@ -188,7 +190,7 @@ Deno.test("battery exercises a module referenced only by an effect input", async
     await Deno.writeTextFile(`${dir}/shell/screens/home.html`, `<main data-live="form" data-machine='${JSON.stringify(chart)}'></main>`);
     await Deno.writeTextFile(`${dir}/shell/shell.yaml`, JSON.stringify({
       schema: { form: { durability: "device", fields: [{ name: "id", type: "text", pk: true }, { name: "ready", type: "bool" }] } },
-      routes: [{ files: { handlers: ["shell/handlers/input.js", "shell/handlers/world.js"] } }],
+      routes: [{ screen: "home", files: { html: "shell/screens/home.html", handlers: ["shell/handlers/input.js", "shell/handlers/world.js"] } }],
     }));
     const checked = await checkApp(new URL(`file://${dir}/`), { numRuns: 10 });
     assert.equal(checked.findings.length, 1);
@@ -213,7 +215,7 @@ Deno.test("named delays receive only the held row and after event", async () => 
     }`);
     const chart = {field:"phase",initial:"a",states:{a:{after:{delay:"a"}}}};
     await Deno.writeTextFile(`${dir}/shell/screens/home.html`, `<div data-live="form" data-machine='${JSON.stringify(chart)}'></div>`);
-    await Deno.writeTextFile(`${dir}/shell/shell.yaml`, JSON.stringify({schema:{form:{durability:"device",fields:[{name:"id",type:"text",pk:true}]}},routes:[{files:{handlers:["shell/handlers/delay.js"]}}]}));
+    await Deno.writeTextFile(`${dir}/shell/shell.yaml`, JSON.stringify({schema:{form:{durability:"device",fields:[{name:"id",type:"text",pk:true}]}},routes:[{screen:"home",files:{html:"shell/screens/home.html",handlers:["shell/handlers/delay.js"]}}]}));
     const result = await checkApp(new URL(`file://${dir}/`), { numRuns: 20 });
     assert.deepEqual(result.findings, []);
     assert.equal(result.exercised[0].delay, true);

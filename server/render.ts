@@ -89,6 +89,7 @@ export function createRenderer({
   capacity,
   queue,
   cacheableRead = () => true,
+  retain = true,
   authRequired = false,
 }: {
   store: Store;
@@ -101,6 +102,7 @@ export function createRenderer({
   queue: number;
   /** Whether changes to this read can invalidate a retained document. */
   cacheableRead?: (table: string) => boolean;
+  retain?: boolean;
   authRequired?: boolean;
 }): Renderer {
   // The render in progress. Each read it makes is listened to at once, beside
@@ -184,7 +186,7 @@ export function createRenderer({
 
   const draw = (found: Found, base: URL, url: URL): Promise<Drawn> =>
     serially(async () => {
-      const ticket: Ticket = { stale: false, cacheable: true, stops: [] };
+      const ticket: Ticket = { stale: false, cacheable: retain, stops: [] };
       const { found: asked, note } = noting(found);
       current = ticket;
       let html: string, gone: boolean;
@@ -217,7 +219,7 @@ export function createRenderer({
       "Content-Type": "text/html; charset=utf-8",
       // Anyone may keep it, nobody may serve it unasked: the next change to
       // a read that drew it is not a time anyone downstream can know.
-      "Cache-Control": "public, no-cache",
+      "Cache-Control": retain ? "public, no-cache" : "no-store",
       ETag: etag,
     });
     if (gone) return new Response(html, { status: 404, headers });
@@ -401,6 +403,7 @@ export async function serve(env: (name: string) => string | undefined = (name) =
   // which is a document already rendered.
   const entryPath = Deno.env.get("ENTRY");
   if (entryPath === undefined) throw new Error("ENTRY names no entry page to render documents from");
+  const livePresentation = !!env("PRONTO_PRESENTATION_WATCH");
   const entry = await Deno.readTextFile(entryPath);
   const messages: Record<string, unknown> = {};
   for (const tag of Object.keys(cfg.i18n?.locales ?? {})) {
@@ -431,6 +434,7 @@ export async function serve(env: (name: string) => string | undefined = (name) =
     capacity,
     queue,
     cacheableRead,
+    retain: !livePresentation,
     authRequired: cfg.auth?.required,
     // The door has already chosen the language: an unprefixed address reaching
     // here is the default's, so no preference is consulted.
@@ -440,7 +444,7 @@ export async function serve(env: (name: string) => string | undefined = (name) =
       let drawn;
       try {
         drawn = await renderDocument({
-          entry,
+          entry: livePresentation ? await Deno.readTextFile(entryPath) : entry,
           parse,
           cfg,
           appBase,

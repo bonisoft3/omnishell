@@ -30,6 +30,7 @@ routes:
   - path: /
     screen: home
     files:
+      html: shell/screens/home.html
       handlers:
         - shell/handlers/sound.js
         - shell/handlers/bounded.js

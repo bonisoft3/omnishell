@@ -4,18 +4,16 @@ import { parseHTML } from "npm:linkedom@0.18.4";
 import { checkAria, type AriaObligation } from "./check-aria.ts";
 
 export async function checkApp(appDir: string): Promise<{ obligations: AriaObligation[]; checked: number }> {
-  const dir = new URL("shell/screens/", pathToFileURL(resolve(appDir) + "/"));
-  const names: string[] = [];
-  for await (const entry of Deno.readDir(dir)) {
-    if (entry.isFile && entry.name.endsWith(".html")) names.push(entry.name);
-  }
-  if (names.length === 0) throw new Error(`No screens found in ${dir.pathname}`);
+  const dir = pathToFileURL(resolve(appDir) + "/");
+  const shell = JSON.parse(await Deno.readTextFile(new URL("shell/shell.json", dir))) as { routes: { files: { html: string } }[] };
+  const paths = [...new Set(shell.routes.map(route => route.files.html))].sort();
+  if (paths.length === 0) throw new Error("No screen HTML declared in shell/shell.json");
   const obligations: AriaObligation[] = [];
-  for (const name of names.sort()) {
-    const document = parseHTML(await Deno.readTextFile(new URL(name, dir))).document;
-    obligations.push(...checkAria(document, { path: `shell/screens/${name}`, phase: "declaration", opaque: true }));
+  for (const path of paths) {
+    const document = parseHTML(await Deno.readTextFile(new URL(path, dir))).document;
+    obligations.push(...checkAria(document, { path, phase: "declaration", opaque: true }));
   }
-  return { obligations, checked: names.length };
+  return { obligations, checked: paths.length };
 }
 
 export async function run(args: string[]): Promise<void> {

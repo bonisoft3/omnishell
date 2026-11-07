@@ -81,8 +81,10 @@ Deno.test("screen inventory reports violations and does not claim dynamic output
   const { checkApp } = await import("../check-aria-app.ts");
   const app = await Deno.makeTempDir();
   try {
-    await Deno.mkdir(`${app}/shell/screens`, { recursive: true });
-    await Deno.writeTextFile(`${app}/shell/screens/example.html`, '<nav><a aria-current="page">A</a><a aria-current="page">B</a></nav><button aria-controls="panel"></button>');
+    await Deno.mkdir(`${app}/shell`, { recursive: true });
+    await Deno.mkdir(`${app}/screens`);
+    await Deno.writeTextFile(`${app}/shell/shell.json`, JSON.stringify({ routes: [{ files: { html: "screens/example.html" } }] }));
+    await Deno.writeTextFile(`${app}/screens/example.html`, '<nav><a aria-current="page">A</a><a aria-current="page">B</a></nav><button aria-controls="panel"></button>');
     const { obligations, checked } = await checkApp(app);
     assertEquals(checked, 1);
     assertEquals(obligations.find((o) => o.property === "aria-current-cardinality")?.status, "violation");

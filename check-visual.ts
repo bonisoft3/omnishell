@@ -34,7 +34,7 @@ import { checkContrast, contrastFloor, contrastRatio } from "./src/lint/playwrig
 import { armCLS, checkCLS } from "./src/lint/playwright/checks/cls.ts"
 import { captureConsole, analyzeConsole } from "./src/lint/playwright/checks/console-messages.ts"
 import type { VisualBug } from "./src/lint/playwright/types.ts"
-import { type ParamPlan, paramPlans, machineRegions } from "./interpreter/lint.ts"
+import { type ParamPlan, paramPlans, machineRegions, resolveMachineMarkup } from "./interpreter/lint.ts"
 import { type MachineRegionInfo, extractRegions, generateCoveringArrayFrames } from "./test/storybook-injector.ts"
 import type { Machine } from "./test/canonical.ts"
 import { parseFilter, parseFilterSpec, PLACEHOLDER, PLACEHOLDERS, routeAt } from "./interpreter/fragment.js"
@@ -767,13 +767,10 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
   // minted only where a cluster runs the auth service that mints it.
   const session = tiers.server ? await guestSession(base) : undefined
 
-  // Keyed by route path, because that is what paramPlans walks. A route whose
-  // html is missing reads as empty markup and its params come back unplanned,
-  // which is the finding either way.
   const markup: Record<string, string> = {}
   for (const route of routes) {
     if (!route.files?.html) continue
-    markup[route.path] = await Deno.readTextFile(`${appDir}/${route.files.html}`).catch(() => "")
+    markup[route.path] = resolveMachineMarkup(await Deno.readTextFile(`${appDir}/${route.files.html}`), (shell.cortex as { actors?: Record<string, unknown> } | undefined)?.actors, route.screen)
   }
   const { plans, unplanned } = paramPlans(routes, markup)
   const { params, unresolved } = await resolveReadyParams(plans, tiers, crudReader(base, session?.token), settleTimeout())

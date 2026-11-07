@@ -59,3 +59,25 @@ Deno.test("catalog leak screening retains overlapping phrases, duplicate entries
   if (!findings.some((f) => f.message.includes('text leak in title="(Football)+"'))) throw new Error(JSON.stringify(findings));
   if (findings.some((f) => f.message.includes('text: "xFootballx"'))) throw new Error(JSON.stringify(findings));
 });
+
+Deno.test("localized and pseudo-locale storybooks resolve declared row charts", async () => {
+  const { checkMemoryApp, checkPseudoLocale } = await import("../check-i18n.ts");
+  const shell = {
+    i18n: { default: "en", locales: { en: { path: "en" }, pt: { path: "pt" } } },
+    routes: [{ path: "/", screen: "home", states: ["empty"], files: { html: "screens/home.html", css: "home.css" } }],
+    cortex: { actors: { homeRows: { via: "rows", lifetime: "attachment", screen: "home", charts: {
+      main: { field: "status", initial: "idle", states: { idle: {} } },
+    } } } },
+  };
+  const messages = { en: { title: "Home" }, pt: { title: "Início" } };
+  const files = {
+    "screens/home.html": '<main><h1 data-text="{msg.title}"></h1><div data-live="draft" data-filter="id=eq.draft" data-cortex="homeRows" data-machine-ref="main" data-status="{status}"></div></main>',
+    "home.css": "",
+  };
+  for (const check of [checkMemoryApp, checkPseudoLocale]) {
+    const findings = await check(shell, messages, files);
+    if (findings.length) throw new Error(JSON.stringify(findings));
+    const missing = await check({ ...shell, cortex: { actors: {} } }, messages, files);
+    if (!missing.some(finding => finding.message.includes("Undeclared row attachment homeRows"))) throw new Error("storybook skipped the declared chart");
+  }
+});

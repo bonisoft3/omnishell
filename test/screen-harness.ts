@@ -388,6 +388,7 @@ export type MountSpec = {
    * minor-unit scale off the column. mountApp reads it from the app's own
    * shell.yaml. */
   schema?: Schema;
+  cortex?: { actors?: Record<string, unknown> };
   endowments?: Record<string, string[]>;
 };
 
@@ -856,7 +857,13 @@ export async function mountApp(
     hostDom: { ...(await appHostDom(spec.appDir)), ...spec.hostDom },
     schema: spec.schema ?? await appSchema(spec.appDir),
     endowments: spec.endowments ?? await appEndowments(spec.appDir),
+    cortex: spec.cortex ?? { actors: await appChartBindings(spec.appDir) },
   });
+}
+
+export async function appChartBindings(appDir: URL): Promise<Record<string, unknown>> {
+  const shell = await appShell(appDir) as { cortex?: { actors?: Record<string, unknown> } };
+  return shell.cortex?.actors ?? {};
 }
 
 export async function appActors(appDir: URL): Promise<Record<string, { via?: string; event?: string; suffix?: boolean; missing?: string; field?: string }>> {

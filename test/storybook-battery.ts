@@ -28,6 +28,7 @@ async function loadAppSeeds(appDir: string): Promise<TableRows> {
 }
 import {
   appMessages,
+  appChartBindings,
   appKinetic,
   appUnits,
   appRoutes,
@@ -37,6 +38,7 @@ import {
   type Catalogs,
 } from "./screen-harness.ts";
 import { screenEnv } from "../interpreter/fragment.js";
+import { resolveMachineMarkup } from "../interpreter/lint.ts";
 
 export type BatteryAppReport = {
   app: string;
@@ -144,37 +146,15 @@ export async function runStorybookBatteryForApp(
   const routes = await appRoutes(appUrl);
   const i18n = await appI18n(appUrl);
 
-  const screensDir = join(appDir, "shell", "screens");
-  const screenFiles: string[] = [];
-  try {
-    for await (const entry of Deno.readDir(screensDir)) {
-      if (entry.isFile && entry.name.endsWith(".html")) {
-        screenFiles.push(entry.name);
-      }
-    }
-  } catch (err) {
-    if (err instanceof Deno.errors.NotFound) return report;
-    throw err;
-  }
-
-  screenFiles.sort();
-
+  const chartBindings = await appChartBindings(appUrl);
+  const screens = new Map(routes.map(route => [route.screen, route.files]));
   const { interpretScreen } = await import("../interpreter/screen.js");
 
-  for (const screenFile of screenFiles) {
+  for (const [screenName, files] of [...screens].sort(([a], [b]) => a.localeCompare(b))) {
     report.screensChecked++;
-    const screenName = screenFile.replace(/\.html$/, "");
-    const htmlPath = join(screensDir, screenFile);
-    const cssPath = join(screensDir, `${screenName}.css`);
-
-    const html = await Deno.readTextFile(htmlPath);
-
-    let css = "";
-    try {
-      css = await Deno.readTextFile(cssPath);
-    } catch (err) {
-      if (!(err instanceof Deno.errors.NotFound)) throw err;
-    }
+    const htmlPath = join(appDir, files.html);
+    const html = resolveMachineMarkup(await Deno.readTextFile(htmlPath), chartBindings, screenName);
+    const css = await Deno.readTextFile(join(appDir, files.css));
 
     const { document: domDoc } = parseHTML(html);
     const machineEls = domDoc.querySelectorAll("[data-machine]");
@@ -361,6 +341,7 @@ export async function runStorybookBatteryForApp(
             routes,
             i18n,
             schema,
+            cortex: { actors: chartBindings },
           },
           {
             handlers: false,

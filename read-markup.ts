@@ -2,6 +2,7 @@
 //
 //   omnishell read markup <appDir>
 //   omnishell read markup --self-test
+//   read-markup.ts --actors-stdin <appDir>  # {actors, screens} from authored declarations
 //
 // The terminal publishes the markup's grammar, so it publishes the readings of
 // it too (interpreter/lint.ts, interpreter/fragment.js). A compiler needs the
@@ -46,16 +47,15 @@
 // caller asking whether a region pins a row has to tell that apart from a
 // filter pinning nothing.
 //
-// Screens are read from shell/screens/, the directory an app keeps them in,
-// and not from shell.yaml's routes: a compiler runs this to DERIVE what the
-// routes are declared from, so the declaration does not exist yet.
+// A compiler supplies authored screen paths and Cortex actors on stdin, before
+// shell configuration exists. Standalone projection accepts shell/screens/.
 //
 // A screen whose markup the readers refuse — a data-machine off a region, a
 // data-filter anchored to no table — is named on stderr with the reason, and
 // the run exits 1 having printed nothing: a partial projection would be read
 // as an app whose screens say less than they do.
 
-import { machineRegions, scanScreen, screenAccess, type ScreenRead, type ScreenWrite } from "./interpreter/lint.ts";
+import { machineRegions, resolveMachineMarkup, scanScreen, screenAccess, type ScreenRead, type ScreenWrite } from "./interpreter/lint.ts";
 import { machineShape, parseFilterSpec } from "./interpreter/fragment.js";
 
 /** A filter as descriptors, or null where the fragment is server-computed. */
@@ -85,7 +85,8 @@ const said = (err: unknown) => err instanceof Error ? err.message : String(err);
 /** One screen's markup as the projection above. Optional keys are absent
  * rather than null where the markup states nothing, so a reader can tell "no
  * data-filter" from "a filter that parsed to nothing". */
-export function projectScreen(html: string): ScreenProjection {
+export function projectScreen(html: string, actors: Record<string, unknown> = {}, screen = ""): ScreenProjection {
+  html = resolveMachineMarkup(html, actors, screen);
   const { handlers, adapters } = scanScreen(html);
   const { reads, writes } = screenAccess(html);
   const machines = machineRegions(html).map((region) => {
@@ -111,29 +112,29 @@ export function projectScreen(html: string): ScreenProjection {
   return { handlers, adapters, reads, writes: [...writes, ...machines.flatMap((m) => m.writes)], machines };
 }
 
-/** Every screen of one app, keyed by the name its file carries. */
+/** Authored screens keyed by declaration name, or filename for standalone use. */
 export async function projectApp(
   appDir: URL,
+  actors: Record<string, unknown> = {},
+  paths?: Record<string, string>,
 ): Promise<{ screens: Record<string, ScreenProjection>; errors: string[] }> {
   const screens: Record<string, ScreenProjection> = {};
   const errors: string[] = [];
-  const dir = new URL("shell/screens/", appDir);
-  let entries: Deno.DirEntry[];
-  try {
-    entries = [];
-    for await (const entry of Deno.readDir(dir)) entries.push(entry);
-  } catch (err) {
-    // The directory an app's screens live in. Unreadable, there is nothing to
-    // project and no answer to give — the caller derives from this.
-    return { screens, errors: [`shell/screens: ${said(err)}`] };
-  }
-  for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : 1))) {
-    if (!entry.isFile || !entry.name.endsWith(".html")) continue;
-    const name = entry.name.slice(0, -".html".length);
+  if (paths === undefined) {
+    paths = {};
     try {
-      screens[name] = projectScreen(await Deno.readTextFile(new URL(entry.name, dir)));
+      for await (const entry of Deno.readDir(new URL("shell/screens/", appDir))) {
+        if (entry.isFile && entry.name.endsWith(".html")) paths[entry.name.slice(0, -5)] = `shell/screens/${entry.name}`;
+      }
     } catch (err) {
-      errors.push(`${entry.name}: ${said(err)}`);
+      return { screens, errors: [`shell/screens: ${said(err)}`] };
+    }
+  }
+  for (const [name, path] of Object.entries(paths).sort(([a], [b]) => a.localeCompare(b))) {
+    try {
+      screens[name] = projectScreen(await Deno.readTextFile(new URL(path, appDir)), actors, name);
+    } catch (err) {
+      errors.push(`${path}: ${said(err)}`);
     }
   }
   return { screens, errors };
@@ -334,14 +335,16 @@ export async function run(args: string[]): Promise<void> {
     console.error(failures.length === 0 ? "read-markup self-test: passed" : `read-markup self-test: ${failures.length} failed`);
     Deno.exit(failures.length === 0 ? 0 : 1);
   }
-  const appDir = args[0];
+  const fromStdin = args.includes("--actors-stdin");
+  const appDir = args.find(arg => arg !== "--actors-stdin");
   if (appDir === undefined) {
-    console.error("usage: read-markup.ts <appDir> | --self-test");
+    console.error("usage: read-markup.ts [--actors-stdin] <appDir> | --self-test");
     Deno.exit(1);
   }
-  const { screens, errors } = await projectApp(
-    new URL(`${appDir.replace(/\/*$/, "")}/`, `file://${Deno.cwd()}/`),
-  );
+  const dir = new URL(`${appDir.replace(/\/*$/, "")}/`, `file://${Deno.cwd()}/`);
+  const input = fromStdin ? JSON.parse(await new Response(Deno.stdin.readable).text()) : {};
+  if (input === null || typeof input !== "object" || Array.isArray(input)) throw new Error("read-markup: input must be a JSON object");
+  const { screens, errors } = await projectApp(dir, input.actors, input.screens);
   for (const e of errors) console.error(`read-markup: ${e}`);
   if (errors.length > 0) Deno.exit(1);
   console.log(JSON.stringify({ screens }));

@@ -791,6 +791,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
         routes: cfg.routes,
         i18n: cfg.i18n,
         schema: cfg.schema,
+        cortex: cfg.cortex,
       });
       return { storybook: true, stop: book.stop };
     }

@@ -1,5 +1,6 @@
 /// <reference lib="dom" />
 /// <reference lib="dom.iterable" />
+import { resolveMachineMarkup } from "./interpreter/lint.ts";
 import { checkAria, type AriaObligation } from "./check-aria.ts";
 import { expandTemplates } from "./expand-templates.ts";
 import { parseHTML } from "npm:linkedom@0.18.4";
@@ -224,13 +225,13 @@ export function analyzeScreen(path: string, html: string, styles: Record<string,
   return obligations;
 }
 
-type Route = { files: { html: string; css: string; shared?: string[]; renderers?: string[] } };
+type Route = { screen: string; files: { html: string; css: string; shared?: string[]; renderers?: string[] } };
 export async function checkApp(appDir: URL): Promise<Report> {
-  const shell = JSON.parse(await Deno.readTextFile(new URL("shell/shell.json", appDir))) as { routes: Route[] };
+  const shell = JSON.parse(await Deno.readTextFile(new URL("shell/shell.json", appDir))) as { routes: Route[]; cortex?: { actors?: Record<string, unknown> } };
   const obligations: Obligation[] = [];
   for (const route of shell.routes) {
     const path = route.files.html.replace(/^\//, "");
-    const html = await Deno.readTextFile(new URL(path, appDir));
+    const html = resolveMachineMarkup(await Deno.readTextFile(new URL(path, appDir)), shell.cortex?.actors, route.screen);
     const styles: Record<string, string> = {};
     for (const file of [route.files.css, ...(route.files.shared ?? [])].filter((p) => p.endsWith(".css"))) {
       styles[file] = await Deno.readTextFile(new URL(file.replace(/^\//, ""), appDir));

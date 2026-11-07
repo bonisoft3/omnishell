@@ -163,3 +163,24 @@ Deno.test("mounted item ARIA remains an explicit gap rather than disappearing", 
   const inert = analyzeScreen("inert.html", `<template data-item data-name="unused">${item}</template>`, {});
   assertEquals(inert.some((o) => o.property.startsWith("aria-")), false);
 });
+
+Deno.test("declared chart references retain presentation obligations outside shell/screens", async () => {
+  const { checkApp } = await import("../check-presentation.ts");
+  const dir = await Deno.makeTempDir();
+  const app = new URL(`file://${dir}/`);
+  try {
+    await Deno.mkdir(new URL("shell/", app));
+    await Deno.mkdir(new URL("screens/", app));
+    const machine = JSON.parse(html.match(/data-machine='([^']+)'/)![1]);
+    const source = html.replace(/data-machine='[^']+'/, 'data-cortex="jobRows" data-machine-ref="main"');
+    await Deno.writeTextFile(new URL("screens/job.html", app), source);
+    await Deno.writeTextFile(new URL("screens/job.css", app), styles["job.css"].replace('.job[data-status="failed"] { color: red }', ""));
+    await Deno.writeTextFile(new URL("shell/shell.json", app), JSON.stringify({
+      routes: [{ screen: "job", files: { html: "screens/job.html", css: "screens/job.css" } }],
+      cortex: { actors: { jobRows: { via: "rows", lifetime: "attachment", screen: "job", charts: { main: machine } } } },
+    }));
+    const result = await checkApp(app);
+    assertEquals(state(result.obligations, "failed").status, "violation");
+    assertEquals(state(result.obligations, "idle").status, "satisfied");
+  } finally { await Deno.remove(dir, { recursive: true }); }
+});

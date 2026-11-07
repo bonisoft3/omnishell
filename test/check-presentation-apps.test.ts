@@ -1,13 +1,16 @@
 import { analyzeScreen, checkApp } from "../check-presentation.ts";
+import { resolveMachineMarkup } from "../interpreter/lint.ts";
 import { assertEquals } from "jsr:@std/assert@1.0.13";
 
 Deno.test("a synthetic selector on the Snapcards tree leaves removal unchecked", async () => {
   const root = new URL("../../../apps/snapcards/", import.meta.url);
-  const html = await Deno.readTextFile(new URL("shell/screens/generate.html", root));
-  const css = await Deno.readTextFile(new URL("shell/screens/generate.css", root));
+  const shell = JSON.parse(await Deno.readTextFile(new URL("shell/shell.json", root)));
+  const route = shell.routes.find((r: { screen: string }) => r.screen === "generate");
+  const html = resolveMachineMarkup(await Deno.readTextFile(new URL(route.files.html, root)), shell.cortex.actors, route.screen);
+  const css = await Deno.readTextFile(new URL(route.files.css, root));
   const marker = '.studio-container[data-status="failed"] { color: red; }';
-  const withMapping = analyzeScreen("shell/screens/generate.html", html, { "generate.css": `${css}\n${marker}` });
-  const removed = analyzeScreen("shell/screens/generate.html", html, { "generate.css": css });
+  const withMapping = analyzeScreen(route.files.html, html, { "generate.css": `${css}\n${marker}` });
+  const removed = analyzeScreen(route.files.html, html, { "generate.css": css });
   const target = (os: typeof withMapping) => os.find((o) => o.id.includes("#generation-form[") && o.id.endsWith(":failed"))!;
   assertEquals(target(withMapping).status, "satisfied");
   assertEquals(target(removed).status, "unchecked");

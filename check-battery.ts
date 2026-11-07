@@ -49,7 +49,7 @@ import fc from "npm:fast-check@3.23.2";
 import { sharedInputs, type PropertyFor } from "./battery-inputs.ts";
 import { load as parseYaml } from "./interpreter/vendor/js-yaml.js";
 import { buildEndowments, ensureSes, evaluateCaged, SAFE_ENDOWMENTS } from "./interpreter/jessie.js";
-import { machineRegions, scanScreen } from "./interpreter/lint.ts";
+import { machineRegions, resolveMachineMarkup, scanScreen } from "./interpreter/lint.ts";
 import { machineCandidates, RESERVED_LEAVES } from "./interpreter/fragment.js";
 import {
   arbitraryHandlerInput,
@@ -339,9 +339,10 @@ export async function exercise(
 type SchemaEntity = { durability: string; fields: FieldDef[] };
 type Edge = { table: string; key: string; from: string };
 type Shell = {
+  cortex?: { actors?: Record<string, unknown> };
   i18n?: { default: string; locales?: Record<string, unknown> };
   schema?: Record<string, SchemaEntity>;
-  routes?: { files?: { handlers?: string[] } }[];
+  routes?: { screen?: string; files?: { html?: string; handlers?: string[] } }[];
   validations?: Record<string, Record<string, { src?: string; edges?: Edge[] }>>;
   endowments?: Record<string, string[]>;
 };
@@ -364,21 +365,20 @@ export const basenameOf = (path: string) => path.replace(/^.*\//, "").replace(/\
  * refuse is a finding rather than a throw: the modules the other screens name
  * are still worth running, and check-markup reports the refusal in the
  * grammar's own words. */
-async function screenCallSites(appDir: URL, findings: Finding[]): Promise<Map<string, CallSite[]>> {
+async function screenCallSites(appDir: URL, findings: Finding[], shell: Shell): Promise<Map<string, CallSite[]>> {
   const merged = new Map<string, CallSite[]>();
-  const dir = new URL("shell/screens/", appDir);
-  const names: string[] = [];
-  try {
-    for await (const f of Deno.readDir(dir)) if (f.isFile && f.name.endsWith(".html")) names.push(f.name);
-  } catch (err) {
-    if (!(err instanceof Deno.errors.NotFound)) throw err;
+  const paths = new Map<string, string>();
+  for (const route of shell.routes ?? []) {
+    if (!route.screen || !route.files?.html) throw new Error("route declares no screen or HTML file");
+    paths.set(route.screen, route.files.html);
   }
-  for (const name of names.sort()) {
+
+  for (const [name, path] of [...paths].sort(([a], [b]) => a.localeCompare(b))) {
     let sites: Map<string, CallSite[]>;
     try {
-      sites = callSites(await Deno.readTextFile(new URL(name, dir)));
+      sites = callSites(resolveMachineMarkup(await Deno.readTextFile(new URL(path, appDir)), shell.cortex?.actors, name));
     } catch (err) {
-      findings.push({ severity: "error", path: `shell/screens/${name}`, message: said(err) });
+      findings.push({ severity: "error", path, message: said(err) });
       continue;
     }
     for (const [module, found] of sites) {
@@ -484,7 +484,7 @@ export async function checkApp(appDir: URL, options: BatteryOptions = {}): Promi
   // the reference hands it.
   const handlers = new Set<string>();
   for (const route of shell.routes ?? []) for (const path of route.files?.handlers ?? []) handlers.add(path);
-  const sites = await screenCallSites(appDir, findings);
+  const sites = await screenCallSites(appDir, findings, shell);
   if (handlers.size > 0 && Object.keys(entities).length === 0) {
     // A module reads a world and the world is the app's collections. An app
     // that ships modules and registers no table has nothing to draw one from,

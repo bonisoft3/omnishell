@@ -53,7 +53,7 @@ Deno.test("markup host-DOM ownership requires manifest declaration and selection
       [{ checkout: {} }, [{ path: "/print", screen: "print" }], false],
       [{ checkout: {} }, [{ path: "/print", screen: "print", hatches: ["checkout"] }, { path: "/other", screen: "print" }], false],
     ] as const) {
-      await Deno.writeTextFile(new URL("shell/shell.yaml", app), JSON.stringify({ schema: {}, hostDom, routes }));
+      await Deno.writeTextFile(new URL("shell/shell.yaml", app), JSON.stringify({ schema: {}, hostDom, routes: routes.map(route => ({ ...route, files: { html: "shell/screens/print.html" } })) }));
       const result = await checkApp(app);
       assertEquals(result.checked, 1);
       assertEquals(result.findings.length === 0, accepted, JSON.stringify(result.findings));

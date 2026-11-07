@@ -40,7 +40,7 @@ Deno.test({
       done: {}, timed: {},
     } };
     const chartGroup = [chart, { field: "phase", initial: "rest", states: { rest: {} } }];
-    const html = `<section class="screen"><button id="seat" data-live="form" data-filter="id=eq.draft" data-status="{status}" data-cortex="rowFamily" data-machine='${JSON.stringify(chartGroup)}'>Go</button><button id="second" data-live="form2" data-filter="id=eq.other" data-cortex="rowFamily" data-machine='${JSON.stringify(chartGroup)}'>Go</button></section>`;
+    const html = `<section class="screen"><button id="seat" data-live="form" data-filter="id=eq.draft" data-status="{status}" data-cortex="rowFamily" data-machine-ref="main">Go</button><button id="second" data-live="form2" data-filter="id=eq.other" data-cortex="rowFamily" data-machine='${JSON.stringify(chartGroup)}'>Go</button></section>`;
     globalThis.fetch = url => Promise.resolve(new Response(String(url).endsWith(".css") ? "" : html));
     const tables = { form: [{ id: "draft", status: "idle", key: "job" }], form2: [{ id: "other", status: "idle", key: "job2" }], jobs: [{ id: "job", status: "done" }, { id: "job2", status: "waiting" }] };
     const listeners = new Map(), writes = [];
@@ -64,7 +64,8 @@ Deno.test({
       },
     };
     const hub = createRowAttachments({ rowFamily: { via: "rows", screen: "sample", lifetime: "attachment", charts: { main: chartGroup } } });
-    const opts = { rowAttachments: hub, actors: { watch: { via: "observe", table: "jobs", field: "status", match: { id: "key" }, event: "signal:" } } };
+    const chartBindings = { rowFamily: { via: "rows", screen: "sample", lifetime: "attachment", charts: { main: chartGroup } } };
+    const opts = { chartBindings, rowAttachments: hub, actors: { watch: { via: "observe", table: "jobs", field: "status", match: { id: "key" }, event: "signal:" } } };
     const route = { screen: "sample", files: { html: "sample.html", css: "sample.css", handlers: [] } };
     let screen;
     try {
@@ -113,8 +114,8 @@ Deno.test({
       screen.stop();
       tables.form[0].status = "idle";
       const wrongHub = createRowAttachments({ rowFamily: { via: "rows", screen: "sample", lifetime: "attachment", charts: { wrong: { field: "other", initial: "idle", states: { idle: {} } } } } });
-      await assert.rejects(() => interpretScreen(document.getElementById("shell"), "http://localhost/", route, batched(base), {}, { rowAttachments: wrongHub }), /undeclared chart/);
-      screen = await interpretScreen(document.getElementById("shell"), "http://localhost/", route, batched(base), {}, { mountUnits: false });
+      await assert.rejects(() => interpretScreen(document.getElementById("shell"), "http://localhost/", route, batched(base), {}, { chartBindings, rowAttachments: wrongHub }), /undeclared chart/);
+      screen = await interpretScreen(document.getElementById("shell"), "http://localhost/", route, batched(base), {}, { chartBindings, mountUnits: false });
       await screen.settle();
       document.getElementById("seat").dispatchEvent(new Event("click"));
       await screen.settle();

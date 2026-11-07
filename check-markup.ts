@@ -7,7 +7,7 @@
 // The rules are interpreter/lint.ts's, stated beside the vocabulary they judge
 // because the plugin publishing a grammar publishes what a well-formed
 // sentence in it is. This is that ownership exercised over one app: the
-// screens under shell/screens/ are read, every rule is applied to each, and
+// screens declared by route files are read, every rule is applied to each, and
 // the finding is the rule's own sentence.
 //
 // A rule needs more than the markup — which columns a table has, what
@@ -46,6 +46,7 @@ import {
   type LinkRoute,
   machineLint,
   machineRegions,
+  resolveMachineMarkup,
   machineWrites,
   parallelLint,
   scanScreen,
@@ -92,7 +93,7 @@ type SchemaEntity = {
   fields: SchemaField[];
   uniques?: { name: string; cols: string[]; where?: string }[];
 };
-type Shell = { schema?: Record<string, SchemaEntity>; routes?: (LinkRoute & { hatches?: string[] })[]; hostDom?: Record<string, unknown>; units?: Record<string, UnitPorts>; actors?: Record<string, import("./interpreter/lint.ts").ObservationBinding> };
+type Shell = { cortex?: { actors?: Record<string, unknown> }; schema?: Record<string, SchemaEntity>; routes?: (LinkRoute & { hatches?: string[]; files?: { html?: string } })[]; hostDom?: Record<string, unknown>; units?: Record<string, UnitPorts>; actors?: Record<string, import("./interpreter/lint.ts").ObservationBinding> };
 
 
 /** The schema entry as the rules take it: they are written against a whole
@@ -299,26 +300,22 @@ export async function checkApp(appDir: URL): Promise<Checked> {
 
   const available = await shippedModules(appDir);
   const findings = schemaFindings(schema);
-  const dir = new URL("shell/screens/", appDir);
-  const names: string[] = [];
-  try {
-    for await (const f of Deno.readDir(dir)) if (f.isFile && f.name.endsWith(".html")) names.push(f.name);
-  } catch (err) {
-    return {
-      findings: [...findings, { severity: "error", path: "shell/screens", message: said(err) }],
-      checked: 0,
-    };
+  const paths = new Map<string, string>();
+  for (const route of routes) {
+    if (!route.files?.html) throw new Error(`screen ${route.screen} declares no HTML file`);
+    paths.set(route.screen, route.files.html);
   }
+
   const units = shell.units ?? {};
   const sites: HatchSite[] = [];
-  for (const name of names.sort()) {
-    const screenRoutes = routes.filter(route => route.screen === name.slice(0, -".html".length));
+  for (const [name, path] of [...paths].sort(([a], [b]) => a.localeCompare(b))) {
+    const screenRoutes = routes.filter(route => route.screen === name);
     const selectedHostDom = new Set(Object.keys(shell.hostDom ?? {}).filter(hatch =>
       screenRoutes.length > 0 && screenRoutes.every(route => route.hatches?.includes(hatch))));
     findings.push(
       ...screenFindings(
-        `shell/screens/${name}`,
-        await Deno.readTextFile(new URL(name, dir)),
+        path,
+        resolveMachineMarkup(await Deno.readTextFile(new URL(path, appDir)), shell.cortex?.actors, name),
         schema,
         available,
         routes,
@@ -330,7 +327,7 @@ export async function checkApp(appDir: URL): Promise<Checked> {
     );
   }
   for (const why of unhandledRaises(sites, units)) findings.push({ severity: "error", path: "shell/shell.yaml", message: why });
-  return { findings, checked: names.length };
+  return { findings, checked: paths.size };
 }
 
 /**
@@ -386,8 +383,8 @@ export async function selfTest(): Promise<{ failures: string[] }> {
   // The sound screen is the half that would go dark if a reader's refusal
   // stopped the walk: a count, so a fixture that grows is not silently
   // half-read.
-  if (run.checked !== 15) {
-    failures.push(`the fixture app carries 15 screens, read ${run.checked}`);
+  if (run.checked !== 16) {
+    failures.push(`the fixture app carries 16 screens, read ${run.checked}`);
   }
 
   // An app whose shell.yaml carries no schema is not an app with no rules to

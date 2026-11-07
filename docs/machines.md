@@ -11,6 +11,20 @@ over one row: `data-machine` on a region, `#Machine` in
 [`machine.cue`](../machine.cue), key by key in
 [REFERENCE](../REFERENCE.md#machines).
 
+A region can reference a chart declared by its Cortex row attachment family:
+
+```html
+<div data-live="play_session" data-filter="id=eq.session"
+     data-cortex="cardRows" data-machine-ref="study"></div>
+```
+
+This resolves `cortex.actors.cardRows.charts.study` from shell configuration.
+The family must declare `via: rows`, `lifetime: attachment`, and the current
+screen. A reference and inline `data-machine` cannot share a region. The same
+resolution runs in the browser, document renderer, and markup checks, including
+inside item templates. HTML contains only the name; changing a chart declaration
+requires generation, while editing its presentation does not.
+
 ## Machine or reduce
 
 A form mints keys where randomness exists, a reduce derives writes from rows,

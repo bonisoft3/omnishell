@@ -51,6 +51,7 @@ function harness({
   gone = false,
   reads = [{ table: "game_card", opts: { filter: "id=eq.1" } }],
   queue = 8,
+  retain = true,
   cacheableRead = (_table: string): boolean => true,
   // What the render does once it has read and before it lets go, as the
   // region's own pass would.
@@ -68,6 +69,7 @@ function harness({
     capacity: 2,
     queue,
     cacheableRead,
+    retain,
     route,
     async render(found, store, base) {
       renders++
@@ -100,6 +102,17 @@ function harness({
 }
 
 describe("the server terminal", () => {
+  it("development renders again without a data change and forbids response caching", async () => {
+    const h = harness({ retain: false, reads: [] })
+    const first = await h.get("/jogo/1")
+    await first.text()
+    const second = await h.get("/jogo/1")
+    await second.text()
+    expect(second.headers.get("Cache-Control")).toBe("no-store")
+    expect(h.renderer.held).toBe(0)
+    expect(h.renders()).toBe(2)
+  })
+
   it("refuses matched non-public or non-SSR routes before rendering or caching", async () => {
     const fake = fakeStore()
     let renders = 0

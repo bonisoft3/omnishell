@@ -2,6 +2,7 @@
 // store. The binding vocabulary is the pronto SPEC's; the shell owns every
 // effect and the whole state machine — screens only style states.
 import { parseMarkup } from "./markup.js";
+import { resolveMachineReferences } from "./row-attachments.js";
 import { renderInto } from "./render.js";
 import { mountHatch, selfSrc } from "./hatch.js";
 import {
@@ -2007,6 +2008,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // and brought to when it is adopted.
   const prepare = (text) => {
     const root = parseMarkup(document, text).firstElementChild;
+    resolveMachineReferences(root, screenOpts.chartBindings ?? {}, route.screen);
     localize(root);
     // A URL still carrying its placeholder is a URL the document would fetch
     // the instant this tree is connected — `src="{image_url}"` is a relative
