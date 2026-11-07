@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	bayt "github.com/bonisoft3/bayt/core:bayt"
+	deno "github.com/bonisoft3/bayt/stacks/deno"
 	mise "github.com/bonisoft3/bayt/stacks/mise"
 	sayt "github.com/bonisoft3/bayt/stacks/sayt"
 )
@@ -55,10 +56,10 @@ _smokes: strings.Join([
 ], " ")
 
 _smokeCmd: {
-	"cache-smokes": {
+	"cache-smokes": (deno.#cmd & {
 		priority: -1
 		do:       "deno cache --config interpreter/deno.json --lock interpreter/deno.lock --frozen --allow-import=cdn.jsdelivr.net:443 \(_smokes)"
-	}
+	}).out
 	"builtin": {
 		shell: "sh"
 		do:    "sh -c 'deno test --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-write --allow-import --allow-net --allow-sys --ignore=test/check-presentation-apps.test.ts,test/design-tokens.test.ts,test/project-native.test.ts,test/chrome-direction.test.ts,test/entry-document.test.ts,test/document.test.ts,test/locale-resolver.test.ts,test/vendor-bundle.test.ts,test/arbitrary-types.test.ts,test/data-sync-parity.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read \(_smokes)'"
@@ -132,7 +133,7 @@ _omnishell: bayt.#project & {
 			// Typecheck-only build, no artifact. Cross-project consumers
 			// of the omnishell source tree (e.g. iris's pnpm workspace
 			// symlink) use `plugins_omnishell:build:srcs` instead.
-			cmd: "builtin": do: "pnpm run check"
+			cmd: "builtin": (deno.#cmd & {do: "pnpm run check"}).out
 			dockerfile: from: ref: ":setup"
 		}
 
@@ -192,10 +193,10 @@ _omnishell: bayt.#project & {
 			// spelling of it: test/vendor-bundle.test.ts runs those scripts to
 			// decide whether the checked-in bundle is stale, and a bundle built
 			// two ways is one of them can be wrong about.
-			cmd: "builtin": {
+			cmd: "builtin": (deno.#cmd & {
 				shell: "sh"
 				do:    "sh -c 'pnpm run bundle:mecha-client && pnpm run bundle:morphlex && pnpm run bundle:js-yaml && pnpm run bundle:xstate && pnpm run bundle:messages'"
-			}
+			}).out
 			dockerfile: from: ref: ":setup"
 		}
 

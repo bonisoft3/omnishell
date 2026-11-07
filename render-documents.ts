@@ -24,6 +24,8 @@
 // every absolute link as given: whatever the door that serves the documents
 // replaces with the deployment's origin.
 
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { parseHTML } from "linkedom";
 import { controlProperties } from "./server/linkedom-controls.ts";
 
@@ -111,9 +113,8 @@ export async function run(args: string[]): Promise<void> {
     console.error("usage: render-documents.ts <appDir> <outDir> <origin>");
     Deno.exit(1);
   }
-  const cwd = `file://${Deno.cwd()}/`;
-  const appDir = new URL(`${appArg.replace(/\/*$/, "")}/`, cwd);
-  const outDir = new URL(`${outArg.replace(/\/*$/, "")}/`, cwd);
+  const appDir = new URL(`${pathToFileURL(resolve(appArg)).href.replace(/\/*$/, "")}/`);
+  const outDir = new URL(`${pathToFileURL(resolve(outArg)).href.replace(/\/*$/, "")}/`);
   for (const [address, html] of await renderDocuments(appDir, origin)) {
     const dir = new URL(`.${address.replace(/\/*$/, "")}/`, outDir);
     await Deno.mkdir(dir, { recursive: true });

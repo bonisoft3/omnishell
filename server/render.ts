@@ -463,7 +463,7 @@ export async function serve(env: (name: string) => string | undefined = (name) =
   });
 
   let ready = false;
-  Deno.serve({ port, hostname: "0.0.0.0", onListen: () => {} }, (req) => {
+  Deno.serve({ port, hostname: ["local", "host"].includes(Deno.env.get("SAYT_PLATFORM") ?? "") ? "127.0.0.1" : "0.0.0.0", onListen: () => {} }, (req) => {
     if (new URL(req.url).pathname === "/health") {
       return new Response(ready ? "ok\n" : "syncing\n", { status: ready ? 200 : 503 });
     }

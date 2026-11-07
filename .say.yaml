@@ -13,6 +13,12 @@ say:
           - do: setup
             use: ./setup.nu
           - do: mise exec -- pnpm install --filter @omnishell/core --frozen-lockfile
+  generate:
+    rulemap:
+      bundle:
+        priority: 1
+        cmds:
+          - do: "with-env {MISE_LOCKED: '0'} { mise tool-stub ../sayt/task.toml -t .bayt/Taskfile.yml bayt:generate }"
   # The checkers are reached through the command line that dispatches to them,
   # which imports every one: a checker this list never names is typed anyway,
   # and one added later is typed the day it is dispatched rather than the day

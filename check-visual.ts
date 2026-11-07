@@ -253,7 +253,7 @@ function crudReader(base: string, token: string | undefined): Reader {
     }
     const r = await fetch(`${base}/crud/${q}`, { headers: { Authorization: `Bearer ${token}` } })
     if (!r.ok) throw new Error(`GET /crud/${q} -> ${r.status} ${await r.text()}`)
-    return r.json() as Promise<Row[]>
+    return (await r.json()) as Row[]
   }
 }
 
