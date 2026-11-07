@@ -65,6 +65,7 @@ say:
           - do: "with-env {MISE_LOCKED: '0'} { mise tool-stub runtime/deno.toml run --no-lock --no-check --node-modules-dir=none --config test/deno.json --allow-read=. --allow-write=. --allow-env runtime/cli.ts check battery --self-test }"
           - do: "with-env {MISE_LOCKED: '0'} { mise tool-stub runtime/deno.toml run --no-lock --no-check --node-modules-dir=none --config test/deno.json --allow-read=. --allow-write=. --allow-env runtime/cli.ts check aria --self-test }"
   integrate:
+    args: "--bake --no-up"
     rulemap:
       builtin:
         stop: false

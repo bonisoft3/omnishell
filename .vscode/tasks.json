@@ -110,6 +110,7 @@
         "--",
         "deno",
         "test",
+        "--parallel",
         "--config",
         "test/deno.json",
         "--no-check",
