@@ -24,6 +24,7 @@
   "srcs": {
     "globs": [
       "interpreter/**",
+      "interpreter/vendor/mecha-client.js",
       "components/**",
       "src/**",
       "test/storybook-injector.ts",
@@ -120,6 +121,7 @@
       "outs": {
         "globs": [
           "interpreter/**",
+          "interpreter/vendor/mecha-client.js",
           "components/**",
           "src/**",
           "test/storybook-injector.ts",

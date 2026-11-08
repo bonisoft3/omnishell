@@ -88,7 +88,9 @@
       },
       "upClosure": [
         "plugins/omnishell/.bayt/compose.build.yaml",
-        "plugins/omnishell/.bayt/compose.setup.yaml"
+        "plugins/omnishell/.bayt/compose.setup.yaml",
+        "plugins/omnishell/.bayt/compose.bundle.yaml",
+        "libraries/mecha/.bayt/compose.setup.yaml"
       ]
     },
     "outs": {
@@ -117,7 +119,9 @@
       },
       "upClosure": [
         "plugins/omnishell/.bayt/compose.build.yaml",
-        "plugins/omnishell/.bayt/compose.setup.yaml"
+        "plugins/omnishell/.bayt/compose.setup.yaml",
+        "plugins/omnishell/.bayt/compose.bundle.yaml",
+        "libraries/mecha/.bayt/compose.setup.yaml"
       ]
     },
     "srcs": {
@@ -186,7 +190,9 @@
       },
       "upClosure": [
         "plugins/omnishell/.bayt/compose.build.yaml",
-        "plugins/omnishell/.bayt/compose.setup.yaml"
+        "plugins/omnishell/.bayt/compose.setup.yaml",
+        "plugins/omnishell/.bayt/compose.bundle.yaml",
+        "libraries/mecha/.bayt/compose.setup.yaml"
       ]
     }
   },
@@ -198,18 +204,23 @@
   "visibility": "public",
   "emitsSrcs": true,
   "deps": [
-    "setup"
+    "setup",
+    "bundle_outs"
   ],
   "sameProjectDeps": [
-    "setup"
+    "setup",
+    "bundle_outs"
   ],
   "transitiveDeps": [
-    "setup"
+    "setup",
+    "bundle_outs"
   ],
   "transitiveCrossDeps": [],
   "upClosure": [
     "plugins/omnishell/.bayt/compose.build.yaml",
-    "plugins/omnishell/.bayt/compose.setup.yaml"
+    "plugins/omnishell/.bayt/compose.setup.yaml",
+    "plugins/omnishell/.bayt/compose.bundle.yaml",
+    "libraries/mecha/.bayt/compose.setup.yaml"
   ],
   "chainedDeps": [
     {
@@ -218,6 +229,21 @@
       "dir": "plugins/omnishell",
       "outs": {
         "globs": [],
+        "exclude": []
+      }
+    },
+    {
+      "name": "bundle_outs",
+      "project": "plugins_omnishell",
+      "dir": "plugins/omnishell",
+      "outs": {
+        "globs": [
+          "interpreter/vendor/mecha-client.js",
+          "interpreter/vendor/morphlex.js",
+          "interpreter/vendor/js-yaml.js",
+          "interpreter/vendor/xstate.js",
+          "interpreter/vendor/messages.js"
+        ],
         "exclude": []
       }
     }

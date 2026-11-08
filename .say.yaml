@@ -23,13 +23,29 @@ say:
   # which imports every one: a checker this list never names is typed anyway,
   # and one added later is typed the day it is dispatched rather than the day
   # somebody remembers a glob.
+  # The data-plane bundle is a build product (bayt.cue `bundle`): the
+  # typecheck, the unit tests and every consumer of this tree import it.
+  build:
+    rulemap:
+      bundle:
+        priority: -3
+        cmds:
+          - do: "with-env {MISE_LOCKED: '0'} { mise tool-stub ../sayt/task.toml -t .bayt/Taskfile.yml bayt:bundle }"
   lint:
     rulemap:
+      bundle:
+        priority: -3
+        cmds:
+          - do: "with-env {MISE_LOCKED: '0'} { mise tool-stub ../sayt/task.toml -t .bayt/Taskfile.yml bayt:bundle }"
       types:
         cmds:
           - do: "deno check --config test/deno.json src/ test/ check-visual.ts runtime/cli.ts"
   test:
     rulemap:
+      bundle:
+        priority: -3
+        cmds:
+          - do: "with-env {MISE_LOCKED: '0'} { mise tool-stub ../sayt/task.toml -t .bayt/Taskfile.yml bayt:bundle }"
       cortex:
         priority: -1
         cmds:

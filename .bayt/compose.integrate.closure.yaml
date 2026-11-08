@@ -6,6 +6,10 @@ include:
   required: false
 - path: ../../../plugins/omnishell/.bayt/compose.setup.yaml
   required: false
+- path: ../../../plugins/omnishell/.bayt/compose.bundle.yaml
+  required: false
+- path: ../../../libraries/mecha/.bayt/compose.setup.yaml
+  required: false
 services:
   bayt:
     extends:

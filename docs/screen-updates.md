@@ -103,9 +103,7 @@ thus holds neither its row nor its list's later passes. A render that throws
 once the store has answered is said on the console and retried on the region's
 backoff, as an outage is.
 
-Every number below was measured in Playwright's Chromium with the harnesses in
-[`reconciliation-spike/`](reconciliation-spike/README.md), so it can be re-run
-rather than believed.
+Every number below was measured in Playwright's Chromium.
 
 ### Node state must survive a move
 

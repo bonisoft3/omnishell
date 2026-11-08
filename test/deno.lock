@@ -3,14 +3,17 @@
   "specifiers": {
     "jsr:@std/assert@*": "1.0.19",
     "jsr:@std/assert@1": "1.0.19",
+    "jsr:@std/assert@1.0.11": "1.0.11",
     "jsr:@std/assert@1.0.13": "1.0.13",
     "jsr:@std/assert@1.0.19": "1.0.19",
+    "jsr:@std/assert@1.0.8": "1.0.8",
     "jsr:@std/assert@^1.0.19": "1.0.19",
     "jsr:@std/encoding@1": "1.0.7",
     "jsr:@std/expect@1": "1.0.20",
     "jsr:@std/fs@1.0.19": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.14",
     "jsr:@std/internal@^1.0.14": "1.0.14",
+    "jsr:@std/internal@^1.0.5": "1.0.14",
     "jsr:@std/internal@^1.0.6": "1.0.14",
     "jsr:@std/internal@^1.0.9": "1.0.14",
     "jsr:@std/path@^1.1.1": "1.1.6",
@@ -18,6 +21,7 @@
     "jsr:@std/testing@1": "1.0.20",
     "jsr:@std/yaml@1": "1.0.5",
     "jsr:@std/yaml@1.0.5": "1.0.5",
+    "npm:@bufbuild/cel@0.5.0": "0.5.0_@bufbuild+protobuf@2.16.0",
     "npm:@formatjs/icu-messageformat-parser@*": "3.5.20",
     "npm:@formatjs/icu-messageformat-parser@3.5.20": "3.5.20",
     "npm:@playwright/test@1.61.1": "1.61.1",
@@ -37,11 +41,24 @@
     "npm:linkedom@0.18.4": "0.18.4",
     "npm:parse5@7.3.0": "7.3.0",
     "npm:playwright@1.61.1": "1.61.1",
+    "npm:postgres@3.4.9": "3.4.9",
     "npm:react@19": "19.2.8",
     "npm:react@19.0.0": "19.0.0",
     "npm:xstate@5.32.6": "5.32.6"
   },
   "jsr": {
+    "@std/assert@1.0.8": {
+      "integrity": "ebe0bd7eb488ee39686f77003992f389a06c3da1bbd8022184804852b2fa641b",
+      "dependencies": [
+        "jsr:@std/internal@^1.0.5"
+      ]
+    },
+    "@std/assert@1.0.11": {
+      "integrity": "2461ef3c368fe88bc60e186e7744a93112f16fd110022e113a0849e94d1c83c1",
+      "dependencies": [
+        "jsr:@std/internal@^1.0.5"
+      ]
+    },
     "@std/assert@1.0.13": {
       "integrity": "ae0d31e41919b12c656c742b22522c32fb26ed0cba32975cb0de2a273cb68b29",
       "dependencies": [
@@ -93,6 +110,22 @@
     }
   },
   "npm": {
+    "@bufbuild/cel-spec@0.5.0_@bufbuild+protobuf@2.16.0": {
+      "integrity": "sha512-nYqgVUsw+5XmhwxKyWJz/uA1hEBCGd0Bg6o0vFA9C7taFTYMRfCl94ZDxObR6Qen6QMzj0b9Bhnqr9viKkFonw==",
+      "dependencies": [
+        "@bufbuild/protobuf"
+      ]
+    },
+    "@bufbuild/cel@0.5.0_@bufbuild+protobuf@2.16.0": {
+      "integrity": "sha512-LpSZGvGRMrC0FPKXmVIzNltoT/Q9SOuJ1cCWPcpol72AM1O24hv40COigZfwtaL+QEuOLHszqIohhXNxE/HZKg==",
+      "dependencies": [
+        "@bufbuild/cel-spec",
+        "@bufbuild/protobuf"
+      ]
+    },
+    "@bufbuild/protobuf@2.16.0": {
+      "integrity": "sha512-FWa0sPlqYGJgpTs6OxBRcL/AW4JT0OIO+W1ajerluoTVh8CV0B7XM1qsNCRgnkSCkRCgOICKHRQlY17jrsm0+Q=="
+    },
     "@eslint-community/eslint-utils@4.10.1_eslint@9.25.0": {
       "integrity": "sha512-cuadcxVFE8sDK6iWJbs8Sn0av2Nrh2QSGQhVlBW9AaAHqHwjWsZHT8LJ4hFGPh7ASBV2deFdM7H/DPjulmh8rg==",
       "dependencies": [
@@ -1437,6 +1470,9 @@
         "fsevents"
       ],
       "bin": true
+    },
+    "postgres@3.4.9": {
+      "integrity": "sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw=="
     },
     "prelude-ls@1.2.1": {
       "integrity": "sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g=="

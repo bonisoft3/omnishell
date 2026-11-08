@@ -3,6 +3,7 @@ services:
   plugins_omnishell-build:
     build:
       additional_contexts:
+        plugins_omnishell-bundle_outs: service:plugins_omnishell-bundle_outs
         plugins_omnishell-setup: service:plugins_omnishell-setup
       context: ..
       dockerfile: .bayt/Dockerfile.build
@@ -19,6 +20,7 @@ services:
     build:
       additional_contexts:
         plugins_omnishell-setup_bayt: service:plugins_omnishell-setup_bayt
+        plugins_omnishell-bundle_bayt: service:plugins_omnishell-bundle_bayt
       context: ..
       dockerfile: .bayt/Dockerfile.build
       target: build_bayt

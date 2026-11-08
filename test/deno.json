@@ -1,5 +1,7 @@
 {
   "imports": {
+    "@bonisoft3/omnishell/": "../",
+    "/omnishell/": "../",
     "@test/harness": "./harness.ts",
     "linkedom": "npm:linkedom@0.18.4",
     "parse5": "npm:parse5@7.3.0",

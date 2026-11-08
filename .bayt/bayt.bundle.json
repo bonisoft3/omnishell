@@ -25,7 +25,7 @@
   "activate": "mise x --",
   "srcs": {
     "globs": [
-      "interpreter/vendor/entry.ts",
+      "[m]ise.local.toml",
       "interpreter/vendor/entry-morphlex.ts",
       "interpreter/vendor/bundle-morphlex.ts",
       "interpreter/vendor/entry-js-yaml.ts",
@@ -135,7 +135,7 @@
       },
       "outs": {
         "globs": [
-          "interpreter/vendor/entry.ts",
+          "[m]ise.local.toml",
           "interpreter/vendor/entry-morphlex.ts",
           "interpreter/vendor/bundle-morphlex.ts",
           "interpreter/vendor/entry-js-yaml.ts",
@@ -269,7 +269,7 @@
     {
       "srcs": {
         "globs": [
-          "interpreter/vendor/entry.ts",
+          "[m]ise.local.toml",
           "interpreter/vendor/entry-morphlex.ts",
           "interpreter/vendor/bundle-morphlex.ts",
           "interpreter/vendor/entry-js-yaml.ts",

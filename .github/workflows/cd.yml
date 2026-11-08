@@ -40,6 +40,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The interpreter's data-plane bundle is built, not committed: from
+      # the mecha release .mise.toml pins, which the install fetches, so
+      # the image's interpreter/vendor carries it.
+      - name: Set up mise
+        uses: jdx/mise-action@v2
+        with:
+          version: '2026.8.11'
+          install: false
+
+      - name: Bundle the mecha client
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          mise install
+          mise exec -- pnpm run bundle:mecha-client
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
@@ -124,6 +140,22 @@ jobs:
       # untracked, comes after it.
       - name: Publish CUE module
         run: cue mod publish "${GITHUB_REF_NAME}"
+
+      # The interpreter's data-plane bundle, as the image job builds it, so
+      # the release tree a `mise install github:` reaches carries it. After
+      # the publish: it writes the tree.
+      - name: Set up mise
+        uses: jdx/mise-action@v2
+        with:
+          version: '2026.8.11'
+          install: false
+
+      - name: Bundle the mecha client
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          mise install
+          mise exec -- pnpm run bundle:mecha-client
 
       - name: Stage release content
         run: |
