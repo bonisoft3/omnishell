@@ -1,7 +1,8 @@
 import { scriptURL } from "./script-url.js";
 
-// These modules deliberately share the host's authority. Only the manifest
-// selects them; markup cannot introduce executable paths.
+// These modules deliberately share the host's authority, the screen's store
+// among it, handed to each mount. Only the manifest selects them; markup cannot
+// introduce executable paths.
 // A single-file page compiles its hatches into its own module and hands them
 // over as `hostDomModules`, by src: a dynamic import of a path would go to a
 // network the page does not have. Given the map, every hatch must be in it.

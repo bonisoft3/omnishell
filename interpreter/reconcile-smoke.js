@@ -101,8 +101,10 @@ Deno.test({
         const store = await createStore("", { carriers: FIXTURE_CARRIERS,
           local: { match: "device" },
           optional: {
+            // Regression: pronto emits the canonical `string`, and only the
+            // legacy `text` was blanked, so a stored row read null for it.
             match: [
-              { name: "result", type: "text" },
+              { name: "result", type: "string" },
               { name: "opening", type: "text" },
               { name: "lie", type: "int" },
             ],

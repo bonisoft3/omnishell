@@ -113,9 +113,12 @@ export function renderTask(render: Render, request: Request, revision: string, r
 
 export function renderObject(render: Render, version = '') {
   return class Renderer extends DurableObject {
-    render(request: Request, revision: string, reader: Reader & { dup(): Reader & Disposable }): Promise<Response> {
+    render(request: Request, revision: string, reader: Reader & Disposable & { dup(): Reader & Disposable }): Promise<Response> {
       // The RPC returns at the head; its reader must outlive that call until all nested reads finish.
+      // The object frees the snapshot once every stub is gone, and the call's own stub is not
+      // released with the call when the answer still streams.
       const retained = reader.dup()
+      reader[Symbol.dispose]()
       const task = renderTask(render, request, revision, retained, version)
       const release = () => retained[Symbol.dispose]()
       const released = task.rendered.then(release, release)

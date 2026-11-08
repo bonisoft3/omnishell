@@ -64,11 +64,16 @@ Deno.test({ name: "authenticated native file uploads", sanitizeOps: false, sanit
       await double.upload("first.png", file)
       signIn("account-two")
       await double.upload("second.png", file)
-      expect(requests.map(r => [r.method, r.url, r.headers.get("authorization"), r.headers.get("content-type")])).toEqual([
-        ["PUT", "https://upload.test/blobs/mecha-objects/first.png", "Bearer account-one", "image/png"],
-        ["PUT", "https://upload.test/blobs/mecha-objects/second.png", "Bearer account-two", "image/png"],
+      const puts = requests.filter(r => r.method === "PUT")
+      expect(requests.filter(r => r.method === "POST").map(r => [r.url, r.headers.get("authorization")])).toEqual([
+        ["https://upload.test/blob-claim/first.png", "Bearer account-one"],
+        ["https://upload.test/blob-claim/second.png", "Bearer account-two"],
       ])
-      expect(new Uint8Array(await requests[0].arrayBuffer())).toEqual(new Uint8Array(await file.arrayBuffer()))
+      expect(puts.map(r => [r.url, r.headers.get("authorization"), r.headers.get("content-type")])).toEqual([
+        ["https://upload.test/blobs/mecha-objects/first.png", "Bearer account-one", "image/png"],
+        ["https://upload.test/blobs/mecha-objects/second.png", "Bearer account-two", "image/png"],
+      ])
+      expect(new Uint8Array(await puts[0].arrayBuffer())).toEqual(new Uint8Array(await file.arrayBuffer()))
     })
     await t.step("missing session refuses before sending bytes; HTTP refusal makes no unauthenticated retry", async () => {
       const before = requests.length
@@ -77,7 +82,8 @@ Deno.test({ name: "authenticated native file uploads", sanitizeOps: false, sanit
       expect(requests.length).toBe(before)
       signIn("refused-account")
       reply = async () => new Response(null, { status: 403 })
-      await expect(real.upload("refused.png", file)).rejects.toThrow("403 PUT /blobs/mecha-objects/refused.png")
+      await expect(real.upload("refused.png", file)).rejects.toThrow("403 POST /blob-claim/refused.png")
+      // A refused claim sends no bytes.
       expect(requests.length).toBe(before + 1)
       expect(requests.at(-1)!.headers.get("authorization")).toBe("Bearer refused-account")
     })
@@ -112,12 +118,12 @@ Deno.test({ name: "authenticated native file uploads", sanitizeOps: false, sanit
     await t.step("the form stays pending until upload succeeds, then writes the key with its scalar fields", async () => {
       signIn("form-account")
       let complete!: (response: Response) => void
-      reply = () => new Promise(resolve => { complete = resolve })
+      reply = (request) => request.method === "POST" ? Promise.resolve(new Response(null, { status: 204 })) : new Promise(resolve => { complete = resolve })
       const app = await mount(real.upload, [file])
       try {
         const before = requests.length
         app.submit()
-        await until(() => requests.length === before + 1)
+        await until(() => requests.length === before + 2)
         expect(app.form.dataset.submitting).toBe("")
         expect(requests.at(-1)!.headers.get("authorization")).toBe("Bearer form-account")
         expect(app.writes).toEqual([])
@@ -152,7 +158,7 @@ Deno.test({ name: "authenticated native file uploads", sanitizeOps: false, sanit
       try {
         app.submit()
         await until(() => app.errors.length === 1 && app.form.dataset.submitting === undefined)
-        expect(String(app.errors[0])).toMatch(/403 PUT \/blobs\/mecha-objects\//)
+        expect(String(app.errors[0])).toMatch(/403 POST \/blob-claim\//)
         expect(app.writes).toEqual([])
         expect(app.resets()).toBe(0)
         expect((app.document.querySelector('[name="caption"]') as any).value).toBe(" draft ")

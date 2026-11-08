@@ -989,6 +989,80 @@ it("restores the outgoing screen when a newer catalogue fails during staging", a
   } finally { release(); await server.close() }
 })
 
+it("a failed navigation releases the link it pulsed and puts the address and the strip back on the screen on show", async () => {
+  const server = await serve(false, false, undefined, false, false, {})
+  try {
+    await withPage(async page => {
+      await page.goto(server.base)
+      await ready(page, "A")
+      await page.evaluate(() => {
+        const store = (window as any).__prontoStore
+        const query = store.query
+        let blocked = false
+        store.query = async (...args: any[]) => {
+          if (!blocked && args[0] === "probe") { blocked = true; await new Promise(() => {}) }
+          return query(...args)
+        }
+        const timer = window.setTimeout.bind(window)
+        window.setTimeout = ((callback: TimerHandler, delay?: number, ...args: any[]) => timer(callback, delay === 15000 ? 100 : delay, ...args)) as typeof setTimeout
+      })
+      await page.locator('body > nav a[data-route="other"]').click()
+      await page.waitForSelector("[data-shell-error]")
+      expect(await page.locator("[data-shell-error]").innerText()).toContain("navigation timed out")
+      // The link it pressed is released, the home screen shows, and the address and the strip say home.
+      expect(await page.locator('body > nav [aria-busy="true"]').count()).toBe(0)
+      expect(await page.locator('[data-screen="home"]').isVisible()).toBe(true)
+      expect(await page.evaluate(() => location.pathname)).toBe("/")
+      expect(await page.locator('body > nav a[data-route="home"]').getAttribute("aria-current")).toBe("page")
+      expect(await page.locator('body > nav a[data-route="other"]').getAttribute("aria-current")).toBeNull()
+    })
+  } finally { await server.close() }
+})
+
+// A turn that stalled before staging anything (a catalogue that never answers, the
+// last screen's writes) had no bound: the one that fired armed only once the
+// presented screen went inert, and the strip pulsed for good.
+it("a navigation stalled before it stages anything is bounded, and the next one proceeds", async () => {
+  const server = await serve(false, false, undefined, false, false, { locales: true })
+  try {
+    await withPage(async page => {
+      await page.goto(server.base)
+      await ready(page, "A")
+      await page.evaluate(() => {
+        const timer = window.setTimeout.bind(window)
+        window.setTimeout = ((callback: TimerHandler, delay?: number, ...args: any[]) => timer(callback, delay === 15000 ? 100 : delay, ...args)) as typeof setTimeout
+      })
+      await page.route(/es\.json$/, () => {})
+      const stalled = await page.evaluate(async () => {
+        try { await (window as any).navigate("/other?lang=es").finished; return "unexpected success" }
+        catch (error) { return (error as Error).message }
+      })
+      expect(stalled).toContain("navigation timed out")
+      expect(stalled).toContain("before leaving the screen on show")
+      expect(await page.locator('[data-screen="home"]').isVisible()).toBe(true)
+      await page.unroute(/es\.json$/)
+      await page.evaluate(() => (window as any).navigate("/other").finished)
+      expect(await page.locator('[data-screen="other"]').isVisible()).toBe(true)
+    })
+  } finally { await server.close() }
+})
+
+it("a link to the address on show shows the screen again, never a document in the page's place", async () => {
+  const server = await serve()
+  try {
+    await withPage(async page => {
+      await page.goto(server.base)
+      await ready(page, "A")
+      await page.evaluate(() => { (window as any).__sameDocument = true })
+      await page.locator('body > nav a[data-route="home"]').click()
+      await page.waitForTimeout(300)
+      expect(await page.evaluate(() => (window as any).__sameDocument === true)).toBe(true)
+      expect(await page.locator('[data-screen="home"]').isVisible()).toBe(true)
+      expect(await page.evaluate(() => location.pathname)).toBe("/")
+    })
+  } finally { await server.close() }
+})
+
 for (const stalledRead of [false, true]) it(`bounds a stalled ${stalledRead ? "region read" : "asset load"} and ignores its late destination`, async () => {
   let release!: () => void
   const gate = new Promise<void>(resolve => { release = resolve })
@@ -1012,10 +1086,14 @@ for (const stalledRead of [false, true]) it(`bounds a stalled ${stalledRead ? "r
         const timer = window.setTimeout.bind(window)
         window.setTimeout = ((callback: TimerHandler, delay?: number, ...args: any[]) => timer(callback, delay === 15000 ? 100 : delay, ...args)) as typeof setTimeout
       }, stalledRead)
-      expect(await page.evaluate(async () => {
+      const timedOut = await page.evaluate(async () => {
         try { await (window as any).navigate("/other").finished; return "unexpected success" }
         catch (error) { return (error as Error).message }
-      })).toContain("navigation timed out")
+      })
+      expect(timedOut).toContain("navigation timed out")
+      // The bound names what it was waiting on: the screen, and the region whose read stalled.
+      expect(timedOut).toContain("other at /other")
+      if (stalledRead) expect(timedOut).toContain("probe")
       await page.locator('[data-screen="home"] input[name="draft"]').fill("timeout recovered")
       release()
       if (stalledRead) await page.evaluate(() => (window as any).releaseRegionRead())

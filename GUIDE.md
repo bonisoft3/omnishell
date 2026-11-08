@@ -45,7 +45,9 @@ Five vocabularies, and that is the whole surface:
 
 `data-filter` is **PostgREST's filter grammar, verbatim** — `eq.`, `neq.`,
 `is.null`, `in.(a,b)`, joined with `&`. `{col}` placeholders resolve against
-the enclosing row.
+the enclosing row; `{table.col}` the row does not answer names the nearest
+enclosing region over `table`, as a read nested under a session reaches its
+device's key with `{device.key}`.
 
 A control with its own lifecycle — a toggle, an optimistic counter, a tablist —
 is a **machine** instead: a chart in `data-machine` over one `tab` or `device`
@@ -105,7 +107,7 @@ After its updates, a reduce may return `then: {type: "intent:navigate", with: {r
 
 A screen may declare `data-retarget-params="card"` to keep its mounted DOM and scroll position when only that route parameter changes. Explicit links and browser history use the same path. If a region's filter, order, or named read depends on the parameter, the terminal mounts a new screen instead so its subscriptions remain correct.
 
-Navigation retains the outgoing screen until the destination and its local folds settle. Only the presented screen can retarget in place. A failed navigation restores the outgoing screen; if staging keeps it inert for 15 seconds, navigation fails visibly and releases it after started writes drain. Initial hydration has no presentation deadline. Late results cannot replace a newer destination.
+Navigation retains the outgoing screen until the destination and its local folds settle. Only the presented screen can retarget in place. A failed navigation restores the outgoing screen, with its address and the strip's mark, and releases the link it pulsed; a link to the address on show shows that screen again rather than loading a document in the page's place. If a navigation away from a presented screen has not presented its destination 15 seconds after it began, wherever it stalled (the destination's catalogue, the last screen's writes, staging), it fails visibly, naming the screen it waited on, the regions still hydrating and their reads, and the requests in flight (`error.details` carries the same), and releases it after started writes drain. Initial hydration has no presentation deadline. Late results cannot replace a newer destination.
 
 A remote patch may state `ifTxid`, the positive int64 decimal string read from
 the row. CRUD applies it only while that revision still stands. A stale

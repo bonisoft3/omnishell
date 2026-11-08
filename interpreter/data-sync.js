@@ -676,11 +676,11 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   // Every row of a local collection carries each column shell.yaml lists as
   // optional ({table: [{name, type}]}): a device collection outlives the
   // program that wrote it, so a stored row can predate a column, and binding a
-  // column a row lacks throws. An unset text column is "" and any other type is
-  // null, since "" is no value an int, a bool or a timestamp can hold; a
-  // binding renders both as empty. fill() patches the stored rows; blank() the
-  // rows created later.
-  const unset = (type) => (type === "text" ? "" : null);
+  // column a row lacks throws. An unset text column (`string`, or its legacy
+  // alias `text`) is "" and any other type is null, since "" is no value an
+  // int, a bool or a timestamp can hold; a binding renders both as empty.
+  // fill() patches the stored rows; blank() the rows created later.
+  const unset = (type) => (type === "string" || type === "text" ? "" : null);
   async function fill(table) {
     const cols = cfg.optional?.[table];
     if (cols === undefined) return;
@@ -2413,6 +2413,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   async function upload(key, file) {
     if (pendingSession && !token()) await pendingSession();
     if (!token()) throw new Error("an upload requires an authenticated session");
+    await request(`${base}/blob-claim/${encodeURIComponent(key)}`, { method: "POST", body: "{}" });
     return request(`${base}/blobs/mecha-objects/${encodeURIComponent(key)}`, { method: "PUT", body: file });
   }
 
@@ -2539,6 +2540,9 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     pose,
     subscribe,
     upload: (...args) => (clearAllServed(), upload(...args)),
+    // A host-DOM hatch's authorized call, past the collections: it makes the
+    // guest's session as every other write does.
+    http,
     flushNotifications,
     tabSnapshot,
     restoreTabs,

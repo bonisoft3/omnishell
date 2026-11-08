@@ -1168,9 +1168,10 @@ export async function createShell({ config, mount, preload = true, hostDomModule
     if (nav) {
       const homeLink = nav.querySelector(':scope > a[data-route="cards"]');
       if (homeLink) {
-        homeLink.addEventListener("click", () => {
+        homeLink.addEventListener("click", (e) => {
           const homeTrigger = current?.el?.querySelector?.("#nav-home-trigger") || document.getElementById("nav-home-trigger");
           if (current?.route?.screen === "cards" && homeTrigger && !homeTrigger.closest(".shell-screen[hidden]")) {
+            e.preventDefault();
             syncCategoryRadios("home");
             homeTrigger.click();
           } else {
@@ -1521,9 +1522,40 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       let deadline;
       let expire;
       const expired = new Promise((_, reject) => { expire = reject; });
+      // What the bound found when it fired: the screen it was waiting on and
+      // what that screen was waiting on, so a report names a cause rather than
+      // the bound alone.
+      const timedOut = () => {
+        const target = current;
+        const screen = target?.route.screen ?? currentRoute().route.screen;
+        const phase = !target ? "between screens, draining the last screen's writes"
+          : target.handle === undefined ? "loading its template and modules"
+          : target !== presented ? "settling its regions"
+          : target.el.inert ? "re-targeting the screen on show"
+          : "before leaving the screen on show, awaiting the destination's catalogue or the last screen's writes";
+        const hydrating = [...(target?.el.querySelectorAll("[data-hydrating]") ?? [])];
+        const regions = hydrating.slice(0, 5).map((r) => `${r.dataset.live ?? r.localName}${r.dataset.filter ? `?${r.dataset.filter}` : ""}`);
+        const state = target?.el.querySelector(":scope > .screen")?.getAttribute("data-state") ?? undefined;
+        const inflight = (globalThis.performance?.getEntriesByType?.("resource") ?? [])
+          .filter((r) => r.responseEnd === 0 && !/[?&]live=true/.test(r.name))
+          .map((r) => r.name.replace(location.origin, "").slice(0, 120)).slice(0, 5);
+        const error = new Error([
+          `screen navigation timed out after 15 seconds: ${screen} at ${location.pathname}, ${phase}`,
+          state === undefined ? null : `screen state ${state}`,
+          hydrating.length === 0 ? null : `${hydrating.length} region(s) still hydrating: ${regions.join(", ")}`,
+          inflight.length === 0 ? null : `request(s) in flight: ${inflight.join(", ")}`,
+          presented ? `screen on show: ${presented.route.screen}` : null,
+        ].filter(Boolean).join("; "));
+        error.details = { screen, path: location.pathname, phase, state, hydrating: regions, inflight, presented: presented?.route.screen };
+        return error;
+      };
+      // Bounded from the click, whenever a screen is on show: a turn stalls
+      // before it stages anything too, awaiting the last screen's writes, and
+      // a bound that armed only once the presented screen went inert left that
+      // wait silent for good. Initial hydration keeps no bound.
       const boundPresentation = () => {
-        if (deadline === undefined && presented?.el.inert) {
-          deadline = setTimeout(() => expire(new Error("screen navigation timed out after 15 seconds")), 15000);
+        if (deadline === undefined && presented) {
+          deadline = setTimeout(() => expire(timedOut()), 15000);
         }
       };
       boundPresentation();
@@ -1542,6 +1574,25 @@ export async function createShell({ config, mount, preload = true, hostDomModule
         if (failed && failed !== presented) {
           failed.handle?.stop();
           if (presented) discard(failed);
+        }
+        // The outgoing screen is back on show, so the address and the strip
+        // say so too: a link pulsed for a destination that never came, and the
+        // strip marked the address the navigation had already taken.
+        feedback.settle();
+        if (presented) {
+          const shown = presented;
+          // After this navigation has finished failing: restating the address
+          // from inside its own handler aborts it, and the failure would read
+          // as an abort rather than its cause.
+          setTimeout(() => {
+            if (presented !== shown || current !== shown || recoveryTurn !== showing) return;
+            const back = routeHref(cfg, shown.route.screen, shown.params, shown.locale, {
+              explicitLocale: Boolean(cfg.i18n && shown.locale === cfg.i18n.default && shown.params?.locale === shown.locale),
+            });
+            if (back !== undefined && new URL(back, location.href).pathname !== location.pathname) restate(back);
+            if (nav) localizeStrip(nav, cfg, { locale: shown.locale, here: location.pathname, search: location.search ?? "", messages });
+            syncExtraNav(shown.locale);
+          }, 0);
         }
         banner(error);
         throw error;
@@ -1649,7 +1700,14 @@ export async function createShell({ config, mount, preload = true, hostDomModule
         // path this app has no route for belongs to the server.
         if (url.origin !== location.origin) return;
         if (url.pathname === location.pathname && url.search === (location.search ?? "")) {
-          if (url.hash && current) e.intercept({ scroll: "manual", handler: () => scrollFragment(current.el, url.hash) });
+          if (url.hash && current) {
+            e.intercept({ scroll: "manual", handler: () => scrollFragment(current.el, url.hash) });
+            return;
+          }
+          // The strip offers a link to the address on show on every screen. Left
+          // to the browser it loads a document in the page's place, and what
+          // the link asked (a pending author) goes with the page.
+          if (addresses(url) !== null) e.intercept({ scroll: "manual", handler: () => show("replace") });
           return;
         }
         if (addresses(url) === null) return;
@@ -1665,11 +1723,13 @@ export async function createShell({ config, mount, preload = true, hostDomModule
         const url = new URL(href, location.href);
         if (url.origin !== location.origin || addresses(url) === null) return;
         if (url.pathname === location.pathname && url.search === (location.search ?? "")) {
+          e.preventDefault();
           if (url.hash && current) {
-            e.preventDefault();
             history.pushState(null, "", url.href);
             scrollFragment(current.el, url.hash);
+            return;
           }
+          show("replace");
           return;
         }
         e.preventDefault();

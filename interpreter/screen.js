@@ -718,6 +718,13 @@ function localeOf(ctx) {
 class MissingBinding extends Error {}
 
 // {msg.x} and {msg[col]} read the catalogue; everything else is `binding`'s.
+/** The region contexts enclosing a child of `ctx`, nearest first: `ctx` itself
+ * when it is a region's, held by reference so a slot's row read later is its
+ * current one. */
+function enclosingOf(ctx) {
+  return ctx.table === undefined ? (ctx.enclosing ?? []) : [ctx, ...(ctx.enclosing ?? [])];
+}
+
 function lookup(expr, ctx) {
   const { row, params, messages, locale, i18n } = ctx ?? {};
   // {msg[column]} names the message a ROW carries: the writer stored a key
@@ -775,6 +782,17 @@ function lookup(expr, ctx) {
   }
   const v = binding(expr, row, params);
   if (v !== ABSENT) return v;
+  // `{table.column}` the row does not answer names the nearest enclosing
+  // region over that table: a device's key reaches a read nested under a
+  // session's row. The row's own embed of the same name answers first.
+  const dot = expr.indexOf(".");
+  if (dot > 0) {
+    const outer = (ctx === undefined ? [] : enclosingOf(ctx)).find((e) => e.table === expr.slice(0, dot) && e.row !== undefined);
+    if (outer !== undefined) {
+      const w = binding(expr.slice(dot + 1), outer.row, params);
+      if (w !== ABSENT) return w;
+    }
+  }
   const r = row ?? {};
   // An optimistic insert carries only the submitted fields; DB-defaulted
   // columns materialize when the synced row arrives. Bind blank instead of
@@ -1246,6 +1264,18 @@ function nestedBindings(el, ctx) {
     if (name !== "data-project" && !name.startsWith("data-read-") && regionAttr(name)) continue;
     const template = stash[name] ?? el.getAttribute(name);
     if (template === null || !PLACEHOLDER.test(template)) continue;
+    // A named read resolves when its fold runs, against the context the fold
+    // is handed (a slot's own row among them); a name this row does not answer
+    // cannot move with it, so it keys the region as written.
+    if (name.startsWith("data-read-")) {
+      try {
+        out.push(`${name}=${interpolate(template, ctx)}`);
+      } catch (err) {
+        if (!(err instanceof MissingBinding)) throw err;
+        out.push(`${name}=${template}`);
+      }
+      continue;
+    }
     out.push(`${name}=${fromEnclosing(() => interpolate(template, ctx), el.dataset.live, name)}`);
   }
   return out.join("\u0000");
@@ -3832,6 +3862,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // value to the first row the slot ever bound.
     const slotCtx = {
       params: ctx.params,
+      enclosing: enclosingOf(ctx),
       inert: ctx.inert,
       messages: ctx.messages,
       i18n: ctx.i18n,
@@ -4027,7 +4058,10 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         const held = entry.nested.get(el);
         if (held !== undefined && held.filter === want && held.order === wantOrder) {
           const bound = held.h.binds ? nestedBindings(el, entry.ctx) : "";
-          if (held.bound !== bound) {
+          // A restate reaches every nested region: a fold reading the route's
+          // params, or a text binding one, moves with no read or binding of
+          // its element moving, and a retarget restates the top regions alone.
+          if (held.bound !== bound || restating) {
             held.bound = bound;
             ready.push(held.h.restate());
           }
@@ -4197,6 +4231,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
               entry = {
                 ctx: {
                   params: ctx.params,
+                  enclosing: enclosingOf(ctx),
                   inert: ctx.inert,
                   messages: ctx.messages,
                   i18n: ctx.i18n,
@@ -4573,6 +4608,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       const said = outages.delete(guarded);
       if ((clears || said) && outages.size === 0 && screen.dataset.state === "network-error") setState(base);
     };
+    let restating = false;
     const guarded = (changes) => {
       const wasRunning = running;
       const pass = track((async () => {
@@ -4689,7 +4725,10 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       ready: top ? attempt : painted,
       // A re-render on the same rows, for a parent whose projection parameter
       // moved. Not resume(): the subscription is already standing.
-      restate: () => guarded(),
+      restate: () => {
+        restating = true;
+        return guarded().finally(() => { restating = false; });
+      },
       // A newer template for the screen on show, `from` its counterpart of this
       // region, reading what it read (handle.morph). A list takes its items
       // from it and morphs each row it holds to its item in place, so a row
@@ -4825,7 +4864,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     if (errors.length) throw new AggregateError(errors, "screen cleanup failed");
   };
   const mountHostDom = () => {
-    try { hostDom.start(screen, { messages: opts.messages, params }); }
+    try { hostDom.start(screen, { messages: opts.messages, params, store }); }
     catch (error) {
       try { stopScreen(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], "screen mount failed"); }
       throw error;

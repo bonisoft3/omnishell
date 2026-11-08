@@ -17,7 +17,7 @@ import { batched } from "../interpreter/batched-store.js"
 
 /** Every call the interpreter makes on a store. */
 const SURFACE = ["query", "add", "write", "patch", "drop", "dropWhere", "upsertBy", "subscribe", "upload"]
-const RUNTIME = ["tabSnapshot", "restoreTabs", "flushNotifications", "close", "seedReads", "readAhead", "waitSeed", "pose", "orderOf"]
+const RUNTIME = ["tabSnapshot", "restoreTabs", "flushNotifications", "http", "close", "seedReads", "readAhead", "waitSeed", "pose", "orderOf"]
 
 /** The singular writes a test double states for itself, which the adapter
  * decomposes a batch into. */
