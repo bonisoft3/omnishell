@@ -746,17 +746,19 @@ export function routeHref(cfg, screen, params, locale, { explicitLocale = false,
   // nothing is the row saying there is nowhere to go — the first month has no
   // month before it — and the link simply has no address.
   let unaddressed = false;
-  const filled = pattern.replace(/:(\w+)/g, (_, name) => {
+  // An optional segment left empty, or not named at all, is simply not there.
+  const filled = pattern.replace(/:(\w+)(\?)?/g, (_, name, optional) => {
     if (params === undefined || !(name in params)) {
+      if (optional) return "";
       throw new ProgramError(`route "${screen}" takes a ${name}; no data-param-${name} gives it one`);
     }
     const value = params[name];
     if (value === "" || value === undefined) {
-      unaddressed = true;
+      if (!optional) unaddressed = true;
       return "";
     }
     return encodeURIComponent(value);
-  });
+  }).replace(/\/+$/, "") || "/";
   if (unaddressed) return undefined;
   const hash = fragment === "" ? "" : `#${encodeURIComponent(fragment)}`;
   // An app declaring no locales has one language and no prefixes at all.
@@ -833,15 +835,34 @@ export function screenEnv(cfg, over = /** @type {T} */ ({})) {
 }
 
 
+/** The params a pattern cannot do without. A trailing `:name?` segment is
+ * optional: an address without it binds "" to the name, and routeHref leaves
+ * it out when the param is empty, so one route answers at `/` and at `/mine`
+ * and the strip can list both. Its values are the ones the route's entries
+ * name (entryValues), so `/` does not swallow `/about`, nor `/anything`. */
+export function requiredParams(pattern) {
+  return pattern.split("/").filter((s) => s.startsWith(":") && !s.endsWith("?")).map((s) => s.slice(1));
+}
+export const optionalSegment = (s) => s.startsWith(":") && s.endsWith("?");
+/** What a route's optional params may be bound to, by name: every value its
+ * strip entries (nav.entries) give them. */
+export function entryValues(route) {
+  const values = {};
+  for (const entry of route.nav?.entries ?? []) {
+    for (const [name, value] of Object.entries(entry.params ?? {})) (values[name] ??= new Set()).add(value);
+  }
+  return values;
+}
+
 // Route patterns may contain :name segments, each matching exactly one
 // non-empty path segment; matched values arrive decoded as route params. The
 // query string is folded in under its own names, so `?q=x` reaches a screen as
 // {param.q}.
-function matchRoute(pattern, path) {
+function matchRoute(pattern, path, allowed = {}) {
   const [cleanPath, queryString] = path.split("?");
   const ps = pattern.split("/");
   const xs = cleanPath.split("/");
-  if (ps.length !== xs.length) return null;
+  if (ps.length !== xs.length && !(ps.length === xs.length + 1 && optionalSegment(ps[ps.length - 1]))) return null;
   const params = {};
   // The query is read FIRST so the pattern's own captures land over it: a
   // :param is part of the address and a query is what rode along beside it, so
@@ -851,7 +872,14 @@ function matchRoute(pattern, path) {
     for (const [k, v] of new URLSearchParams(queryString)) params[k] = v;
   }
   for (let i = 0; i < ps.length; i++) {
-    if (ps[i].startsWith(":") && xs[i]) params[ps[i].slice(1)] = decodeURIComponent(xs[i]);
+    // Only the last segment may be optional: what followed one could not be
+    // told from it, and the door (pronto's #addresses) expands only that one.
+    if (optionalSegment(ps[i]) && i === ps.length - 1) {
+      const name = ps[i].slice(1, -1);
+      const value = xs[i] ? decodeURIComponent(xs[i]) : "";
+      if (value !== "" && !allowed[name]?.has(value)) return null;
+      params[name] = value;
+    } else if (ps[i].startsWith(":") && xs[i]) params[ps[i].slice(1)] = decodeURIComponent(xs[i]);
     else if (ps[i] !== xs[i]) return null;
   }
   return params;
@@ -909,7 +937,7 @@ export function localeAt(cfg, pathname, search, preferred) {
 export function routeAt(cfg, pathname, search, preferred) {
   const { rel, path, query, locale, written } = localeAt(cfg, pathname, search, preferred);
   for (const r of cfg.routes) {
-    const params = matchRoute(routePattern(r, written), rel + search);
+    const params = matchRoute(routePattern(r, written), rel + search, entryValues(r));
     if (params === null) continue;
     // `lang` is the wire's name for a locale and dies at this boundary;
     // `locale` is the model's. It is set only where the ADDRESS decided — a

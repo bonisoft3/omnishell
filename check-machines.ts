@@ -28,6 +28,8 @@
 // exit 1 when any finding is reported.
 
 import { machineRegions, resolveMachineMarkup, paramPlans } from "./interpreter/lint.ts";
+
+import { optionalSegment } from "./interpreter/fragment.js";
 import { ABSENT, binding, fillFilter, machineShape, PLACEHOLDER, PLACEHOLDERS } from "./interpreter/fragment.js";
 import { seedQuery, selectWithFields } from "./test/seed-query.ts";
 import { walkMachine, type WalkHarness } from "./test/walker.ts";
@@ -287,6 +289,9 @@ function resolveParams(
   if (path === undefined) throw new Error(`shell.yaml route "${route.screen}" states no path`);
   const { plans, unplanned } = paramPlans([{ path }], { [path]: html });
   const params: Record<string, string> = {};
+  // The walk is of the bare address: an optional `:name?` is blank there, and
+  // its other values are the same screen reached by the strip.
+  for (const seg of path.split("/")) if (optionalSegment(seg)) params[seg.slice(1, -1)] = "";
   for (const hole of unplanned) params[hole.param] = UNRESOLVED;
   for (const plan of plans) params[plan.param] = UNRESOLVED;
   const groups = new Map<string, typeof plans>();

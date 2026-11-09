@@ -17,8 +17,7 @@ import {
   parseSelect,
   PLACEHOLDER,
   PLACEHOLDERS,
-  routeOf,
-} from "./fragment.js";
+  routeOf, optionalSegment } from "./fragment.js";
 
 type Unique = { name: string; cols: string[]; where?: string };
 export type Entity = {
@@ -331,7 +330,8 @@ export function paramPlans(
   const wanted = new Map<string, { route: string; param: string }>();
   for (const route of routes) {
     for (const seg of route.path.split("/")) {
-      if (!seg.startsWith(":")) continue;
+      // An optional segment's values are its entries', never a row's.
+      if (!seg.startsWith(":") || seg.endsWith("?")) continue;
       const param = seg.slice(1);
       const key = `${route.path} ${param}`;
       wanted.set(key, { route: route.path, param });
@@ -381,7 +381,7 @@ export function paramPlans(
           const enclosing = stack.findLast((frame) => frame.table !== undefined);
           const column = attrs.get(`data-param-${param}`)?.match(/^\{([\w]+)\}$/)?.[1];
           if (tag === "a" && attrs.get("data-route") === route.screen && column && enclosing?.table && enclosing.filter !== undefined) {
-            const others = route.path.split("/").filter((part) => part.startsWith(":") && part.slice(1) !== param).map((part) => part.slice(1));
+            const others = route.path.split("/").filter((part) => part.startsWith(":") && !part.endsWith("?") && part.slice(1) !== param).map((part) => part.slice(1));
             const bound = others.every((other) => {
               const field = attrs.get(`data-param-${other}`)?.match(/^\{([\w]+)\}$/)?.[1];
               return field !== undefined && enclosing.filter!.split("&").includes(`${field}=eq.{param.${other}}`);
@@ -1541,9 +1541,10 @@ export function writeLint(writes: Write[], e: Entity): string | null {
  * pattern its `:param` holes are read off. */
 export type LinkRoute = { screen: string; path: string };
 
-/** The `:param` holes of a pattern, in order. */
-const holesOf = (pattern: string): string[] =>
-  pattern.split("/").filter((s) => s.startsWith(":")).map((s) => s.slice(1));
+/** The `:param` holes of a pattern, in order; a trailing `:name?` is a hole a
+ * link may leave empty, and `required` leaves it out. */
+const holesOf = (pattern: string, { required = false } = {}): string[] =>
+  pattern.split("/").filter((s) => s.startsWith(":") && !(required && optionalSegment(s))).map((s) => s.replace(/^:|\?$/g, ""));
 
 /**
  * An internal link says which ROUTE it goes to, never which path.
@@ -1591,7 +1592,8 @@ export function linkLint(html: string, routes: LinkRoute[]): string[] {
       out.push(`data-route="${screen}" names no route in shell.yaml`);
       continue;
     }
-    const holes = holesOf(route.path);
+    const holes = holesOf(route.path, { required: true });
+    const named = holesOf(route.path);
     const given = new Set<string>();
     for (const [, name] of ` ${attrText}`.matchAll(ATTR)) {
       if (name.startsWith("data-param-")) given.add(name.slice("data-param-".length));
@@ -1606,7 +1608,7 @@ export function linkLint(html: string, routes: LinkRoute[]): string[] {
       if (!given.has(hole)) out.push(`data-route="${screen}" fills no :${hole} of "${route.path}"`);
     }
     for (const name of given) {
-      if (holes.includes(name)) continue;
+      if (named.includes(name)) continue;
       out.push(`data-param-${name} on data-route="${screen}" names no :param of "${route.path}"`);
     }
   }

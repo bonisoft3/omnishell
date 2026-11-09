@@ -407,35 +407,8 @@ function renderSession(session, cfg, store, signOut, chrome, served = null) {
   // past a currentRoute() that throws on an address the app has no route for,
   // and the strip outlives that banner because it hangs beside the mount. The
   // only way out of a session may not be a control with no word on it.
-  const openLoginModal = (e) => {
-    const activeBtn = Array.from(document.querySelectorAll("#btn-top-login, .btn-top-login"))
-      .find((el) => !el.closest(".shell-screen[hidden]"));
-    if (activeBtn && typeof activeBtn.click === "function") {
-      e.preventDefault();
-      activeBtn.click();
-      return true;
-    }
-    const toggle = Array.from(document.querySelectorAll("#login-modal-toggle, .login-modal-chk"))
-      .find((el) => !el.closest(".shell-screen[hidden]")) ?? document.getElementById("login-modal-toggle");
-    if (toggle) {
-      e.preventDefault();
-      toggle.checked = true;
-      return true;
-    }
-    return false;
-  };
-  who.addEventListener("click", (e) => {
-    openLoginModal(e);
-  });
   out.textContent = chrome("chrome_signout", cfg.i18n?.default);
   out.addEventListener("click", (e) => {
-    const isGuestSession = Boolean(
-      session?.user?.guest ||
-      !session?.user?.handle ||
-      session?.user?.handle === "guest" ||
-      /entrar|sign\s*in|iniciar|התחבר|登录/i.test(out.textContent || ""),
-    );
-    if (isGuestSession && openLoginModal(e)) return;
     e.preventDefault();
     signOut();
   });
@@ -1042,145 +1015,6 @@ export async function createShell({ config, mount, preload = true, hostDomModule
     // The address this mount is already rendering, spelled as it should be.
     // The Navigation API reports a replaceState as a navigation, and taking
     // that one would mount the screen a second time under the first.
-    const applyThemeMode = (mode) => {
-      const m = mode === "light" || mode === "dark" ? mode : "auto";
-      if (m === "auto") delete document.documentElement.dataset.theme;
-      else document.documentElement.dataset.theme = m;
-      try { sessionStorage.setItem("omnishell-theme", m); } catch (_e) {}
-      for (const r of document.querySelectorAll('input.theme-radio[name="theme-mode"]')) {
-        r.checked = (r.value === m);
-      }
-    };
-    try {
-      const savedTheme = sessionStorage.getItem("omnishell-theme");
-      if (savedTheme === "light" || savedTheme === "dark") {
-        document.documentElement.dataset.theme = savedTheme;
-      }
-    } catch (_e) {}
-    document.addEventListener("change", (e) => {
-      const t = e.target;
-      if (t && t.classList?.contains("theme-radio") && t.name === "theme-mode") {
-        applyThemeMode(t.value);
-      } else if (t && t.classList?.contains("fullscreen-checkbox")) {
-        try {
-          if (t.checked && document.documentElement.requestFullscreen && !document.fullscreenElement) {
-            document.documentElement.requestFullscreen().catch(() => {});
-          } else if (!t.checked && document.exitFullscreen && document.fullscreenElement) {
-            document.exitFullscreen().catch(() => {});
-          }
-        } catch (_e) {}
-      }
-    });
-    document.addEventListener("fullscreenchange", () => {
-      try {
-        if (!document.fullscreenElement) {
-          for (const cb of document.querySelectorAll("input.fullscreen-checkbox")) {
-            cb.checked = false;
-          }
-        }
-      } catch (_e) {}
-    });
-    let pendingAuthor = null;
-    const syncCategoryRadios = (author) => {
-      const root = current?.el || document;
-      if (author === "me") {
-        const mineRadio = root.querySelector?.("#cat-mine");
-        if (mineRadio) mineRadio.checked = true;
-      } else {
-        const allRadio = root.querySelector?.("#cat-all");
-        if (allRadio) allRadio.checked = true;
-      }
-    };
-    const applyPendingAuthor = () => {
-      if (!pendingAuthor) return;
-      const author = pendingAuthor;
-      const targetId = author === "me" ? "nav-my-cards" : author === "gallery" ? "nav-gallery" : "nav-home-trigger";
-      const btn = current?.el?.querySelector?.(`#${targetId}`) || document.getElementById(targetId);
-      if (btn && current?.el.contains(btn)) {
-        pendingAuthor = null;
-        syncCategoryRadios(author);
-        btn.click();
-      }
-    };
-    const EXTRA_NAV_FALLBACKS = {
-      pt: ["Minhas Fichas", "Galeria"],
-      es: ["Mis Tarjetas", "Galería"],
-      en: ["My Cards", "Gallery"],
-      he: ["הכרטיסיות שלי", "גלריה"],
-      zh: ["我的闪卡", "图库"],
-    };
-    const syncExtraNav = (loc, explicitLocale = false) => {
-      if (!nav || !nav.querySelector('a[data-route="cards"]')) return;
-      let box = nav.querySelector(":scope > .sidebar-extra-nav");
-      if (!box) {
-        box = document.createElement("div");
-        box.className = "sidebar-extra-nav";
-        box.setAttribute("role", "navigation");
-        const myLink = document.createElement("a");
-        myLink.className = "sidebar-extra-link nav-my-cards-link";
-        myLink.setAttribute("data-route", "cards");
-        myLink.setAttribute("data-author", "me");
-        const galLink = document.createElement("a");
-        galLink.className = "sidebar-extra-link nav-gallery-link";
-        galLink.setAttribute("data-route", "cards");
-        galLink.setAttribute("data-author", "gallery");
-        box.append(myLink, galLink);
-        const printLink = nav.querySelector(':scope > a[data-route="print"]');
-        if (printLink) printLink.before(box);
-        else nav.append(box);
-      }
-      const langKey = (loc || cfg.i18n?.default || "pt").split("-")[0];
-      const fb = EXTRA_NAV_FALLBACKS[langKey] || EXTRA_NAV_FALLBACKS.pt;
-      const cat = messages?.[loc] ?? messages?.[langKey] ?? messages?.[cfg.i18n?.default] ?? {};
-      const href = routeHref(cfg, "cards", {}, loc || cfg.i18n?.default, { explicitLocale }) || "/";
-      const myLink = box.querySelector(".nav-my-cards-link");
-      const galLink = box.querySelector(".nav-gallery-link");
-      if (myLink) {
-        myLink.textContent = cat.nav_my_cards || fb[0];
-        myLink.setAttribute("href", href);
-        myLink.removeAttribute("aria-current");
-      }
-      if (galLink) {
-        galLink.textContent = cat.nav_gallery || fb[1];
-        galLink.setAttribute("href", href);
-        galLink.removeAttribute("aria-current");
-      }
-    };
-    document.addEventListener("click", (e) => {
-      const themeBtn = e.target?.closest?.(".theme-btn[data-theme-val]");
-      if (themeBtn) {
-        applyThemeMode(themeBtn.dataset.themeVal);
-      }
-      const extraLink = e.target?.closest?.("a.sidebar-extra-link[data-author]");
-      if (extraLink) {
-        const author = extraLink.dataset.author || null;
-        const targetId = author === "me" ? "nav-my-cards" : author === "gallery" ? "nav-gallery" : "nav-home-trigger";
-        const btn = current?.el?.querySelector?.(`#${targetId}`) || document.getElementById(targetId);
-        if (current?.route?.screen === "cards" && btn && !btn.closest(".shell-screen[hidden]")) {
-          e.preventDefault();
-          syncCategoryRadios(author);
-          btn.click();
-        } else {
-          pendingAuthor = author;
-        }
-      }
-    }, true);
-    if (nav) {
-      const homeLink = nav.querySelector(':scope > a[data-route="cards"]');
-      if (homeLink) {
-        homeLink.addEventListener("click", (e) => {
-          const homeTrigger = current?.el?.querySelector?.("#nav-home-trigger") || document.getElementById("nav-home-trigger");
-          if (current?.route?.screen === "cards" && homeTrigger && !homeTrigger.closest(".shell-screen[hidden]")) {
-            e.preventDefault();
-            syncCategoryRadios("home");
-            homeTrigger.click();
-          } else {
-            pendingAuthor = "home";
-          }
-        });
-      }
-      syncExtraNav(currentRoute().locale);
-    }
     let restating = false;
     const scrollFragment = (root, hash) => {
       if (!hash) return false;
@@ -1255,7 +1089,6 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       }
       const explicitLocale = Boolean(cfg.i18n && locale === cfg.i18n.default && (params?.locale === locale || (typeof location !== "undefined" && new URLSearchParams(location.search).has("lang"))));
       localizeStrip(nav, cfg, { locale, here: location.pathname, search: location.search ?? "", messages, explicitLocale });
-      syncExtraNav(locale, explicitLocale);
       const key = keyOf(route, params);
       const retarget = current?.el.querySelector(":scope > .screen")?.getAttribute("data-retarget-params")?.split(/\s+/).filter(Boolean) ?? [];
       const unchanged = new Set([...Object.keys(current?.params ?? {}), ...Object.keys(params)]);
@@ -1318,7 +1151,6 @@ export async function createShell({ config, mount, preload = true, hostDomModule
           if (turn !== showing) return;
           entry.mutationActive = true;
           reword(entry);
-          if (route.screen === "cards") applyPendingAuthor();
           // What it drew is on hand, so it shows at once and refreshes behind:
           // resuming first kept a screen in memory hidden through every read
           // its regions ask again.
@@ -1346,7 +1178,6 @@ export async function createShell({ config, mount, preload = true, hostDomModule
           throw err;
         }
         describe(document, cfg, { route, params, locale, written, el: entry.el, origin: location.origin });
-        try { applyThemeMode(sessionStorage.getItem("omnishell-theme") || "auto"); } catch (_e) {}
         if (navigationType === "push") scrollFragment(entry.el, location.hash);
         linkPrefetch.idle();
         if (preload) {
@@ -1472,13 +1303,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
         retainRecovery();
         await replayEarlyGestures(document, () => fresh.handle.settle());
         if (current !== fresh || turn !== showing || fresh.navigating) return fresh.handle.pause();
-        if (route.screen === "cards") {
-          applyPendingAuthor();
-          await fresh.handle.settle();
-          if (turn !== showing) return;
-        }
         present(fresh);
-        try { applyThemeMode(sessionStorage.getItem("omnishell-theme") || "auto"); } catch (_e) {}
         // After the render: the screen's own h1 is where its name comes from.
         describe(document, cfg, { route, params, locale, written, el, origin: location.origin });
         if (!adopting && !scrollFragment(el, location.hash)) window.scrollTo(0, 0);
@@ -1591,7 +1416,6 @@ export async function createShell({ config, mount, preload = true, hostDomModule
             });
             if (back !== undefined && new URL(back, location.href).pathname !== location.pathname) restate(back);
             if (nav) localizeStrip(nav, cfg, { locale: shown.locale, here: location.pathname, search: location.search ?? "", messages });
-            syncExtraNav(shown.locale);
           }, 0);
         }
         banner(error);

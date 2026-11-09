@@ -11,7 +11,7 @@
 import { parseHTML } from "npm:linkedom@0.18.4";
 import { parse as parseYaml } from "jsr:@std/yaml@1.0.5";
 import { renderStorybook, stopStorybook } from "./interpreter/storybook.js";
-import { directionOf, PLACEHOLDER, PLACEHOLDERS } from "./interpreter/fragment.js";
+import { directionOf, PLACEHOLDER, PLACEHOLDERS, requiredParams } from "./interpreter/fragment.js";
 // The terminal's own copy table, so the keys required here are the keys the
 // terminal actually asks for and cannot drift from them.
 import { CHROME_KEYS, providerKey } from "./interpreter/chrome.js";
@@ -52,7 +52,7 @@ type Route = {
   // default-language spelling; `key` names the word in each catalogue.
   // Optional here, where an emitted shell.yaml is graded with no program
   // beside it.
-  nav?: { label: string; key?: string; strip?: boolean };
+  nav?: { label: string; key?: string; strip?: boolean; entries?: { label: string; key?: string; params?: Record<string, string> }[] };
   files: { html: string; css: string; handlers?: string[]; shared?: string[] };
   states?: string[];
   hatches?: string[];
@@ -516,20 +516,26 @@ export function checkChrome(
   // more specific than "everywhere" takes itself off — so the strip is what the
   // terminal draws, not the route table. With one route on it and nobody signed
   // in, the terminal draws none at all.
-  const strip = (shell.routes ?? []).filter((r) => !r.path.includes(":") && r.nav?.strip !== false);
+  const strip = (shell.routes ?? []).filter((r) => requiredParams(r.path).length === 0 && r.nav?.strip !== false);
   if (strip.length <= 1 && !session) return findings;
-  for (const route of strip) {
-    const key = route.nav?.key;
+  // A route's entries (nav.entries) are strip links of their own, each with a
+  // label the catalogues must answer as they answer the route's.
+  const links = strip.flatMap((route) => [
+    { name: `route '${route.screen}'`, nav: route.nav },
+    ...(route.nav?.entries ?? []).map((entry: { key?: string; label?: string }, i: number) => ({ name: `route '${route.screen}' entry ${i}`, nav: entry })),
+  ]);
+  for (const { name, nav } of links) {
+    const key = nav?.key;
     if (key === undefined) {
       report(
         shellPath,
-        `route '${route.screen}' wears the strip label ${JSON.stringify(route.nav?.label)} in every locale: ` +
+        `${name} wears the strip label ${JSON.stringify(nav?.label)} in every locale: ` +
           `name a message key for it`,
       );
       continue;
     }
     for (const tag of tags) {
-      if (!said(tag, key)) report(`messages/${tag}.json`, `route '${route.screen}' [${tag}]: label key "${key}" is missing`);
+      if (!said(tag, key)) report(`messages/${tag}.json`, `${name} [${tag}]: label key "${key}" is missing`);
     }
   }
   return findings;

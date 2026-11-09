@@ -103,7 +103,7 @@ export async function checkContrast(page: Page): Promise<VisualBug[]> {
 }
 
 /** Every text run whose backdrop is decidable, with both colours resolved. */
-async function pairs({ cap, flipped }: { cap: number; flipped: boolean }): Promise<Pair[]> {
+async function pairs({ cap }: { cap: number; flipped: boolean }): Promise<Pair[]> {
   const running = document.getAnimations().filter(
     (a) =>
       a.timeline instanceof DocumentTimeline &&
@@ -111,10 +111,11 @@ async function pairs({ cap, flipped }: { cap: number; flipped: boolean }): Promi
       a.playbackRate !== 0 &&
       a.effect?.getTiming().iterations !== Infinity,
   )
-  if (flipped) {
-    for (const a of running) {
-      if ("transitionProperty" in a) a.cancel()
-    }
+  // A CSSTransition is never a colour to judge, whoever started it: the
+  // scheme flip, or a state a machine posed a moment ago (a theme column).
+  // Cancelled, it lands on its target at once.
+  for (const a of running) {
+    if ("transitionProperty" in a) a.cancel()
   }
   const remaining = running.filter((a) => a.playState === "running")
   if (remaining.length > 0) {

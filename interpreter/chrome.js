@@ -13,7 +13,7 @@
 // makes a missing one an error. The strings below are what the terminal says
 // standalone, and what every app declaring no catalogue at all shows.
 
-import { directionOf, localeTable, routeHref, routeParams } from "./fragment.js";
+import { directionOf, localeTable, requiredParams, routeHref, routeParams } from "./fragment.js";
 
 // The gate's copy, reachable only where the app requires a sign-in.
 const LOGIN = {
@@ -70,11 +70,11 @@ export function chromeText(key, { messages, locale } = {}) {
   return messages?.[locale]?.[key] ?? CHROME[key];
 }
 
-/** The routes the strip links. Parametrized routes have no static href; they
- * are reached from rows. A route may also take itself off the strip, when it is
- * reached from somewhere more specific than "everywhere". */
+/** The routes the strip links. A route with a required param has no static
+ * href; it is reached from rows. A route may also take itself off the strip,
+ * when it is reached from somewhere more specific than "everywhere". */
 export function stripRoutes(cfg) {
-  return cfg.routes.filter((r) => !r.path.includes(":") && r.nav.strip !== false);
+  return cfg.routes.filter((r) => requiredParams(r.path).length === 0 && r.nav.strip !== false);
 }
 
 /** Whether a page carries a strip: one link is no choice, but a person is
@@ -97,6 +97,18 @@ export function drawStrip(doc, cfg) {
     a.setAttribute("data-route", r.screen);
     a.textContent = r.nav.label;
     nav.append(a);
+    // A route's other entries are its own addresses, one per set of params
+    // (nav.entries): the shelves of a library. Each is a link like any other,
+    // current when its address is the page's, so the strip never has to be
+    // told which one a gesture meant.
+    for (const [i, entry] of (r.nav.entries ?? []).entries()) {
+      const link = doc.createElement("a");
+      link.setAttribute("data-route", r.screen);
+      link.setAttribute("data-entry", String(i));
+      for (const [name, value] of Object.entries(entry.params ?? {})) link.setAttribute(`data-param-${name}`, value);
+      link.textContent = entry.label;
+      nav.append(link);
+    }
   }
   return nav;
 }
@@ -138,7 +150,8 @@ export function guestBox(doc, cfg) {
  * navigation: an href carries the locale of the page it is on, so does a
  * label, and aria-current names the link that IS this page — which is the
  * link whose address is this one (`here`, a pathname), not merely a link to
- * the same route with someone else's :params. */
+ * the same route with someone else's :params.
+ * @param {{ locale?: string, here?: string, search?: string, messages?: Record<string, Record<string, string>>, explicitLocale?: boolean }} [options] */
 export function localizeStrip(nav, cfg, { locale, here, search = "", messages, explicitLocale = false } = {}) {
   if (!nav) return;
   for (const a of nav.querySelectorAll("a[data-route]")) {
@@ -157,7 +170,9 @@ export function localizeStrip(nav, cfg, { locale, here, search = "", messages, e
     // stands, which is the language it was written in. The word is the
     // catalogue's, read as a screen reads one, so whatever brings the
     // catalogues current (shell.js catalogues) brings the strip with them.
-    const { key, label } = cfg.routes.find((r) => r.screen === a.getAttribute("data-route"))?.nav ?? {};
+    const nav = cfg.routes.find((r) => r.screen === a.getAttribute("data-route"))?.nav;
+    const entry = a.getAttribute("data-entry");
+    const { key, label } = (entry === null ? nav : nav?.entries?.[Number(entry)]) ?? {};
     if (key === undefined) continue;
     a.textContent = messages?.[locale]?.[key] ?? messages?.[cfg.i18n?.default]?.[key] ?? label;
   }

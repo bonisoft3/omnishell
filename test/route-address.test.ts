@@ -4,7 +4,8 @@
 // /regras and /es/reglas from one screen.
 import { describe, expect, it } from "@test/harness"
 import { parseHTML } from "npm:linkedom@0.18.4"
-import { routeHref, routePattern } from "../interpreter/fragment.js"
+import { requiredParams, routeAt, routeHref, routePattern } from "../interpreter/fragment.js"
+import { drawStrip, localizeStrip, stripRoutes } from "../interpreter/chrome.js"
 import { formParams, routeParams } from "../interpreter/screen.js"
 
 const CFG = {
@@ -125,5 +126,57 @@ describe("a navigate form", () => {
     const cfg = { routes: [{ path: "/search/:q", screen: "search" }] }
     expect(formParams(form)).toEqual({ q: "pão de ló" })
     expect(routeHref(cfg, "search", formParams(form), "pt-BR")).toBe("/search/p%C3%A3o%20de%20l%C3%B3")
+  })
+})
+
+// One route, several addresses: the library at `/` and its shelves at `/mine`
+// and `/gallery`, each a strip link current by its own address — so the strip
+// never has to be told which shelf a gesture meant (the double mark that cost
+// snapcards its single selection).
+const SHELVES = {
+  routes: [
+    {
+      path: "/:shelf?",
+      screen: "cards",
+      nav: { label: "Cards", key: "nav_cards", entries: [{ label: "My Cards", key: "nav_my_cards", params: { shelf: "mine" } }, { label: "Gallery", key: "nav_gallery", params: { shelf: "gallery" } }] },
+    },
+    { path: "/about", screen: "about", nav: { label: "About", key: "nav_about" } },
+    { path: "/note/:id", screen: "note", nav: { label: "Note" } },
+  ],
+}
+describe("an optional :param?", () => {
+  it("is required by no one, so its route keeps a static address and a place on the strip", () => {
+    expect(requiredParams("/:shelf?")).toEqual([])
+    expect(requiredParams("/note/:id")).toEqual(["id"])
+    expect(stripRoutes(SHELVES).map((r: { screen: string }) => r.screen)).toEqual(["cards", "about"])
+  })
+  it("binds blank at the bare address and its segment where one is given", () => {
+    expect(routeAt(SHELVES, "/", "")).toMatchObject({ route: SHELVES.routes[0], params: { shelf: "" } })
+    expect(routeAt(SHELVES, "/mine", "")).toMatchObject({ params: { shelf: "mine" } })
+    expect(routeAt(SHELVES, "/mine/extra", "")).toBeNull()
+    expect(routeAt(SHELVES, "/anything", "")).toBeNull()
+    expect(routeAt(SHELVES, "/about", "")).toMatchObject({ route: SHELVES.routes[1] })
+  })
+  it("is left out of an address when it is empty or unnamed", () => {
+    expect(routeHref(SHELVES, "cards", {}, undefined)).toBe("/")
+    expect(routeHref(SHELVES, "cards", { shelf: "" }, undefined)).toBe("/")
+    expect(routeHref(SHELVES, "cards", { shelf: "mine" }, undefined)).toBe("/mine")
+    expect(routeHref({ routes: [{ path: "/x/:y?", screen: "x" }] }, "x", {}, undefined)).toBe("/x")
+  })
+})
+describe("a route's strip entries", () => {
+  const { document } = parseHTML("<!doctype html><html><body></body></html>")
+  it("are drawn as links of their own, and exactly one of them is current at each address", () => {
+    const nav = drawStrip(document, SHELVES)
+    const links = [...nav.querySelectorAll("a")]
+    expect(links.map((a) => a.textContent)).toEqual(["Cards", "My Cards", "Gallery", "About"])
+    expect(links[1].getAttribute("data-param-shelf")).toBe("mine")
+    const messages = { en: { nav_cards: "Home", nav_my_cards: "Mine", nav_gallery: "All", nav_about: "About" } }
+    for (const [here, current] of [["/", "Home"], ["/mine", "Mine"], ["/gallery", "All"], ["/about", "About"]]) {
+      const options = { locale: "en", here, search: "", messages, explicitLocale: false }
+      localizeStrip(nav, SHELVES, options)
+      expect(links.map((a) => a.getAttribute("href"))).toEqual(["/", "/mine", "/gallery", "/about"])
+      expect(links.filter((a) => a.getAttribute("aria-current") === "page").map((a) => a.textContent)).toEqual([current])
+    }
   })
 })

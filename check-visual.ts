@@ -17,6 +17,8 @@
 // focus-order nits — and a gate that fails on advice is muted within a week,
 // taking the criticals with it.
 import { parse as parseYaml } from "jsr:@std/yaml@1.0.5"
+
+import { optionalSegment } from "./interpreter/fragment.js"
 import { checkInteractiveOverlap } from "./src/lint/playwright/checks/interactive-overlap.ts"
 import { checkClippedContent } from "./src/lint/playwright/checks/clipped-content.ts"
 import { checkFocusableInvisible } from "./src/lint/playwright/checks/focusable-invisible.ts"
@@ -153,17 +155,23 @@ export function floorsFrom(yaml: string | ShellDoc): Record<string, number> {
   return doc.floors
 }
 
-/** Substitute resolved values for `:param` segments. */
+/** Substitute resolved values for `:param` segments; an optional `:name?`
+ * segment with no value is left out. */
 export function fillRoute(pattern: string, params: Record<string, string>): string {
-  return pattern
+  const filled = pattern
     .split("/")
-    .map((seg) => {
-      if (!seg.startsWith(":")) return seg
-      const v = params[seg.slice(1)]
-      if (v === undefined) throw new Error(`no fixture value for :${seg.slice(1)}`)
-      return encodeURIComponent(v)
+    .flatMap((seg) => {
+      if (!seg.startsWith(":")) return [seg]
+      const optional = optionalSegment(seg)
+      const v = params[seg.slice(1, optional ? -1 : undefined)]
+      if (v === undefined || (optional && v === "")) {
+        if (optional) return []
+        throw new Error(`no fixture value for :${seg.slice(1)}`)
+      }
+      return [encodeURIComponent(v)]
     })
     .join("/")
+  return filled || "/"
 }
 
 /** Resolve an address with the same route and locale matcher as the shell. */
@@ -791,7 +799,7 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
           const parentPath = hole.route.slice(0, hole.route.lastIndexOf("/")) || "/"
           if (!route?.screen || !routes.some((r) => r.path === parentPath)) continue
           const known = params.get(hole.route) ?? {}
-          if (parentPath.split("/").some((p) => p.startsWith(":") && known[p.slice(1)] === undefined)) continue
+          if (parentPath.split("/").some((p) => p.startsWith(":") && !optionalSegment(p) && known[p.slice(1)] === undefined)) continue
           const page = await context.newPage()
           try {
             const found = await resolveRenderedFixture(page, shell, base, route, parentPath, known, hole.param, settleTimeout())
@@ -825,7 +833,7 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
   const live = routes.filter(
     (route) =>
       !route.path.split("/").some(
-        (s) => s.startsWith(":") && params.get(route.path)?.[s.slice(1)] === undefined,
+        (s) => s.startsWith(":") && !optionalSegment(s) && params.get(route.path)?.[s.slice(1)] === undefined,
       ),
   )
 
@@ -1133,6 +1141,22 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
               })
             }
           }
+          // A posed row on a device table outlives this route (the collection
+          // persists it), so the next route's base frame would wear the last
+          // frame's state — its theme. Those base rows go back before it; a
+          // tab row is the next route's to rebuild.
+          const persisted = Object.fromEntries(Object.entries(baseRows).filter(([table]) => tiers.local[table] === "device"))
+          if (Object.keys(persisted).length > 0) await page.evaluate(async (tables: Record<string, Record<string, unknown>>) => {
+            const w = window as unknown as { __prontoPose?: (t: string, r: Record<string, unknown>) => Promise<void> }
+            if (typeof w.__prontoPose !== "function") return
+            for (const [table, row] of Object.entries(tables)) await w.__prontoPose(table, row)
+            // The way back runs the same transitions the frame ran; a contrast
+            // pass that rasterized mid-way would read a colour that is neither.
+            await Promise.race([
+              Promise.allSettled(document.getAnimations().map((a) => a.finished)),
+              new Promise((r) => setTimeout(r, 500)),
+            ])
+          }, persisted)
         }
       }
     } catch (err) {
