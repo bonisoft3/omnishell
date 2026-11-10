@@ -1318,7 +1318,9 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   async function oneTrip(key, table, order, opts, views) {
     if (opts.fillsIn && !opts.current) {
       stoodIn.add(key);
-      return [];
+      const empty = [];
+      empty.fillsIn = true;
+      return empty;
     }
     if (!keepsReads || opts.perRow) return undefined;
     const tables = readDeps(table, opts);
@@ -2522,7 +2524,10 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   }
 
   const writing = (fn) => (table, ...rest) => {
-    if (local[table] === undefined) clearAllServed();
+    if (local[table] === undefined) {
+      clearAllServed();
+      cfg.onRemoteWrite?.(table);
+    }
     return fn(table, ...rest);
   };
   return {
@@ -2539,7 +2544,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     upsertBy: writing(upsertBy),
     pose,
     subscribe,
-    upload: (...args) => (clearAllServed(), upload(...args)),
+    upload: (...args) => (clearAllServed(), cfg.onRemoteWrite?.(), upload(...args)),
     // A host-DOM hatch's authorized call, past the collections: it makes the
     // guest's session as every other write does.
     http,

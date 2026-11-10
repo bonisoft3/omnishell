@@ -991,10 +991,9 @@ export function unwitnessedControls(html: string, selectedHostDom: Set<string> =
       stampers.set(ref, merge(stampers.get(ref) ?? NONE, cover));
     }
     const type = attr("type")?.toLowerCase();
-    // A control that opens a surface is wired by naming it: `commandfor` or
-    // `popovertarget`. Neither writes anything, which is exactly why neither
-    // is a handler this rule could otherwise find.
-    const invoker = has("popovertarget") || attr("commandfor") !== undefined;
+    // A control that opens a surface or drives terminal auth is wired by naming
+    // it: `commandfor`, `popovertarget`, `data-auth-action`, or `data-auth-provider`.
+    const invoker = has("popovertarget") || attr("commandfor") !== undefined || has("data-auth-action") || has("data-auth-provider");
     const control = tag === "button" || (tag === "input" && type !== undefined && CONTROL_INPUT.has(type));
     const hostDom = attr("data-host-dom");
     if (has("data-host-dom") && (!control || !hostDom || !selectedHostDom.has(hostDom))) {

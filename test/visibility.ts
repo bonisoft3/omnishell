@@ -67,6 +67,13 @@ export type Sheet = { rules: Rule[]; unjudged: Unjudged[] };
 export type Import = { url: string; cond?: string };
 export type Parsed = Sheet & { imports: Import[] };
 
+type SurfaceRule = { sel: string; test: string; cond?: string; key: string; surface: boolean };
+const WIDGET_SURFACE =
+  /^(?:all|-webkit-appearance|appearance|background(?:-color|-image)?|border(?:-(?:top|right|bottom|left|inline|block)(?:-(?:width|style|color))?|-(?:width|style|color|radius))?)$/i;
+const WIDGET_BOX =
+  /^(?:padding(?:-(?:top|right|bottom|left|inline|block))?|min-height|height|width|max-width|inline-size|resize|font(?:-family|-size|-weight)?)$/i;
+const sheetSurfaces = new WeakMap<Sheet, SurfaceRule[]>();
+
 /** `depth` 0 is on screen and undefined is unreachable, with `why` one of
  * `css <sel>`, `[hidden]`, `inline style`, `popover:<id> (no reachable
  * invoker)`, `dialog:<id> (no reachable invoker)` or `disabled`. `cond` lists
@@ -449,6 +456,7 @@ const resolveNesting = (prelude: string, parents: string[] | null, wrapped = fal
 
 function parse(text: string, origin: Rule["origin"]): Parsed {
   const rules: Rule[] = [];
+  const surfaces: SurfaceRule[] = [];
   const unjudged: Unjudged[] = [];
   const imports: Import[] = [];
   let order = 0;
@@ -459,11 +467,29 @@ function parse(text: string, origin: Rule["origin"]): Parsed {
   const declare = (ctx: Ctx, body: string) => {
     if (ctx.parents === null) return;
     let found: { value: string; important: boolean } | undefined;
+    let stylesSurface = false;
+    let stylesBox = false;
     for (const decl of splitTop(body, ";")) {
+      const prop = /^([\w-]+)\s*:/.exec(decl.trim())?.[1];
+      if (prop !== undefined && WIDGET_SURFACE.test(prop)) stylesSurface = true;
+      if (prop !== undefined && WIDGET_BOX.test(prop)) stylesBox = true;
       const m = /^display\s*:\s*([\s\S]*?)\s*(!\s*important)?$/i.exec(decl.trim());
       if (m === null) continue;
       const next = { value: m[1].trim().toLowerCase(), important: m[2] !== undefined };
       if (found === undefined || next.important || !found.important) found = next;
+    }
+    if ((stylesSurface || stylesBox) && ctx.dropped === undefined) {
+      const cond = ctx.conds.length === 0 ? undefined : ctx.conds.join(" ");
+      for (const sel of ctx.parents) {
+        const key = bucketOf(sel);
+        if (!stylesSurface && key === "*") continue;
+        const read = forgive(sel);
+        const test = rewrite(read);
+        try {
+          probe.matches(test);
+          surfaces.push({ sel, test, cond, key, surface: stylesSurface });
+        } catch {}
+      }
     }
     if (found === undefined) return;
     if (ctx.dropped !== undefined) {
@@ -581,7 +607,9 @@ function parse(text: string, origin: Rule["origin"]): Parsed {
   };
 
   walk(stripComments(text), { parents: null, conds: [], top: true });
-  return { rules, unjudged, imports };
+  const out: Parsed = { rules, unjudged, imports };
+  sheetSurfaces.set(out, surfaces);
+  return out;
 }
 
 /** Every rule in `text` that sets `display`, one per selector, in source order.
@@ -601,14 +629,27 @@ const UA = parse(
   "ua",
 ).rules;
 
-const offset = (parsed: Sheet, by: number, cond?: string): Sheet => ({
-  rules: parsed.rules.map((r) => ({
-    ...r,
-    order: r.order + by,
-    cond: cond === undefined ? r.cond : r.cond === undefined ? cond : `${cond} ${r.cond}`,
-  })),
-  unjudged: parsed.unjudged,
-});
+const offset = (parsed: Sheet, by: number, cond?: string): Sheet => {
+  const out: Sheet = {
+    rules: parsed.rules.map((r) => ({
+      ...r,
+      order: r.order + by,
+      cond: cond === undefined ? r.cond : r.cond === undefined ? cond : `${cond} ${r.cond}`,
+    })),
+    unjudged: parsed.unjudged,
+  };
+  const surfaces = sheetSurfaces.get(parsed);
+  if (surfaces !== undefined) {
+    sheetSurfaces.set(
+      out,
+      surfaces.map((r) => ({
+        ...r,
+        cond: cond === undefined ? r.cond : r.cond === undefined ? cond : `${cond} ${r.cond}`,
+      })),
+    );
+  }
+  return out;
+};
 
 /** Every display rule the route puts in the document, in cascade order: the
  * screen css with each `@import` expanded in place from the route's shared
@@ -659,8 +700,26 @@ export function routeSheet(route: Route, files: Record<string, string>): Sheet {
     if (parsed.imports.length > 0) throw new Error(`routeSheet: an inline <style> in ${route.files.html} imports`);
     push(parsed, query === undefined || query === "" || query === "all" ? undefined : `@media ${query}`);
   }
-  return { rules: parts.flatMap((p) => p.rules), unjudged: parts.flatMap((p) => p.unjudged) };
+  const out: Sheet = { rules: parts.flatMap((p) => p.rules), unjudged: parts.flatMap((p) => p.unjudged) };
+  sheetSurfaces.set(out, parts.flatMap((p) => sheetSurfaces.get(p) ?? []));
+  return out;
 }
+
+/** Combine parsed sheets in cascade order. */
+export function mergeSheets(...sheets: Sheet[]): Sheet {
+  const parts: Sheet[] = [];
+  let next = 0;
+  for (const s of sheets) {
+    parts.push(offset(s, next));
+    next += Math.max(0, ...s.rules.map((r) => r.order + 1));
+  }
+  const out: Sheet = { rules: parts.flatMap((p) => p.rules), unjudged: parts.flatMap((p) => p.unjudged) };
+  sheetSurfaces.set(out, parts.flatMap((p) => sheetSurfaces.get(p) ?? []));
+  return out;
+}
+
+export const hasSurfaceRules = (sheet: Sheet): boolean =>
+  (sheetSurfaces.get(sheet) ?? []).some((r) => r.cond === undefined && r.surface);
 
 /** Every attribute simple selector inside a `display:none` rule, normalised —
  * `[data-ply="0"]` — so a state can be described by which of them match. */
@@ -892,4 +951,77 @@ export function visibility(root: VRoot, sheet: Sheet): { vis(el: VEl): Vis } {
   };
 
   return { vis: (el) => judge(el, new Set()) };
+}
+
+const NATIVE_INPUT_SKIP = new Set(["hidden", "checkbox", "radio", "range", "color", "file"]);
+
+const isNativeBoxWidget = (el: VEl): boolean =>
+  el.localName === "button" || el.localName === "select" || el.localName === "textarea" ||
+  (el.localName === "input" && !NATIVE_INPUT_SKIP.has((el.getAttribute("type") ?? "text").toLowerCase()));
+
+const BUTTON_INPUT = new Set(["button", "submit", "reset"]);
+
+const needsButtonSurface = (el: VEl): boolean =>
+  el.localName === "button" ||
+  (el.localName === "input" && BUTTON_INPUT.has((el.getAttribute("type") ?? "text").toLowerCase()));
+
+const hasInlineSurface = (el: VEl, buttonOnly: boolean): boolean => {
+  const style = el.getAttribute("style");
+  if (style === null) return false;
+  for (const decl of splitTop(style, ";")) {
+    const prop = /^([\w-]+)\s*:/.exec(decl.trim())?.[1];
+    if (prop !== undefined && (WIDGET_SURFACE.test(prop) || (!buttonOnly && WIDGET_BOX.test(prop)))) return true;
+  }
+  return false;
+};
+
+/** Visible native box widgets (`button`, `select`, `textarea`, text/button `input`)
+ * that match no author rule styling their widget surface (`background*`, `border*`,
+ * `appearance`, `all` for buttons; surface or box rules for fields), leaving them
+ * with the browser's default UA control. */
+export function unstyledWidgets(root: VRoot, sheet: Sheet): VEl[] {
+  const { vis } = visibility(root, sheet);
+  const surfaceIdx = new Map<string, SurfaceRule[]>();
+  for (const r of (sheetSurfaces.get(sheet) ?? []).filter((r) => r.cond === undefined)) {
+    const list = surfaceIdx.get(r.key);
+    if (list === undefined) surfaceIdx.set(r.key, [r]);
+    else list.push(r);
+  }
+  const surfaceCandidates = (el: VEl): SurfaceRule[] => {
+    const keys = ["*", el.localName];
+    const id = el.getAttribute("id");
+    if (id !== null && id !== "") keys.push(`#${id}`);
+    for (const c of (el.getAttribute("class") ?? "").split(/\s+/)) if (c !== "") keys.push(`.${c}`);
+    for (const a of el.getAttributeNames()) keys.push(`[${a.toLowerCase()}]`);
+    const out: SurfaceRule[] = [];
+    for (const k of new Set(keys)) out.push(...(surfaceIdx.get(k) ?? []));
+    return out;
+  };
+  const out: VEl[] = [];
+  for (const el of root.querySelectorAll("button, input, select, textarea")) {
+    if (!isNativeBoxWidget(el)) continue;
+    const v = vis(el);
+    if (v.depth === undefined && v.why !== "disabled") continue;
+    const closed: { el: VEl; attr: string }[] = [];
+    for (let up: VEl | null = el; up !== null; up = up.parentElement) {
+      if (up.hasAttribute("popover") && !up.hasAttribute(OPEN_ATTR.popover)) {
+        up.setAttribute(OPEN_ATTR.popover, "");
+        closed.push({ el: up, attr: OPEN_ATTR.popover });
+      } else if (up.localName === "dialog" && !up.hasAttribute(OPEN_ATTR.dialog)) {
+        up.setAttribute(OPEN_ATTR.dialog, "");
+        closed.push({ el: up, attr: OPEN_ATTR.dialog });
+      }
+    }
+    try {
+      const btn = needsButtonSurface(el);
+      const label = btn ? null : el.closest("label");
+      const styled = hasInlineSurface(el, btn) ||
+        surfaceCandidates(el).some((r) => (!btn || r.surface) && el.matches(r.test)) ||
+        (label !== null && surfaceCandidates(label).some((r) => r.key !== "label" && label.matches(r.test)));
+      if (!styled) out.push(el);
+    } finally {
+      for (const c of closed) c.el.removeAttribute(c.attr);
+    }
+  }
+  return out;
 }

@@ -79,6 +79,7 @@ function boot({ config = CONFIG_YAML, catalogue = null, guestFails = false, cook
     configurable: true,
   });
   sessionStorage.clear();
+  localStorage.clear();
   globalThis.fetch = (url, init) => {
     const u = String(url);
     asked.push(`${init?.method ?? "GET"} ${u}`);
@@ -412,6 +413,232 @@ Deno.test({
       assert(asked.includes("POST /auth/oidc/session"), `asked ${asked}`);
       assert(!asked.includes("POST /auth/guest"), `asked ${asked}`);
       assert(JSON.parse(sessionStorage.getItem("pronto-token")).token === "g", "the expired bearer was replaced");
+    }
+  },
+});
+
+Deno.test({
+  name: "declarative data-auth-* bindings drive anonymous -> guest -> provider transitions without stacking Sign in under a handle",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const origCred = globalThis.PublicKeyCredential;
+    globalThis.PublicKeyCredential = class {};
+    const AUTH_YAML = CONFIG_YAML
+      .replace("  required: true\n", "  required: false\n  promote: true\n  providers: [google]\n")
+      .replace("tables: []", "tables: [note]\nread: [note]");
+    const MODAL_SCREEN = `<section class="screen" data-screen="home">
+      <button type="button" id="btn-top-login">Open Login</button>
+      <strong class="status-name" data-auth-field="handle">Not signed in — saved on this device</strong>
+      <button type="button" id="btn-auth-passkey" data-auth-action="passkey-signin">Passkey</button>
+      <button type="button" id="btn-auth-google" data-auth-provider="google">Google</button>
+      <button type="button" id="btn-auth-guest" data-auth-action="guest">Continue on this device</button>
+    </section>`;
+    try {
+      const { document: doc, Event, mount } = boot({ config: AUTH_YAML });
+      const prevFetch = globalThis.fetch;
+      globalThis.fetch = (url, init) => {
+        const u = String(url);
+        if (u.endsWith(".html")) return Promise.resolve(new Response(MODAL_SCREEN));
+        if (u.endsWith("/auth/guest")) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ token: "t", user: { id: "u1", handle: "sunlit-fox-01", guest: true } }), {
+              headers: { "Content-Type": "application/json" },
+            }),
+          );
+        }
+        return prevFetch(url, init);
+      };
+      const { createShell } = await import("./shell.js");
+      createShell({ config: "./shell.yaml", mount });
+      await settle(200);
+      const assert = check(mount);
+
+      assert(doc.body.dataset.auth === "anonymous", `expected anonymous on boot, got ${doc.body.dataset.auth}`);
+      assert(!doc.querySelector("nav .shell-who"), "anonymous strip must not render .shell-who");
+      const signInBtn = doc.querySelector("nav .shell-signin");
+      assert(signInBtn && !signInBtn.hidden, "anonymous strip shows .shell-signin");
+      const statusField = mount.querySelector('[data-auth-field="handle"]');
+      assert(statusField?.textContent === "Not signed in — saved on this device", `got ${statusField?.textContent}`);
+
+      let modalOpened = 0;
+      mount.querySelector("#btn-top-login").addEventListener("click", () => { modalOpened++; });
+      signInBtn.dispatchEvent(new Event("click", { bubbles: true }));
+      assert(modalOpened === 1, "clicking .shell-signin delegates to #btn-top-login when present");
+
+      mount.querySelector("#btn-auth-guest").dispatchEvent(new Event("click", { bubbles: true }));
+      await settle(50);
+      assert(doc.body.dataset.auth === "guest", `expected guest after commit, got ${doc.body.dataset.auth}`);
+      assert(doc.querySelector("nav .shell-who[data-guest] .handle")?.textContent === "sunlit-fox-01", "guest strip shows minted handle");
+      assert(signInBtn.hidden === true, "guest strip hides .shell-signin so handle is never stacked above Sign in");
+      assert(statusField?.textContent === "sunlit-fox-01", `data-auth-field updated to handle, got ${statusField?.textContent}`);
+      const guestSignOut = doc.querySelector("nav .shell-signout");
+      assert(guestSignOut && guestSignOut.textContent === "sign out", `guest strip shows .shell-signout, got ${guestSignOut?.textContent}`);
+
+      guestSignOut.dispatchEvent(new Event("click", { bubbles: true }));
+      await settle(20);
+      assert(doc.body.dataset.auth === "anonymous", `expected anonymous after guest sign-out, got ${doc.body.dataset.auth}`);
+      assert(!doc.querySelector("nav .shell-who"), "anonymous strip removes .shell-who after guest sign-out");
+      assert(!doc.querySelector("nav .shell-signout"), "anonymous strip removes .shell-signout after guest sign-out");
+      assert(signInBtn.hidden === false, "anonymous strip restores .shell-signin after guest sign-out");
+      assert(statusField?.textContent === "Not signed in — saved on this device", `data-auth-field restored to anonymous text, got ${statusField?.textContent}`);
+
+      mount.querySelector("#btn-auth-google").dispatchEvent(new Event("click", { bubbles: true }));
+      assert(
+        String(globalThis.location.href).startsWith("/auth/oidc/google/start?return="),
+        `expected OIDC redirect, got ${globalThis.location.href}`,
+      );
+    } finally {
+      globalThis.PublicKeyCredential = origCred;
+    }
+  },
+});
+
+Deno.test({
+  name: "passkey ceremony prunes dead 401 credentials via signalUnknownCredential and refuses duplicate registration once a domain passkey exists",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const origCred = globalThis.PublicKeyCredential;
+    const origNavCreds = globalThis.navigator?.credentials;
+    const signaled = [];
+    const createdOptions = [];
+    globalThis.PublicKeyCredential = class {
+      static async signalUnknownCredential(opts) {
+        signaled.push(opts);
+      }
+    };
+    const b64u = (str) => btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const credIdDead = b64u("dead-cred");
+    const credIdLive = b64u("live-cred");
+    let getBehavior = "dead";
+    Object.defineProperty(globalThis.navigator, "credentials", {
+      value: {
+        get: async () => {
+          if (getBehavior === "cancel") {
+            const err = new Error("user cancelled");
+            err.name = "NotAllowedError";
+            throw err;
+          }
+          return {
+            id: credIdDead,
+            rawId: new Uint8Array([1, 2, 3]).buffer,
+            type: "public-key",
+            getClientExtensionResults: () => ({}),
+            response: {
+              clientDataJSON: new Uint8Array([4]).buffer,
+              authenticatorData: new Uint8Array([5]).buffer,
+              signature: new Uint8Array([6]).buffer,
+            },
+          };
+        },
+        create: async (opts) => {
+          createdOptions.push(opts);
+          return {
+            id: credIdLive,
+            rawId: new Uint8Array([7, 8, 9]).buffer,
+            type: "public-key",
+            getClientExtensionResults: () => ({}),
+            response: {
+              clientDataJSON: new Uint8Array([10]).buffer,
+              attestationObject: new Uint8Array([11]).buffer,
+              getTransports: () => ["internal"],
+            },
+          };
+        },
+      },
+      configurable: true,
+    });
+    const AUTH_YAML = CONFIG_YAML
+      .replace("  required: true\n", "  required: false\n  promote: true\n")
+      .replace("tables: []", "tables: [note]\nread: [note]");
+    const MODAL_SCREEN = `<section class="screen" data-screen="home">
+      <button type="button" id="btn-auth-passkey" data-auth-action="passkey-signin">Passkey</button>
+    </section>`;
+    try {
+      const { Event, mount, asked } = boot({ config: AUTH_YAML });
+      const prevFetch = globalThis.fetch;
+      globalThis.fetch = (url, init) => {
+        const u = String(url);
+        if (u.endsWith(".html")) return Promise.resolve(new Response(MODAL_SCREEN));
+        if (u.endsWith("/auth/login/start")) {
+          asked.push("POST /auth/login/start");
+          return Promise.resolve(new Response(JSON.stringify({
+            state: "st-login",
+            rpId: "localhost",
+            challenge: b64u("chal-login"),
+          })));
+        }
+        if (u.endsWith("/auth/login/verify")) {
+          asked.push("POST /auth/login/verify");
+          if (getBehavior === "expired-state") {
+            return Promise.resolve(new Response(JSON.stringify({ error: "invalid state" }), { status: 401 }));
+          }
+          return Promise.resolve(new Response(JSON.stringify({ error: "authentication verification failed", unknownCredential: true }), { status: 401 }));
+        }
+        if (u.endsWith("/auth/register/start")) {
+          asked.push("POST /auth/register/start");
+          return Promise.resolve(new Response(JSON.stringify({
+            state: "st-reg",
+            rp: { id: "localhost", name: "localhost" },
+            challenge: b64u("chal-reg"),
+            user: { id: b64u("u-1"), name: "amber-fox-01", displayName: "amber-fox-01" },
+          })));
+        }
+        if (u.endsWith("/auth/register/verify")) {
+          asked.push("POST /auth/register/verify");
+          return Promise.resolve(new Response(JSON.stringify({
+            token: "tok-passkey",
+            user: { id: "u-1", handle: "amber-fox-01" },
+          })));
+        }
+        return prevFetch(url, init);
+      };
+      const { createShell } = await import("./shell.js");
+      createShell({ config: "./shell.yaml", mount });
+      await settle(200);
+      const assert = check(mount);
+
+      // 1. Clicking passkey when login/verify returns 401 signals unknown credential and falls through to register.
+      mount.querySelector("#btn-auth-passkey").dispatchEvent(new Event("click", { bubbles: true }));
+      await settle(100);
+      assert(signaled.length === 1 && signaled[0].rpId === "localhost" && signaled[0].credentialId === credIdDead,
+        `expected signalUnknownCredential for dead credential, got ${JSON.stringify(signaled)}`);
+      assert(asked.includes("POST /auth/register/verify"), `expected registration fallthrough after pruning dead credential, asked ${asked}`);
+
+      // 2. Once a live passkey is known for localhost, canceling loginCeremony (NotAllowedError) does NOT trigger register/start,
+      // and surfaces .shell-auth-error plus a .shell-auth-recover[data-auth-action="passkey-register"] recovery button.
+      asked.length = 0;
+      getBehavior = "cancel";
+      mount.querySelector("#btn-auth-passkey").dispatchEvent(new Event("click", { bubbles: true }));
+      await settle(100);
+      assert(asked.includes("POST /auth/login/start"), "attempted login/start");
+      assert(!asked.includes("POST /auth/register/start"), `must not fall through to register/start when domain passkey already exists: ${asked}`);
+      assert(mount.querySelector(".shell-auth-error")?.textContent === "sign-in did not go through", "surfaces visible passkey error");
+      const recoverBtn = mount.querySelector('.shell-auth-recover[data-auth-action="passkey-register"]');
+      assert(recoverBtn !== null, "surfaces passkey recovery button when remembered passkey fails NotAllowedError");
+
+      // 3. Explicit recovery passes known domain passkey in excludeCredentials so authenticator blocks duplicates if still present, or creates if deleted.
+      createdOptions.length = 0;
+      recoverBtn.dispatchEvent(new Event("click", { bubbles: true }));
+      await settle(100);
+      assert(createdOptions.length === 1, "called navigator.credentials.create");
+      const excl = createdOptions[0].publicKey.excludeCredentials;
+      assert(Array.isArray(excl) && excl.length === 1, `expected 1 excluded credential, got ${excl?.length}`);
+
+      // 4. A 401 from an expired ceremony challenge (not unknownCredential) does not signalUnknownCredential or fall through to register.
+      signaled.length = 0;
+      asked.length = 0;
+      getBehavior = "expired-state";
+      mount.querySelector("#btn-auth-passkey").dispatchEvent(new Event("click", { bubbles: true }));
+      await settle(100);
+      assert(signaled.length === 0, `must not signalUnknownCredential on expired state, got ${JSON.stringify(signaled)}`);
+      assert(!asked.includes("POST /auth/register/start"), `must not fall through to register/start on expired state: ${asked}`);
+    } finally {
+      globalThis.PublicKeyCredential = origCred;
+      if (origNavCreds !== undefined) {
+        Object.defineProperty(globalThis.navigator, "credentials", { value: origNavCreds, configurable: true });
+      }
     }
   },
 });

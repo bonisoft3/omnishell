@@ -1576,6 +1576,10 @@ function bindText(el, ctx, renderers) {
   // Written only where it differs: a served row already saying it keeps
   // its text node, and the reader's selection in it.
   const write = (text) => {
+    if (el.hasAttribute("data-auth-field")) {
+      el._prontoAuthAnonymous = text;
+      if (el._prontoAuthOverride !== undefined) text = el._prontoAuthOverride;
+    }
     if (el.textContent !== text) el.textContent = text;
   };
   if (VALUE_FORMATS.has(format)) {
@@ -4173,9 +4177,11 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       if (stopped) return;
       // A tab's own table with nothing in it has not been derived yet, which
       // says nothing of the rows a served document drew from the server's: the
-      // adoption wiped them, and a deck's title blinked out for a second.
+      // adoption wiped them, and a deck's title blinked out for a second. A
+      // per-row list standing in empty while its subset loads holds its served
+      // items the same way until the load settles.
       if (first && served !== undefined && templates.length > 0 && stored.length === 0 && region.children.length > 0 &&
-          cfg.schema?.[table]?.durability === "tab" && (await store.query(table, null, {})).length === 0) {
+          (stored.fillsIn === true || (cfg.schema?.[table]?.durability === "tab" && (await store.query(table, null, {})).length === 0))) {
         if (stopped) return;
         finishOwn();
         return;

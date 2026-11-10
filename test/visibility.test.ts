@@ -4,7 +4,7 @@
 import { describe, expect, it } from "@test/harness";
 import { parseHTML } from "linkedom";
 import type { Route } from "./screen-harness.ts";
-import { atoms, cssRules, routeSheet, specificity, type VEl, visibility } from "./visibility.ts";
+import { atoms, cssRules, routeSheet, specificity, unstyledWidgets, type VEl, visibility } from "./visibility.ts";
 
 type Doc = {
   getElementById(id: string): VEl | null;
@@ -711,5 +711,65 @@ describe("frozen app sheets", () => {
     });
     otp.setAttribute("data-state", "verified");
     expect(at(".otp-reset")).toEqual({ depth: 0 });
+  });
+});
+
+// Regression rationale: guestBox mounts <button class="shell-signin"> and
+// <button class="shell-register"> in body > nav .shell-me; if an app or
+// design.css styles only .shell-signout or gates the strip rules behind @media,
+// the buttons render with the browser's default UA bevel control.
+describe("unstyled native box widgets", () => {
+  it("reports nav .shell-signin and .shell-register buttons when only .shell-signout or @media rules exist", () => {
+    const navHtml = `<nav><span class="shell-me">
+      <button type="button" class="shell-signin" id="signin">Sign in</button>
+      <button type="button" class="shell-register" id="register">Create a passkey</button>
+      <a class="shell-provider" data-provider="google">Google</a>
+    </span></nav>`;
+    const unstyled = screen(
+      navHtml,
+      `body > nav .shell-signout { background: #fff; border: 1px solid #ccc; }
+       @media (min-width: 860px) {
+         body > nav .shell-register { display: none !important; }
+         body > nav .shell-signin { background: #fff; border: 1px solid #ccc; }
+       }`,
+    );
+    expect(unstyledWidgets(unstyled.document, unstyled.sheet).map((el) => el.getAttribute("id"))).toEqual([
+      "signin",
+      "register",
+    ]);
+
+    const styled = screen(
+      navHtml,
+      `body > nav .shell-register { display: none !important; }
+       body > nav .shell-signin, body > nav .shell-signout { background: #fff; border: 1px solid #ccc; }`,
+    );
+    expect(unstyledWidgets(styled.document, styled.sheet)).toEqual([]);
+  });
+
+  it("reports unstyled controls on screen, disabled, and inside reachable popovers or dialogs while skipping hidden and non-box inputs", () => {
+    const { document, sheet } = screen(
+      `<button id="styled-btn" class="btn" commandfor="dlg" command="show-modal">Open</button>
+       <button id="raw-btn">Raw</button>
+       <button id="disabled-raw-btn" disabled>Disabled Raw</button>
+       <button id="hidden-btn" hidden>Hidden</button>
+       <input id="chk" type="checkbox">
+       <input id="raw-input" type="text">
+       <label>Bare label <input id="bare-label-input" type="text"></label>
+       <label class="composite-field">Composite <input id="composite-input" type="text"></label>
+       <dialog id="dlg">
+         <button id="dlg-styled" class="btn">OK</button>
+         <button id="dlg-raw">Cancel</button>
+       </dialog>`,
+      `.btn { background: #000; border: 0; }
+       label { font-size: 0.75rem; }
+       .composite-field { border: 1px solid #ccc; padding: 4px; }`,
+    );
+    expect(unstyledWidgets(document, sheet).map((el) => el.getAttribute("id"))).toEqual([
+      "raw-btn",
+      "disabled-raw-btn",
+      "raw-input",
+      "bare-label-input",
+      "dlg-raw",
+    ]);
   });
 });

@@ -148,6 +148,8 @@ describe("unwitnessedControls stays silent on wired controls", () => {
   it("a native invoker", () => {
     expect(unwitnessedControls('<button popovertarget="pop">open</button>')).toEqual([])
     expect(unwitnessedControls('<button commandfor="pop" command="toggle-popover">open</button>')).toEqual([])
+    expect(unwitnessedControls('<button data-auth-action="passkey-signin">Sign in</button>')).toEqual([])
+    expect(unwitnessedControls('<button data-auth-provider="google">Google</button>')).toEqual([])
   })
 
   it("markup inside comments, style and script blocks is not scanned", () => {

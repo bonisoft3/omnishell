@@ -38,7 +38,10 @@ import {
   type Catalogs,
 } from "./screen-harness.ts";
 import { screenEnv } from "../interpreter/fragment.js";
+import { drawStrip, guestBox, hasStrip, offersGuest } from "../interpreter/chrome.js";
 import { resolveMachineMarkup } from "../interpreter/lint.ts";
+import { load as parseYaml } from "../interpreter/vendor/js-yaml.js";
+import { cssRules, hasSurfaceRules, mergeSheets, routeSheet, unstyledWidgets, type VRoot } from "./visibility.ts";
 
 export type BatteryAppReport = {
   app: string;
@@ -147,6 +150,13 @@ export async function runStorybookBatteryForApp(
   const i18n = await appI18n(appUrl);
 
   const chartBindings = await appChartBindings(appUrl);
+  const shellCfg = parseYaml(await Deno.readTextFile(join(appDir, "shell/shell.yaml"))) as {
+    routes?: { nav?: unknown }[];
+    auth?: unknown;
+  };
+  const stripGuest = offersGuest(shellCfg);
+  const stripEnabled = (shellCfg.routes ?? []).every((r) => r.nav !== undefined) &&
+    hasStrip(shellCfg, null, stripGuest);
   const screens = new Map(routes.map(route => [route.screen, route.files]));
   const { interpretScreen } = await import("../interpreter/screen.js");
 
@@ -155,6 +165,16 @@ export async function runStorybookBatteryForApp(
     const htmlPath = join(appDir, files.html);
     const html = resolveMachineMarkup(await Deno.readTextFile(htmlPath), chartBindings, screenName);
     const css = await Deno.readTextFile(join(appDir, files.css));
+    const fileMap: Record<string, string> = { [files.html]: html, [files.css]: css };
+    const sharedSheets = [];
+    for (const sh of files.shared ?? []) {
+      if (!sh.endsWith(".css")) continue;
+      const shText = await Deno.readTextFile(join(appDir, sh));
+      fileMap[sh] = shText;
+      sharedSheets.push(cssRules(shText));
+    }
+    const screenSheet = mergeSheets(...sharedSheets, routeSheet({ screen: screenName, files }, fileMap));
+    const reportedUnstyled = new Set<string>();
 
     const { document: domDoc } = parseHTML(html);
     const machineEls = domDoc.querySelectorAll("[data-machine]");
@@ -316,6 +336,11 @@ export async function runStorybookBatteryForApp(
       const prevFetch = (globalThis as Record<string, unknown>).fetch;
 
       const mount = frameDoc.getElementById("shell");
+      if (stripEnabled && mount) {
+        const nav = drawStrip(frameDoc, shellCfg);
+        if (stripGuest) nav.append(guestBox(frameDoc, shellCfg));
+        mount.before(nav);
+      }
 
       const route = {
         screen: screenName,
@@ -355,6 +380,22 @@ export async function runStorybookBatteryForApp(
         );
 
         handle = await interpretScreen(mount, "http://localhost:8080/shell/", route, testStore, params, env);
+
+        if (
+          hasSurfaceRules(screenSheet) ||
+          frameDoc.querySelector("nav button, button[class], input[class], select[class], textarea[class]") !== null
+        ) {
+          for (const w of unstyledWidgets(frameDoc as unknown as VRoot, screenSheet)) {
+            const desc = `<${w.localName}${w.getAttribute("id") ? `#${w.getAttribute("id")}` : ""}${
+              w.getAttribute("class") ? `.${w.getAttribute("class")!.trim().split(/\s+/).join(".")}` : ""
+            }>`;
+            if (!reportedUnstyled.has(desc)) {
+              reportedUnstyled.add(desc);
+              report.success = false;
+              report.errors.push(`Screen "${screenName}" has unstyled widget ${desc}`);
+            }
+          }
+        }
 
         fuel.spend("transition", 1, `posed_${frame.name}`);
         report.totalFuelSpent += fuel.current;
