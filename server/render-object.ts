@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers'
 import { RenderCapacity, renderQueue } from './render-queue.ts'
 
-const serially = renderQueue(16)
+let serially = renderQueue(16)
 interface Reader { read(path: string): Promise<unknown[]> }
 interface StreamHooks {
   onHead?: (info: { status: number; gone: boolean }) => void
@@ -9,7 +9,21 @@ interface StreamHooks {
 }
 type Render = (request: Request, reader: Reader, stream?: StreamHooks) => Promise<{ html: string; status: number }>
 
-export function renderTask(render: Render, request: Request, revision: string, reader: Reader, version = '') {
+export function renderTask(render: Render, request: Request, revision: string, reader: Reader, version = '', watchdog?: () => void, deadlineMs = 25_000) {
+  const queue = serially
+  const draw = <T>(run: () => Promise<T>) => queue(async () => {
+    if (!watchdog) return await run()
+    const ambient = Object.getOwnPropertyDescriptor(globalThis, 'document')
+    const timer = setTimeout(() => {
+      try {
+        queue.close()
+        if (ambient) Object.defineProperty(globalThis, 'document', ambient)
+        else if (!Reflect.deleteProperty(globalThis, 'document')) throw new Error('cannot restore renderer document')
+        serially = renderQueue(16)
+      } finally { watchdog() }
+    }, deadlineMs)
+    try { return await run() } finally { clearTimeout(timer) }
+  })
   let resolveResponse!: (response: Response) => void
   let rejectResponse!: (error: unknown) => void
   let resolveRendered!: () => void
@@ -41,7 +55,7 @@ export function renderTask(render: Render, request: Request, revision: string, r
       })
       const matches = request.headers.get('if-none-match')?.split(',').some(tag => tag.trim() === '*' || tag.trim().replace(/^W\//, '') === etag)
       if (request.method === 'HEAD') {
-        const result = await serially(() => render(request, reader))
+        const result = await draw(() => render(request, reader))
         const headers = headersFor(result.status)
         settledResponse = true
         resolveResponse(new Response(null, { status: result.status === 200 && matches ? 304 : result.status, headers }))
@@ -62,7 +76,7 @@ export function renderTask(render: Render, request: Request, revision: string, r
           return output.write(bytes).catch(() => { streamFailed = true })
         })
       }
-      const result = await serially(() => render(request, reader, {
+      const result = await draw(() => render(request, reader, {
         onHead: ({ status }) => {
           if (settledResponse) return
           settledResponse = true
@@ -111,7 +125,7 @@ export function renderTask(render: Render, request: Request, revision: string, r
   return { response, rendered, finished }
 }
 
-export function renderObject(render: Render, version = '') {
+export function renderObject(render: Render, version = '', deadlineMs = 25_000) {
   return class Renderer extends DurableObject {
     render(request: Request, revision: string, reader: Reader & Disposable & { dup(): Reader & Disposable }): Promise<Response> {
       // The RPC returns at the head; its reader must outlive that call until all nested reads finish.
@@ -119,7 +133,7 @@ export function renderObject(render: Render, version = '') {
       // released with the call when the answer still streams.
       const retained = reader.dup()
       reader[Symbol.dispose]()
-      const task = renderTask(render, request, revision, retained, version)
+      const task = renderTask(render, request, revision, retained, version, () => this.ctx.abort('render deadline exceeded'), deadlineMs)
       const release = () => retained[Symbol.dispose]()
       const released = task.rendered.then(release, release)
       this.ctx?.waitUntil?.(Promise.all([released, task.finished]))
