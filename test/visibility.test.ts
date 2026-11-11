@@ -772,4 +772,37 @@ describe("unstyled native box widgets", () => {
       "dlg-raw",
     ]);
   });
+
+  // Regression rationale: a <select> or <button> with only border-radius, padding,
+  // min-height, and font-size (no background, border width/style/color, or
+  // appearance) keeps the browser's default UA control surface, and a <select>
+  // with appearance: none disguises the closed box while still opening an unstyled
+  // OS native dropdown menu unless ::picker(select) is styled or a [popover]
+  // [role="listbox"] picker replaces the native <select>.
+  it("reports controls styled only with border-radius/padding and <select> with appearance:none lacking ::picker(select)", () => {
+    const radiusOnly = screen(
+      `<select id="radius-select" class="slot-profile-select"><option>Fast</option></select>
+       <button id="radius-btn" class="radius-btn">Go</button>`,
+      `.slot-profile-select { border-radius: 4px; padding: 2px 6px; min-height: 24px; font-size: 0.68rem; }
+       .radius-btn { border-radius: 6px; padding: 4px 8px; }`,
+    );
+    expect(unstyledWidgets(radiusOnly.document, radiusOnly.sheet).map((el) => el.getAttribute("id"))).toEqual([
+      "radius-select",
+      "radius-btn",
+    ]);
+
+    const disguisedPopup = screen(
+      `<select id="disguised-select" class="slot-profile-select"><option>Fast</option></select>`,
+      `.slot-profile-select { -webkit-appearance: none; appearance: none; background: #fff; border: 1px solid #ccc; border-radius: 4px; }`,
+    );
+    expect(unstyledWidgets(disguisedPopup.document, disguisedPopup.sheet).map((el) => el.getAttribute("id"))).toEqual([
+      "disguised-select",
+    ]);
+
+    const pickerStyled = screen(
+      `<select id="base-select" class="slot-profile-select"><option>Fast</option></select>`,
+      `.slot-profile-select, ::picker(select) { appearance: base-select; background: #fff; border: 1px solid #ccc; }`,
+    );
+    expect(unstyledWidgets(pickerStyled.document, pickerStyled.sheet)).toEqual([]);
+  });
 });

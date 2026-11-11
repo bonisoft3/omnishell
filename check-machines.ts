@@ -32,6 +32,7 @@ import { machineRegions, resolveMachineMarkup, paramPlans } from "./interpreter/
 import { optionalSegment } from "./interpreter/fragment.js";
 import { ABSENT, binding, fillFilter, machineShape, PLACEHOLDER, PLACEHOLDERS } from "./interpreter/fragment.js";
 import { seedQuery, selectWithFields } from "./test/seed-query.ts";
+import { cssRules, hasSurfaceRules, mergeSheets, routeSheet, unstyledWidgets, type VRoot } from "./test/visibility.ts";
 import { walkMachine, type WalkHarness } from "./test/walker.ts";
 import type { Machine } from "./test/canonical.ts";
 import {
@@ -502,6 +503,28 @@ async function walkScreen(
       if (i === 0) {
         mounted.push(...els.map(({ el, chart }) => keyOf(el, chart, params)));
         enumerated = true;
+        if (files[route.files.css] !== undefined && files[route.files.html] !== undefined) {
+          const sharedSheets = (route.files.shared ?? [])
+            .filter((sh) => sh.endsWith(".css") && files[sh] !== undefined)
+            .map((sh) => cssRules(files[sh]));
+          const screenSheet = mergeSheets(...sharedSheets, routeSheet(route, files));
+          if (hasSurfaceRules(screenSheet)) {
+            const seenUnstyled = new Set<string>();
+            for (const w of unstyledWidgets(m.mount as unknown as VRoot, screenSheet)) {
+              const desc = `<${w.localName}${w.getAttribute("id") ? `#${w.getAttribute("id")}` : ""}${
+                w.getAttribute("class") ? `.${w.getAttribute("class")!.trim().split(/\s+/).join(".")}` : ""
+              }>`;
+              if (!seenUnstyled.has(desc)) {
+                seenUnstyled.add(desc);
+                findings.push({
+                  severity: "error",
+                  path: html,
+                  message: `unstyled native widget ${desc}`,
+                });
+              }
+            }
+          }
+        }
       }
       if (i < els.length) {
         const { el, chart } = els[i];

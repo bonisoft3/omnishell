@@ -620,6 +620,48 @@ export async function checkVerticalFit(page: { evaluate(fn: unknown, arg?: unkno
   })) as VisualBug[]
 }
 
+export async function checkUnstyledControls(page: { evaluate(fn: unknown, arg?: unknown): Promise<unknown> }): Promise<VisualBug[]> {
+  return (await page.evaluate(() => {
+    const bugs: Array<{ rule: string; description: string; severity: "critical" | "major" | "minor"; element?: string }> = []
+    const skipInput = new Set(["hidden", "checkbox", "radio", "range", "color", "file"])
+    const uaBorderColors = new Set(["rgb(118, 118, 118)", "rgb(133, 133, 133)"])
+    const desc = (el: Element) => {
+      const id = el.getAttribute("id")
+      const cls = [...el.classList].slice(0, 2).map((c) => `.${c}`).join("")
+      return `<${el.tagName.toLowerCase()}${id ? `#${id}` : ""}${cls}>`
+    }
+    for (const el of document.querySelectorAll("button, input, select, textarea")) {
+      const htmlEl = el as HTMLElement
+      const tag = htmlEl.tagName.toLowerCase()
+      if (tag === "input" && skipInput.has((htmlEl.getAttribute("type") ?? "text").toLowerCase())) continue
+      if (!htmlEl.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true, contentVisibilityAuto: true })) continue
+      if (htmlEl.closest('[inert],[aria-hidden="true"]')) continue
+      const rect = htmlEl.getBoundingClientRect()
+      if (rect.width * rect.height === 0) continue
+      const s = getComputedStyle(htmlEl)
+      const label = htmlEl.closest("label, fieldset")
+      const labelStyled = label !== null && getComputedStyle(label).borderTopStyle !== "none" &&
+        parseFloat(getComputedStyle(label).borderTopWidth) > 0
+      const rawBevel = s.borderTopStyle === "outset" || s.borderTopStyle === "inset"
+      const rawUaSelect = tag === "select" && s.appearance === "auto" && !labelStyled &&
+        parseFloat(s.borderTopWidth) > 0 && uaBorderColors.has(s.borderTopColor)
+      const disguisedSelectPopup = tag === "select" && s.appearance === "none"
+      if (rawBevel || rawUaSelect || disguisedSelectPopup) {
+        const element = desc(htmlEl)
+        bugs.push({
+          rule: "unstyled-control",
+          description: disguisedSelectPopup
+            ? `${element} sets appearance: none on a native <select>, which leaves its open dropdown popup unstyled; use a [popover] [role="listbox"] picker or ::picker(select)`
+            : `${element} renders with the browser's default UA control surface`,
+          severity: "critical",
+          element,
+        })
+      }
+    }
+    return bugs
+  })) as VisualBug[]
+}
+
 /**
  * Hold until the screen stops becoming itself: no DOM mutation, no geometry
  * change, no image still loading, for one quiet interval.
@@ -950,6 +992,7 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
           checkInteractiveOverlap(b),
           checkHorizontalOverflow(b),
           checkVerticalFit(b),
+          checkUnstyledControls(b),
           checkClippedContent(b),
           checkFocusableInvisible(b),
           checkConstrainedImages(b),
@@ -1109,6 +1152,7 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
                 checkInteractiveOverlap(b),
                 checkHorizontalOverflow(b),
                 checkVerticalFit(b),
+                checkUnstyledControls(b),
                 checkClippedContent(b),
                 checkFocusableInvisible(b),
                 checkConstrainedImages(b),

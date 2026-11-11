@@ -67,12 +67,20 @@ export type Sheet = { rules: Rule[]; unjudged: Unjudged[] };
 export type Import = { url: string; cond?: string };
 export type Parsed = Sheet & { imports: Import[] };
 
-type SurfaceRule = { sel: string; test: string; cond?: string; key: string; surface: boolean };
+type SurfaceRule = {
+  sel: string;
+  test: string;
+  cond?: string;
+  key: string;
+  surface: boolean;
+  appearanceNone: boolean;
+};
 const WIDGET_SURFACE =
-  /^(?:all|-webkit-appearance|appearance|background(?:-color|-image)?|border(?:-(?:top|right|bottom|left|inline|block)(?:-(?:width|style|color))?|-(?:width|style|color|radius))?)$/i;
+  /^(?:all|-webkit-appearance|appearance|background(?:-color|-image)?|border(?:-(?:top|right|bottom|left|inline|block)(?:-(?:width|style|color))?|-(?:width|style|color))?)$/i;
 const WIDGET_BOX =
   /^(?:padding(?:-(?:top|right|bottom|left|inline|block))?|min-height|height|width|max-width|inline-size|resize|font(?:-family|-size|-weight)?)$/i;
 const sheetSurfaces = new WeakMap<Sheet, SurfaceRule[]>();
+const sheetPickers = new WeakMap<Sheet, boolean>();
 
 /** `depth` 0 is on screen and undefined is unreachable, with `why` one of
  * `css <sel>`, `[hidden]`, `inline style`, `popover:<id> (no reachable
@@ -459,6 +467,7 @@ function parse(text: string, origin: Rule["origin"]): Parsed {
   const surfaces: SurfaceRule[] = [];
   const unjudged: Unjudged[] = [];
   const imports: Import[] = [];
+  let hasPicker = false;
   let order = 0;
   // An @import counts only ahead of every rule but @charset and @layer
   // statements; the browser ignores one that comes later.
@@ -469,11 +478,14 @@ function parse(text: string, origin: Rule["origin"]): Parsed {
     let found: { value: string; important: boolean } | undefined;
     let stylesSurface = false;
     let stylesBox = false;
+    let appearanceNone = false;
     for (const decl of splitTop(body, ";")) {
-      const prop = /^([\w-]+)\s*:/.exec(decl.trim())?.[1];
+      const trimmed = decl.trim();
+      const prop = /^([\w-]+)\s*:/.exec(trimmed)?.[1];
       if (prop !== undefined && WIDGET_SURFACE.test(prop)) stylesSurface = true;
       if (prop !== undefined && WIDGET_BOX.test(prop)) stylesBox = true;
-      const m = /^display\s*:\s*([\s\S]*?)\s*(!\s*important)?$/i.exec(decl.trim());
+      if (/^(?:-webkit-)?appearance\s*:\s*none\b/i.test(trimmed)) appearanceNone = true;
+      const m = /^display\s*:\s*([\s\S]*?)\s*(!\s*important)?$/i.exec(trimmed);
       if (m === null) continue;
       const next = { value: m[1].trim().toLowerCase(), important: m[2] !== undefined };
       if (found === undefined || next.important || !found.important) found = next;
@@ -487,7 +499,7 @@ function parse(text: string, origin: Rule["origin"]): Parsed {
         const test = rewrite(read);
         try {
           probe.matches(test);
-          surfaces.push({ sel, test, cond, key, surface: stylesSurface });
+          surfaces.push({ sel, test, cond, key, surface: stylesSurface, appearanceNone });
         } catch {}
       }
     }
@@ -555,6 +567,17 @@ function parse(text: string, origin: Rule["origin"]): Parsed {
       const why = rejection(sel);
       if (why !== undefined) dropped = `the browser drops the whole rule: ${sel} ${why}`;
     }
+    if (
+      dropped === undefined &&
+      ctx.conds.length === 0 &&
+      list.some((s) => /::picker\(\s*select\s*\)/i.test(s)) &&
+      splitTop(body, ";").some((decl) => {
+        const prop = /^([\w-]+)\s*:/.exec(decl.trim())?.[1];
+        return prop !== undefined && WIDGET_SURFACE.test(prop);
+      })
+    ) {
+      hasPicker = true;
+    }
     const sels = list.filter((s) => !hasPseudoElement(s));
     if (sels.length > 0) walk(body, { parents: sels, conds: ctx.conds, top: false, dropped });
   };
@@ -609,6 +632,7 @@ function parse(text: string, origin: Rule["origin"]): Parsed {
   walk(stripComments(text), { parents: null, conds: [], top: true });
   const out: Parsed = { rules, unjudged, imports };
   sheetSurfaces.set(out, surfaces);
+  sheetPickers.set(out, hasPicker);
   return out;
 }
 
@@ -648,6 +672,7 @@ const offset = (parsed: Sheet, by: number, cond?: string): Sheet => {
       })),
     );
   }
+  sheetPickers.set(out, cond === undefined && (sheetPickers.get(parsed) ?? false));
   return out;
 };
 
@@ -702,6 +727,7 @@ export function routeSheet(route: Route, files: Record<string, string>): Sheet {
   }
   const out: Sheet = { rules: parts.flatMap((p) => p.rules), unjudged: parts.flatMap((p) => p.unjudged) };
   sheetSurfaces.set(out, parts.flatMap((p) => sheetSurfaces.get(p) ?? []));
+  sheetPickers.set(out, parts.some((p) => sheetPickers.get(p) === true));
   return out;
 }
 
@@ -715,6 +741,7 @@ export function mergeSheets(...sheets: Sheet[]): Sheet {
   }
   const out: Sheet = { rules: parts.flatMap((p) => p.rules), unjudged: parts.flatMap((p) => p.unjudged) };
   sheetSurfaces.set(out, parts.flatMap((p) => sheetSurfaces.get(p) ?? []));
+  sheetPickers.set(out, parts.some((p) => sheetPickers.get(p) === true));
   return out;
 }
 
@@ -965,22 +992,31 @@ const needsButtonSurface = (el: VEl): boolean =>
   el.localName === "button" ||
   (el.localName === "input" && BUTTON_INPUT.has((el.getAttribute("type") ?? "text").toLowerCase()));
 
-const hasInlineSurface = (el: VEl, buttonOnly: boolean): boolean => {
+const hasInlineSurface = (el: VEl, surfaceOnly: boolean): boolean => {
   const style = el.getAttribute("style");
   if (style === null) return false;
   for (const decl of splitTop(style, ";")) {
     const prop = /^([\w-]+)\s*:/.exec(decl.trim())?.[1];
-    if (prop !== undefined && (WIDGET_SURFACE.test(prop) || (!buttonOnly && WIDGET_BOX.test(prop)))) return true;
+    if (prop !== undefined && (WIDGET_SURFACE.test(prop) || (!surfaceOnly && WIDGET_BOX.test(prop)))) return true;
   }
   return false;
 };
 
+const hasInlineAppearanceNone = (el: VEl): boolean => {
+  const style = el.getAttribute("style");
+  if (style === null) return false;
+  return splitTop(style, ";").some((decl) => /^(?:-webkit-)?appearance\s*:\s*none\b/i.test(decl.trim()));
+};
+
 /** Visible native box widgets (`button`, `select`, `textarea`, text/button `input`)
- * that match no author rule styling their widget surface (`background*`, `border*`,
- * `appearance`, `all` for buttons; surface or box rules for fields), leaving them
- * with the browser's default UA control. */
+ * that match no author rule styling their widget surface (`background*`, `border`
+ * width/style/color, `appearance`, `all` for buttons and `select`; surface or box
+ * rules for fields), or a `select` that sets `appearance: none` without styling
+ * `::picker(select)` (disguising the closed box while leaving the open UA dropdown
+ * popup unstyled). */
 export function unstyledWidgets(root: VRoot, sheet: Sheet): VEl[] {
   const { vis } = visibility(root, sheet);
+  const pickerStyled = sheetPickers.get(sheet) === true;
   const surfaceIdx = new Map<string, SurfaceRule[]>();
   for (const r of (sheetSurfaces.get(sheet) ?? []).filter((r) => r.cond === undefined)) {
     const list = surfaceIdx.get(r.key);
@@ -1014,11 +1050,20 @@ export function unstyledWidgets(root: VRoot, sheet: Sheet): VEl[] {
     }
     try {
       const btn = needsButtonSurface(el);
+      const isSelect = el.localName === "select";
+      const surfaceOnly = btn || isSelect;
       const label = btn ? null : el.closest("label");
-      const styled = hasInlineSurface(el, btn) ||
-        surfaceCandidates(el).some((r) => (!btn || r.surface) && el.matches(r.test)) ||
-        (label !== null && surfaceCandidates(label).some((r) => r.key !== "label" && label.matches(r.test)));
-      if (!styled) out.push(el);
+      const fieldset = isSelect ? el.closest("fieldset") : null;
+      const cands = surfaceCandidates(el);
+      const closedStyled = hasInlineSurface(el, surfaceOnly) ||
+        cands.some((r) => (!surfaceOnly || r.surface) && el.matches(r.test)) ||
+        (label !== null &&
+          surfaceCandidates(label).some((r) => (!surfaceOnly || r.surface) && r.key !== "label" && label.matches(r.test))) ||
+        (fieldset !== null &&
+          surfaceCandidates(fieldset).some((r) => r.surface && r.key !== "fieldset" && fieldset.matches(r.test)));
+      const disguisedSelectPopup = isSelect && !pickerStyled &&
+        (hasInlineAppearanceNone(el) || cands.some((r) => r.appearanceNone && el.matches(r.test)));
+      if (!closedStyled || disguisedSelectPopup) out.push(el);
     } finally {
       for (const c of closed) c.el.removeAttribute(c.attr);
     }
