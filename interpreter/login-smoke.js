@@ -553,7 +553,13 @@ Deno.test({
       .replace("  required: true\n", "  required: false\n  promote: true\n")
       .replace("tables: []", "tables: [note]\nread: [note]");
     const MODAL_SCREEN = `<section class="screen" data-screen="home">
-      <button type="button" id="btn-auth-passkey" data-auth-action="passkey-signin">Passkey</button>
+      <input type="checkbox" id="login-modal-toggle" />
+      <label for="login-modal-toggle" id="btn-top-login">Login</label>
+      <div class="login-modal-overlay">
+        <div class="login-modal-card">
+          <button type="button" id="btn-auth-passkey" data-auth-action="passkey-signin">Passkey</button>
+        </div>
+      </div>
     </section>`;
     try {
       const { Event, mount, asked } = boot({ config: AUTH_YAML });
@@ -598,10 +604,15 @@ Deno.test({
       createShell({ config: "./shell.yaml", mount });
       await settle(200);
       const assert = check(mount);
+      const toggle = mount.querySelector("#login-modal-toggle");
+      mount.querySelector("#btn-top-login").addEventListener("click", () => {
+        toggle.checked = !toggle.checked;
+      });
 
       // 1. Clicking passkey when login/verify returns 401 signals unknown credential and stays refused until a passkey is explicitly created.
       mount.querySelector("#btn-auth-passkey").dispatchEvent(new Event("click", { bubbles: true }));
       await settle(100);
+      assert(toggle.checked === true, "checkbox-backed login modal stays open on passkey failure without being re-toggled closed by #btn-top-login");
       assert(signaled.length === 1 && signaled[0].rpId === "localhost" && signaled[0].credentialId === credIdDead,
         `expected signalUnknownCredential for dead credential, got ${JSON.stringify(signaled)}`);
       assert(!asked.includes("POST /auth/register/start"), `server-refused login must not auto-start registration: ${asked}`);

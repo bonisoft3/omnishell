@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects, assertThrows } from "jsr:@std/assert@1";
-import { createCortexNavigation } from "./cortex-navigation.js";
+import { authPosture, createCortexNavigation, createSessionLifecycle, SESSION_LIFECYCLE_CHART } from "./cortex-navigation.js";
 
 const screen = () => ({ initial: "loading", states: {
   loading: { invoke: { src: "navigation", onDone: "ready", onError: "failed" } }, ready: {}, failed: {},
@@ -270,4 +270,191 @@ Deno.test("failed recovery preserves both navigation and row attachment errors",
     const error = await assertRejects(() => failing, AggregateError, "Navigation recovery failed");
     assertEquals(error.errors.map((cause: Error) => cause.message), ["navigation failed", "row attachment failed"]);
   } finally { nav.stop(); }
+});
+
+Deno.test("session lifecycle: authPosture and guest commit/in-place signout transitions", async () => {
+  assertEquals(Object.keys(SESSION_LIFECYCLE_CHART.states), ["anonymous", "guest", "user", "signingOut"]);
+  assertEquals(authPosture(null, true), "anonymous");
+  assertEquals(authPosture({ token: "t1", user: { id: "g1", guest: true } }, true), "anonymous");
+  assertEquals(authPosture({ token: "t1", user: { id: "g1", guest: true, handle: "g" }, committed: true }, true), "guest");
+  assertEquals(authPosture({ token: "t1", user: { id: "g1", guest: true } }, false), "guest");
+  assertEquals(authPosture({ token: "t2", user: { id: "u1", handle: "u" } }, true), "user");
+
+  let minted: any = null;
+  const lc = createSessionLifecycle({
+    promote: true,
+    required: false,
+    ensureSession: async () => {
+      minted = { token: "tok-g1", user: { id: "g1", handle: "amber-fox", guest: true } };
+      return minted;
+    },
+  });
+  try {
+    assertEquals(lc.posture(), "anonymous");
+    assertEquals(lc.ceremonyState(), "idle");
+    const committed = await lc.commitGuest();
+    assertEquals(committed.committed, true);
+    assertEquals(lc.posture(), "guest");
+    assertEquals(lc.snapshot().value, { guest: "idle" });
+
+    const out = await lc.signOut();
+    assertEquals(out.mode, "in-place");
+    assertEquals(out.session.committed, undefined);
+    assertEquals(lc.posture(), "anonymous");
+    assertEquals(lc.snapshot().value, { anonymous: "idle" });
+  } finally {
+    lc.stop();
+  }
+});
+
+Deno.test("session lifecycle: passkey refusal, recovery offer, explicit registration, and concurrent ceremony rejection", async () => {
+  const guest = { token: "tok-g1", user: { id: "g1", handle: "amber-fox", guest: true } };
+  let releaseSignin: ((val: any) => void) | null = null;
+  let rejectSignin: ((err: any) => void) | null = null;
+  let known = false;
+
+  const lc = createSessionLifecycle({
+    session: guest,
+    promote: true,
+    required: false,
+    hasKnownPasskeys: () => known,
+    passkeySignin: () => new Promise((resolve, reject) => {
+      releaseSignin = resolve;
+      rejectSignin = reject;
+    }),
+    passkeyRegister: async (active: any) => ({
+      token: "tok-u1",
+      user: { id: active.user.id, handle: active.user.handle },
+    }),
+  });
+  try {
+    const firstAttempt = lc.signInPasskey({ origin: "action" });
+    assertEquals(lc.busy(), true);
+    assertEquals(lc.ceremonyState(), "authenticating");
+
+    // Concurrent ceremonies while authenticating must resolve as busy without starting a second ceremony.
+    assertEquals((await lc.signInPasskey({ origin: "strip" })).status, "busy");
+    assertEquals((await lc.registerPasskey({ origin: "action" })).status, "busy");
+    assertEquals((await lc.signOut()).mode, "busy");
+
+    // Unknown credential refusal offers explicit recovery and enters failed state.
+    const unknownErr: any = new Error("401 unknown credential");
+    unknownErr.unknownCredential = true;
+    unknownErr.rpId = "localhost";
+    rejectSignin!(unknownErr);
+    const failedOutcome = await firstAttempt;
+    assertEquals(failedOutcome.status, "failed");
+    assertEquals(failedOutcome.recoveryOffered, true);
+    assertEquals(lc.ceremonyState(), "failed");
+    assertEquals(lc.busy(), false);
+
+    // Committing guest while a passkey ceremony is in flight preserves guest posture on ceremony failure.
+    const inflightAttempt = lc.signInPasskey({ origin: "action" });
+    await lc.commitGuest();
+    assertEquals(lc.posture(), "guest");
+    rejectSignin!(new Error("user cancelled"));
+    const cancelledAfterCommit = await inflightAttempt;
+    assertEquals(cancelledAfterCommit.status, "failed");
+    assertEquals(lc.posture(), "guest");
+    assertEquals(lc.snapshot().value, { guest: "failed" });
+    const inPlaceOut = await lc.signOut();
+    assertEquals(inPlaceOut.mode, "in-place");
+    assertEquals(lc.posture(), "anonymous");
+    assertEquals(lc.snapshot().value, { anonymous: "idle" });
+
+    // Expired state 401 does not offer passkey recovery.
+    const secondAttempt = lc.signInPasskey({ origin: "action" });
+    rejectSignin!(new Error("401 invalid state"));
+    const expiredOutcome = await secondAttempt;
+    assertEquals(expiredOutcome.status, "failed");
+    assertEquals(expiredOutcome.recoveryOffered, false);
+
+    // Explicit registration promotes guest in-place when sameOwner is true and origin is "action".
+    const regOutcome = await lc.registerPasskey({ origin: "action" });
+    assertEquals(regOutcome.status, "authenticated");
+    assertEquals(regOutcome.sameOwner, true);
+    assertEquals(regOutcome.transitionMode, "in-place");
+    assertEquals(lc.posture(), "user");
+    assertEquals(lc.snapshot().value, { user: "idle" });
+
+    // Strip origin forces reload transitionMode even when sameOwner is true.
+    lc.setSession(guest);
+    assertEquals(lc.posture(), "anonymous");
+    const stripOutcome = await lc.registerPasskey({ origin: "strip" });
+    assertEquals(stripOutcome.status, "authenticated");
+    assertEquals(stripOutcome.sameOwner, true);
+    assertEquals(stripOutcome.transitionMode, "reload");
+
+    // setSession transitions across postures and clears stale failure context.
+    lc.setSession(guest);
+    const failedAgain = lc.signInPasskey({ origin: "action" });
+    rejectSignin!(unknownErr);
+    await failedAgain;
+    assertEquals(lc.snapshot().context.recoveryOffered, true);
+    lc.setSession(null);
+    assertEquals(lc.posture(), "anonymous");
+    assertEquals(lc.snapshot().context.error, null);
+    assertEquals(lc.snapshot().context.recoveryOffered, false);
+  } finally {
+    lc.stop();
+  }
+});
+
+Deno.test("session lifecycle: failed provider signout restores previous posture, and stop cancels pending signout", async () => {
+  let shouldFail = true;
+  let releaseSignOut: (() => void) | null = null;
+  let holdSignOut = false;
+  let hinted = true;
+  const seenStates: any[] = [];
+  const lc = createSessionLifecycle({
+    session: { token: "tok-u1", user: { id: "u1", handle: "alice" } },
+    promote: true,
+    required: false,
+    isProviderHinted: () => hinted,
+    signOut: async () => {
+      if (holdSignOut) {
+        await new Promise<void>((resolve) => {
+          releaseSignOut = resolve;
+        });
+      }
+      if (shouldFail) throw new Error("503 oidc signout unavailable");
+    },
+  });
+  const unsub = lc.subscribe((snap) => seenStates.push(snap.value));
+  try {
+    assertEquals(lc.posture(), "user");
+    await assertRejects(() => lc.signOut(), Error, "503 oidc signout unavailable");
+    assertEquals(lc.posture(), "user");
+    assertEquals(lc.session()?.user?.id, "u1");
+    assertEquals(seenStates.length > 0, true);
+
+    // Guest posture with provider hint enters signingOut, recovers to guest.idle on error, and reloads on success.
+    lc.setSession({ token: "tok-g1", user: { id: "g1", handle: "guest-1", guest: true }, committed: true });
+    assertEquals(lc.posture(), "guest");
+    await assertRejects(() => lc.signOut(), Error, "503 oidc signout unavailable");
+    assertEquals(lc.posture(), "guest");
+    assertEquals(lc.snapshot().value, { guest: "idle" });
+
+    shouldFail = false;
+    const out = await lc.signOut();
+    assertEquals(out.mode, "reload");
+    assertEquals(lc.posture(), "anonymous");
+    assertEquals(lc.session(), null);
+
+    // Stopping while signOut is in flight resolves with mode: "stopped" and status: "stopped".
+    lc.setSession({ token: "tok-u2", user: { id: "u2", handle: "bob" } });
+    holdSignOut = true;
+    const pendingOut = lc.signOut();
+    assertEquals(lc.ceremonyState(), "signingOut");
+    unsub();
+    const countBeforeStop = seenStates.length;
+    lc.stop();
+    const stoppedOut = await pendingOut;
+    assertEquals(stoppedOut.mode, "stopped");
+    assertEquals(stoppedOut.status, "stopped");
+    assertEquals(seenStates.length, countBeforeStop);
+    releaseSignOut?.();
+  } finally {
+    lc.stop();
+  }
 });
