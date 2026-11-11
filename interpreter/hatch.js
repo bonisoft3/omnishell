@@ -21,6 +21,7 @@ import { mountWorkerUnit } from "./hatch-worker.js";
 export const PROPS = "pronto:props";
 export const READY = "pronto:ready";
 export const EVENT = "pronto:event";
+export const CAMERA = "pronto:camera";
 
 export const SRC_SCHEMES = new Set(["http:", "https:"]);
 
@@ -51,7 +52,7 @@ const SUBDOMAIN_LABEL = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
 // it (shell.yaml `units.<name>.grants`), as the frame's `allow`. A grant is the
 // reader's to answer: the browser prompts in this app's name, and the unit sees
 // a denial as the API's own error. terminal.cue publishes the same list.
-export const REALM_GRANTS = Object.freeze(["geolocation", "payment"]);
+export const REALM_GRANTS = Object.freeze(["geolocation", "camera", "payment"]);
 
 // A sandboxed frame without allow-same-origin has an opaque origin, and an
 // opaque origin serialises as the string "null" — so this, not the src's
@@ -318,6 +319,139 @@ function mountFrameUnit(root, { unit, src, onEvent }) {
   let latest = {};
   const expectedOrigin = onSubdomain ? url.origin : OPAQUE_ORIGIN;
   const targetOrigin = onSubdomain ? url.origin : "*";
+  let cameraEpoch = 0;
+  let cameraStream = null;
+  let cameraVideo = null;
+  let cameraRaf = 0;
+  let cameraStreaming = false;
+  let cameraStarting = false;
+  let cameraFacingMode = "environment";
+  let cameraResumeMode = null;
+
+  const stopCamera = ({ notify = false } = {}) => {
+    cameraEpoch += 1;
+    const wasActive = cameraStreaming || cameraStream !== null || cameraStarting;
+    cameraStreaming = false;
+    cameraStarting = false;
+    if (cameraRaf) {
+      globalThis.cancelAnimationFrame?.(cameraRaf);
+      cameraRaf = 0;
+    }
+    if (cameraStream) {
+      for (const t of cameraStream.getTracks?.() ?? []) t.stop();
+      cameraStream = null;
+    }
+    if (cameraVideo) {
+      cameraVideo.srcObject = null;
+      cameraVideo = null;
+    }
+    if (notify && wasActive) {
+      frame.contentWindow?.postMessage({ type: CAMERA, status: "stopped" }, targetOrigin);
+    }
+  };
+
+  // Chromium refuses navigator.mediaDevices.getUserMedia inside an opaque
+  // ("null") origin even when the iframe carries allow="camera". When the unit
+  // declares "camera" in grants, the seat opens the stream in this origin and
+  // transfers ImageBitmap frames into the sandboxed realm.
+  const startCamera = async (facingMode) => {
+    cameraResumeMode = null;
+    stopCamera();
+    const epoch = cameraEpoch;
+    const getUserMedia = globalThis.navigator?.mediaDevices?.getUserMedia;
+    if (typeof getUserMedia !== "function") {
+      frame.contentWindow?.postMessage({ type: CAMERA, status: "error", name: "NotSupportedError" }, targetOrigin);
+      return;
+    }
+    const mode = facingMode === "user" ? "user" : "environment";
+    cameraFacingMode = mode;
+    cameraStarting = true;
+    let stream;
+    try {
+      stream = await getUserMedia.call(globalThis.navigator.mediaDevices, {
+        video: { facingMode: mode, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+    } catch (err) {
+      if (epoch !== cameraEpoch) return;
+      cameraStarting = false;
+      frame.contentWindow?.postMessage({ type: CAMERA, status: "error", name: err?.name || "Error" }, targetOrigin);
+      return;
+    }
+    if (epoch !== cameraEpoch) {
+      for (const t of stream.getTracks?.() ?? []) t.stop();
+      return;
+    }
+    cameraStarting = false;
+    cameraStream = stream;
+    const video = document.createElement("video");
+    video.setAttribute("playsinline", "");
+    video.muted = true;
+    video.srcObject = stream;
+    cameraVideo = video;
+    if (typeof video.play === "function") {
+      try {
+        await video.play();
+      } catch (err) {
+        if (epoch === cameraEpoch) {
+          stopCamera();
+          frame.contentWindow?.postMessage({ type: CAMERA, status: "error", name: err?.name || "NotAllowedError" }, targetOrigin);
+        } else {
+          for (const t of stream.getTracks?.() ?? []) t.stop();
+        }
+        return;
+      }
+    }
+    if (epoch !== cameraEpoch || cameraStream !== stream) {
+      if (cameraStream !== stream) {
+        for (const t of stream.getTracks?.() ?? []) t.stop();
+      }
+      return;
+    }
+    cameraStreaming = true;
+    const w = video.videoWidth || 640;
+    const h = video.videoHeight || 480;
+    frame.contentWindow?.postMessage({ type: CAMERA, status: "streaming", width: w, height: h }, targetOrigin);
+    const pump = async () => {
+      if (!cameraStreaming || cameraVideo !== video) return;
+      if (typeof globalThis.createImageBitmap === "function" && (video.readyState ?? 2) >= 2) {
+        try {
+          const bitmap = await globalThis.createImageBitmap(video);
+          if (!cameraStreaming || cameraVideo !== video) {
+            bitmap.close?.();
+            return;
+          }
+          frame.contentWindow?.postMessage(
+            { type: CAMERA, status: "frame", bitmap, width: video.videoWidth || w, height: video.videoHeight || h },
+            targetOrigin,
+            [bitmap],
+          );
+        } catch {
+          // Next animation frame retries once the video decoder has a frame.
+        }
+      }
+      if (cameraStreaming && cameraVideo === video && typeof globalThis.requestAnimationFrame === "function") {
+        cameraRaf = globalThis.requestAnimationFrame(pump);
+      }
+    };
+    if (typeof globalThis.requestAnimationFrame === "function") {
+      cameraRaf = globalThis.requestAnimationFrame(pump);
+    }
+  };
+
+  const onVisibility = () => {
+    if (document.hidden) {
+      if (cameraStreaming || cameraStream !== null || cameraStarting) {
+        cameraResumeMode = cameraFacingMode;
+        stopCamera({ notify: true });
+      }
+    } else if (cameraResumeMode !== null) {
+      const mode = cameraResumeMode;
+      cameraResumeMode = null;
+      startCamera(mode);
+    }
+  };
+  if (grants.includes("camera")) document.addEventListener?.("visibilitychange", onVisibility);
 
   // targetOrigin cannot name an opaque origin, so "*" is the only reachable
   // value — meaning whatever document is in the frame receives these props. A
@@ -341,6 +475,15 @@ function mountFrameUnit(root, { unit, src, onEvent }) {
       deliver();
       return;
     }
+    if (message.type === CAMERA) {
+      if (!grants.includes("camera")) return;
+      if (message.action === "start") startCamera(message.facingMode);
+      else if (message.action === "stop") {
+        cameraResumeMode = null;
+        stopCamera();
+      }
+      return;
+    }
     if (message.type !== EVENT) return;
     if (typeof message.name !== "string" || message.name === "") return;
     if (message.name === "height") {
@@ -360,6 +503,9 @@ function mountFrameUnit(root, { unit, src, onEvent }) {
       deliver();
     },
     destroy() {
+      cameraResumeMode = null;
+      stopCamera();
+      document.removeEventListener?.("visibilitychange", onVisibility);
       globalThis.removeEventListener("message", onMessage);
       frame.remove();
     },

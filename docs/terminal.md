@@ -136,7 +136,7 @@ shares the renderer process and blocks the parent as completely as inline code.
   document is its own protection domain under whatever policy it states, not
   the app's, which is why the door exempts realm files from the app's CSP. The
   only permission it can be handed is one the seat offers (`REALM_GRANTS`,
-  today `geolocation`) and the unit declares, as the frame's `allow`, so the
+  today `geolocation` and `camera`) and the unit declares, as the frame's `allow`, so the
   browser asks the reader in the app's name. A single-file page has no file to
   frame, so it frames itself: a unit marked `self` is the page's own URL with
   `#pronto-unit=<name>` (`selfSrc`), whose boot writes the unit instead of the
