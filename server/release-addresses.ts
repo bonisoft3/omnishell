@@ -88,7 +88,7 @@ export async function addressRelease(out: string, options: AddressOptions = {}):
       else if (!entry.isFile || name === 'offline-first-sw.js') continue
       else {
         const bytes = await Deno.readFile(path.join(out, name))
-        if (name.endsWith('.html') && ENTRY.test(decoder.decode(bytes))) entries.push(name)
+        if (name.endsWith('.html') && !name.startsWith('shell/units/') && ENTRY.test(decoder.decode(bytes))) entries.push(name)
         else files.set('/' + name.split('/').map(encodeURIComponent).join('/'), bytes)
       }
     }

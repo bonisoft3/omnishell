@@ -18,6 +18,7 @@ const files: Record<string, string> = {
   'shell/screens/regras.css': 'h1 {}',
   'omnishell/interpreter/shell.js': 'export const shell = true;',
   'omnishell/interpreter/deferred-boot.js': 'export {};',
+  'shell/units/pay/index.html': '<!doctype html><html><body><script type="module" src="./unit.js"></script></body></html>',
   'offline-first-sw.js': 'self.addEventListener("fetch", () => {});',
 }
 
@@ -55,6 +56,7 @@ Deno.test('every document that boots the runtime carries the release, a deferred
     // A page that boots nothing is a file like any other; templates keep their suffix.
     assert.ok(release.imports['/docs/journal.html'])
     assert.ok(release.imports['/shell/screens/regras.html'].endsWith('-regras.html'))
+    assert.ok(release.imports['/shell/units/pay/index.html'])
     assert.equal(release.imports['/offline-first-sw.js'], undefined)
   } finally { await Deno.remove(out, { recursive: true }) }
 })

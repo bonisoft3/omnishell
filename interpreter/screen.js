@@ -4,7 +4,7 @@
 import { parseMarkup } from "./markup.js";
 import { resolveMachineReferences } from "./row-attachments.js";
 import { renderInto } from "./render.js";
-import { mountHatch, selfSrc } from "./hatch.js";
+import { mountHatch, selfSrc, subdomainSrc } from "./hatch.js";
 import {
   ABSENT,
   binding,
@@ -2313,7 +2313,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         }
         el._prontoHatch = mountHatch(el, {
           unit,
-          src: unit.self ? selfSrc(name) : new URL(unit.src, appBase).href,
+          src: unit.self ? selfSrc(name) : unit.subdomain ? subdomainSrc(unit.subdomain, unit.src, appBase) : new URL(unit.src, appBase).href,
           store,
           // A unit's named event becomes a real DOM event on the mount, so the
           // ordinary data-on-* path carries it the rest of the way: bind

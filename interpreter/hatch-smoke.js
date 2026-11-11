@@ -336,8 +336,8 @@ Deno.test("a frame is delegated only the permissions its unit declares and the s
   assert(!target.querySelector("iframe").hasAttribute("allow"), "a unit declaring nothing is granted nothing");
   hatch.destroy();
   ({ target } = dom());
-  hatch = mountHatch(target, { unit: { ...UNIT, grants: ["geolocation"] }, src: "https://app.example/u.html" });
-  assert(target.querySelector("iframe").getAttribute("allow") === "geolocation", "a declared grant becomes the frame's allow");
+  hatch = mountHatch(target, { unit: { ...UNIT, grants: ["geolocation", "payment"] }, src: "https://app.example/u.html" });
+  assert(target.querySelector("iframe").getAttribute("allow") === "geolocation; payment", "declared grants become the frame's allow");
   hatch.destroy();
   ({ target } = dom());
   let threw = null;
@@ -347,6 +347,56 @@ Deno.test("a frame is delegated only the permissions its unit declares and the s
     threw = e;
   }
   assert(threw instanceof ProgramError && threw.message.includes('"camera"'), `a grant the seat does not offer is refused, got ${threw}`);
+});
+
+Deno.test("a realm unit with a subdomain runs at its subdomain origin and binds postMessage to that origin", async () => {
+  const { mountHatch, subdomainSrc } = await import("./hatch.js");
+  assert(
+    subdomainSrc("payments", "shell/units/pay/index.html", "https://snapcards.fun/") ===
+      "https://payments.snapcards.fun/shell/units/pay/index.html",
+    "subdomain prefixed to host",
+  );
+  assert(
+    subdomainSrc("payments", "shell/units/pay/index.html", "https://localhost:30343/") ===
+      "https://payments.localhost:30343/shell/units/pay/index.html",
+    "subdomain prefixed to localhost",
+  );
+  const { target } = dom();
+  const events = [];
+  const subUnit = { ...UNIT, subdomain: "payments", grants: ["payment"] };
+  const hatch = mountHatch(target, {
+    unit: subUnit,
+    src: "https://payments.snapcards.fun/shell/units/pay/index.html",
+    onEvent: (e) => events.push(e),
+  });
+  const frame = target.querySelector("iframe");
+  assert(
+    frame.getAttribute("sandbox") === "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox",
+    `subdomain sandbox, got ${frame.getAttribute("sandbox")}`,
+  );
+  assert(frame.getAttribute("allow") === "payment", `payment allow, got ${frame.getAttribute("allow")}`);
+  const { posts, source } = stubWindow(frame);
+  hatch.update({ url: "https://x.example/pay" });
+  // Opaque-origin messages and wrong-origin messages are ignored.
+  post(source, { type: "pronto:ready" }, "null");
+  assert(posts.length === 0, "opaque-origin ready ignored on subdomain unit");
+  post(source, { type: "pronto:ready" }, "https://snapcards.fun");
+  assert(posts.length === 0, "parent-origin ready ignored on subdomain unit");
+  // Message from the subdomain's own origin is accepted and targeted back to it.
+  post(source, { type: "pronto:ready" }, "https://payments.snapcards.fun");
+  assert(posts.length === 1 && posts[0].targetOrigin === "https://payments.snapcards.fun", "props targeted to subdomain origin");
+  post(source, { type: "pronto:event", name: "select", detail: { id: "ord_1" } }, "https://payments.snapcards.fun");
+  assert(events.length === 1 && events[0].detail.id === "ord_1", "subdomain event delivered");
+  hatch.destroy();
+
+  // Mounting a subdomain unit at a URL that is not on that subdomain is refused.
+  let threw = null;
+  try {
+    mountHatch(dom().target, { unit: subUnit, src: "https://snapcards.fun/shell/units/pay/index.html" });
+  } catch (e) {
+    threw = e;
+  }
+  assert(threw instanceof ProgramError && threw.message.includes('not on subdomain "payments"'), `refused non-subdomain src, got ${threw}`);
 });
 
 Deno.test("a unit a single-file page serves from itself is addressed by its name in the page's fragment", async () => {

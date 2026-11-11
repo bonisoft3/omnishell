@@ -38,19 +38,20 @@ export const SRC_SCHEMES = new Set(["http:", "https:"]);
 //                   the provider's origin — no more authority than a link in
 //                   the article already has.
 //
-// allow-same-origin is refused, permanently and without a widening path. With
-// it the frame shares this origin: it reads our storage and our cookies, and
-// for a same-origin src it reaches through window.parent into the screen's own
-// DOM. A sandbox carrying it is theatre. The top-navigation tokens are refused
-// on the same footing — an embed that can replace the page the reader is on
-// has taken the app away from them.
+// allow-same-origin is refused on the app's own origin: with it the frame
+// shares this origin, reads our storage and our cookies, and reaches through
+// window.parent into the screen's own DOM. Only a unit seated on a dedicated
+// subdomain (`unit.subdomain`) takes SUBDOMAIN_SANDBOX, where its origin is
+// distinct from the app's and carries a real origin for embedded providers.
 const SANDBOX = "allow-scripts allow-popups allow-popups-to-escape-sandbox";
+const SUBDOMAIN_SANDBOX = "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox";
+const SUBDOMAIN_LABEL = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
 
 // The permissions a frame may be delegated, each only to a unit that declares
 // it (shell.yaml `units.<name>.grants`), as the frame's `allow`. A grant is the
 // reader's to answer: the browser prompts in this app's name, and the unit sees
 // a denial as the API's own error. terminal.cue publishes the same list.
-export const REALM_GRANTS = Object.freeze(["geolocation"]);
+export const REALM_GRANTS = Object.freeze(["geolocation", "payment"]);
 
 // A sandboxed frame without allow-same-origin has an opaque origin, and an
 // opaque origin serialises as the string "null" — so this, not the src's
@@ -129,6 +130,22 @@ export function rebuildDetail(shape, value) {
 export const SELF_UNIT = "pronto-unit";
 export function selfSrc(name, href = globalThis.location.href) {
   return `${href.split("#")[0]}#${SELF_UNIT}=${encodeURIComponent(name)}`;
+}
+
+// A realm unit seated on its own subdomain (`unit.subdomain`) resolves its
+// path against the app's base and prefixes the subdomain label to the host, so
+// the frame runs at `https://<subdomain>.<host>` rather than the app's origin.
+export function subdomainSrc(subdomain, path, base = globalThis.location.href) {
+  if (typeof subdomain !== "string" || !SUBDOMAIN_LABEL.test(subdomain)) {
+    throw new ProgramError(`hatch subdomain "${subdomain}" is not a valid DNS label`);
+  }
+  const url = new URL(path, base);
+  if (url.hostname === "127.0.0.1" || url.hostname === "[::1]") {
+    url.hostname = `${subdomain}.localhost`;
+  } else {
+    url.hostname = `${subdomain}.${url.hostname}`;
+  }
+  return url.href;
 }
 
 // The seats, by the ECMA-262 name of what each gives the unit: a realm is an
@@ -266,12 +283,25 @@ function mountFrameUnit(root, { unit, src, onEvent }) {
   const url = new URL(src);
   if (!SRC_SCHEMES.has(url.protocol)) throw new ProgramError(`hatch src scheme "${url.protocol}" is not allowed`);
 
+  const onSubdomain = unit.subdomain !== undefined && !unit.self;
+  if (onSubdomain) {
+    if (typeof unit.subdomain !== "string" || !SUBDOMAIN_LABEL.test(unit.subdomain)) {
+      throw new ProgramError(`hatch "${src}" has invalid subdomain "${unit.subdomain}"`);
+    }
+    if (url.hostname !== `${unit.subdomain}.localhost` && !url.hostname.startsWith(`${unit.subdomain}.`)) {
+      throw new ProgramError(`hatch "${src}" is not on subdomain "${unit.subdomain}"`);
+    }
+    if (globalThis.location?.origin && url.origin === globalThis.location.origin) {
+      throw new ProgramError(`hatch "${src}" shares the app's origin and cannot take allow-same-origin`);
+    }
+  }
+
   const grants = unit.grants ?? [];
   for (const g of grants) {
     if (!REALM_GRANTS.includes(g)) throw new ProgramError(`hatch "${src}" asks for "${g}", which the realm seat does not grant`);
   }
   const frame = document.createElement("iframe");
-  frame.setAttribute("sandbox", SANDBOX);
+  frame.setAttribute("sandbox", onSubdomain ? SUBDOMAIN_SANDBOX : SANDBOX);
   if (grants.length) frame.setAttribute("allow", grants.join("; "));
   frame.setAttribute("src", url.href);
   // An article carries several of these and none of them is what the reader
@@ -286,13 +316,14 @@ function mountFrameUnit(root, { unit, src, onEvent }) {
 
   let ready = false;
   let latest = {};
+  const expectedOrigin = onSubdomain ? url.origin : OPAQUE_ORIGIN;
+  const targetOrigin = onSubdomain ? url.origin : "*";
 
   // targetOrigin cannot name an opaque origin, so "*" is the only reachable
   // value — meaning whatever document is in the frame receives these props. A
-  // unit that navigated itself elsewhere would receive them too, which is why
-  // a hatch is never fed anything secret.
+  // subdomain realm has a named origin of its own and is targeted at it.
   const deliver = () => {
-    if (ready) frame.contentWindow?.postMessage({ type: PROPS, props: latest }, "*");
+    if (ready) frame.contentWindow?.postMessage({ type: PROPS, props: latest }, targetOrigin);
   };
 
   const onMessage = (e) => {
@@ -302,7 +333,7 @@ function mountFrameUnit(root, { unit, src, onEvent }) {
     // alone identifies nobody — this identity check is what makes the frame
     // the only sender that can reach this bridge.
     if (e.source !== frame.contentWindow || e.source == null) return;
-    if (e.origin !== OPAQUE_ORIGIN) return;
+    if (e.origin !== expectedOrigin) return;
     const message = e.data;
     if (message === null || typeof message !== "object") return;
     if (message.type === READY) {

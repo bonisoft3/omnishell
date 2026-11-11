@@ -280,8 +280,8 @@ _presenterPolicy: _ @embed(file="presenter-security-policy.txt", type=text)
 			// frame's permissions-policy `allow`: the browser asks the reader in
 			// the app's own name, and a unit that declares nothing gets nothing
 			// beyond its ports. hatch.js's REALM_GRANTS.
-			grants: ["geolocation"]
-			note: "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox, never allow-same-origin — the unit runs in an opaque origin and cannot reach this one. Props are delivered with targetOrigin \"*\", which an opaque origin leaves no alternative to, so a hatch is never given a secret"
+			grants: ["geolocation", "payment"]
+			note: "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox (or with allow-same-origin allow-forms on a dedicated subdomain origin), never allow-same-origin on the app's own origin — the unit runs in an opaque or subdomain origin and cannot reach this one"
 		}
 		// The agent seat's second role: a presenter, a worker that only
 		// paints. `policy` is the worker script's own Content-Security-Policy,
