@@ -599,12 +599,18 @@ Deno.test({
       await settle(200);
       const assert = check(mount);
 
-      // 1. Clicking passkey when login/verify returns 401 signals unknown credential and falls through to register.
+      // 1. Clicking passkey when login/verify returns 401 signals unknown credential and stays refused until a passkey is explicitly created.
       mount.querySelector("#btn-auth-passkey").dispatchEvent(new Event("click", { bubbles: true }));
       await settle(100);
       assert(signaled.length === 1 && signaled[0].rpId === "localhost" && signaled[0].credentialId === credIdDead,
         `expected signalUnknownCredential for dead credential, got ${JSON.stringify(signaled)}`);
-      assert(asked.includes("POST /auth/register/verify"), `expected registration fallthrough after pruning dead credential, asked ${asked}`);
+      assert(!asked.includes("POST /auth/register/start"), `server-refused login must not auto-start registration: ${asked}`);
+      assert(mount.querySelector(".shell-auth-error")?.textContent === "sign-in did not go through", "surfaces visible passkey error on unknown credential");
+      const initialRecover = mount.querySelector('.shell-auth-recover[data-auth-action="passkey-register"]');
+      assert(initialRecover !== null, "surfaces passkey recovery button on unknown credential");
+      initialRecover.dispatchEvent(new Event("click", { bubbles: true }));
+      await settle(100);
+      assert(asked.includes("POST /auth/register/verify"), `expected explicit recovery to register passkey, asked ${asked}`);
 
       // 2. Once a live passkey is known for localhost, canceling loginCeremony (NotAllowedError) does NOT trigger register/start,
       // and surfaces .shell-auth-error plus a .shell-auth-recover[data-auth-action="passkey-register"] recovery button.

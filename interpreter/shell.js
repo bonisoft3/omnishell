@@ -321,18 +321,17 @@ async function loginCeremony(service) {
 }
 
 // Register and login are one gesture when no passkey exists for this domain:
-// attempt the discoverable get; if a stale credential fails verification (401),
-// signalUnknownCredential prunes it from the authenticator before falling
-// through. Once a valid passkey is known for this rpId, canceling get() stays
-// a cancel rather than minting a duplicate passkey.
+// attempt the discoverable get; when no resident credential materializes
+// (NotAllowedError) and no valid passkey is remembered for this rpId, create
+// one. A server-refused login (401) prunes the unknown credential above and
+// stays refused until a passkey is explicitly created. Once a valid passkey is
+// known for this rpId, canceling get() stays a cancel rather than minting a
+// duplicate passkey.
 async function passkeyCeremony(service, token) {
   try {
     return await loginCeremony(service);
   } catch (err) {
     const rpId = err?.rpId ?? globalThis.location?.hostname;
-    if (err?.unknownCredential === true && knownPasskeys(rpId).length === 0) {
-      return registerCeremony(service, token);
-    }
     if (err?.name === "NotAllowedError" && knownPasskeys(rpId).length === 0) {
       return registerCeremony(service, token);
     }
@@ -1154,31 +1153,17 @@ export async function createShell({ config, mount, preload = true, hostDomModule
         const res = await fetch(`${cfg.auth.service}/oidc/signout`, { method: "POST", credentials: "same-origin" });
         if (!res.ok) throw new Error(`${res.status} POST ${cfg.auth.service}/oidc/signout`);
       }
-      if (!cfg.auth?.required && offersGuest(cfg)) {
-        if (session?.user?.guest) {
-          delete session.committed;
-          sessionStorage.setItem("pronto-token", JSON.stringify(session));
-          syncAuthDOM(nav, session, { signOut, chrome, cfg });
-          return;
-        }
-        sessionStorage.removeItem(recoveryKey);
-        forgetSession();
-        session = null;
-        if (nav) {
-          const oldBox = nav.querySelector(":scope > .shell-me");
-          const nextBox = renderPromote(() => guestSession, cfg, chrome, null, null, signOut);
-          if (oldBox) oldBox.replaceWith(nextBox);
-          else nav.append(nextBox);
-          localizeCurrentStrip();
-        }
-        syncAuthDOM(nav, null, { signOut, chrome, cfg });
-        location.reload();
+      if (!cfg.auth?.required && offersGuest(cfg) && session?.user?.guest) {
+        delete session.committed;
+        sessionStorage.setItem("pronto-token", JSON.stringify(session));
+        syncAuthDOM(nav, session, { signOut, chrome, cfg });
         return;
       }
       for (const entry of [...held.values()]) discard(entry);
       current = null;
       nav?.remove();
       mount.replaceChildren();
+      sessionStorage.removeItem(recoveryKey);
       forgetSession();
       location.reload();
     };
@@ -1254,7 +1239,8 @@ export async function createShell({ config, mount, preload = true, hostDomModule
           msg.className = "shell-auth-error";
           msg.textContent = chrome("chrome_passkey_failed", locale);
           feedback.append(msg);
-          if (err?.name === "NotAllowedError" && knownPasskeys(err?.rpId ?? globalThis.location?.hostname).length > 0 && !container.querySelector('[data-auth-action="passkey-register"]')) {
+          const rpId = err?.rpId ?? globalThis.location?.hostname;
+          if ((err?.unknownCredential === true || (err?.name === "NotAllowedError" && knownPasskeys(rpId).length > 0)) && !container.querySelector('[data-auth-action="passkey-register"]')) {
             const recover = document.createElement("button");
             recover.type = "button";
             recover.className = "shell-auth-recover";
@@ -1271,7 +1257,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       const sameOwner = sessionOwner(next) === sessionOwner(activeSession);
       if (!sameOwner) sessionStorage.removeItem(recoveryKey);
       sessionStorage.setItem("pronto-token", JSON.stringify(next));
-      if (!cfg.auth?.required) {
+      if (!cfg.auth?.required && sameOwner) {
         session = next;
         if (nav) {
           const oldBox = nav.querySelector(":scope > .shell-me");
@@ -1281,7 +1267,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
           localizeCurrentStrip();
         }
         syncAuthDOM(nav, next, { signOut, chrome, cfg });
-        if (sameOwner) return;
+        return;
       }
       location.reload();
     };
