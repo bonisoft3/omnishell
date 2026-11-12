@@ -71,15 +71,11 @@ package terminal
 // integer because a column a replay must reproduce exactly should not be a
 // float, and because the stylesheet is where the pixels come back.
 #EventRef: close({
-	type: "event"
+	type:   "event"
 	params: close({field: "value" | "checked" | "valueAsNumber" | "key" | "pointerX" | "pointerY"})
 })
 
-#AnyRef: {
-	type: string
-	if type == "event" {#EventRef}
-	if type != "event" {#Ref}
-}
+#AnyRef: #EventRef | #Ref
 
 // Declarative mutation effect executed by the terminal runtime into store.
 // Closed and pure: never arbitrary code, never touches DOM directly. The
@@ -95,7 +91,7 @@ package terminal
 #Action: close({
 	assign?: [string]: null | string | number | bool | #AnyRef
 	effect?: #Effect | [...#Effect]
-	raise?: string
+	raise?:  string
 })
 #Actions: #Action | [...#Action]
 
@@ -120,9 +116,11 @@ package terminal
 // A bare state name is the v1 shorthand for {target}; an array is XState's
 // ordered candidate list — first guard-pass wins, every arrow drawn.
 #TransitionValue: #TargetState | #Transition | [...#Transition]
-#On: [Event=string]: #TransitionValue
+#On: [string]~(Event,_): #TransitionValue
 
-#Machine: M={
+#Machine: {
+	let M = self
+
 	// The row column the state lives in. The machine's current state IS this
 	// field's value — no second store of truth, no `initial` beside the row.
 	type?:    "parallel"
@@ -132,6 +130,7 @@ package terminal
 		field:   string
 		initial: or([for k, _ in M.states {k}])
 	}
+
 	// Root-level transitions, applied in every state unless the state declares
 	// the same event key.
 	on?:     #On
@@ -141,7 +140,7 @@ package terminal
 	after?: [string]: #TransitionValue
 	entry?: #Actions
 	exit?:  #Actions
-	states: [Name=string]: close({
+	states: [string]~(Name,_): close({
 		field?:   string
 		type?:    "final" | "parallel"
 		initial?: string
@@ -153,9 +152,9 @@ package terminal
 		// Jessie module returning them; armed on entry, canceled on exit,
 		// re-armed by a self-target.
 		after?: [string]: #TransitionValue
-		entry?:   #Actions
-		exit?:    #Actions
-		states?: [SubName=string]: close({
+		entry?: #Actions
+		exit?:  #Actions
+		states?: [string]~(SubName,_): close({
 			field?:   string
 			type?:    "final" | "parallel"
 			initial?: string
@@ -164,8 +163,8 @@ package terminal
 			onDone?:  #TransitionValue
 			always?:  #TransitionValue
 			after?: [string]: #TransitionValue
-			entry?:   #Actions
-			exit?:    #Actions
+			entry?: #Actions
+			exit?:  #Actions
 		})
 	})
 
@@ -181,6 +180,7 @@ package terminal
 		live:    "compensable"
 		server:  "replicated"
 	}
+
 	// Mutation names shared with the relational adapter. Repeating the same
 	// absolute update, delete, ensure or upsert can be idempotent; distinct
 	// values need not commute. Neither law follows from the op name alone

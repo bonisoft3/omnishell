@@ -89,8 +89,8 @@
         "defaultGlobs": null,
         "defaultExclude": null
       },
-      "do": "nu -c \"null\"",
       "name": "builtin",
+      "do": "nu -c \"null\"",
       "shell": "exec",
       "stop": false
     }

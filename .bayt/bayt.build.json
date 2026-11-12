@@ -275,6 +275,7 @@
         "defaultGlobs": null,
         "defaultExclude": null
       },
+      "name": "builtin",
       "do": "pnpm run check",
       "shell": "exec",
       "dockerfile": {
@@ -289,7 +290,6 @@
         ],
         "shell": "sh"
       },
-      "name": "builtin",
       "stop": false
     }
   ],

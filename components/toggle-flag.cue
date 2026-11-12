@@ -8,7 +8,9 @@ import (
 	terminal "github.com/bonisoft3/omnishell:terminal"
 )
 
-#ToggleFlag: F={
+#ToggleFlag: {
+	let F = self
+
 	// The flag's own table, and the column+value addressing the flagged row.
 	entity: string
 	on:     string
@@ -36,9 +38,9 @@ import (
 		"",
 	][0]
 	_ariaOff: [if F.aria != _|_ {" aria-label=\"\(F.aria.off)\""}, ""][0]
-	_ariaOn: [if F.aria != _|_ {" aria-label=\"\(F.aria.on)\""}, ""][0]
-	_srOff: [if F.aria != _|_ {"<span class=\"sr-only\">\(F.aria.off) — </span>"}, ""][0]
-	_srOn: [if F.aria != _|_ {"<span class=\"sr-only\">\(F.aria.on) — </span>"}, ""][0]
+	_ariaOn:  [if F.aria != _|_ {" aria-label=\"\(F.aria.on)\""}, ""][0]
+	_srOff:   [if F.aria != _|_ {"<span class=\"sr-only\">\(F.aria.off) — </span>"}, ""][0]
+	_srOn:    [if F.aria != _|_ {"<span class=\"sr-only\">\(F.aria.on) — </span>"}, ""][0]
 
 	_filter: [
 		if F.retract == "stamp" {"\(F.on)=eq.\(F.value)&\(F.stamp)=is.null"},

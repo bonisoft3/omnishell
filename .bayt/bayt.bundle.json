@@ -282,6 +282,7 @@
         "defaultGlobs": null,
         "defaultExclude": null
       },
+      "name": "builtin",
       "do": "sh -c 'pnpm run bundle:mecha-client && pnpm run bundle:morphlex && pnpm run bundle:js-yaml && pnpm run bundle:xstate && pnpm run bundle:messages'",
       "shell": "sh",
       "dockerfile": {
@@ -296,7 +297,6 @@
         ],
         "shell": "sh"
       },
-      "name": "builtin",
       "stop": false
     }
   ],

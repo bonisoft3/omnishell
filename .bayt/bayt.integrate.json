@@ -92,8 +92,8 @@
       "upClosure": [
         "plugins/omnishell/.bayt/compose.integrate.yaml",
         "plugins/omnishell/.bayt/compose.build.yaml",
-        "plugins/omnishell/.bayt/compose.setup.yaml",
         "plugins/omnishell/.bayt/compose.bundle.yaml",
+        "plugins/omnishell/.bayt/compose.setup.yaml",
         "libraries/mecha/.bayt/compose.setup.yaml"
       ]
     },
@@ -124,8 +124,8 @@
       "upClosure": [
         "plugins/omnishell/.bayt/compose.integrate.yaml",
         "plugins/omnishell/.bayt/compose.build.yaml",
-        "plugins/omnishell/.bayt/compose.setup.yaml",
         "plugins/omnishell/.bayt/compose.bundle.yaml",
+        "plugins/omnishell/.bayt/compose.setup.yaml",
         "libraries/mecha/.bayt/compose.setup.yaml"
       ]
     },
@@ -226,8 +226,8 @@
       "upClosure": [
         "plugins/omnishell/.bayt/compose.integrate.yaml",
         "plugins/omnishell/.bayt/compose.build.yaml",
-        "plugins/omnishell/.bayt/compose.setup.yaml",
         "plugins/omnishell/.bayt/compose.bundle.yaml",
+        "plugins/omnishell/.bayt/compose.setup.yaml",
         "libraries/mecha/.bayt/compose.setup.yaml"
       ]
     }
@@ -254,8 +254,8 @@
   "upClosure": [
     "plugins/omnishell/.bayt/compose.integrate.yaml",
     "plugins/omnishell/.bayt/compose.build.yaml",
-    "plugins/omnishell/.bayt/compose.setup.yaml",
     "plugins/omnishell/.bayt/compose.bundle.yaml",
+    "plugins/omnishell/.bayt/compose.setup.yaml",
     "libraries/mecha/.bayt/compose.setup.yaml"
   ],
   "chainedDeps": [
@@ -314,6 +314,7 @@
         "defaultGlobs": null,
         "defaultExclude": null
       },
+      "name": "cache-smokes",
       "do": "deno cache --config interpreter/deno.json --lock interpreter/deno.lock --frozen --allow-import=cdn.jsdelivr.net:443 interpreter/adapter-smoke.js interpreter/clock-smoke.js interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/kinetic-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/ondemand-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/validate-smoke.js interpreter/worker-smoke.js",
       "shell": "exec",
       "dockerfile": {
@@ -328,7 +329,6 @@
         ],
         "shell": "sh"
       },
-      "name": "cache-smokes",
       "stop": false
     },
     {
@@ -351,9 +351,9 @@
         "defaultGlobs": null,
         "defaultExclude": null
       },
-      "do": "sh -c 'deno test --parallel --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-write --allow-import --allow-net --allow-sys --ignore=test/check-presentation-apps.test.ts,test/project-native.test.ts,test/chrome-direction.test.ts,test/entry-document.test.ts,test/document.test.ts,test/locale-resolver.test.ts,test/vendor-bundle.test.ts,test/arbitrary-types.test.ts,test/data-sync-parity.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read interpreter/adapter-smoke.js interpreter/clock-smoke.js interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/kinetic-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/ondemand-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/validate-smoke.js interpreter/worker-smoke.js'",
-      "shell": "sh",
       "name": "builtin",
+      "shell": "sh",
+      "do": "sh -c 'deno test --parallel --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-write --allow-import --allow-net --allow-sys --ignore=test/check-presentation-apps.test.ts,test/project-native.test.ts,test/chrome-direction.test.ts,test/entry-document.test.ts,test/document.test.ts,test/locale-resolver.test.ts,test/vendor-bundle.test.ts,test/arbitrary-types.test.ts,test/data-sync-parity.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read interpreter/adapter-smoke.js interpreter/clock-smoke.js interpreter/handler-smoke.js interpreter/hatch-smoke.js interpreter/kinetic-smoke.js interpreter/login-smoke.js interpreter/nav-smoke.js interpreter/ondemand-smoke.js interpreter/pending-smoke.js interpreter/renderer-smoke.js interpreter/validate-smoke.js interpreter/worker-smoke.js'",
       "stop": false
     }
   ],

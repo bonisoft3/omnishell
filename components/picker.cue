@@ -29,7 +29,8 @@ import (
 	terminal "github.com/bonisoft3/omnishell:terminal"
 )
 
-#Picker: P={
+#Picker: {
+	let P = self
 	collection: string
 	row:        *"the" | string
 	field:      *"choice" | string
@@ -71,14 +72,14 @@ import (
 	// heading precedes, and a heading naming none leads the list. Presentational
 	// and with no id and no command — a heading is not an option, and the
 	// consumer's [data-opt] observers never see one. readout "text".
-	heads?: [...{name: string, label: string, msgLabel?: string, at: *"" | or([for o in P.options {o.name}])}]
+	heads?:    [...{name: string, label: string, msgLabel?: string, at: *"" | or([for o in P.options {o.name}])}]
 	readouts?: [...{name: string, label: string, msgLabel?: string}]
 	// Applied to every arrow as its one guarded candidate — the picker-wide
 	// admission (truco: "a sitting exists").
-	guard?: string | {type: string, params?: [string]: string | number | bool}
+	guard?:  string | {type: string, params?: [string]: string | number | bool}
 	readout: *"columns" | "text"
 
-	_pop: "picker-pop-\(P.key)"
+	_pop:          "picker-pop-\(P.key)"
 	_initialLabel: [for o in P.options if o.name == P.initial {o.label}][0]
 
 	_assignOf: {for o in P.options {
@@ -133,7 +134,7 @@ import (
 		"",
 	][0]
 
-	_srAttr: [if P.msgLabel != _|_ {" data-text=\"{\(P.msgLabel)}\""}, ""][0]
+	_srAttr:   [if P.msgLabel != _|_ {" data-text=\"{\(P.msgLabel)}\""}, ""][0]
 	_ariaAttr: [if P.msgLabel != _|_ {"{\(P.msgLabel)}"}, P.label][0]
 
 	if P.readout == "columns" {
@@ -185,8 +186,7 @@ import (
 			[for o in P.options {strings.Join(list.Concat([
 				[for h in P._headList if h.at == o.name {P._headRow[h.name]}],
 				[P._optionRow[o.name]],
-			]), "\n")
-			}],
+			]), "\n")}],
 		]), "\n")
 		_readoutItems: list.Concat([
 			P.options,
