@@ -235,13 +235,13 @@ Deno.test({
 // shared between them would hand the second to whoever the scheduler reached
 // second, and a seeded run would replay only when the scheduling did.
 const DRAWER = (name) =>
-  `const reduce = (state, event) => event.type === "click"
+  `const reduce = ({ context, event }) => event.type === "click"
   ? { updates: [], then: { type: "drawn", seed: true } }
   : { updates: [{ op: "patch", id: "${name}", row: { n: event.seed } }] };
 reduce;`;
 // The same, asking for a whole key.
 const MINTER = (name) =>
-  `const reduce = (state, event) => event.type === "click"
+  `const reduce = ({ context, event }) => event.type === "click"
   ? { updates: [], then: { type: "minted", uuid: true } }
   : { updates: [{ op: "patch", id: "${name}", row: { n: event.uuid } }] };
 reduce;`;

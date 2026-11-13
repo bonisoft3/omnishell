@@ -194,7 +194,7 @@ export function buildEndowments(names = []) {
 }
 
 const ROLES = {
-  // reduce(state, event) -> {updates}.
+  // reduce({context, event}) -> {updates}.
   handler: {
     defaultEndowments: [],
     endow: (req = []) => buildEndowments(req),
@@ -210,7 +210,7 @@ const ROLES = {
     ok: (v) => typeof v === "function",
     want: "its render function",
   },
-  // validation(state, event) -> boolean.
+  // validation({context, event}) -> boolean.
   validation: {
     defaultEndowments: [],
     endow: (req = []) => buildEndowments(req),

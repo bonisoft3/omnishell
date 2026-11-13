@@ -20,7 +20,7 @@ const SCREEN_HTML = `<section class="screen" data-screen="article">
 // Jessie handlers, frozen mechanism: last expression is the reduce function.
 // `record` is the one the mount names; `shadow` sits on the enclosing region
 // and exists to be a witness that a unit's answer never reaches it.
-const RECORD_SOURCE = `const reduce = (state, event) => ({
+const RECORD_SOURCE = `const reduce = ({ context, event }) => ({
   updates: [{ op: "patch", id: "a1", row: { chose: event.detail.uci } }],
 });
 reduce;`;

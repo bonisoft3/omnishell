@@ -125,15 +125,15 @@ transport's spelling, hedges between the text and the number a value could be.
 ## The fold seat
 
 After every refresh of a region, first paint included, its `data-on-mutation`
-reduce is called with `{type: "mutation", visit: boolean}` and, as `state.items`, the rows the
+reduce is called with `{type: "mutation", visit: boolean}` and, as `context.items`, the rows the
 terminal just applied (a slot's is `[row]`). The fact is published at the patch
 site, not recovered from the DOM, and named for the store's event: no DOM change
 fires it. Handlers also receive the current route's decoded parameters as a
-copy in `state.params`, so exact route identities can be resolved against
+copy in `context.params`, so exact route identities can be resolved against
 the declared rows without turning a route value into a query pattern. `visit` is true for the first ready fold after a screen mounts or resumes, and false for later refreshes in that visit.
 
 **What wakes a fold is its region's own read.** A table named only in
-`data-reads` reaches the reduce as `state.rows` and is never listened to. A fold
+`data-reads` reaches the reduce as `context.rows` and is never listened to. A fold
 that must hear several tables is mounted on a region per table with the same
 `data-reads`, as `apps/chess`'s board mounts `referee` on `tick`, `game`,
 `square`, `piece` and `move`.
@@ -146,7 +146,7 @@ writes its own collection would sleep with its last write unanswered. It ends
 because a fold that writes nothing makes no mutation, which is why a fold
 [recomputes absolutely and writes differentially](../GUIDE.md#recompute-absolutely-write-differentially).
 The re-run carries the rows of whichever region started the seat, so a fold on
-several regions reads its world from `state.rows`, not `state.items`.
+several regions reads its world from `context.rows`, not `context.items`.
 
 ## The step after
 

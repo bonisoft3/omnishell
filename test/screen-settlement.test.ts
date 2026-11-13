@@ -17,11 +17,11 @@ const chart = `<section class="screen" data-screen="chart">
     </div>
   </div>
 </section>`
-const seed = `(state) => ({ updates: state.rows.stored.length ? [] :
+const seed = `({ context }) => ({ updates: context.rows.stored.length ? [] :
   [{ op: "put", id: "c", row: { series: "empty" } }] })`
-const fold = `(state) => {
-  const view = state.rows.chart[0];
-  const series = state.items.map(p => p.value).join(",");
+const fold = `({ context }) => {
+  const view = context.rows.chart[0];
+  const series = context.items.map(p => p.value).join(",");
   return { updates: !view || view.series === series ? [] :
     [{ op: "patch", entity: "chart", id: view.id, row: { series } }] };
 }`
@@ -71,9 +71,9 @@ describe("a screen's present work", () => {
            data-read-chart="chart?id=eq.{id}"><template data-item><span hidden></span></template></div>
     </div>`
     const app = await boot(`<section class="screen" data-screen="chart">${slot("c1", "p1")}${slot("c2", "p2")}</section>`, {
-      seed: `(state) => {
-        if (state.rows.stored.length || !state.items[0]) return { updates: [] };
-        const { id, ...row } = state.items[0];
+      seed: `({ context }) => {
+        if (context.rows.stored.length || !context.items[0]) return { updates: [] };
+        const { id, ...row } = context.items[0];
         return { updates: [{ op: "put", id, row }] };
       }`,
       fold,
@@ -143,7 +143,7 @@ describe("a screen's present work", () => {
   })
 
   it("drains immediate handler continuations before the seat hands off its next run", async () => {
-    const app = await boot(chart, { seed, fold: fold.replace("(state) =>", "(state, event) =>")
+    const app = await boot(chart, { seed, fold: fold.replace("({ context }) =>", "({ context, event }) =>")
       .replace("  const view", '  if (event.type === "mutation") return { updates: [], then: { type: "compute" } };\n  const view') })
     try {
       await app.handle.settle()
@@ -181,7 +181,7 @@ describe("a screen's present work", () => {
     const app = await boot(`<section class="screen" data-screen="chart"><div data-live="point"
       data-on-mutation="fold"><template data-item><p data-text="{value}"></p></template></div></section>`, {
       seed,
-      fold: `(state) => ({ updates: state.items.map(p => ({ op: "patch", id: p.id,
+      fold: `({ context }) => ({ updates: context.items.map(p => ({ op: "patch", id: p.id,
         row: { value: p.value === "a" ? "b" : "a" } })) })`,
     })
     try {
@@ -221,9 +221,9 @@ describe("a screen's present work", () => {
         </div>
       </div>
     </section>`
-    const unorderedFold = `(state) => {
-      const view = state.items[0];
-      const series = state.rows.points.map(p => p.id + ":" + p.value).join(",");
+    const unorderedFold = `({ context }) => {
+      const view = context.items[0];
+      const series = context.rows.points.map(p => p.id + ":" + p.value).join(",");
       return { updates: !view || view.series === series ? [] :
         [{ op: "put", id: view.id, row: { series } }] };
     }`
@@ -367,10 +367,10 @@ describe("a screen's present work", () => {
         </div>
       </div>
     </section>`
-    const filterFold = `(state, event) => {
-      const matched = (event.from ?? "") + ":" + state.rows.pts.map(p => p.id).join(",");
-      return { updates: state.items[0]?.matched === matched ? [] :
-        state.items.map(p => ({ op: "patch", id: p.id, row: { matched } })) };
+    const filterFold = `({ context, event }) => {
+      const matched = (event.from ?? "") + ":" + context.rows.pts.map(p => p.id).join(",");
+      return { updates: context.items[0]?.matched === matched ? [] :
+        context.items.map(p => ({ op: "patch", id: p.id, row: { matched } })) };
     }`
     const app = await boot(html, { seed, fold: filterFold, filterFold } as any)
     try {

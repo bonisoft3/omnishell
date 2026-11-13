@@ -106,7 +106,7 @@ Three exceptions, each because the empty string is not "absent":
 | `data-empty-row` | the row a region binds when it has none, resolved against the enclosing row as `data-filter` is — a whole `{col}` keeps its type and null, so a draft nested in the row it edits starts from it. A singleton machine region without this attribute requires a filter pinning `id` and synthesizes a row from the entity's literal field defaults, its filter's equalities and `{[field]: initial}`, in that order. This attribute supplies the whole explicit row |
 | `data-project` | [derived columns](#derived-columns) a region states about its own rows |
 | `data-text` | text interpolation from the bound row or singleton |
-| `data-reads="a,b"` | the foreign tables a reduce this region wakes receives as `state.rows`, read at each step and never subscribed: a change to one does not wake the region |
+| `data-reads="a,b"` | the foreign tables a reduce this region wakes receives as `context.rows`, read at each step and never subscribed: a change to one does not wake the region |
 | `data-read-<name>` | a named foreign read, resolved per step against the region's current row |
 
 A **slot** is a region with no item template; it binds at most one row. Item
@@ -284,7 +284,7 @@ A chart's grammar is `#Machine` in [`machine.cue`](machine.cue), vetted by
   value, and `context` is refused.
 - **Data, and value positions.** Targets, state names, `initial` and
   raised types are data. A `guard`, an `assign` value or an `after` delay is a
-  literal or a Jessie module called `(state, event, params?)` with literal
+  literal or a Jessie module called `({context, event}, params?)` with literal
   `params`; an assign string is a module reference exactly when it names a
   declared module. `{type: "event", params: {field}}` reads the event's
   `value`, `checked`, `valueAsNumber`, `key`, or `pointerX`/`pointerY` in

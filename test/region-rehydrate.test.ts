@@ -104,10 +104,10 @@ describe("a re-read nested region stays a list", () => {
 // The same move, with the nested region's OWN table written in the same settle
 // — the shape every app that marks a picker's current segment has, since the
 // mark is a column of the rows the picker renders.
-const MARK = `(state) => {
-  const view = (state.rows.view ?? []).find((r) => r.id === "the");
+const MARK = `({ context }) => {
+  const view = (context.rows.view ?? []).find((r) => r.id === "the");
   const updates = [];
-  for (const r of state.rows.invoice ?? []) {
+  for (const r of context.rows.invoice ?? []) {
     const on = String(r.bucket === view.pick);
     if (String(r.on) !== on) updates.push({ op: "patch", entity: "invoice", id: r.id, row: { on } });
   }

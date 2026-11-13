@@ -2,8 +2,8 @@
 // handed must obey what shell.yaml states about the column it sits in, so the
 // handler reporting nothing is the assertion that the bounds crossed from the
 // program and that the generators obeyed them.
-(state, event) => {
-  for (const note of state.rows.note ?? []) {
+({ context }) => {
+  for (const note of context.rows.note ?? []) {
     if (typeof note.id !== "string" || note.id.length < 2 || note.id.length > 6) {
       throw new Error(`id outside sizeMin 2 sizeMax 6: ${JSON.stringify(note.id)}`);
     }

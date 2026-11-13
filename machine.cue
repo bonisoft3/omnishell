@@ -50,7 +50,7 @@ package terminal
 })
 
 // A parameterized reference in XState's own spelling: the module is
-// called (state, event, params), params are literals only — thresholds
+// called ({context, event}, params), params are literals only — thresholds
 // live in the chart as data, so one module serves every instance a
 // component generates.
 // `event` is the terminal's own leaf (#EventRef), never a module.
@@ -97,7 +97,7 @@ package terminal
 
 #TargetState: string
 #Transition: close({
-	guard?:   string | #Ref // Jessie module; (state, event, params?) => boolean
+	guard?:   string | #Ref // Jessie module; ({context, event}, params?) => boolean
 	target?:  #TargetState
 	reenter?: bool
 	actions?: #Actions

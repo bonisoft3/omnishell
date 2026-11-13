@@ -11,7 +11,7 @@ import { mountScreen, writes } from "./screen-harness.ts"
 // A click records WHO was clicked and ON WHICH row as a row in `log`, so a
 // test can say which affordance fired with which id, and a double-wired
 // affordance shows as a second write.
-const TAP = `(state, event) => ({
+const TAP = `({ context, event }) => ({
   updates: [{ op: "put", entity: "log", id: event.id + "/" + event.from, row: { id: event.id + "/" + event.from } }],
 })`
 

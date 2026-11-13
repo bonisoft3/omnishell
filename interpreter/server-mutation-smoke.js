@@ -174,7 +174,7 @@ Deno.test({
   async fn() {
     const fake = server();
     const edges = [];
-    const source = `const f = (state, event) => event.row.owner_id === "reader" && event.row.title !== "refused" && state.rows.owner[0].id === event.row.owner_id; f;`;
+    const source = `const f = ({ context, event }) => event.row.owner_id === "reader" && event.row.title !== "refused" && context.rows.owner[0].id === event.row.owner_id; f;`;
     await withBrowser({ fetch: async (input, init) => {
       const url = new URL(String(input));
       if (url.pathname === "/validation.js") return new Response(source);

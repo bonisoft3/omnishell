@@ -195,38 +195,38 @@ export async function selfTest(): Promise<{ failures: string[] }> {
 
   const normalSrc = `
 const bump = (n) => n + 1;
-(state, event) => {
+({ context, event }) => {
   let s = 0;
-  for (const x of state.items) s += bump(x);
+  for (const x of context.items) s += bump(x);
   return { s };
 };
 `;
 
   const normal = await load(normalSrc, 1000);
-  const res1 = normal.target({ items: [1, 2, 3] }) as { s: number };
+  const res1 = normal.target({ context: { items: [1, 2, 3] } }) as { s: number };
   check("normal result", res1.s === 9, JSON.stringify(res1));
   check("step consumption", normal.meter.consumed() === 7, `consumed ${normal.meter.consumed()}`);
 
   normal.meter.reset();
-  normal.target({ items: [10] });
+  normal.target({ context: { items: [10] } });
   check("a reset run is counted from zero", normal.meter.consumed() === 3, `consumed ${normal.meter.consumed()}`);
 
   // Regression: Parenthesised concise arrow expression must wrap in fuel check without syntax error
   const paren = await load(
     `
 const num = (v) => (Number(v) || 0);
-(state, event) => ({ n: num(event.x) });
+({ context, event }) => ({ n: num(event.x) });
 `,
     1000,
   );
-  const resParen = paren.target({}, { x: "42" }) as { n: number };
+  const resParen = paren.target({ context: {}, event: { x: "42" } }) as { n: number };
   check("paren expression arrow result", resParen.n === 42, JSON.stringify(resParen));
 
   /** What running a module threw, or null where it returned. */
   const threw = async (source: string, limit: number): Promise<string | null> => {
     const { target } = await load(source, limit);
     try {
-      target({}, {});
+      target({ context: {}, event: {} });
       return null;
     } catch (e) {
       return (e as Error).message;
@@ -234,14 +234,14 @@ const num = (v) => (Number(v) || 0);
   };
 
   // Regression: While loop must exhaust fuel limit and abort execution
-  const loop = await threw(`(state, event) => { while (true) {} };`, 500);
+  const loop = await threw(`({ context, event }) => { while (true) {} };`, 500);
   check("infinite loop caught", loop?.includes("Jessie fuel limit exceeded") === true, `threw ${loop}`);
 
   // Regression: Unbounded function recursion must exhaust fuel limit before stack overflow
   const recurse = await threw(
     `
 const recurse = () => recurse();
-(state, event) => recurse();
+({ context, event }) => recurse();
 `,
     200,
   );
@@ -252,7 +252,7 @@ const recurse = () => recurse();
   // only around the returned function would let it hang the verb.
   let topLevel: string | null = null;
   try {
-    await load(`while (true) {}\n(state, event) => state;\n`, 300);
+    await load(`while (true) {}\n({ context, event }) => context;\n`, 300);
   } catch (e) {
     topLevel = (e as Error).message;
   }
@@ -264,7 +264,7 @@ const recurse = () => recurse();
   // stub is itself rewritten and would spend the steps its own body owes.
   // Unmetered, every one of them returns having spent nothing.
   const hot = `for (let i = 0; i < 200000; i++) {}`;
-  const spin = `${hot}\n(state, event) => ({});\n`;
+  const spin = `${hot}\n({ context, event }) => ({});\n`;
 
   /** What instrument refused about a source, or null where it rewrote it. */
   const refused = (source: string): string | null => {
@@ -284,8 +284,8 @@ const recurse = () => recurse();
     ["a destructured const", `const { a: ${METER} } = { a: Function.prototype };\n${spin}`],
     ["a function declaration", `function ${METER}() {}\n${spin}`],
     ["a class declaration", `class ${METER} {}\n${spin}`],
-    ["a parameter", `(function (${METER}) { ${hot} })(Function.prototype);\n(state, event) => ({});\n`],
-    ["a catch binding", `try { null.x; } catch (${METER}) { ${hot} }\n(state, event) => ({});\n`],
+    ["a parameter", `(function (${METER}) { ${hot} })(Function.prototype);\n({ context, event }) => ({});\n`],
+    ["a catch binding", `try { null.x; } catch (${METER}) { ${hot} }\n({ context, event }) => ({});\n`],
     ["a bare assignment", `${METER} = Function.prototype;\n${spin}`],
   ];
   for (const [what, source] of captures) {

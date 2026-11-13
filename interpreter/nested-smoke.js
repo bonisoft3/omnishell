@@ -200,7 +200,7 @@ Deno.test({
     <div class="session" data-live="session" data-filter="id=eq.s" data-on-mutation="follow-card"><p data-text="{id}"></p></div>
   </div>
 </section>`;
-    const handler = `const reduce = (state, event) => ({ updates: [{ op: "patch", id: "s", row: { card: state.params.card } }] });
+    const handler = `const reduce = ({ context, event }) => ({ updates: [{ op: "patch", id: "s", row: { card: context.params.card } }] });
 reduce;`;
     globalThis.fetch = (url) => String(url).endsWith(".html")
       ? Promise.resolve(new Response(html))

@@ -11,4 +11,4 @@
 // satisfied and NO finding is produced — which is how the self-test's count
 // tells a real compartment from host globals.
 const probe = fetch.name;
-(state, event) => ({ updates: [] });
+() => ({ updates: [] });

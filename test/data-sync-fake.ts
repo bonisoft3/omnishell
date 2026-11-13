@@ -102,13 +102,23 @@ export function fakeDataSync(tables: Record<string, Row[]>, cluster: Cluster = {
     if (a === undefined || cluster.me === undefined) return true;
     if (a.scope === "public") return true;
     if (a.scope === "internal") return false;
+    if (a.scope === "group") return row[a.user as string] === cluster.me;
     if (a.scope === "private") {
       if (row[a.owner as string] === cluster.me) return true;
-      if (a.shared === undefined) return false;
       const pk = row[keyOf(table)];
-      return (data.get(a.shared.via) ?? []).some(
+      if (a.shared !== undefined && (data.get(a.shared.via) ?? []).some(
         (sh) => sh[a.shared!.on] === pk && sh[a.shared!.user] === cluster.me,
-      );
+      )) return true;
+      // A grant that names a group is the reader's while the membership list
+      // has their row for it.
+      const list = a.shared?.members;
+      if (a.shared?.group !== undefined && list !== undefined) {
+        const mine = new Set((data.get(list.table) ?? []).filter((m) => m[list.user] === cluster.me).map((m) => m[list.group]));
+        if ((data.get(a.shared.via) ?? []).some((sh) => sh[a.shared!.on] === pk && sh[a.shared!.group!] != null && mine.has(sh[a.shared!.group!]))) return true;
+      }
+      return (a.groups ?? []).some((g) => (data.get(g.members.table) ?? []).some(
+        (m) => m[g.members.group] === `${row[g.of]}:${g.group}` && m[g.members.user] === cluster.me,
+      ));
     }
     const parent = a.parent as string;
     const p = (data.get(parent) ?? []).find((r) => r[keyOf(parent)] === row[a.on as string]);

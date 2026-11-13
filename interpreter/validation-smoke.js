@@ -7,8 +7,8 @@
 import { FIXTURE_CARRIERS } from "./fixture-types.js";
 import { assert, withBrowser } from "./smoke-browser.js";
 
-const OWN_ARTICLE = `(state, event) => state.rows.article.every((a) => a.author_id !== event.row.user_id);\n`;
-const UNANSWERED = `(state, event) => "maybe";\n`;
+const OWN_ARTICLE = `({ context, event }) => context.rows.article.every((a) => a.author_id !== event.row.user_id);\n`;
+const UNANSWERED = `({ context, event }) => "maybe";\n`;
 
 const config = (src) => ({
   carriers: FIXTURE_CARRIERS,
@@ -259,7 +259,7 @@ Deno.test({
   sanitizeResources: false,
   async fn() {
     const src = "shell/validations/delete.js";
-    serve({ [src]: `(state, event) => event.type === "delete" && state.items.length === 1 && state.items[0].id === event.row.id && event.row.user_id !== "blocked";` });
+    serve({ [src]: `({ context, event }) => event.type === "delete" && context.items.length === 1 && context.items[0].id === event.row.id && event.row.user_id !== "blocked";` });
     await withBrowser({}, async createStore => {
       const cfg = config(src);
       cfg.validations.favorite["own-article"].on = ["delete"];

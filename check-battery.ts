@@ -270,7 +270,7 @@ export async function exercise(
     return result(0, `${role} source does not end in a function`);
   }
 
-  const call = (state: unknown, event: unknown) => site.delay ? target(state, event) : target(state, event, params);
+  const call = (state: unknown, event: unknown) => site.delay ? target({ context: state, event }) : target({ context: state, event }, params);
   let maxFuel = 0;
   const details = fc.check(
     propertyFor(({ state, event }) => {
@@ -348,7 +348,7 @@ type Shell = {
 };
 
 /** The entities as the generators take them, keyed by the table they are
- * filed under — which is the name a validation and a handler's `state.rows`
+ * filed under — which is the name a validation and a handler's `context.rows`
  * both reach them by. */
 export function entitiesOf(schema: Record<string, SchemaEntity>): Record<string, EntityDef> {
   const entities: Record<string, EntityDef> = {};
@@ -608,7 +608,7 @@ export async function selfTest(): Promise<{ failures: string[] }> {
   const confined = await exercise(
     "confinement",
     "handler",
-    `(state, event) => {
+    `({ context, event }) => {
   if (typeof fetch !== "undefined") throw new Error("fetch reached a handler");
   if (typeof Deno !== "undefined") throw new Error("Deno reached a handler");
   return { updates: [] };
@@ -632,7 +632,7 @@ export async function selfTest(): Promise<{ failures: string[] }> {
   const captured = await exercise(
     "capture",
     "handler",
-    `const ${METER} = Function.prototype;\n(state, event) => ({ updates: [] });\n`,
+    `const ${METER} = Function.prototype;\n({ context, event }) => ({ updates: [] });\n`,
     fc.record({ state: fc.constant({}), event: fc.constant({}) }),
     {},
     { numRuns: 5 },

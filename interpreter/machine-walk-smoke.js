@@ -44,9 +44,9 @@ const SCREEN_HTML = `<section class="screen" data-screen="fib">
 </section>`;
 
 const MODULES = {
-  "pastLimit.js": "const f = (state, event) => state.items[0].current + state.items[0].previous > 40;\nf;",
-  "advance.js": "const f = (state, event) => state.items[0].current + state.items[0].previous;\nf;",
-  "carry.js": "const f = (state, event) => state.items[0].current;\nf;",
+  "pastLimit.js": "const f = ({ context, event }) => context.items[0].current + context.items[0].previous > 40;\nf;",
+  "advance.js": "const f = ({ context, event }) => context.items[0].current + context.items[0].previous;\nf;",
+  "carry.js": "const f = ({ context, event }) => context.items[0].current;\nf;",
 };
 
 const ROUTE = {

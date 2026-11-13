@@ -621,7 +621,10 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     }
     if (type === "delete" && held === undefined) return;
     const rowsFor = async (edge, produced, name) => {
-      const want = String(produced[edge.from]);
+      // An edge from the origin reads the rows addressed to this subject, and
+      // a guest is addressed none.
+      if (edge.from === "$origin" && userId() == null) return [];
+      const want = String(edge.from === "$origin" ? userId() : produced[edge.from]);
       if (requestOnly(table) || requestOnly(edge.table)) {
         return readServer(edge.table, null, { filter: `${edge.key}=eq.${encodeURIComponent(want)}` });
       }
@@ -781,16 +784,36 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     if (a.scope === "public") return true;
     if (a.scope === "internal") return false;
     const uid = userId();
+    // A membership row is its member's.
+    if (a.scope === "group") return row[a.user] === uid;
     if (a.scope === "private") {
       if (row[a.owner] === uid) return true;
       if (a.shared) {
         whole(a.shared.via, `${table}'s visibility`);
         const via = client.collections[a.shared.via];
         const pk = row[keyOf(table)];
-        return (
-          via !== undefined &&
-          via.toArray.some((s) => s[a.shared.on] === pk && s[a.shared.user] === uid)
-        );
+        if (via !== undefined && via.toArray.some((s) => s[a.shared.on] === pk && s[a.shared.user] === uid)) return true;
+        // A grant that names a group is this subject's while the membership
+        // list has their row for it.
+        if (a.shared.group !== undefined && via !== undefined) {
+          whole(a.shared.members.table, `${table}'s visibility`);
+          const list = client.collections[a.shared.members.table];
+          const mine = new Set((list?.toArray ?? []).filter((m) => m[a.shared.members.user] === uid).map((m) => m[a.shared.members.group]));
+          if (via.toArray.some((s) => s[a.shared.on] === pk && s[a.shared.group] != null && mine.has(s[a.shared.group]))) return true;
+        }
+      }
+      // A group the row is shared with: `<row[of]>:<group>`, held when the
+      // membership list has this subject's row for it.
+      for (const g of a.groups ?? []) {
+        whole(g.members.table, `${table}'s visibility`);
+        const list = client.collections[g.members.table];
+        // A row that names no owner of the group is shared with no group,
+        // as the cluster's NULL answers.
+        if (row[g.of] == null) continue;
+        // The cluster's own spelling where the row carries it: a value's text
+        // there need not be its text here.
+        const group = (g.column !== undefined ? row[g.column] : undefined) ?? `${row[g.of]}:${g.group}`;
+        if (list !== undefined && list.toArray.some((m) => m[g.members.group] === group && m[g.members.user] === uid)) return true;
       }
       return false;
     }
@@ -812,6 +835,8 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     const a = access[table];
     if (!a) return out;
     if (a.scope === "private" && a.shared) out.add(a.shared.via);
+    if (a.scope === "private" && a.shared?.members) out.add(a.shared.members.table);
+    if (a.scope === "private") for (const g of a.groups ?? []) out.add(g.members.table);
     if (a.scope === "folder" && !out.has(a.parent)) {
       out.add(a.parent);
       accessDeps(a.parent, out);

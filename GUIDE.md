@@ -61,18 +61,22 @@ reduce ([when to reach for which](docs/machines.md#machine-or-reduce)).
 ## The reduce contract
 
 A handler is one arrow function, evaluated in an SES compartment with **nothing
-endowed**.
+endowed**. Its argument is the one XState hands a guard and an action,
+`({context, event}, params)`: `context` is the world the terminal read for
+this wake, and `params` are the literals a chart states beside a leaf's name.
+A leaf that names its first parameter, the earlier `(state, event)`, is
+refused when the program is compiled.
 
 ```js
-(state, event) => ({ updates: [...], then: {type, delay} })
+({context, event}) => ({ updates: [...], then: {type, delay} })
 ```
 
 **What it receives**
 
-- `state.rows` — `{table: [row, ...]}` for every table named in the waking
+- `context.rows` — `{table: [row, ...]}` for every table named in the waking
   region's `data-reads` (the waking region's own `data-live` table is **not** in
-  `state.rows` unless it is also listed in `data-reads`).
-- `state.items` — the region's own current rows, in DOM order.
+  `context.rows` unless it is also listed in `data-reads`).
+- `context.items` — the region's own current rows, in DOM order.
 - `event` — see below.
 
 **What wakes it**

@@ -773,7 +773,7 @@ Deno.test({
   async fn() {
     const fake = electric(world(), SCHEMA);
     const fold = { fold: true, from: "player_game", to: "stat", key: "player_id", projects: "games", retracted: "retracted_at", watermark: "w", pair: { table: "player", total: "t", counted: "c" } };
-    const validation = `(state, event) => state.rows.player_game.length >= 0;\n`;
+    const validation = `({ context, event }) => context.rows.player_game.length >= 0;\n`;
     const fetch = (input, init) =>
       String(input).endsWith("/app/v.js") ? Promise.resolve(new Response(validation)) : fake.fetcher(input, init);
     await withBrowser({ fetch }, async (createStore) => {

@@ -301,7 +301,7 @@ Deno.test({
     );
     const { document, Event, store, calls } = boot(
       html,
-      `const reduce = (state, event) => event.type === "refused"
+      `const reduce = ({ context, event }) => event.type === "refused"
   ? { updates: [{ op: "patch", id: "notice", row: { entity: event.entity, id: event.id, kind: event.kind, validation: event.validation } }] }
   : { updates: [] };
 reduce;`,
@@ -342,7 +342,7 @@ Deno.test({
     await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
     const { document, Event, store, calls } = boot(
       screenHtml(MACHINE, ' data-on-mutation="log"'),
-      `const reduce = (state, event) => event.type === "refused"
+      `const reduce = ({ context, event }) => event.type === "refused"
   ? { updates: [{ op: "patch", id: "notice", row: { kind: event.kind, validation: event.validation } }] }
   : { updates: [] };
 reduce;`,
@@ -381,7 +381,7 @@ Deno.test({
     await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
     const { document, Event, store, calls } = boot(
       screenHtml(MACHINE, ' data-on-mutation="log"'),
-      `const reduce = (state, event) => event.type === "refused"
+      `const reduce = ({ context, event }) => event.type === "refused"
   ? { updates: [{ op: "patch", id: "notice", row: { kind: event.kind, validation: event.validation } }] }
   : { updates: [] };
 reduce;`,

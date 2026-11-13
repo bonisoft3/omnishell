@@ -189,7 +189,7 @@ function boot({
     if (handler !== undefined && modules[handler] !== undefined) {
       const answers = modules[handler];
       const status = answers.length > 1 ? answers.shift() : answers[0];
-      return Promise.resolve(new Response(status === 200 ? "const reduce = (state) => state;\nreduce;" : "", {status}));
+      return Promise.resolve(new Response(status === 200 ? "const reduce = ({ context }) => context;\nreduce;" : "", {status}));
     }
     if (u.endsWith("/auth/guest")) {
       minted.push(u);

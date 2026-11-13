@@ -47,12 +47,12 @@ const SCREEN_HTML = `<section class="screen" data-screen="fib">
 </section>`;
 
 const MODULES = {
-  "pastLimit.js": "const f = (state, event) => state.items[0].current + state.items[0].previous > 1000;\nf;",
-  "advance.js": "const f = (state, event) => state.items[0].current + state.items[0].previous;\nf;",
-  "carry.js": "const f = (state, event) => state.items[0].current;\nf;",
-  "beat.js": "const f = (state, event) => 40;\nf;",
+  "pastLimit.js": "const f = ({ context, event }) => context.items[0].current + context.items[0].previous > 1000;\nf;",
+  "advance.js": "const f = ({ context, event }) => context.items[0].current + context.items[0].previous;\nf;",
+  "carry.js": "const f = ({ context, event }) => context.items[0].current;\nf;",
+  "beat.js": "const f = ({ context, event }) => 40;\nf;",
   // The row-closure specimen: a leaf reaching beyond the machine's row.
-  "leaky.js": "const f = (state, event) => state.rows.fib.length > 0;\nf;",
+  "leaky.js": "const f = ({ context, event }) => context.rows.fib.length > 0;\nf;",
 };
 
 const ROUTE = {
@@ -377,7 +377,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "row closure: a leaf reaching state.rows fails loudly and writes nothing",
+  name: "row closure: a leaf reaching context.rows fails loudly and writes nothing",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -399,7 +399,7 @@ Deno.test({
 });
 
 // Parameterized references: the threshold lives in the chart as data, the
-// module serves any instance. (state, event, params) is the leaf's whole
+// module serves any instance. ({ context, event }, params) is the leaf's whole
 // signature; a params object of anything but literals never reaches here —
 // machine.cue refuses it at vet.
 const PARAMS_MACHINE = {
@@ -423,8 +423,8 @@ const PARAMS_HTML = `<section class="screen" data-screen="pk">
           data-machine='${JSON.stringify(PARAMS_MACHINE)}'>0</button>
 </section>`;
 
-MODULES["under.js"] = "const f = (state, event, params) => state.items[0].n < params.limit;\nf;";
-MODULES["bump.js"] = "const f = (state, event, params) => state.items[0].n + params.by;\nf;";
+MODULES["under.js"] = "const f = ({ context, event }, params) => context.items[0].n < params.limit;\nf;";
+MODULES["bump.js"] = "const f = ({ context, event }, params) => context.items[0].n + params.by;\nf;";
 
 Deno.test({
   name: "a {type, params} leaf receives its params in guard and assign positions",
@@ -449,7 +449,7 @@ Deno.test({
   },
 });
 
-MODULES["normalizeInput.js"] = "const f = (state, event) => String(event.value ?? '').trim().toLowerCase();\nf;";
+MODULES["normalizeInput.js"] = "const f = ({ context, event }) => String(event.value ?? '').trim().toLowerCase();\nf;";
 
 const FAVORITE_MACHINE = {
   field: "phase",

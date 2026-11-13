@@ -22,9 +22,9 @@ Deno.test({
       <div id="intent-seat" data-on-mutation="create" hidden data-live="form" data-filter="id=eq.draft"><template data-item><span></span></template></div>
       <button id="form-seat" data-live="form" data-filter="id=eq.draft" data-status="{status}" data-run="{run}" data-machine='${JSON.stringify(chart)}'>Create</button>
     </section>`;
-    const handler = `(state, event) => {
+    const handler = `({ context, event }) => {
       if (event.type === "mutation") {
-        const form = state.items[0];
+        const form = context.items[0];
         return form?.status === "generating" && !form.set_id ? { updates: [], then: { type: "mint", uuid: true } } : { updates: [] };
       }
       if (event.type !== "mint" || typeof event.uuid !== "string") throw new Error("expected a minted UUID");
@@ -204,7 +204,7 @@ for (const changedIdentity of [true, false]) Deno.test({
       async put(table, row) { Object.assign(rows[table].find((held) => held.id === row.id), row); for (const fn of subscribers.get(table) ?? []) fn(); },
     };
     globalThis.document = document;
-    globalThis.fetch = async (url) => new Response(String(url).endsWith(".css") ? "" : String(url).endsWith("admit.js") ? '(state) => state.items[0].allow === "yes"' : `<section data-screen="generate"><div data-live="form" data-filter="id=eq.draft" data-reads="form" data-machine='${JSON.stringify(chart)}'></div></section>`);
+    globalThis.fetch = async (url) => new Response(String(url).endsWith(".css") ? "" : String(url).endsWith("admit.js") ? '({ context }) => context.items[0].allow === "yes"' : `<section data-screen="generate"><div data-live="form" data-filter="id=eq.draft" data-reads="form" data-machine='${JSON.stringify(chart)}'></div></section>`);
     let screen;
     try {
       screen = await interpretScreen(document.getElementById("shell"), "http://localhost/", { screen: "generate", files: { html: "generate.html", css: "generate.css", handlers: ["admit.js"] }, states: ["populated"] }, batched(base), {}, {

@@ -21,13 +21,12 @@ const refusal = async (p) => {
 const noRows = () => {
   throw new Error("smoke failed: rowsFor asked with no edges declared");
 };
-const noMe = () => {
-  throw new Error("smoke failed: me asked with the owner present");
-};
+// A guest: nobody is signed in, so a write has no origin.
+const noMe = () => null;
 
 Deno.test("an insert is judged as stated, with no standing row", async () => {
   const seen = [];
-  const list = [{ name: "any", edges: [], test: (state, event) => (seen.push({ state, event }), true) }];
+  const list = [{ name: "any", edges: [], test: ({ context: state, event }) => (seen.push({ state, event }), true) }];
   await judge(list, { table: "note", type: "insert", row: { id: "n1", title: "a" }, rowsFor: noRows, me: noMe });
   assert(seen.length === 1, "the predicate ran once");
   assert(JSON.stringify(seen[0].state) === JSON.stringify({ items: [], rows: {} }), "no items, no rows");
@@ -37,10 +36,19 @@ Deno.test("an insert is judged as stated, with no standing row", async () => {
   );
 });
 
+Deno.test("the event names who sent the write, and a guest's names nobody", async () => {
+  const seen = [];
+  const list = [{ name: "any", edges: [], test: ({ event }) => (seen.push(event), true) }];
+  await judge(list, { table: "note", type: "insert", row: { id: "n1" }, rowsFor: noRows, me: () => "u1" });
+  await judge(list, { table: "note", type: "insert", row: { id: "n1" }, rowsFor: noRows, me: noMe });
+  assert(seen[0]._origin === "user:u1", "the origin is the session's subject");
+  assert(!("_origin" in seen[1]), "a guest's write has no origin");
+});
+
 Deno.test("an update is judged as the merged row, the standing row its one item", async () => {
   const held = { id: "n1", title: "a", body: "b" };
   let got;
-  const list = [{ name: "any", edges: [], test: (state, event) => ((got = { state, event }), true) }];
+  const list = [{ name: "any", edges: [], test: ({ context: state, event }) => ((got = { state, event }), true) }];
   await judge(list, { table: "note", type: "update", row: { id: "n1", title: "c" }, held, rowsFor: noRows, me: noMe });
   assert(got.state.items.length === 1 && got.state.items[0] === held, "the standing row is the item");
   assert(got.event.type === "update", "the type rides along");
@@ -52,11 +60,11 @@ Deno.test("an update is judged as the merged row, the standing row its one item"
 
 Deno.test("the owner is filled from me only when the produced row omits it", async () => {
   const rows = [];
-  const list = [{ name: "any", edges: [], test: (_s, event) => (rows.push(event.row), true) }];
+  const list = [{ name: "any", edges: [], test: ({ event }) => (rows.push(event.row), true) }];
   let asked = 0;
   const me = () => (asked++, "u1");
   await judge(list, { table: "note", type: "insert", row: { id: "n1" }, rowsFor: noRows, owner: "user_id", me });
-  assert(rows[0].user_id === "u1" && asked === 1, "an absent owner is the session's");
+  assert(rows[0].user_id === "u1" && asked === 1, "an absent owner is the session's, asked once");
   await judge(list, {
     table: "note",
     type: "update",
@@ -81,7 +89,7 @@ Deno.test("each edge's rows come from rowsFor, asked with the produced row", asy
   const list = [{
     name: "own-article",
     edges: [{ table: "article", key: "id", from: "article_id" }, { table: "tag", key: "id", from: "tag_id" }],
-    test: (s) => ((state = s), true),
+    test: ({ context }) => ((state = context), true),
   }];
   await judge(list, {
     table: "favorite",

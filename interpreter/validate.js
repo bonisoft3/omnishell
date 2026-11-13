@@ -16,26 +16,29 @@
  * is filled with `me()` when the produced row omits it: the server defaults
  * it, and a predicate over an absent owner judges nothing. Filled after the
  * merge, so an update never restates the owner of a row this reader does not
- * own. `me` is asked only then.
+ * own. `me` also names the write's origin, `event._origin`, as `user:<id>`.
  *
  * `rowsFor(edge, row, name)` answers the rows of `edge.table` the produced
  * row walks to, for the validation named `name`; they reach the predicate as
- * `state.rows[edge.table]`.
+ * `context.rows[edge.table]`.
  *
  * A predicate answering anything but a boolean is a program error, not a
  * refusal: there is no reading of a rule that did not answer.
  */
 export async function judge(list, { table, type, row, held, rowsFor, owner, me }) {
   const items = held === undefined ? [] : [held];
+  // Who sent the write: the origin, as the trigger states it, which a guest
+  // has none of, and the owner of a row that names none.
+  const sender = me();
   let produced = held === undefined ? row : { ...held, ...row };
   if (owner !== undefined && produced[owner] === undefined) {
-    produced = { ...produced, [owner]: me() };
+    produced = { ...produced, [owner]: sender };
   }
-  const event = { type, row: produced };
+  const event = sender == null ? { type, row: produced } : { type, row: produced, _origin: `user:${sender}` };
   for (const v of list) {
     const rows = {};
     for (const edge of v.edges) rows[edge.table] = await rowsFor(edge, event.row, v.name);
-    const verdict = v.test({ items, rows }, event);
+    const verdict = v.test({ context: { items, rows }, event });
     if (verdict === true) continue;
     if (verdict !== false) {
       throw new Error(`validation ${table}.${v.name}: the predicate answered ${typeof verdict}`);

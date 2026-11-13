@@ -281,7 +281,7 @@ Deno.test('native SSR streams top-down chunks and progressive prefetch reads bef
       '/index.html': '<html lang="en"><head></head><body><main id="app"></main><script type="module" src="./boot.js"></script></body></html>',
       '/fold.html': '<section class="screen" data-screen="fold"><ul data-live="match"><template data-item><li data-text="{score}"></li></template></ul><div data-live="team" data-on-mutation="copy-fold" data-reads="team,match"><template data-item><span data-text="{name}"></span></template></div></section>',
       '/team.css': 'h1 { color: black }',
-      '/copy-fold.js': 'const reduce = (state) => state.rows.match.some((r) => r.id === "m-fla") ? { updates: [] } : { updates: state.rows.team.map((r) => ({ op: "put", entity: "match", id: "m-" + r.id, row: { team_id: r.id, score: "folded-" + r.name } })) }; reduce;',
+      '/copy-fold.js': 'const reduce = ({ context }) => context.rows.match.some((r) => r.id === "m-fla") ? { updates: [] } : { updates: context.rows.team.map((r) => ({ op: "put", entity: "match", id: "m-" + r.id, row: { team_id: r.id, score: "folded-" + r.name } })) }; reduce;',
     }, 'https://app.example')
     const foldChunks: string[] = []
     const foldResult = await foldRender(
@@ -304,7 +304,7 @@ Deno.test('native SSR streams top-down chunks and progressive prefetch reads bef
       '/index.html': '<html lang="en"><head></head><body><main id="app"></main><script type="module" src="./boot.js"></script></body></html>',
       '/fold.html': '<section class="screen" data-screen="fold"><ul data-live="match"><template data-item><li data-text="{score}"></li></template></ul><div data-live="team" data-on-mutation="copy-fold" data-reads="team,match"><template data-item><span data-text="{name}"></span></template></div></section>',
       '/team.css': 'h1 { color: black }',
-      '/copy-fold.js': 'let seen = false; const reduce = (state) => { if (seen || state.rows.match.some((r) => r.id === "m-fla")) return { updates: [] }; seen = true; return { updates: state.rows.team.map((r) => ({ op: "put", entity: "match", id: "m-" + r.id, row: { team_id: r.id, score: "once-" + r.name } })) }; }; reduce;',
+      '/copy-fold.js': 'let seen = false; const reduce = ({ context }) => { if (seen || context.rows.match.some((r) => r.id === "m-fla")) return { updates: [] }; seen = true; return { updates: context.rows.team.map((r) => ({ op: "put", entity: "match", id: "m-" + r.id, row: { team_id: r.id, score: "once-" + r.name } })) }; }; reduce;',
     }, 'https://app.example')
     const firstStateful = await statefulFoldRender(new Request('https://app.example/fold'), {
       async read(path) { return path.startsWith('/team?') ? [{ id: 'fla', name: 'Flamengo' }] : [] },

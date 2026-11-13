@@ -19,7 +19,7 @@ Deno.test('worker startup resolves Statechart and preserves role grants', async 
   try {
     await Deno.mkdir(`${root}/public/shell/handlers`, { recursive: true })
     await Deno.writeTextFile(`${root}/public/shell/shell.json`, JSON.stringify({ routes: [{files: {handlers: ['shell/handlers/step.js']}}], endowments: {'shell/handlers/step.js': ['Statechart']} }))
-    await Deno.writeTextFile(`${root}/public/shell/handlers/step.js`, '(state) => state')
+    await Deno.writeTextFile(`${root}/public/shell/handlers/step.js`, '({ context }) => context')
     await prepareWorker(`${root}/public`, `${root}/generated`)
     const startup = await import(`file://${root}/generated/jessie-startup.js`)
     assert.equal(typeof startup.SAFE_ENDOWMENTS.Statechart, 'function')

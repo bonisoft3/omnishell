@@ -134,8 +134,8 @@ const SCREEN = `<section class="screen" data-screen="counter">
 
 // A fold that writes its own collection and asks for a pause between beats:
 // the smallest screen that cannot finish without the clock being driven.
-const BEAT = `(state, event) => {
-  const row = (state.rows.tick ?? []).find((r) => r.id === "t1");
+const BEAT = `({ context, event }) => {
+  const row = (context.rows.tick ?? []).find((r) => r.id === "t1");
   const beats = Number(row.beats);
   if (beats >= 3) return { updates: [] };
   return {

@@ -6,7 +6,7 @@
 import { describe, expect, it } from "@test/harness"
 import { mountScreen } from "./screen-harness.ts"
 
-const REDUCE = `(state, event) => ({
+const REDUCE = `({ context, event }) => ({
   updates: [{ op: "patch", entity: "cell", id: event.id, row: { hit: "yes" } }],
 })`
 

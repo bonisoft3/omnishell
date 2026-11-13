@@ -64,11 +64,11 @@ Deno.test("call sites keep separate compartments, parameters and immutable input
   const inputs = fc.record({ state: fc.constant({ items: [{ id: "original" }] }), event: fc.constant({ type: "click" }) });
   const propertyFor = sharedInputs(inputs);
   const source = `let calls = 0;
-(state, event, params) => {
+({ context, event }, params) => {
   calls += 1;
   if (calls > 8) throw new Error("shared compartment");
-  if (state.items[0].id !== "original") throw new Error("shared mutation");
-  if (params.mutate) state.items[0].id = "changed";
+  if (context.items[0].id !== "original") throw new Error("shared mutation");
+  if (params.mutate) context.items[0].id = "changed";
   return {updates: []};
 };`;
   const options = { numRuns: 4 };
@@ -82,7 +82,7 @@ Deno.test("call sites keep separate compartments, parameters and immutable input
   assert.equal(last.maxFuel, first.maxFuel);
 });
 
-Deno.test("exercise catches a handler that breaks or throws when state.rows order is reversed", async () => {
+Deno.test("exercise catches a handler that breaks or throws when context.rows order is reversed", async () => {
   const inputs = fc.record({
     state: fc.constant({
       items: [{ id: "1" }],
@@ -91,15 +91,15 @@ Deno.test("exercise catches a handler that breaks or throws when state.rows orde
     event: fc.constant({ type: "mutation" }),
   });
   const propertyFor = sharedInputs(inputs);
-  const orderFragile = `(state) => {
-    if (state.rows.cards[0].id !== "a") return { updates: "bad" };
+  const orderFragile = `({ context }) => {
+    if (context.rows.cards[0].id !== "a") return { updates: "bad" };
     return { updates: [] };
   };`;
   const res = await exercise("fragile", "handler", orderFragile, inputs, { params: {} }, { numRuns: 1 }, propertyFor);
   assert.match(res.error ?? "", /on reversed row order/);
 
-  const orderThrow = `(state) => {
-    if (state.rows.cards[0].id !== "a") throw new Error("unexpected first row");
+  const orderThrow = `({ context }) => {
+    if (context.rows.cards[0].id !== "a") throw new Error("unexpected first row");
     return { updates: [] };
   };`;
   const resThrow = await exercise("thrower", "handler", orderThrow, inputs, { params: {} }, { numRuns: 1 }, propertyFor);
@@ -114,8 +114,8 @@ Deno.test("battery honors each module's declared Statechart grant", async () => 
     await Deno.mkdir(`${dir}/shell/screens`, { recursive: true });
     const body = `const step = Statechart({initial: "a", states: {a: {final: false, on: {GO: {target: "b"}}}, b: {final: true, on: {}}}}, {guard: () => true, reduce: (row, arrow) => ({...row, phase: arrow.target})});
       if (step({phase: "a"}, {kind: "GO"}).phase !== "b") throw new Error("wrong phase");`;
-    for (const name of ["allowed", "denied"]) await Deno.writeTextFile(`${dir}/shell/handlers/${name}.js`, `(state, event) => { ${body} return {updates: []}; }`);
-    await Deno.writeTextFile(`${dir}/shell/validations/allowed.js`, `(state, event) => { ${body} return true; }`);
+    for (const name of ["allowed", "denied"]) await Deno.writeTextFile(`${dir}/shell/handlers/${name}.js`, `({ context, event }) => { ${body} return {updates: []}; }`);
+    await Deno.writeTextFile(`${dir}/shell/validations/allowed.js`, `({ context, event }) => { ${body} return true; }`);
     await Deno.writeTextFile(`${dir}/shell/screens/home.html`, '<main data-live="note"><button data-on-click="allowed"></button><button data-on-click="denied"></button></main>');
     await Deno.writeTextFile(`${dir}/shell/shell.yaml`, `
 schema:
@@ -177,13 +177,13 @@ Deno.test("battery exercises a module referenced only by an effect input", async
   try {
     await Deno.mkdir(`${dir}/shell/handlers`, { recursive: true });
     await Deno.mkdir(`${dir}/shell/screens`, { recursive: true });
-    await Deno.writeTextFile(`${dir}/shell/handlers/input.js`, `(state, event, params) => {
+    await Deno.writeTextFile(`${dir}/shell/handlers/input.js`, `({ context, event }, params) => {
       if (params.column !== "ready") throw new Error("missing literal parameters");
-      if (state.items.length !== 1 || "rows" in state) throw new Error("wrong leaf world");
-      for (const row of state.items) if (typeof row[params.column] !== "boolean") throw new Error("wrong row domain");
-      return state.items.length;
+      if (context.items.length !== 1 || "rows" in context) throw new Error("wrong leaf world");
+      for (const row of context.items) if (typeof row[params.column] !== "boolean") throw new Error("wrong row domain");
+      return context.items.length;
     }`);
-    await Deno.writeTextFile(`${dir}/shell/handlers/world.js`, `(state) => state.rows.form.length`);
+    await Deno.writeTextFile(`${dir}/shell/handlers/world.js`, `({ context }) => context.rows.form.length`);
     const chart = { field: "status", initial: "editing", states: { editing: { on: { submit: {
       effect: { op: "create", entity: "job", values: { input: { type: "input", params: { column: "ready" } }, invalid: { type: "world" } } },
     } } } } };
@@ -209,8 +209,8 @@ Deno.test("named delays receive only the held row and after event", async () => 
   try {
     await Deno.mkdir(`${dir}/shell/handlers`, { recursive: true });
     await Deno.mkdir(`${dir}/shell/screens`, { recursive: true });
-    await Deno.writeTextFile(`${dir}/shell/handlers/delay.js`, `(state, event) => {
-      if ("rows" in state || state.items.length > 1 || event.type !== "after") throw new Error("wrong delay input");
+    await Deno.writeTextFile(`${dir}/shell/handlers/delay.js`, `({ context, event }) => {
+      if ("rows" in context || context.items.length > 1 || event.type !== "after") throw new Error("wrong delay input");
       return 10;
     }`);
     const chart = {field:"phase",initial:"a",states:{a:{after:{delay:"a"}}}};
