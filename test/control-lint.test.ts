@@ -131,7 +131,7 @@ describe("unwitnessedControls stays silent on wired controls", () => {
 
   // A summary, a select, a textarea and a bare checkbox are legitimately
   // JS-free markup here — apps/realworld/shell/screens/article.html opens a
-  // native <details>, and xpense's veil-box toggle is pure :checked CSS.
+  // native <details>, and a veil-box toggle is pure :checked CSS.
   it("markup that is an affordance, not a control", () => {
     expect(
       unwitnessedControls(

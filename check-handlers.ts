@@ -35,8 +35,8 @@
 // completion value; bounding this check means borrowing that rewrite, not
 // racing it.
 //
-// OUT OF SCOPE — `pipelines[].shim`. realworld declares three and thenote one,
-// and they reach the browser exactly as folds do, but a shim is
+// OUT OF SCOPE — `pipelines[].shim`. They reach the browser exactly as folds
+// do, but a shim is
 // (rows) => one row on id (schema.cue) where a fold is four functions. That is
 // a fifth role in jessie.js, not a fifth spelling here, so shims go unchecked
 // until the role exists.

@@ -972,7 +972,7 @@ export function localDate(value, ctx) {
 //
 // A money column is an INTEGER count of minor units and says so on the column
 // (schema.cue #Field.money), never in the markup: the integer alone does not
-// say what it counts — xpense stores whole reais where the ordinary convention
+// say what it counts — whole reais are valid where the ordinary convention
 // is cents — and a scale spelled into an attribute is a second place to look
 // for the same fact. check-markup grades every such binding against the
 // emitted schema for exactly that reason.
