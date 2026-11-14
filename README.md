@@ -27,7 +27,7 @@ application code only declares screens and derives writes.
 | The reduce sandbox and its denylist | `plugins/pronto/jessie.ts` |
 | What may be declared: entities, screens, forms, seeds | `plugins/pronto/schema.cue` |
 | Emission — markup, `shell.yaml`, compose, docker | `plugins/pronto/write.ts` |
-| Design tokens and presets | `plugins/pronto/styles.ts`, `apps/shadcnui` |
+| Design tokens and roles | `plugins/pronto/styles.ts`, `apps/shadcnui` |
 | Terminal doctrine, the event surface, the arguments | [`docs/`](docs/) |
 | Unbreakable machines, effect safety, and verification | [`docs/machines.md`](docs/machines.md) |
 | Every `data-*`, with its meaning | [`REFERENCE.md`](REFERENCE.md) |

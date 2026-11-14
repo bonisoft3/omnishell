@@ -240,11 +240,14 @@ must exist. Do not mint scenery from a reduce if you can declare it.
 
 ### Design tokens are `--primary`, not `--color-primary`
 
-The preset supplies `--neutral --surface --surface-muted --border --primary
---secondary --accent --danger --attention`, spacing `--sp-sm|md|lg|xl`, radii
-`--r-sm|md|full`, and `--motion-*`. A `var()` naming a token that does not exist
-makes the whole declaration invalid and it is **silently dropped** — the symptom
-is a screen with no layout and no error. `apps/shadcnui` is the worked gallery.
+`DESIGN.md` explicitly declares the eight core colour roles (`--neutral --surface
+--surface-muted --border --primary --secondary --accent --danger`, plus any
+domain roles such as `--attention`) in both `colors` and `dark`, alongside an
+explicit `shell.nav` (`"strip" | "sidebar" | "custom"`), while `#Design` defaults
+spacing `--sp-sm|md|lg|xl`, radii `--r-sm|md|full`, and `--motion-*`. A `var()`
+naming a token that does not exist makes the whole declaration invalid and it is
+**silently dropped** — the symptom is a screen with no layout and no error.
+`apps/shadcnui` is the worked gallery.
 
 ### An item template holds exactly one element
 
