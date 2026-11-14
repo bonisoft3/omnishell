@@ -18,7 +18,7 @@ say:
       bundle:
         priority: 1
         cmds:
-          - do: "with-env {MISE_LOCKED: '0'} { mise tool-stub ../sayt/task.toml -t .bayt/Taskfile.yml bayt:generate }"
+          - do: "mise tool-stub ../sayt/task.toml -t .bayt/Taskfile.yml bayt:generate"
   # The checkers are reached through the command line that dispatches to them,
   # which imports every one: a checker this list never names is typed anyway,
   # and one added later is typed the day it is dispatched rather than the day
@@ -30,13 +30,13 @@ say:
       bundle:
         priority: -3
         cmds:
-          - do: "with-env {MISE_LOCKED: '0'} { mise tool-stub ../sayt/task.toml -t .bayt/Taskfile.yml bayt:bundle }"
+          - do: "mise tool-stub ../sayt/task.toml -t .bayt/Taskfile.yml bayt:bundle"
   lint:
     rulemap:
       bundle:
         priority: -3
         cmds:
-          - do: "with-env {MISE_LOCKED: '0'} { mise tool-stub ../sayt/task.toml -t .bayt/Taskfile.yml bayt:bundle }"
+          - do: "mise tool-stub ../sayt/task.toml -t .bayt/Taskfile.yml bayt:bundle"
       types:
         cmds:
           - do: "deno check --config test/deno.json src/ test/ check-visual.ts runtime/cli.ts"
@@ -45,7 +45,7 @@ say:
       bundle:
         priority: -3
         cmds:
-          - do: "with-env {MISE_LOCKED: '0'} { mise tool-stub ../sayt/task.toml -t .bayt/Taskfile.yml bayt:bundle }"
+          - do: "mise tool-stub ../sayt/task.toml -t .bayt/Taskfile.yml bayt:bundle"
       cortex:
         priority: -1
         cmds:
@@ -78,8 +78,8 @@ say:
       battery:
         priority: -1
         cmds:
-          - do: "with-env {MISE_LOCKED: '0'} { mise tool-stub runtime/deno.toml run --no-lock --no-check --node-modules-dir=none --config test/deno.json --allow-read=. --allow-write=. --allow-env runtime/cli.ts check battery --self-test }"
-          - do: "with-env {MISE_LOCKED: '0'} { mise tool-stub runtime/deno.toml run --no-lock --no-check --node-modules-dir=none --config test/deno.json --allow-read=. --allow-write=. --allow-env runtime/cli.ts check aria --self-test }"
+          - do: "mise tool-stub runtime/deno.toml run --no-lock --no-check --node-modules-dir=none --config test/deno.json --allow-read=. --allow-write=. --allow-env runtime/cli.ts check battery --self-test"
+          - do: "mise tool-stub runtime/deno.toml run --no-lock --no-check --node-modules-dir=none --config test/deno.json --allow-read=. --allow-write=. --allow-env runtime/cli.ts check aria --self-test"
   integrate:
     args: "--bake --no-up"
     rulemap:
