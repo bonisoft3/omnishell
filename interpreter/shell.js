@@ -432,8 +432,11 @@ function syncGuestChrome(box, session, { signOut, chrome, cfg } = {}) {
       who.append(name, handle);
       box.prepend(who);
     }
+    // The provider's name over the handle, when the sign-in vouched for one.
+    const name = who.querySelector(".name");
+    if (name) name.textContent = session.user.name ?? "";
     const handle = who.querySelector(".handle");
-    if (handle) handle.textContent = session.user.handle ?? "";
+    if (handle) handle.textContent = session.user.name ? "" : (session.user.handle ?? "");
     let out = box.querySelector(":scope > .shell-signout");
     if (!out && signOut) {
       out = document.createElement("a");
@@ -558,9 +561,11 @@ function renderSession(session, cfg, store, signOut, chrome, served = null, life
   }
   const name = document.createElement("span");
   name.className = "name";
+  // The provider's name over the handle, when the sign-in vouched for one.
+  name.textContent = session.user.name ?? "";
   const handle = document.createElement("span");
   handle.className = "handle";
-  handle.textContent = session.user.handle;
+  handle.textContent = session.user.name ? "" : session.user.handle;
   who.append(name, handle);
 
   const box = document.createElement("span");
