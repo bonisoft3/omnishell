@@ -304,27 +304,34 @@ export function arbitraryValidationInput(
   edges: { table: string; key: string; from: string }[],
   allEntities: Record<string, EntityDef>,
 ): fc.Arbitrary<
-  { state: { rows: Record<string, unknown[]>; items: unknown[] }; event: { type: string; row: Record<string, unknown> } }
+  { state: { rows: Record<string, unknown[]>; items: unknown[] }; event: { type: string; row: Record<string, unknown>; _origin?: string } }
 > {
   const targetRowArb = arbitraryRow(targetEntity);
+  // Who sent the write, as both seats state it: `user:<id>` for a reader, and
+  // nothing for a write nobody signed. An edge from the origin reads the rows
+  // addressed to that sender, so with no sender it reads none.
+  const senderArb = fc.option(fc.uuid(), { nil: undefined });
 
-  return targetRowArb.chain((row) => {
+  return fc.tuple(targetRowArb, senderArb).chain(([row, sender]) => {
     const edgeRowArbs: Record<string, fc.Arbitrary<unknown[]>> = {};
 
     for (const edge of edges) {
       const entity = Object.values(allEntities).find((e) => e.table === edge.table);
-      if (entity) {
+      const fromOrigin = edge.from === "$origin";
+      if (entity && !(fromOrigin && sender === undefined)) {
         const baseArb = arbitraryRow(entity);
         // Correlate the edge key with target row field 50% of the time
         const correlatedArb = baseArb.map((r) => {
-          const fromVal = row[edge.from];
+          const fromVal = fromOrigin ? sender : row[edge.from];
           return fromVal !== undefined ? { ...r, [edge.key]: fromVal } : r;
         });
 
-        edgeRowArbs[edge.table] = fc.oneof(
-          { arbitrary: fc.array(correlatedArb, { minLength: 1, maxLength: 3 }), weight: 5 },
-          { arbitrary: fc.array(baseArb, { minLength: 0, maxLength: 3 }), weight: 5 },
-        );
+        edgeRowArbs[edge.table] = fromOrigin
+          ? fc.array(correlatedArb, { minLength: 0, maxLength: 3 })
+          : fc.oneof(
+            { arbitrary: fc.array(correlatedArb, { minLength: 1, maxLength: 3 }), weight: 5 },
+            { arbitrary: fc.array(baseArb, { minLength: 0, maxLength: 3 }), weight: 5 },
+          );
       } else {
         edgeRowArbs[edge.table] = fc.constant([]);
       }
@@ -336,7 +343,7 @@ export function arbitraryValidationInput(
         fc.record({ type: fc.constant("update"), held: targetRowArb.map((held) => [held]) }),
       ).map(({ type, held }) => ({
         state: { rows: edgeRows, items: held },
-        event: { type, row },
+        event: sender === undefined ? { type, row } : { type, row, _origin: `user:${sender}` },
       }))
     );
   });

@@ -81,7 +81,7 @@ Deno.test({
         };
         await Deno.writeTextFile(`${dir}/shell/shell.yaml`, JSON.stringify(shell));
         await Deno.writeTextFile(`${dir}/shell/home.css`, "");
-        await Deno.writeTextFile(`${dir}/${handler}`, 'const step = Statechart({initial:"a", states:{a:{final:true,on:{}}}}, {guard:()=>true,reduce:(row)=>row}); (state,event)=>({updates:[]});');
+        await Deno.writeTextFile(`${dir}/${handler}`, 'const step = Statechart({initial:"a", states:{a:{final:true,on:{}}}}, {guard:()=>true,reduce:(row)=>row}); ({context,event})=>({updates:[]});');
         await Deno.writeTextFile(`${dir}/shell/home.html`, `<section data-screen="home"><div data-live="toggle" data-on-mutation="step" data-machine='{"field":"state","initial":"off","states":{"off":{"on":{"click":"on"}},"on":{"on":{"click":"off"}}}}'><template data-item><button>Toggle</button></template></div></section>`);
         const result = await checkApp(new URL(`file://${dir}/`));
         if (granted && (result.walked !== 1 || fails(result.findings))) throw new Error(`granted handler failed: ${JSON.stringify(result)}`);

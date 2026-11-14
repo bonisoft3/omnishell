@@ -622,7 +622,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     if (type === "delete" && held === undefined) return;
     const rowsFor = async (edge, produced, name) => {
       // An edge from the origin reads the rows addressed to this subject, and
-      // a guest is addressed none.
+      // with nobody signed in there is none to address.
       if (edge.from === "$origin" && userId() == null) return [];
       const want = String(edge.from === "$origin" ? userId() : produced[edge.from]);
       if (requestOnly(table) || requestOnly(edge.table)) {
@@ -784,6 +784,9 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     if (a.scope === "public") return true;
     if (a.scope === "internal") return false;
     const uid = userId();
+    // Nobody is signed in: no row is theirs, and a grant that names a group
+    // leaves its user empty, which must not read as this nobody's.
+    if (uid == null && a.scope !== "folder") return false;
     // A membership row is its member's.
     if (a.scope === "group") return row[a.user] === uid;
     if (a.scope === "private") {

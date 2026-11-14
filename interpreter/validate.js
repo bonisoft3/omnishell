@@ -27,8 +27,8 @@
  */
 export async function judge(list, { table, type, row, held, rowsFor, owner, me }) {
   const items = held === undefined ? [] : [held];
-  // Who sent the write: the origin, as the trigger states it, which a guest
-  // has none of, and the owner of a row that names none.
+  // Who sent the write: the origin, as the trigger states it, which a write
+  // nobody signed has none of, and the owner of a row that names none.
   const sender = me();
   let produced = held === undefined ? row : { ...held, ...row };
   if (owner !== undefined && produced[owner] === undefined) {

@@ -116,8 +116,10 @@ export function fakeDataSync(tables: Record<string, Row[]>, cluster: Cluster = {
         const mine = new Set((data.get(list.table) ?? []).filter((m) => m[list.user] === cluster.me).map((m) => m[list.group]));
         if ((data.get(a.shared.via) ?? []).some((sh) => sh[a.shared!.on] === pk && sh[a.shared!.group!] != null && mine.has(sh[a.shared!.group!]))) return true;
       }
-      return (a.groups ?? []).some((g) => (data.get(g.members.table) ?? []).some(
-        (m) => m[g.members.group] === `${row[g.of]}:${g.group}` && m[g.members.user] === cluster.me,
+      // As data-sync.js: no owner of the group, no group; and the cluster's
+      // own spelling of its name where the row carries it.
+      return (a.groups ?? []).some((g) => row[g.of] != null && (data.get(g.members.table) ?? []).some(
+        (m) => m[g.members.group] === ((g.column !== undefined ? row[g.column] : undefined) ?? `${row[g.of]}:${g.group}`) && m[g.members.user] === cluster.me,
       ));
     }
     const parent = a.parent as string;
