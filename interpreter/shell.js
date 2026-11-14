@@ -1194,7 +1194,12 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       // the link the reader may be on, and its words and addresses rewritten
       // in place by the first show(). One naming others is another deploy's,
       // and gives way to this one, its words written in the same task.
-      const routesOf = (strip) => [...strip.querySelectorAll(":scope > a[data-route]")].map((a) => a.dataset.route).join(" ");
+      const routesOf = (strip) => [
+        strip.querySelector(":scope > .shell-brand") ? "1" : "0",
+        ...[...strip.querySelectorAll(":scope > a[data-route]")].map(
+          (a) => `${a.dataset.route}:${a.dataset.entry ?? ""}:${a.dataset.icon ?? ""}:${a.dataset.display ?? ""}`,
+        ),
+      ].join(" ");
       const kept = servedStrip !== null && routesOf(servedStrip) === routesOf(nav) ? servedStrip : null;
       if (kept !== null) nav = kept;
       else if (servedStrip) servedStrip.replaceWith(nav);

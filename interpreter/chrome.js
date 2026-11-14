@@ -51,6 +51,118 @@ export const CHROME_KEYS = { login: Object.keys(LOGIN), session: Object.keys(SES
 
 export const CHROME = { ...LOGIN, ...SESSION, ...PROMOTE, ...PROVIDERS };
 
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** Named stroke icons available to strip routes (`nav.icon`), modeled as Lucide
+ * 24x24 geometry tuples rather than raw SVG strings so `drawStrip` constructs
+ * nodes via `createElementNS` under `require-trusted-types-for 'script'` and
+ * linkedom SSR alike. `#NavIcon` in `plugins/pronto/schema.cue` is held equal
+ * to this key set by `login-design.test.ts`. */
+export const CHROME_ICONS = {
+  // Navigation & discovery
+  home: [["path", { d: "M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" }], ["path", { d: "M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" }]],
+  compass: [["circle", { cx: "12", cy: "12", r: "10" }], ["polygon", { points: "16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" }]],
+  search: [["circle", { cx: "11", cy: "11", r: "8" }], ["path", { d: "m21 21-4.3-4.3" }]],
+  sparkles: [["path", { d: "M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" }], ["path", { d: "M20 3v4" }], ["path", { d: "M22 5h-4" }]],
+  globe: [["circle", { cx: "12", cy: "12", r: "10" }], ["path", { d: "M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" }], ["path", { d: "M2 12h20" }]],
+  "map-pin": [["path", { d: "M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" }], ["circle", { cx: "12", cy: "10", r: "3" }]],
+  // Views, boards & grids
+  "layout-grid": [["rect", { width: "7", height: "7", x: "3", y: "3", rx: "1" }], ["rect", { width: "7", height: "7", x: "14", y: "3", rx: "1" }], ["rect", { width: "7", height: "7", x: "14", y: "14", rx: "1" }], ["rect", { width: "7", height: "7", x: "3", y: "14", rx: "1" }]],
+  "grid-3x3": [["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2" }], ["path", { d: "M3 9h18" }], ["path", { d: "M3 15h18" }], ["path", { d: "M9 3v18" }], ["path", { d: "M15 3v18" }]],
+  list: [["path", { d: "M8 6h13" }], ["path", { d: "M8 12h13" }], ["path", { d: "M8 18h13" }], ["path", { d: "M3 6h.01" }], ["path", { d: "M3 12h.01" }], ["path", { d: "M3 18h.01" }]],
+  kanban: [["path", { d: "M6 5v11" }], ["path", { d: "M12 5v6" }], ["path", { d: "M18 5v14" }]],
+  layers: [["path", { d: "m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z" }], ["path", { d: "m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65" }], ["path", { d: "m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65" }]],
+  table: [["path", { d: "M12 3v18" }], ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2" }], ["path", { d: "M3 9h18" }], ["path", { d: "M3 15h18" }]],
+  // Time & planning
+  calendar: [["path", { d: "M8 2v4" }], ["path", { d: "M16 2v4" }], ["rect", { width: "18", height: "18", x: "3", y: "4", rx: "2" }], ["path", { d: "M3 10h18" }]],
+  clock: [["circle", { cx: "12", cy: "12", r: "10" }], ["polyline", { points: "12 6 12 12 16 14" }]],
+  history: [["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" }], ["path", { d: "M3 3v5h5" }], ["path", { d: "M12 7v5l4 2" }]],
+  // Analytics & finance
+  "chart-bar": [["path", { d: "M12 20V10" }], ["path", { d: "M18 20V4" }], ["path", { d: "M6 20v-6" }]],
+  "chart-line": [["path", { d: "M3 3v16a2 2 0 0 0 2 2h16" }], ["path", { d: "m19 9-5 5-4-4-3 3" }]],
+  "chart-pie": [["path", { d: "M21 12c.552 0 1.005-.449.95-.998a10 10 0 0 0-8.953-8.951c-.55-.055-.998.398-.998.95v8a1 1 0 0 0 1 1z" }], ["path", { d: "M21.21 15.89A10 10 0 1 1 8 2.83" }]],
+  "trending-up": [["polyline", { points: "22 7 13.5 15.5 8.5 10.5 2 17" }], ["polyline", { points: "16 7 22 7 22 13" }]],
+  wallet: [["path", { d: "M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1" }], ["path", { d: "M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4" }]],
+  "credit-card": [["rect", { width: "20", height: "14", x: "2", y: "5", rx: "2" }], ["line", { x1: "2", x2: "22", y1: "10", y2: "10" }]],
+  receipt: [["path", { d: "M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z" }], ["path", { d: "M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" }], ["path", { d: "M12 17.5v-11" }]],
+  "shopping-bag": [["path", { d: "M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" }], ["path", { d: "M3 6h18" }], ["path", { d: "M16 10a4 4 0 0 1-8 0" }]],
+  // Reading, docs & knowledge
+  "book-open": [["path", { d: "M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" }], ["path", { d: "M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" }]],
+  "file-text": [["path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" }], ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4" }], ["path", { d: "M10 9H8" }], ["path", { d: "M16 13H8" }], ["path", { d: "M16 17H8" }]],
+  newspaper: [["path", { d: "M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2" }], ["path", { d: "M18 14h-8" }], ["path", { d: "M15 18h-5" }], ["path", { d: "M10 6h8v4h-8V6Z" }]],
+  scroll: [["path", { d: "M8 21h12a2 2 0 0 0 2-2v-2H10v2a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v3h4" }], ["path", { d: "M19 17V5a2 2 0 0 0-2-2H4" }]],
+  "circle-help": [["circle", { cx: "12", cy: "12", r: "10" }], ["path", { d: "M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" }], ["path", { d: "M12 17h.01" }]],
+  info: [["circle", { cx: "12", cy: "12", r: "10" }], ["path", { d: "M12 16v-4" }], ["path", { d: "M12 8h.01" }]],
+  bookmark: [["path", { d: "m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" }]],
+  tag: [["path", { d: "M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z" }], ["circle", { cx: "7.5", cy: "7.5", r: ".5", fill: "currentColor" }]],
+  folder: [["path", { d: "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" }]],
+  // People, social & communication
+  "message-square": [["path", { d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" }]],
+  mail: [["rect", { width: "20", height: "16", x: "2", y: "4", rx: "2" }], ["path", { d: "m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" }]],
+  inbox: [["polyline", { points: "22 12 16 12 14 15 10 15 8 12 2 12" }], ["path", { d: "M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" }]],
+  bell: [["path", { d: "M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" }], ["path", { d: "M10.3 21a1.94 1.94 0 0 0 3.4 0" }]],
+  users: [["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" }], ["circle", { cx: "9", cy: "7", r: "4" }], ["path", { d: "M22 21v-2a4 4 0 0 0-3-3.87" }], ["path", { d: "M16 3.13a4 4 0 0 1 0 7.75" }]],
+  user: [["path", { d: "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" }], ["circle", { cx: "12", cy: "7", r: "4" }]],
+  heart: [["path", { d: "M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" }]],
+  share: [["circle", { cx: "18", cy: "5", r: "3" }], ["circle", { cx: "6", cy: "12", r: "3" }], ["circle", { cx: "18", cy: "19", r: "3" }], ["line", { x1: "8.59", x2: "15.42", y1: "13.51", y2: "17.49" }], ["line", { x1: "15.41", x2: "8.59", y1: "6.51", y2: "10.49" }]],
+  // Games, media & activity
+  gamepad: [["line", { x1: "6", x2: "10", y1: "12", y2: "12" }], ["line", { x1: "8", x2: "8", y1: "10", y2: "14" }], ["line", { x1: "15", x2: "15.01", y1: "13", y2: "13" }], ["line", { x1: "18", x2: "18.01", y1: "11", y2: "11" }], ["rect", { width: "20", height: "12", x: "2", y: "6", rx: "2" }]],
+  trophy: [["path", { d: "M6 9H4.5a2.5 2.5 0 0 1 0-5H6" }], ["path", { d: "M18 9h1.5a2.5 2.5 0 0 0 0-5H18" }], ["path", { d: "M4 22h16" }], ["path", { d: "M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22" }], ["path", { d: "M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" }], ["path", { d: "M18 2H6v7a6 6 0 0 0 12 0V2Z" }]],
+  award: [["path", { d: "m15.477 12.89 1.515 8.526a.5.5 0 0 1-.81.47l-3.58-2.687a1 1 0 0 0-1.197 0l-3.586 2.686a.5.5 0 0 1-.81-.469l1.514-8.526" }], ["circle", { cx: "12", cy: "8", r: "6" }]],
+  flame: [["path", { d: "M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" }]],
+  zap: [["path", { d: "M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" }]],
+  play: [["polygon", { points: "6 3 20 12 6 21 6 3" }]],
+  music: [["path", { d: "M9 18V5l12-2v13" }], ["circle", { cx: "6", cy: "18", r: "3" }], ["circle", { cx: "18", cy: "16", r: "3" }]],
+  image: [["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", ry: "2" }], ["circle", { cx: "9", cy: "9", r: "2" }], ["path", { d: "m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" }]],
+  // Actions, status & developer
+  "plus-circle": [["circle", { cx: "12", cy: "12", r: "10" }], ["path", { d: "M8 12h8" }], ["path", { d: "M12 8v8" }]],
+  "check-circle": [["circle", { cx: "12", cy: "12", r: "10" }], ["path", { d: "m9 12 2 2 4-4" }]],
+  sliders: [["line", { x1: "4", x2: "4", y1: "21", y2: "14" }], ["line", { x1: "4", x2: "4", y1: "10", y2: "3" }], ["line", { x1: "12", x2: "12", y1: "21", y2: "12" }], ["line", { x1: "12", x2: "12", y1: "8", y2: "3" }], ["line", { x1: "20", x2: "20", y1: "21", y2: "16" }], ["line", { x1: "20", x2: "20", y1: "12", y2: "3" }], ["line", { x1: "2", x2: "6", y1: "14", y2: "14" }], ["line", { x1: "10", x2: "14", y1: "8", y2: "8" }], ["line", { x1: "18", x2: "22", y1: "16", y2: "16" }]],
+  settings: [["path", { d: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" }], ["circle", { cx: "12", cy: "12", r: "3" }]],
+  shield: [["path", { d: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" }]],
+  code: [["polyline", { points: "16 18 22 12 16 6" }], ["polyline", { points: "8 6 2 12 8 18" }]],
+  terminal: [["polyline", { points: "4 17 10 11 4 5" }], ["line", { x1: "12", x2: "20", y1: "19", y2: "19" }]],
+};
+
+function drawIcon(doc, name) {
+  if (!name || !Object.hasOwn(CHROME_ICONS, name)) return null;
+  const svg = doc.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("class", "shell-nav-icon");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", "16");
+  svg.setAttribute("height", "16");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.85");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  for (const [tag, attrs] of CHROME_ICONS[name]) {
+    const shape = doc.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs)) shape.setAttribute(k, v);
+    svg.append(shape);
+  }
+  return svg;
+}
+
+function fillNavLink(doc, a, item) {
+  const icon = drawIcon(doc, item?.icon);
+  if (icon) {
+    a.setAttribute("data-icon", item.icon);
+    const label = doc.createElement("span");
+    label.className = "shell-nav-label";
+    label.textContent = item.label;
+    a.append(icon, label);
+    if (item.display === "icon-only") {
+      a.setAttribute("data-display", "icon-only");
+      a.setAttribute("aria-label", item.label);
+      a.setAttribute("title", item.label);
+    }
+  } else {
+    a.textContent = item?.label ?? "";
+  }
+}
+
 /** Where a provider's sign-in starts: a navigation, not a fetch, since the
  * provider's own pages take the reader and the auth service brings them back
  * to `here` (mecha's services/auth/README.md#provider-sign-in). */
@@ -84,7 +196,7 @@ export function stripRoutes(cfg) {
 export function hasStrip(cfg, session, mintedGuest = false) {
   const guest = session ? Boolean(session.user?.guest) : mintedGuest;
   const person = guest ? offersGuest(cfg) : Boolean(session);
-  return stripRoutes(cfg).length > 1 || person;
+  return stripRoutes(cfg).length > 1 || person || Boolean(cfg.brand?.label);
 }
 
 /** The strip, before any locale is resolved. Its addresses change with the
@@ -92,10 +204,16 @@ export function hasStrip(cfg, session, mintedGuest = false) {
  * on every navigation. */
 export function drawStrip(doc, cfg) {
   const nav = doc.createElement("nav");
+  if (cfg.brand?.label) {
+    const brand = doc.createElement("span");
+    brand.className = "shell-brand";
+    brand.textContent = cfg.brand.label;
+    nav.append(brand);
+  }
   for (const r of stripRoutes(cfg)) {
     const a = doc.createElement("a");
     a.setAttribute("data-route", r.screen);
-    a.textContent = r.nav.label;
+    fillNavLink(doc, a, r.nav);
     nav.append(a);
     // A route's other entries are its own addresses, one per set of params
     // (nav.entries): the shelves of a library. Each is a link like any other,
@@ -106,7 +224,7 @@ export function drawStrip(doc, cfg) {
       link.setAttribute("data-route", r.screen);
       link.setAttribute("data-entry", String(i));
       for (const [name, value] of Object.entries(entry.params ?? {})) link.setAttribute(`data-param-${name}`, value);
-      link.textContent = entry.label;
+      fillNavLink(doc, link, entry);
       nav.append(link);
     }
   }
@@ -151,6 +269,8 @@ export function guestBox(doc, cfg) {
  * label, and aria-current names the link that IS this page — which is the
  * link whose address is this one (`here`, a pathname), not merely a link to
  * the same route with someone else's :params.
+ * @param {Element | null | undefined} nav
+ * @param {any} cfg
  * @param {{ locale?: string, here?: string, search?: string, messages?: Record<string, Record<string, string>>, explicitLocale?: boolean }} [options] */
 export function localizeStrip(nav, cfg, { locale, here, search = "", messages, explicitLocale = false } = {}) {
   if (!nav) return;
@@ -161,20 +281,31 @@ export function localizeStrip(nav, cfg, { locale, here, search = "", messages, e
     if (href !== undefined && (a.getAttribute("href") === here || new URL(href, "https://shell.local").pathname === here)) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   }
+  const brand = nav.querySelector(":scope > .shell-brand");
+  if (brand && cfg.brand?.label !== undefined) {
+    brand.textContent = cfg.brand.key !== undefined
+      ? (messages?.[locale]?.[cfg.brand.key] ?? messages?.[cfg.i18n?.default]?.[cfg.brand.key] ?? cfg.brand.label)
+      : cfg.brand.label;
+  }
   // The strip's own links, and not the person's: renderSession's anchor
   // names a route too, and is a name and a handle rather than a word — a
   // label written onto it takes both down.
   for (const a of nav.querySelectorAll(":scope > a[data-route]")) {
-    // A key is absent on a route the app declares none for, and on every
-    // route of an app declaring no catalogues: the table's own spelling
-    // stands, which is the language it was written in. The word is the
-    // catalogue's, read as a screen reads one, so whatever brings the
-    // catalogues current (shell.js catalogues) brings the strip with them.
-    const nav = cfg.routes.find((r) => r.screen === a.getAttribute("data-route"))?.nav;
+    // Re-apply even when `key` is absent so a served strip adopted from a
+    // cached document picks up renamed default-language labels in `shell.yaml`.
+    const routeNav = cfg.routes.find((r) => r.screen === a.getAttribute("data-route"))?.nav;
     const entry = a.getAttribute("data-entry");
-    const { key, label } = (entry === null ? nav : nav?.entries?.[Number(entry)]) ?? {};
-    if (key === undefined) continue;
-    a.textContent = messages?.[locale]?.[key] ?? messages?.[cfg.i18n?.default]?.[key] ?? label;
+    const { key, label } = (entry === null ? routeNav : routeNav?.entries?.[Number(entry)]) ?? {};
+    if (key === undefined && label === undefined) continue;
+    const word = key !== undefined
+      ? (messages?.[locale]?.[key] ?? messages?.[cfg.i18n?.default]?.[key] ?? label)
+      : label;
+    const labelEl = a.querySelector(":scope > .shell-nav-label") ?? a;
+    labelEl.textContent = word;
+    if (a.getAttribute("data-display") === "icon-only") {
+      a.setAttribute("aria-label", word);
+      a.setAttribute("title", word);
+    }
   }
   const out = nav.querySelector(".shell-signout");
   if (out) out.textContent = chromeText("chrome_signout", { messages, locale });

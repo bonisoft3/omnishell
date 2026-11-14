@@ -41,7 +41,7 @@ export interface Release {
   screens: Record<string, string[]>
   entries: string[]
   scripts: string[]
-  cfg: { routes: { path: string; screen?: string; paths?: Record<string, string>; access?: 'public' | 'private'; ssr?: 'spa' | 'ssg' | 'ssr'; files: Record<string, string | string[]>; nav: { label: string; strip?: boolean } }[]; auth?: { required?: boolean }; tables?: unknown[]; i18n?: { locales?: Record<string, unknown> }; prefix?: string }
+  cfg: { brand?: { label: string; key?: string }; routes: { path: string; screen?: string; paths?: Record<string, string>; access?: 'public' | 'private'; ssr?: 'spa' | 'ssg' | 'ssr'; files: Record<string, string | string[]>; nav: { label: string; icon?: string; display?: 'icon-only'; strip?: boolean } }[]; auth?: { required?: boolean }; tables?: unknown[]; i18n?: { locales?: Record<string, unknown> }; prefix?: string }
 }
 
 /** An RTCIceServer: a STUN server's `urls`, and a TURN relay's credentials. */

@@ -52,7 +52,14 @@ type Route = {
   // default-language spelling; `key` names the word in each catalogue.
   // Optional here, where an emitted shell.yaml is graded with no program
   // beside it.
-  nav?: { label: string; key?: string; strip?: boolean; entries?: { label: string; key?: string; params?: Record<string, string> }[] };
+  nav?: {
+    label: string;
+    key?: string;
+    strip?: boolean;
+    icon?: string;
+    display?: string;
+    entries?: { label: string; key?: string; icon?: string; display?: string; params?: Record<string, string> }[];
+  };
   files: { html: string; css: string; handlers?: string[]; shared?: string[] };
   states?: string[];
   hatches?: string[];
@@ -63,6 +70,7 @@ type I18n = { default: string; locales: Record<string, { path: string }> };
 type ShellConfig = {
   cortex?: { actors?: Record<string, unknown> };
   app?: string;
+  brand?: { label: string; key?: string };
   i18n?: I18n;
   // The facts that decide which of the terminal's own chrome a reader reaches:
   // a required gate draws the login screen, either a gate or a table of the
@@ -514,10 +522,24 @@ export function checkChrome(
 
   // A parametrized route has no static href, and a route reached from somewhere
   // more specific than "everywhere" takes itself off — so the strip is what the
-  // terminal draws, not the route table. With one route on it and nobody signed
-  // in, the terminal draws none at all.
+  // terminal draws, not the route table. With one route on it, nobody signed
+  // in, and no brand title, the terminal draws none at all.
   const strip = (shell.routes ?? []).filter((r) => requiredParams(r.path).length === 0 && r.nav?.strip !== false);
-  if (strip.length <= 1 && !session) return findings;
+  const branded = typeof shell.brand?.label === "string" && shell.brand.label !== "";
+  if (strip.length <= 1 && !session && !branded) return findings;
+  if (branded) {
+    const key = shell.brand?.key;
+    if (key === undefined) {
+      report(
+        shellPath,
+        `brand wears the strip title ${JSON.stringify(shell.brand?.label)} in every locale: name a message key for it`,
+      );
+    } else {
+      for (const tag of tags) {
+        if (!said(tag, key)) report(`messages/${tag}.json`, `brand [${tag}]: label key "${key}" is missing`);
+      }
+    }
+  }
   // A route's entries (nav.entries) are strip links of their own, each with a
   // label the catalogues must answer as they answer the route's.
   const links = strip.flatMap((route) => [
