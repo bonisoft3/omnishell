@@ -17,10 +17,12 @@ function worker(initial: string | null, cacheControl = "public, no-cache") {
   const lifetime: Promise<unknown>[] = []
   const key = (req: Request | string) => typeof req === "string" ? new URL(req, self.location.origin).href : req.url
   const handlers: Record<string, (e: unknown) => void> = {}
+  let preloadDisabled = false
   const self = {
     location: { origin: "https://app.test" },
     addEventListener: (type: string, fn: (e: unknown) => void) => (handlers[type] = fn),
     clients: { claim: () => {} },
+    registration: { navigationPreload: { disable: () => Promise.resolve(void (preloadDisabled = true)) } },
     skipWaiting: () => {},
   }
   const caches = {
@@ -67,6 +69,11 @@ function worker(initial: string | null, cacheControl = "public, no-cache") {
     control = cc
   }
   return { get, raw, store, serve,
+    activate: async () => {
+      handlers.activate({ waitUntil: (p: Promise<unknown>) => lifetime.push(p) })
+      await Promise.all(lifetime.splice(0))
+      return preloadDisabled
+    },
     rejectWrites: () => { rejectCacheWrites = true },
     settle: () => Promise.allSettled(lifetime.splice(0)) }
 }
@@ -178,5 +185,10 @@ describe("the offline service worker", () => {
     const sw = worker("<p>mine</p>", "private, no-store")
     await sw.get("/conta", "navigate")
     expect(sw.store.has("https://app.test/conta")).toBe(false)
+  })
+
+  it("disables inherited navigationPreload on activate so bypassed OAuth callbacks are not replayed", async () => {
+    const sw = worker("<p>ok</p>")
+    expect(await sw.activate()).toBe(true)
   })
 })

@@ -669,12 +669,18 @@ function catalogues(appBase, i18n) {
 // answer, and fetches what nothing reads.
 export function installModalInert(document) {
   const modalInert = new Map();
+  const esc = document.defaultView?.CSS?.escape ?? ((s) => String(s).replace(/["\\]/g, "\\$&"));
   const syncModalInert = () => {
     const modal = [...document.querySelectorAll('[role="dialog"][aria-modal="true"]')]
       .find((el) => el.checkVisibility({ checkVisibilityCSS: true, contentVisibilityAuto: true }) && el.getClientRects().length);
     const next = new Set();
     for (let node = modal; node?.parentElement; node = node.parentElement) {
-      for (const sibling of node.parentElement.children) if (sibling !== node) next.add(sibling);
+      for (const sibling of node.parentElement.children) {
+        if (sibling === node) continue;
+        if (sibling.localName === "input" && (sibling.type === "checkbox" || sibling.type === "radio") && sibling.id &&
+            modal.querySelector(`label[for="${esc(sibling.id)}"]`)) continue;
+        next.add(sibling);
+      }
     }
     for (const [el, wasInert] of modalInert) if (!next.has(el)) {
       el.inert = wasInert;
@@ -689,6 +695,7 @@ export function installModalInert(document) {
     subtree: true, childList: true, attributes: true,
     attributeFilter: ["data-status", "hidden", "class", "style", "aria-modal"],
   });
+  document.addEventListener("change", syncModalInert, true);
   syncModalInert();
 }
 

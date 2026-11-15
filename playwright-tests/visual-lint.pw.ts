@@ -134,6 +134,24 @@ describe("hidden controls", () => {
       expect(await page.locator("#nav").evaluate((el) => !!el.closest("[inert]"))).toBe(false)
       expect(await page.locator("#already").evaluate((el) => !!el.closest("[inert]"))).toBe(true)
     }))
+  // Checkbox-driven modals (<input type="checkbox"> ~ .login-modal-overlay) close
+  // via <label for="..."> property toggle without mutating observed attributes;
+  // keeping the checkbox non-inert and syncing on change restores background interactivity.
+  it("keeps checkbox modal toggles activatable and restores background inertness on label close", () =>
+    withPage(async (page) => {
+      await page.setContent(`<style>#login-modal-toggle { display:none } #overlay { display:none } #login-modal-toggle:checked ~ #overlay { display:flex }</style>
+        <section><input type="checkbox" id="login-modal-toggle">
+        <div id="overlay"><div role="dialog" aria-modal="true"><label for="login-modal-toggle" id="close">Close</label></div></div>
+        <label for="login-modal-toggle" id="open">Sign in</label>
+        <button id="background">Filter</button></section>`)
+      await page.evaluate((source) => (0, eval)(`(${source})(document)`), installModalInert.toString())
+      await page.locator("#open").click()
+      await page.waitForFunction(() => !!document.querySelector("#background")?.closest("[inert]"))
+      expect(await page.locator("#login-modal-toggle").evaluate((el) => !!el.closest("[inert]"))).toBe(false)
+      await page.locator("#close").click()
+      await page.waitForFunction(() => !document.querySelector("#background")?.closest("[inert]"))
+      await page.locator("#background").click()
+    }))
   it("are not touch targets", () =>
     withPage(
       async (page) => {
