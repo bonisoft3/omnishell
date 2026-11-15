@@ -71,6 +71,34 @@ Deno.test('a release target writes its ICE servers into the terminal config it a
   } finally { await Deno.remove(out, { recursive: true }) }
 })
 
+// Regression: a tree carried a deployment's realm host in its policy, so one
+// tree served only that deployment; each door now adds its own.
+Deno.test("a door's realm frame sources join every entry's frame-src, and a policy without one is refused", async () => {
+  const out = await tree()
+  const meta = (policy: string) => `<meta http-equiv="Content-Security-Policy" content="${policy}">`
+  const policy = "script-src 'self'; frame-src 'self'"
+  const frames = ['https://payments.localhost:*', 'https://payments.caddy:*']
+  try {
+    for (const name of ['shell/index.html', 'regras/index.html', 'shell/units/pay/index.html']) {
+      const file = path.join(out, name)
+      await Deno.writeTextFile(file, (await Deno.readTextFile(file)).replace(/<head>|<body>/, (m) => m === '<head>' ? m + meta(policy) : `<head>${meta(policy)}</head>${m}`))
+    }
+    await addressRelease(out, { frames })
+    for (const name of ['shell/index.html', 'regras/index.html']) {
+      const { document } = parseHTML(await Deno.readTextFile(path.join(out, name)))
+      const content = document.querySelector('meta[http-equiv="Content-Security-Policy"]')!.getAttribute('content')!
+      assert.ok(content.endsWith("; frame-src 'self' https://payments.localhost:* https://payments.caddy:*"), content)
+    }
+    // A realm's own document states its own policy.
+    assert.ok((await Deno.readTextFile(path.join(out, 'shell/units/pay/index.html'))).includes(meta(policy)))
+  } finally { await Deno.remove(out, { recursive: true }) }
+  const bare = await tree()
+  try {
+    await Deno.writeTextFile(path.join(bare, 'shell/index.html'), files['shell/index.html'].replace('<head>', `<head>${meta("script-src 'self'")}`))
+    await assert.rejects(addressRelease(bare, { frames }), /shell\/index.html: its Content-Security-Policy has no frame-src to admit https:\/\/payments.localhost:\* https:\/\/payments.caddy:\*/)
+  } finally { await Deno.remove(bare, { recursive: true }) }
+})
+
 Deno.test('a tree addressed without ICE servers keeps the config it was given', async () => {
   const out = await tree()
   try {
