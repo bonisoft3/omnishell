@@ -15,7 +15,7 @@ application code only declares screens and derives writes.
 > **Writing an app? Start with [GUIDE.md](GUIDE.md).** It covers the
 > reduce contract, what wakes it and what it receives, the rules that bite, and
 > the mappings to Elm/TEA, Datalog, htmx and Datomic. `apps/shadcnui` is the
-> worked gallery for the presentation vocabulary; `apps/chess` is the reference
+> worked gallery for the presentation vocabulary; `apps/truco` is the reference
 > for the data plane.
 
 ## The runtime
@@ -44,7 +44,7 @@ project's `.mise.toml` and `omnishell` is on PATH:
 
 ```toml
 [tools]
-"github:bonisoft3/omnishell" = "0.19.0"
+"github:bonisoft3/omnishell" = "0.24.0"
 ```
 
 ```
