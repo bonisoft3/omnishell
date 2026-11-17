@@ -245,7 +245,11 @@ async function send(url, init) {
   let res;
   let conflicted = false;
   for (let sent = 1; ; sent++) {
-    res = await fetch(url, init);
+    // A fetch that nothing answered (the door unreachable) is marked, so http() calls only that an outage.
+    res = await fetch(url, init).catch((err) => {
+      if (err instanceof TypeError) err.unanswered = true;
+      throw err;
+    });
     conflicted = res.status === 500 && (await res.clone().text()).includes('"code":"40001"');
     if (!conflicted || sent >= CONFLICT_SENDS) break;
     await new Promise((resolve) => setTimeout(resolve, CONFLICT_FIRST_MS * 2 ** (sent - 1)));
@@ -288,7 +292,7 @@ export async function http(url, init) {
   if (t) headers.Authorization = `Bearer ${t}`;
   // fetch rejects with a TypeError when nothing answered (the door unreachable): an outage, asked again.
   const { res, conflicted } = await send(url, { ...init, headers }).catch((err) => {
-    throw err instanceof TypeError ? new TransientRead(`nothing answered ${url}: ${err.message}`, { cause: err }) : err;
+    throw err instanceof TypeError && err.unanswered ? new TransientRead(`nothing answered ${url}: ${err.message}`, { cause: err }) : err;
   });
   if (!res.ok) {
     const method = init?.method ?? "GET";
