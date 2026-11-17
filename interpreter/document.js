@@ -42,7 +42,7 @@ export const servesGuests = (cfg) => !cfg.auth?.required && (cfg.tables?.length 
  * @param {{
  *   entry: string, parse: (html: string) => any, cfg: any, appBase: any, route: any,
  *   params?: object, locale?: string, written?: string, store: any, messages: any,
- *   rows: boolean, origin: string, here?: string,
+ *   rows: boolean, origin: string, here?: string, preloadBase?: string | URL,
  * }} options
  */
 export async function renderDocument({
@@ -61,6 +61,7 @@ export async function renderDocument({
   here,
   onHead,
   onChunk,
+  preloadBase = appBase,
 }) {
   if (typeof origin !== "string") throw new Error("a document's links are absolute, and no origin was given to spell them against");
   const doc = parse(entry);
@@ -79,7 +80,7 @@ export async function renderDocument({
     witness.setAttribute("name", "pronto-cas");
     witness.setAttribute("content", cas);
     doc.head.append(witness);
-    preloadScreen(doc, appBase, route);
+    preloadScreen(doc, preloadBase, route);
     deferBoot(doc);
   };
   const uncomment = (node) => {

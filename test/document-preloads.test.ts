@@ -14,7 +14,7 @@ const files = {
 }
 const route = { path: "/", screen: "home", nav: { strip: false }, files }
 
-async function rendered(appBase: string, base: string, hints = "") {
+async function rendered(appBase: string, base: string, hints = "", preloadBase?: string) {
   const ambientFetch = globalThis.fetch
   globalThis.fetch = ((url: URL | string) => Promise.resolve(new Response(
     String(url).endsWith(".html") ? '<section class="screen" data-screen="home"><h1>Home</h1></section>' : "",
@@ -25,6 +25,7 @@ async function rendered(appBase: string, base: string, hints = "") {
       parse: (text: string) => parseHTML(text).document,
       cfg: { app: "App", routes: [route, { path: "/other", screen: "other", nav: { strip: false }, files: { html: "shell/screens/other.html", css: "shell/screens/other.css" } }] },
       appBase,
+      preloadBase,
       route,
       store: {},
       messages: {},
@@ -115,6 +116,39 @@ describe("a rendered document's hydration preloads", () => {
     expect(document.querySelector('link[href="/site/shell/handlers/save.js"]')).not.toBe(null)
     expect(document.querySelector('link[href="/site/shell/shared/common.css"]')).not.toBe(null)
     expect(document.querySelector('link[href="/omnishell/interpreter/adapters/wallclock.js"]')).not.toBe(null)
+  })
+
+  it("maps sidecar-fetched screen assets to the reader's release without duplicate hints", async () => {
+    // The transport prefix must not reach the browser or prevent release-map lookup.
+    const imports = {
+      "/shell/screens/home.html": "/_immutable/home.html",
+      "/shell/screens/home.css": "/_immutable/home.css",
+      "/shell/handlers/save.js": "/_immutable/save.js",
+      "/shell/shared/common.css": "/_immutable/common.css",
+    }
+    const document = await rendered("http://daprd:3500/v1.0/invoke/caddy/method/", "/shell/", [
+      `<script type="importmap" id="pronto-assets">${JSON.stringify({ imports })}</script>`,
+      '<link rel="preload" href="./screens/home.html" as="fetch" crossorigin="anonymous">',
+      '<link rel="stylesheet" href="/shell/shared/common.css">',
+    ].join(""), "https://reader.test/")
+    loader(document)("first-contentful-paint")
+    const hints = [...document.querySelectorAll('link[rel="preload"]')].map(link => link.getAttribute("href"))
+    expect(hints.filter(href => href?.includes("home.html")).length).toBe(1)
+    expect(hints).toContain("/_immutable/home.css")
+    expect(hints).toContain("/_immutable/save.js")
+    expect(hints).toContain("/omnishell/interpreter/adapters/wallclock.js")
+    expect(document.querySelector('link[rel="preload"][as="style"]')).toBe(null)
+    expect(document.documentElement.outerHTML).not.toContain("/v1.0/invoke/")
+    expect(document.documentElement.outerHTML).not.toContain("daprd")
+  })
+
+  it("preserves a public app prefix independently of the sidecar path", async () => {
+    const document = await rendered("http://daprd:3500/v1.0/invoke/caddy/method/site/", "/site/shell/", "", "https://reader.test/site/")
+    loader(document)("first-contentful-paint")
+    expect(document.querySelector('link[href="/site/shell/screens/home.html"]')).not.toBe(null)
+    expect(document.querySelector('link[href="/site/shell/shared/common.css"]')).not.toBe(null)
+    expect(document.querySelector('link[href="/omnishell/interpreter/adapters/wallclock.js"]')).not.toBe(null)
+    expect(document.documentElement.outerHTML).not.toContain("/v1.0/invoke/")
   })
 
   it("starts the SPA route's remaining assets alongside its existing template fetch without duplicating served hints", () => {

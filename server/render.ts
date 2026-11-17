@@ -448,6 +448,8 @@ export async function serve(env: (name: string) => string | undefined = (name) =
           parse,
           cfg,
           appBase,
+          // The internal door may include a sidecar invocation path; hints are browser requests.
+          preloadBase: new URL("/", origin),
           route: found.route,
           params: found.params,
           locale: found.locale,
