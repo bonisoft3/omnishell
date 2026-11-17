@@ -2652,6 +2652,10 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           refused(err);
         } finally {
           delete form.dataset.submitting;
+          // A password is sent once and kept by no control, whatever the
+          // answer: a secret field's value (pronto's #Field.secret), which the
+          // store seals before it leaves (data-sync.js), among them.
+          for (const input of form.querySelectorAll("input[type=password]")) input.value = "";
         }
       })());
     });

@@ -62,3 +62,20 @@ Deno.test("markup host-DOM ownership requires manifest declaration and selection
     await Deno.remove(directory, { recursive: true });
   }
 });
+
+Deno.test("a secret field's control is a password, which the browser keeps no draft of", () => {
+  const schema = { payment: { durability: "server", fields: [
+    { name: "id", type: "uuid", pk: true },
+    { name: "status", type: "string" },
+    { name: "pin", type: "string", secret: true },
+  ] } };
+  const form = (control: string) => screenFindings("pay.html",
+    `<form data-entity="payment" data-action="update"><input type="hidden" name="status" value="paying">${control}<button type="submit">Pay</button></form>`,
+    schema, new Set(), []).map((f) => f.message);
+  assertEquals(form(`<input type="password" name="pin" autocomplete="off">`), []);
+  for (const control of [`<input name="pin">`, `<input type="text" name="pin">`, `<input type="number" name="pin">`, `<textarea name="pin"></textarea>`]) {
+    const found = form(control);
+    assertEquals(found.length, 1, control);
+    assertStringIncludes(found[0], `"pin" is a secret field, so its control is <input type="password">`);
+  }
+});

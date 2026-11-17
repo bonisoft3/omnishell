@@ -33,6 +33,34 @@ export { columnOrder, compareBy, embedDeps, embedTables, parseFilter, parseFilte
 
 const HEADERS = { "Content-Type": "application/json" };
 
+// A secret field's value (pronto's #Field.secret) sealed to the airlock's public
+// key, so only ciphertext leaves the page: the seal mecha's
+// services/airlock/seal.ts opens, its constants restated here for the page
+// and held to that module by pronto's secret-seal.test.ts. RSA-OAEP with
+// SHA-256 over a 3072-bit key, one block of at most 318 bytes, labelled with
+// the table, field and row it was typed for, so it opens for no other.
+const SEAL_ALGORITHM = { name: "RSA-OAEP", hash: "SHA-256" };
+const SEAL_MAX_BYTES = 318;
+const sealBase64url = (bytes) => btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+
+/** A public key's id: the first 96 bits of its SPKI digest. */
+export async function sealKid(jwk) {
+  const key = await crypto.subtle.importKey("jwk", { kty: jwk.kty, n: jwk.n, e: jwk.e }, SEAL_ALGORITHM, true, ["encrypt"]);
+  const spki = new Uint8Array(await crypto.subtle.exportKey("spki", key));
+  return sealBase64url(new Uint8Array(await crypto.subtle.digest("SHA-256", spki))).slice(0, 16);
+}
+
+/** `seal1.<kid>.<ciphertext>`: what the cluster's stash admits. */
+export async function sealValue(jwk, kid, table, field, pk, value) {
+  const bytes = new TextEncoder().encode(value);
+  if (bytes.length > SEAL_MAX_BYTES) throw new RangeError(`${table}.${field} holds at most ${SEAL_MAX_BYTES} bytes`);
+  const key = await crypto.subtle.importKey("jwk", { kty: jwk.kty, n: jwk.n, e: jwk.e }, SEAL_ALGORITHM, false, ["encrypt"]);
+  const label = new TextEncoder().encode(`pronto-secret\n${table}\n${field}\n${pk}`);
+  return `seal1.${kid}.${sealBase64url(new Uint8Array(await crypto.subtle.encrypt({ ...SEAL_ALGORITHM, label }, key, bytes)))}`;
+}
+
+
+
 /**
  * Runs `fn` in a task of its own, after the current one and everything it
  * queues: a fold's writes — a drop, then a put, each awaited — all land before
@@ -2054,7 +2082,35 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
 
   // A server entity has no replicated snapshot or offline intent. Its command
   // completes when CRUD accepts it; a refusal must never be reported as queued.
-  async function serverCommand(table, method, values, filter, conditional = false) {
+  // Every write of a secret field (pronto's #Field.secret) leaves sealed,
+  // whichever writer states it: a form, a handler, a machine. A value left
+  // blank is not sent; one whose row the write does not name by its key has
+  // no row to seal to, and is refused before anything leaves the page.
+  async function sealedRows(table, method, values, filter) {
+    const secret = (cfg.schema[table].fields ?? []).filter((f) => f.secret).map((f) => f.name);
+    if (secret.length === 0 || values === undefined) return values;
+    const key = keyOf(table);
+    // The key as the database spells it back, which the airlock opens with: a
+    // uuid in lowercase, whatever case the writer named it in.
+    const uuid = (cfg.schema[table].fields ?? []).find((f) => f.name === key)?.type === "uuid";
+    const canonical = (pk) => uuid ? String(pk).toLowerCase() : String(pk);
+    const patched = method === "PATCH" ? /^eq\.(.*)$/.exec(new URLSearchParams(filter ?? "").get(key) ?? "")?.[1] : undefined;
+    const sealRow = async (row) => {
+      const out = { ...row };
+      for (const field of secret) {
+        if (!(field in out)) continue;
+        if (out[field] === null || out[field] === undefined || out[field] === "") { delete out[field]; continue; }
+        const pk = method === "PATCH" ? patched : out[key];
+        if (pk === undefined || pk === null || pk === "") throw new ProgramError(`${table}.${field} is written to one row named by its ${key}, and this ${method} names none`);
+        out[field] = await seal(table, field, canonical(pk), String(out[field]));
+      }
+      return out;
+    };
+    return Array.isArray(values) ? await Promise.all(values.map(sealRow)) : await sealRow(values);
+  }
+
+  async function serverCommand(table, method, plain, filter, conditional = false) {
+    const values = await sealedRows(table, method, plain, filter);
     const fields = cfg.schema[table].fields ?? [];
     const clean = row => {
       const command = Object.fromEntries(Object.entries(row)
@@ -2440,6 +2496,21 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     }
   }
 
+  // A secret field's value (pronto's #Field.secret) sealed to the airlock's
+  // public key, which the cluster publishes in airlock_seal, so only
+  // ciphertext leaves the page: RSA-OAEP with SHA-256, labelled with the row
+  // it was typed for, as mecha's services/airlock/seal.ts opens it.
+  // The key is read at each seal, never kept: a rotation keeps the replaced
+  // key five minutes, and a page open longer seals to the new one.
+  async function seal(table, field, pk, value) {
+    const res = await request(`${base}/crud/airlock_seal?select=kid,key`, { cache: "no-store" });
+    const rows = await res.json();
+    if (!Array.isArray(rows) || rows.length !== 1) throw new ProgramError("the cluster publishes no seal key: its airlock has not started");
+    const [{ kid, key }] = rows;
+    if (await sealKid(key) !== kid) throw new ProgramError("the published seal key is not the one its id names");
+    return await sealValue(key, kid, table, field, pk, value);
+  }
+
   async function upload(key, file) {
     if (pendingSession && !token()) await pendingSession();
     if (!token()) throw new Error("an upload requires an authenticated session");
@@ -2573,6 +2644,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     pose,
     subscribe,
     upload: (...args) => (clearAllServed(), cfg.onRemoteWrite?.(), upload(...args)),
+    seal,
     // A host-DOM hatch's authorized call, past the collections: it makes the
     // guest's session as every other write does.
     http,

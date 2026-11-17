@@ -87,6 +87,7 @@ type SchemaField = {
   defaulted?: boolean;
   enum?: string[];
   money?: { currency: string; minorUnits: number };
+  secret?: boolean;
 };
 type SchemaEntity = {
   durability: string;
@@ -227,12 +228,35 @@ export function screenFindings(
 
   // After the machine rules: a control's cover depends on what its region's
   // machine answers, and an unparseable machine is that pass's finding.
+  for (const why of read(() => secretControls(html, schema)) ?? []) report(why);
   for (const why of read(() => templateArity(html)) ?? []) report(why);
   for (const why of read(() => unwitnessedControls(html, selectedHostDom)) ?? []) report(why);
   for (const why of read(() => linkLint(html, routes)) ?? []) report(why);
   const mounts = read(() => hatchSites(html)) ?? [];
   sites.push(...mounts);
   for (const why of hatchLint(mounts, units)) report(why);
+  return out;
+}
+
+/** A form's control for a secret field (pronto's #Field.secret) is a password:
+ * the browser's own word for a value it keeps no draft of, offers no history
+ * for and shows no one, which the terminal clears once the submit settles and
+ * seals before it leaves (screen.js). */
+export function secretControls(html: string, schema: Record<string, SchemaEntity>): string[] {
+  const doc = new DOMParser().parseFromString(`<html><body>${html}</body></html>`, "text/html");
+  const out: string[] = [];
+  for (const form of doc.querySelectorAll("form[data-entity]")) {
+    const table = form.getAttribute("data-entity") as string;
+    const secret = new Set((schema[table]?.fields ?? []).filter((f) => f.secret).map((f) => f.name));
+    for (const control of form.querySelectorAll("[name]")) {
+      const name = control.getAttribute("name") as string;
+      if (!secret.has(name)) continue;
+      const type = (control.getAttribute("type") ?? "").toLowerCase();
+      if (control.tagName.toLowerCase() !== "input" || type !== "password") {
+        out.push(`form "${table}": "${name}" is a secret field, so its control is <input type="password">, not <${control.tagName.toLowerCase()}${type ? ` type="${type}"` : ""}>`);
+      }
+    }
+  }
   return out;
 }
 
