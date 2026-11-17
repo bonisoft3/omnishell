@@ -47,8 +47,15 @@ export function assetURL(value, doc = globalThis.document) {
  * leads to: a preload is the browser's to fetch at once, at the page's
  * priority, and warned about when unused, which a screen the reader may never
  * visit is; a prefetch is for a navigation that may come. */
-export function preloadScreen(doc, appBase, route, { template = true, rel = "preload" } = {}) {
+export function preloadScreen(doc, appBase, route, { template = true, rel = "preload", prefix = "" } = {}) {
   const app = new URL(appBase);
+  // The path the renderer's appBase carries that a reader's address does not (the door behind a sidecar:
+  // /v1.0/invoke/caddy/method), taken off before the release map and the reader see the address.
+  const asReader = (path) => {
+    const url = new URL(path, app);
+    if (prefix !== "" && url.origin === app.origin && url.pathname.startsWith(`${prefix}/`)) url.pathname = url.pathname.slice(prefix.length);
+    return url;
+  };
   const base = new URL(doc.head.querySelector("base[href]")?.getAttribute("href") ?? ".", app);
   const styles = new Set([...doc.head.querySelectorAll('link[rel="stylesheet"]')]
     .map((link) => assetURL(new URL(link.getAttribute("href"), base), doc).href));
@@ -64,7 +71,7 @@ export function preloadScreen(doc, appBase, route, { template = true, rel = "pre
     ...(route.files.shared ?? []).map((path) => [path, "style"]),
   ];
   for (const [path, as] of ahead) {
-    const url = assetURL(new URL(path, app), doc);
+    const url = assetURL(asReader(path), doc);
     if (seen.has(url.href) || (as === "style" && styles.has(url.href))) continue;
     seen.add(url.href);
     const link = doc.createElement("link");

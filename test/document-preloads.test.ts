@@ -75,6 +75,18 @@ describe("a rendered document's hydration preloads", () => {
     expect(assetURL("handlers/save.js", document).pathname).toBe(imports["/shell/handlers/save.js"])
     expect(route.files.handlers[0]).toBe("shell/handlers/save.js")
   })
+  it("spells a preload as a reader's address when the renderer reaches the app through a path of its own", () => {
+    const door = "http://localhost:3500/v1.0/invoke/caddy/method/"
+    const imports = { "/shell/screens/home.html": "/shell/screens/_immutable-abc-home.html" }
+    const { document } = parseHTML(`<html><head><script type="importmap" id="pronto-assets">${JSON.stringify({ imports })}</script></head></html>`)
+    Object.defineProperty(document, "baseURI", { value: door })
+    preloadScreen(document, door, route, { prefix: "/v1.0/invoke/caddy/method" })
+    const hints = [...document.querySelectorAll('link[rel="preload"]')].map(link => link.getAttribute("href"))
+    expect(hints).toContain("/shell/screens/_immutable-abc-home.html")
+    expect(hints).toContain("/shell/screens/home.css")
+    expect(hints).toContain("/shell/handlers/save.js")
+    expect(hints.filter(href => href.includes("/v1.0/invoke/")).length).toBe(0)
+  })
   it("starts only this screen's fetches and styles together after its first contentful paint", async () => {
     // Jessie is fetched as source, not imported: modulepreload would both
     // miss the fetch cache and parse modules outside their compartment.
