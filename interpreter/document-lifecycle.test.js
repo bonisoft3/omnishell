@@ -133,3 +133,21 @@ Deno.test("a fresh restored pass failure is not attributed to the successful dep
   await assert.rejects(screen.settle(), /active restored read failed/);
   assert.equal(f.errors[0][0], error);
 }));
+
+Deno.test("a screen whose read the stack did not answer settles, keeps its state and reads again", () => fixture(async (f) => {
+  const { TransientRead } = await import("./fragment.js");
+  f.failNext(new TransientRead("a subset of item failed 7 times in a row: 503"));
+  const screen = await f.mount();
+  await screen.settle();
+  const region = f.document.getElementById("subject");
+  assert.equal(f.document.querySelector("[data-screen]").dataset.state, "network-error");
+  assert.ok(region, "the screen is still on the page");
+}));
+
+Deno.test("a screen whose read hit a program error still fails its settle", () => fixture(async (f) => {
+  const { ProgramError } = await import("./fragment.js");
+  f.failNext(new ProgramError("the stack refused a subset of item"));
+  const screen = await f.mount().catch((err) => err);
+  const outcome = screen instanceof Error ? screen : await screen.settle().catch((err) => err);
+  assert.ok(outcome instanceof ProgramError, String(outcome));
+}));

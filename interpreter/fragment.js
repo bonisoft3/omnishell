@@ -667,6 +667,12 @@ export class ProgramError extends Error {}
  * again, it may answer. */
 export class Unanswered extends Error {}
 
+/** A read the store could not finish because the stack did not answer it:
+ * a subset that failed in transit until the retries ran out, or a 5xx.
+ * Unanswered's kind: the screen that asked keeps standing and asks again as
+ * the stack recovers; it is never the program's error. */
+export class TransientRead extends Unanswered {}
+
 // A data-order whose closed map is malformed, or whose column named an order
 // the map does not carry.
 export class OrderError extends ProgramError {}

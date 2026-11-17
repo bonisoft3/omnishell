@@ -23,7 +23,7 @@ import {
   not,
   or,
 } from "./vendor/mecha-client.js";
-import { canCoalesceSchemaEq, coalesceReads, columnOrder, compareBy, embedDeps, embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect, ProgramError, progressiveReadsComment, routeOf, stripProgressiveReads, takeProgressiveReads } from "./fragment.js";
+import { canCoalesceSchemaEq, coalesceReads, columnOrder, compareBy, embedDeps, embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect, ProgramError, progressiveReadsComment, routeOf, stripProgressiveReads, takeProgressiveReads, TransientRead } from "./fragment.js";
 export { progressiveReadsComment, stripProgressiveReads, takeProgressiveReads };
 import { evaluateRole } from "./jessie.js";
 import { judge } from "./validate.js";
@@ -290,7 +290,8 @@ export async function http(url, init) {
   if (!res.ok) {
     const method = init?.method ?? "GET";
     const detail = await res.text();
-    const err = new Error(`${res.status} ${method} ${url}${detail === "" ? "" : `: ${detail}`}`);
+    const message = `${res.status} ${method} ${url}${detail === "" ? "" : `: ${detail}`}`;
+    const err = res.status >= 500 || res.status === 408 || res.status === 429 ? new TransientRead(message) : new Error(message);
     if (method !== "GET" && (conflicted || (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429))) {
       err.name = "NonRetriableError";
     }
@@ -1220,7 +1221,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
           return done(reject, new ProgramError(`the stack refused a subset of ${failure.table}: ${failure.error.message}`));
         }
         if (exhausted(entry)) {
-          return done(reject, new Error(`a subset of ${failure.table} failed ${RETRY_ATTEMPTS + 1} times in a row: ${failure.error?.message ?? failure.error}`, { cause: failure.error }));
+          return done(reject, new TransientRead(`a subset of ${failure.table} failed ${RETRY_ATTEMPTS + 1} times in a row: ${failure.error?.message ?? failure.error}`, { cause: failure.error }));
         }
         if (failure !== undefined) return;
         if (view.status === "error") return done(reject, new Error(`a view of ${view.id} failed`));

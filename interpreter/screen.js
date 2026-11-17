@@ -1963,6 +1963,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   let failure;
   let settling;
   const failed = (err) => {
+    // An outage is not a failure of the screen: its region says network-error and reads again,
+    // so settling goes on without it, and the shell keeps the screen it previewed.
+    if (err instanceof Unanswered) return;
     failure ??= err;
   };
   const track = (promise) => {
