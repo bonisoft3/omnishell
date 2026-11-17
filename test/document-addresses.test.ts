@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "@test/harness"
 import { parseHTML } from "linkedom"
 import { renderDocument } from "../interpreter/document.js"
-import { screenEnv } from "../interpreter/fragment.js"
+import { screenEnv, TransientRead } from "../interpreter/fragment.js"
 import { interpretScreen } from "../interpreter/screen.js"
 import { routeAt } from "../interpreter/shell.js"
 import { createRenderer } from "../server/render.ts"
@@ -59,16 +59,17 @@ function data() {
   }
   const reads: Read[] = []
   let failure: string | undefined
+  let failWith: Error | undefined
   let listening = 0
   return {
     rows,
     reads,
-    fail: (table: string) => { failure = table },
+    fail: (table: string, error?: Error) => { failure = table; failWith = error },
     listening: () => listening,
     subscribe: () => { listening++; return () => { listening-- } },
     query: (table: string, _order: unknown, opts: { filter?: string; select?: string } = {}) => {
       reads.push({ table, ...opts })
-      if (table === failure) return Promise.reject(new Error(`read failed: ${table}`))
+      if (table === failure) return Promise.reject(failWith ?? new Error(`read failed: ${table}`))
       return Promise.resolve(rows[table].filter(row => (opts.filter ?? "").split("&").filter(Boolean).every(clause => {
         const match = /^([\w.]+)=eq\.(.+)$/.exec(clause)
         if (!match) throw new Error(`unexpected test filter: ${clause}`)
@@ -155,6 +156,13 @@ describe("documents addressed by ordinary slug queries", () => {
       const h = renderer()
       h.store.fail(table)
       await expect(h.get("/jogo/final-2026")).rejects.toThrow(`read failed: ${table}`)
+      expect(h.renderer.held).toBe(0)
+      expect(h.store.listening()).toBe(0)
+    })
+    it(`fails the render when the stack did not answer its ${table} read, rather than answer 404 or a page without rows`, async () => {
+      const h = renderer()
+      h.store.fail(table, new TransientRead(`a subset of ${table} failed 7 times in a row: 503`))
+      await expect(h.get("/jogo/final-2026")).rejects.toThrow(`a subset of ${table} failed`)
       expect(h.renderer.held).toBe(0)
       expect(h.store.listening()).toBe(0)
     })

@@ -142,6 +142,11 @@ Deno.test("a screen whose read the stack did not answer settles, keeps its state
   const region = f.document.getElementById("subject");
   assert.equal(f.document.querySelector("[data-screen]").dataset.state, "network-error");
   assert.ok(region, "the screen is still on the page");
+  // The region asks again after its 2 s pause, and the stack answers: the screen is populated, the row bound.
+  await new Promise((resolve) => setTimeout(resolve, 2300));
+  await screen.settle();
+  assert.equal(f.document.querySelector("[data-screen]").dataset.state, "populated");
+  assert.equal(region.querySelector("[data-name]")?.getAttribute("data-name") ?? region.getAttribute("data-name"), "ready");
 }));
 
 Deno.test("a screen whose read hit a program error still fails its settle", () => fixture(async (f) => {

@@ -286,7 +286,10 @@ export async function http(url, init) {
   const headers = { ...init?.headers };
   const t = token();
   if (t) headers.Authorization = `Bearer ${t}`;
-  const { res, conflicted } = await send(url, { ...init, headers });
+  // fetch rejects with a TypeError when nothing answered (the door unreachable): an outage, asked again.
+  const { res, conflicted } = await send(url, { ...init, headers }).catch((err) => {
+    throw err instanceof TypeError ? new TransientRead(`nothing answered ${url}: ${err.message}`, { cause: err }) : err;
+  });
   if (!res.ok) {
     const method = init?.method ?? "GET";
     const detail = await res.text();

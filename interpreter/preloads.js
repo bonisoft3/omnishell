@@ -58,10 +58,10 @@ export function preloadScreen(doc, appBase, route, { template = true, rel = "pre
   };
   const base = new URL(doc.head.querySelector("base[href]")?.getAttribute("href") ?? ".", app);
   const styles = new Set([...doc.head.querySelectorAll('link[rel="stylesheet"]')]
-    .map((link) => assetURL(new URL(link.getAttribute("href"), base), doc).href));
+    .map((link) => assetURL(asReader(new URL(link.getAttribute("href"), base)), doc).href));
   const seen = new Set();
   for (const link of doc.head.querySelectorAll('link[rel="modulepreload"], link[rel="preload"], link[rel="prefetch"]')) {
-    const url = assetURL(new URL(link.getAttribute("href"), base), doc).href;
+    const url = assetURL(asReader(new URL(link.getAttribute("href"), base)), doc).href;
     if (seen.has(url)) link.remove();
     else seen.add(url);
   }
