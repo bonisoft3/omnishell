@@ -52,9 +52,16 @@ export async function sealKid(jwk) {
 
 /** `seal1.<kid>.<ciphertext>`: what the cluster's stash admits. */
 export async function sealValue(jwk, kid, table, field, pk, value) {
+  return await sealWith(await sealEncryptKey(jwk), kid, table, field, pk, value);
+}
+
+function sealEncryptKey(jwk) {
+  return crypto.subtle.importKey("jwk", { kty: jwk.kty, n: jwk.n, e: jwk.e }, SEAL_ALGORITHM, false, ["encrypt"]);
+}
+
+async function sealWith(key, kid, table, field, pk, value) {
   const bytes = new TextEncoder().encode(value);
   if (bytes.length > SEAL_MAX_BYTES) throw new RangeError(`${table}.${field} holds at most ${SEAL_MAX_BYTES} bytes`);
-  const key = await crypto.subtle.importKey("jwk", { kty: jwk.kty, n: jwk.n, e: jwk.e }, SEAL_ALGORITHM, false, ["encrypt"]);
   const label = new TextEncoder().encode(`pronto-secret\n${table}\n${field}\n${pk}`);
   return `seal1.${kid}.${sealBase64url(new Uint8Array(await crypto.subtle.encrypt({ ...SEAL_ALGORITHM, label }, key, bytes)))}`;
 }
@@ -2095,6 +2102,8 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     const uuid = (cfg.schema[table].fields ?? []).find((f) => f.name === key)?.type === "uuid";
     const canonical = (pk) => uuid ? String(pk).toLowerCase() : String(pk);
     const patched = method === "PATCH" ? /^eq\.(.*)$/.exec(new URLSearchParams(filter ?? "").get(key) ?? "")?.[1] : undefined;
+    // One read of the published key for the whole write, never kept past it.
+    let published;
     const sealRow = async (row) => {
       const out = { ...row };
       for (const field of secret) {
@@ -2102,7 +2111,8 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
         if (out[field] === null || out[field] === undefined || out[field] === "") { delete out[field]; continue; }
         const pk = method === "PATCH" ? patched : out[key];
         if (pk === undefined || pk === null || pk === "") throw new ProgramError(`${table}.${field} is written to one row named by its ${key}, and this ${method} names none`);
-        out[field] = await seal(table, field, canonical(pk), String(out[field]));
+        const { kid, encrypt } = await (published ??= publishedSealKey());
+        out[field] = await sealWith(encrypt, kid, table, field, canonical(pk), String(out[field]));
       }
       return out;
     };
@@ -2500,15 +2510,20 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   // public key, which the cluster publishes in airlock_seal, so only
   // ciphertext leaves the page: RSA-OAEP with SHA-256, labelled with the row
   // it was typed for, as mecha's services/airlock/seal.ts opens it.
-  // The key is read at each seal, never kept: a rotation keeps the replaced
-  // key five minutes, and a page open longer seals to the new one.
-  async function seal(table, field, pk, value) {
+  // The key is read at each write, never kept past it: a rotation keeps the
+  // replaced key five minutes, and a page open longer seals to the new one.
+  async function publishedSealKey() {
     const res = await request(`${base}/crud/airlock_seal?select=kid,key`, { cache: "no-store" });
     const rows = await res.json();
     if (!Array.isArray(rows) || rows.length !== 1) throw new ProgramError("the cluster publishes no seal key: its airlock has not started");
     const [{ kid, key }] = rows;
     if (await sealKid(key) !== kid) throw new ProgramError("the published seal key is not the one its id names");
-    return await sealValue(key, kid, table, field, pk, value);
+    return { kid, encrypt: await sealEncryptKey(key) };
+  }
+
+  async function seal(table, field, pk, value) {
+    const { kid, encrypt } = await publishedSealKey();
+    return await sealWith(encrypt, kid, table, field, pk, value);
   }
 
   async function upload(key, file) {

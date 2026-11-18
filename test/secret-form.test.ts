@@ -76,9 +76,13 @@ async function sealingStore() {
   const { sealKid } = await import("../interpreter/data-sync.js")
   const kid = await sealKid(jwk)
   const sent: { method: string; url: URL; body: any }[] = []
+  const keyReads = { n: 0 }
   const request = async (url: string, init: RequestInit = {}) => {
     const u = new URL(url, "https://pay.test")
-    if (u.pathname === "/crud/airlock_seal") return Response.json([{ kid, key: jwk }])
+    if (u.pathname === "/crud/airlock_seal") {
+      keyReads.n++
+      return Response.json([{ kid, key: jwk }])
+    }
     const body = init.body === undefined ? undefined : JSON.parse(String(init.body))
     sent.push({ method: init.method ?? "GET", url: u, body })
     if ((init.method ?? "GET") === "GET") return Response.json([])
@@ -93,7 +97,7 @@ async function sealingStore() {
     const label = new TextEncoder().encode(`pronto-secret\npayment\npin\n${pk}`)
     return new TextDecoder().decode(await crypto.subtle.decrypt({ name: "RSA-OAEP", label }, pair.privateKey, bytes))
   }
-  return { store, sent, open }
+  return { store, sent, open, keyReads }
 }
 
 Deno.test({ name: "every write of a secret field leaves sealed to its row, whichever writer states it", sanitizeOps: false, sanitizeResources: false, fn: async () => {
@@ -111,6 +115,20 @@ Deno.test({ name: "every write of a secret field leaves sealed to its row, which
     // Left blank, it is not sent.
     await store.patch("payment", [{ key: "p1", changes: { amount: 1, pin: "" } }])
     expect("pin" in sent.at(-1)!.body).toBe(false)
+  } finally { await store.close() }
+} })
+
+// The published key is read once a write, however many rows and fields it
+// seals, and again at the next: a rotation reaches the page at its next write.
+Deno.test({ name: "a write reads the published seal key once, and the next write reads it again", sanitizeOps: false, sanitizeResources: false, fn: async () => {
+  const { store, sent, open, keyReads } = await sealingStore()
+  try {
+    await store.add("payment", [{ id: "p3", amount: 1, pin: "1111" }, { id: "p4", amount: 2, pin: "2222" }, { id: "p5", amount: 3, pin: "3333" }])
+    expect(keyReads.n).toBe(1)
+    const posted = sent.filter((r) => r.method === "POST").at(-1)!.body
+    expect(await open(posted[2].pin, "p5")).toBe("3333")
+    await store.patch("payment", [{ key: "p3", changes: { pin: "4444" } }])
+    expect(keyReads.n).toBe(2)
   } finally { await store.close() }
 } })
 
