@@ -27,12 +27,14 @@
     "npm:@playwright/test@1.61.1": "1.61.1",
     "npm:@simplewebauthn/server@13.1.1": "13.1.1",
     "npm:@tanstack/react-router@1.121.0": "1.121.0_react@19.2.8",
+    "npm:@types/css-tree@2.3.10": "2.3.10",
     "npm:@types/node@*": "22.20.1",
     "npm:@types/react@19.0.0": "19.0.0",
     "npm:@xstate/graph@3.0.4": "3.0.4_xstate@5.32.6",
     "npm:acorn-walk@8.3.4": "8.3.4",
     "npm:acorn@8.14.0": "8.14.0",
     "npm:aria-query@5.3.2": "5.3.2",
+    "npm:css-tree@3.1.0": "3.1.0",
     "npm:eslint@9.25.0": "9.25.0",
     "npm:fake-indexeddb@6.2.5": "6.2.5",
     "npm:fast-check@3.23.2": "3.23.2",
@@ -501,6 +503,9 @@
     "@types/caseless@0.12.5": {
       "integrity": "sha512-hWtVTC2q7hc7xZ/RLbxapMvDMgUnDvKvMOpKal4DrMyfGBUfB1oKaZlIRr6mJL+If3bAP6sV/QneGzF6tJjZDg=="
     },
+    "@types/css-tree@2.3.10": {
+      "integrity": "sha512-WcaBazJ84RxABvRttQjjFWgTcHvZR9jGr0Y3hccPkHjFyk/a3N8EuxjKr+QfrwjoM5b1yI1Uj1i7EzOAAwBwag=="
+    },
     "@types/estree@1.0.9": {
       "integrity": "sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg=="
     },
@@ -713,6 +718,13 @@
         "domhandler",
         "domutils",
         "nth-check"
+      ]
+    },
+    "css-tree@3.1.0": {
+      "integrity": "sha512-0eW44TGN5SQXU1mWSkKwFstI/22X2bG1nYzZTYMAWjylYURhse752YgbE4Cx46AC+bAvI+/dYTPRk1LqSUnu6w==",
+      "dependencies": [
+        "mdn-data",
+        "source-map-js"
       ]
     },
     "css-what@6.2.2": {
@@ -1364,6 +1376,9 @@
     "math-intrinsics@1.1.0": {
       "integrity": "sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g=="
     },
+    "mdn-data@2.12.2": {
+      "integrity": "sha512-IEn+pegP1aManZuckezWCO+XZQDplx1366JoVhTpMpBB1sPey/SbveZQUosKiKiGYjg1wH4pMlNgXbCiYgihQA=="
+    },
     "mime-db@1.52.0": {
       "integrity": "sha512-sPU4uV7dYlvtWJxwwxHD0PuihVNiE7TyAbQ5SWxDCB9mUYvOgroQOwYQQOKPJ8CIbE+1ETVlOoK1UC2nU3gYvg=="
     },
@@ -1571,6 +1586,9 @@
     },
     "shebang-regex@3.0.0": {
       "integrity": "sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A=="
+    },
+    "source-map-js@1.2.2": {
+      "integrity": "sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw=="
     },
     "stream-events@1.0.5": {
       "integrity": "sha512-E1GUzBSgvct8Jsb3v2X15pjzN1tYebtbLaMg+eBOUOAxgbLoSbT2NS91ckc5lJD1KfLjId+jXJRgo0qnV5Nerg==",

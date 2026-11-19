@@ -9,6 +9,45 @@ public final class NetworkBridge: @unchecked Sendable {
         self.client = client
     }
 
+    public func nativeFetchAsync(
+        url: String,
+        optionsJson: String?,
+        onResolve: @escaping @Sendable (String) -> Void,
+        onReject: @escaping @Sendable (String) -> Void
+    ) {
+        var request = NativeFetchRequest()
+        if let jsonStr = optionsJson, !jsonStr.isEmpty {
+            guard let data = jsonStr.data(using: .utf8) else {
+                onReject("Invalid UTF-8 fetch options")
+                return
+            }
+            do {
+                request = try jsonDecoder.decode(NativeFetchRequest.self, from: data)
+            } catch {
+                onReject("Invalid fetch options JSON: \(error.localizedDescription)")
+                return
+            }
+        }
+
+        client.fetchAsync(url: url, request: request) { [jsonEncoder] result in
+            switch result {
+            case .success(let response):
+                do {
+                    let resData = try jsonEncoder.encode(response)
+                    guard let resStr = String(data: resData, encoding: .utf8) else {
+                        onReject("Failed to encode fetch response as UTF-8")
+                        return
+                    }
+                    onResolve(resStr)
+                } catch {
+                    onReject("Failed to encode fetch response: \(error.localizedDescription)")
+                }
+            case .failure(let error):
+                onReject(error.localizedDescription)
+            }
+        }
+    }
+
     public func nativeFetch(url: String, optionsJson: String?) -> String {
         var request = NativeFetchRequest()
         if let jsonStr = optionsJson, let data = jsonStr.data(using: .utf8) {
@@ -62,7 +101,9 @@ public final class NetworkBridge: @unchecked Sendable {
         client.closeSse(streamId: streamId)
     }
 
-    public func close() {}
+    public func close() {
+        client.close()
+    }
 }
 
 private class ClosureSseEventListener: SseEventListener {

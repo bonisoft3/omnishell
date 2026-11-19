@@ -146,7 +146,7 @@ _presenterPolicy: _ @embed(file="presenter-security-policy.txt", type=text)
 		}
 		auth: {
 			modes:     ["passkey", "guest"]
-			providers: ["google"]
+			providers: ["google", "apple"]
 			identity:  "generated"
 			chrome:    "<name · handle> · sign out; self.route and self.name are the app's"
 		}

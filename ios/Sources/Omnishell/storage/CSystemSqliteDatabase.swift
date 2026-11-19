@@ -30,6 +30,19 @@ public final class CSystemSqliteDatabase: SqlDatabase, @unchecked Sendable {
             throw SqliteError.databaseClosed
         }
 
+        if params.isEmpty {
+            var errMsgPtr: UnsafeMutablePointer<CChar>?
+            let rc = sqlite3_exec(db, sql, nil, nil, &errMsgPtr)
+            if rc != SQLITE_OK {
+                let errMsg = errMsgPtr.map { String(cString: $0) } ?? String(cString: sqlite3_errmsg(db))
+                if let ptr = errMsgPtr { sqlite3_free(ptr) }
+                throw SqliteError.statementError(rc: rc, message: errMsg, sql: sql)
+            }
+            let rowsAffected = Int64(sqlite3_changes(db))
+            let lastId = sqlite3_last_insert_rowid(db)
+            return SqlExecResult(rowsAffected: rowsAffected, lastInsertRowId: lastId)
+        }
+
         var stmt: OpaquePointer?
         let prepRc = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
         guard prepRc == SQLITE_OK, let statement = stmt else {

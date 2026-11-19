@@ -3,6 +3,7 @@ import Foundation
 public final class URLSessionFetchClient: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private let session: URLSession
     private let lock = NSLock()
+    private var activeFetchTasks: [String: URLSessionDataTask] = [:]
     private var sseTasks: [String: URLSessionDataTask] = [:]
     private var sseListeners: [String: SseEventListener] = [:]
     private var sseBuffers: [String: (buffer: String, currentEvent: String, currentData: String, currentId: String?)] = [:]
@@ -12,7 +13,7 @@ public final class URLSessionFetchClient: NSObject, URLSessionDataDelegate, @unc
         super.init()
     }
 
-    public func fetch(url urlString: String, request: NativeFetchRequest) throws -> NativeFetchResponse {
+    private func buildUrlRequest(url urlString: String, request: NativeFetchRequest) throws -> URLRequest {
         try validateUrl(urlString)
 
         guard let url = URL(string: urlString) else {
@@ -21,7 +22,7 @@ public final class URLSessionFetchClient: NSObject, URLSessionDataDelegate, @unc
 
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = request.method
-        urlRequest.timeoutInterval = 15.0
+        urlRequest.timeoutInterval = 65.0
 
         for (headerKey, headerVal) in request.headers {
             urlRequest.setValue(headerVal, forHTTPHeaderField: headerKey)
@@ -37,28 +38,11 @@ public final class URLSessionFetchClient: NSObject, URLSessionDataDelegate, @unc
             urlRequest.httpBody = Data()
         }
 
-        final class ResponseBox: @unchecked Sendable {
-            var data: Data?
-            var response: HTTPURLResponse?
-            var error: Error?
-        }
-        let box = ResponseBox()
+        return urlRequest
+    }
 
-        let semaphore = DispatchSemaphore(value: 0)
-        let task = session.dataTask(with: urlRequest) { data, response, error in
-            box.data = data
-            box.response = response as? HTTPURLResponse
-            box.error = error
-            semaphore.signal()
-        }
-        task.resume()
-        semaphore.wait()
-
-        if let error = box.error {
-            throw error
-        }
-
-        guard let httpResponse = box.response else {
+    private static func buildNativeResponse(data: Data?, response: URLResponse?) throws -> NativeFetchResponse {
+        guard let httpResponse = response as? HTTPURLResponse else {
             throw URLError(.cannotParseResponse)
         }
 
@@ -67,7 +51,7 @@ public final class URLSessionFetchClient: NSObject, URLSessionDataDelegate, @unc
             responseHeaders[String(describing: key)] = String(describing: val)
         }
 
-        let bodyString = box.data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        let bodyString = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
 
         return NativeFetchResponse(
             status: httpResponse.statusCode,
@@ -75,6 +59,69 @@ public final class URLSessionFetchClient: NSObject, URLSessionDataDelegate, @unc
             headers: responseHeaders,
             body: bodyString
         )
+    }
+
+    /// Asynchronous URLSession fetch that never blocks the caller queue (preventing Electric long-poll deadlocks).
+    public func fetchAsync(
+        url urlString: String,
+        request: NativeFetchRequest,
+        completion: @escaping @Sendable (Result<NativeFetchResponse, Error>) -> Void
+    ) {
+        let urlRequest: URLRequest
+        do {
+            urlRequest = try buildUrlRequest(url: urlString, request: request)
+        } catch {
+            completion(.failure(error))
+            return
+        }
+
+        let taskId = UUID().uuidString
+        let task = session.dataTask(with: urlRequest) { [weak self] data, response, error in
+            if let self = self {
+                self.lock.lock()
+                self.activeFetchTasks.removeValue(forKey: taskId)
+                self.lock.unlock()
+            }
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+            do {
+                let nativeRes = try Self.buildNativeResponse(data: data, response: response)
+                completion(.success(nativeRes))
+            } catch {
+                completion(.failure(error))
+            }
+        }
+
+        lock.lock()
+        activeFetchTasks[taskId] = task
+        lock.unlock()
+
+        task.resume()
+    }
+
+    public func fetch(url urlString: String, request: NativeFetchRequest) throws -> NativeFetchResponse {
+        let urlRequest = try buildUrlRequest(url: urlString, request: request)
+
+        final class ResponseBox: @unchecked Sendable {
+            var result: Result<NativeFetchResponse, Error>?
+        }
+        let box = ResponseBox()
+
+        let semaphore = DispatchSemaphore(value: 0)
+        let task = session.dataTask(with: urlRequest) { data, response, error in
+            if let error = error {
+                box.result = .failure(error)
+            } else {
+                box.result = Result { try Self.buildNativeResponse(data: data, response: response) }
+            }
+            semaphore.signal()
+        }
+        task.resume()
+        semaphore.wait()
+
+        return try box.result!.get()
     }
 
     public func connectSse(
@@ -128,6 +175,21 @@ public final class URLSessionFetchClient: NSObject, URLSessionDataDelegate, @unc
 
         task?.cancel()
         listener?.onClosed()
+    }
+
+    public func close() {
+        lock.lock()
+        let fetches = Array(activeFetchTasks.values)
+        activeFetchTasks.removeAll()
+        let sses = Array(sseTasks.keys)
+        lock.unlock()
+
+        for task in fetches {
+            task.cancel()
+        }
+        for id in sses {
+            closeSse(streamId: id)
+        }
     }
 
     fileprivate func handleData(streamId: String, data: Data) {

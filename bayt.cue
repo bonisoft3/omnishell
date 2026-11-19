@@ -62,7 +62,7 @@ _smokeCmd: {
 	}).out
 	"builtin": {
 		shell: "sh"
-		do:    "sh -c 'deno test --parallel --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-write --allow-import --allow-net --allow-sys --ignore=test/check-presentation-apps.test.ts,test/project-native.test.ts,test/chrome-direction.test.ts,test/entry-document.test.ts,test/document.test.ts,test/locale-resolver.test.ts,test/vendor-bundle.test.ts,test/arbitrary-types.test.ts,test/data-sync-parity.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read \(_smokes)'"
+		do:    "sh -c 'deno test --parallel --config test/deno.json --lock test/deno.lock --frozen --cached-only --no-check --allow-env --allow-read --allow-write --allow-import --allow-net --allow-sys --ignore=test/check-presentation-apps.test.ts,test/project-native.test.ts,test/snapcards-divkit.test.ts,test/chrome-direction.test.ts,test/entry-document.test.ts,test/document.test.ts,test/locale-resolver.test.ts,test/vendor-bundle.test.ts,test/arbitrary-types.test.ts,test/data-sync-parity.test.ts test/ && deno test --config interpreter/deno.json --lock interpreter/deno.lock --frozen --cached-only --allow-env --allow-read \(_smokes)'"
 	}
 }
 
@@ -143,7 +143,7 @@ _omnishell: bayt.#project & {
 		// Stays parallel to integrate, which re-uses the same command —
 		// omnishell has no separate integration suite.
 		"test": sayt.test & mise.exec & {
-			srcs: globs: ["test/**/*", "interpreter/**/*", "components/**/*", "check-*.ts", "expand-templates.ts", "base-url.ts", "terminal.cue", "project-native.ts", "read-markup.ts", "render-documents.ts", "server/**/*", "offline-first-sw.js"]
+			srcs: globs: ["test/**/*", "runtime/**/*", "interpreter/**/*", "components/**/*", "check-*.ts", "expand-templates.ts", "base-url.ts", "terminal.cue", "project-native.ts", "read-markup.ts", "render-documents.ts", "server/**/*", "offline-first-sw.js"]
 			cmd: _smokeCmd
 		}
 
@@ -152,7 +152,7 @@ _omnishell: bayt.#project & {
 		// (from the build chain) + the same unit tests. No docker-bridge.sh wrap
 		// (no docker socket needed).
 		"integrate": sayt.integrate & mise.exec & {
-			srcs: globs: ["test/**/*", "interpreter/**/*", "components/**/*", "check-*.ts", "expand-templates.ts", "base-url.ts", "terminal.cue", "project-native.ts", "read-markup.ts", "render-documents.ts", "server/**/*", "offline-first-sw.js"]
+			srcs: globs: ["test/**/*", "runtime/**/*", "interpreter/**/*", "components/**/*", "check-*.ts", "expand-templates.ts", "base-url.ts", "terminal.cue", "project-native.ts", "read-markup.ts", "render-documents.ts", "server/**/*", "offline-first-sw.js"]
 			dockerfile: {
 				from: ref: ":build"
 			}

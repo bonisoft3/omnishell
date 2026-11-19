@@ -41,6 +41,7 @@ export interface Release {
   screens: Record<string, string[]>
   entries: string[]
   scripts: string[]
+  signature?: string
   cfg: { brand?: { label: string; key?: string }; routes: { path: string; screen?: string; paths?: Record<string, string>; access?: 'public' | 'private'; ssr?: 'spa' | 'ssg' | 'ssr'; files: Record<string, string | string[]>; nav: { label: string; icon?: string; display?: 'icon-only'; strip?: boolean } }[]; auth?: { required?: boolean }; tables?: unknown[]; i18n?: { locales?: Record<string, unknown> }; prefix?: string }
 }
 
@@ -62,6 +63,12 @@ export interface AddressOptions {
   /** The sources a door adds to every entry's frame-src: a realm subdomain's
    * label under each of the door's own hosts, which no tree names. */
   frames?: string[]
+  /** Native host bridge contract bytes or SHA-256 hex digest recorded at
+   * `/@native/bridge` so OTA updates distinguish isolate restarts from binary
+   * store updates. */
+  nativeBridge?: Uint8Array | string
+  /** Ed25519 PKCS#8 private key bytes or CryptoKey signing `#pronto-assets`. */
+  ed25519PrivateKey?: CryptoKey | Uint8Array
 }
 
 /** `policy` with `frames` added to its frame-src, which it must have. */
@@ -189,7 +196,7 @@ export async function addressRelease(out: string, options: AddressOptions = {}):
   const cfg = JSON.parse(decoder.decode(files.get('/shell/shell.json')!)) as Release['cfg']
   // The strip a reader may meet: the served page's, or a signed-in person's.
   const stripTargets = hasStrip(cfg, null, servesGuests(cfg)) || Boolean(cfg.auth?.required)
-    ? stripRoutes(cfg).map(r => r.screen ?? path.posix.basename(String(r.files.html), '.html'))
+    ? stripRoutes(cfg).map((r: Release['cfg']['routes'][number]) => r.screen ?? path.posix.basename(String(r.files.html), '.html'))
     : []
   const screens: Record<string, string[]> = {}
   for (const route of cfg.routes) {
@@ -199,7 +206,28 @@ export async function addressRelease(out: string, options: AddressOptions = {}):
     screens[name] = [...new Set([...targets, ...stripTargets])].filter(target => target !== name)
   }
 
+  if (options.nativeBridge !== undefined) {
+    let bridgeHash: string
+    if (typeof options.nativeBridge === 'string') {
+      if (!/^[0-9a-f]{64}$/.test(options.nativeBridge)) {
+        throw new Error(`nativeBridge digest must be 64 lowercase hex characters: ${options.nativeBridge}`)
+      }
+      bridgeHash = options.nativeBridge
+    } else {
+      bridgeHash = hex(await digest(options.nativeBridge))
+    }
+    imports['/@native/bridge'] = `/_immutable-${bridgeHash}-bridge`
+  }
+
   const json = JSON.stringify({ imports, screens }).replace(/</g, '\\u003c')
+  let signature: string | undefined
+  if (options.ed25519PrivateKey !== undefined) {
+    const signingKey = options.ed25519PrivateKey instanceof Uint8Array
+      ? await crypto.subtle.importKey('pkcs8', new Uint8Array(options.ed25519PrivateKey), { name: 'Ed25519' }, false, ['sign'])
+      : options.ed25519PrivateKey
+    const sigBytes = new Uint8Array(await crypto.subtle.sign({ name: 'Ed25519' }, signingKey, encoder.encode(json)))
+    signature = btoa(String.fromCharCode(...sigBytes))
+  }
   const scripts = new Set<string>()
   for (const name of entries) {
     const source = (await Deno.readTextFile(path.join(out, name))).replace(/\r\n?/g, '\n').replace(/\0/g, '�')
@@ -264,6 +292,7 @@ export async function addressRelease(out: string, options: AddressOptions = {}):
     const map = document.createElement('script')
     map.setAttribute('type', 'importmap')
     map.setAttribute('id', 'pronto-assets')
+    if (signature !== undefined) map.setAttribute('data-signature', signature)
     map.textContent = json
     document.head.prepend(map)
     const charset = document.querySelector('meta[charset]')
@@ -286,7 +315,7 @@ export async function addressRelease(out: string, options: AddressOptions = {}):
     const prolog = source.slice(0, source.search(/<!doctype|<html/i))
     await Deno.writeTextFile(path.join(out, name), prolog + '<!doctype html>\n' + document.documentElement.outerHTML + '\n')
   }
-  return { imports, screens, entries: entries.sort(), scripts: [...scripts].sort(), cfg }
+  return { imports, screens, entries: entries.sort(), scripts: [...scripts].sort(), ...(signature !== undefined ? { signature } : {}), cfg }
 }
 
 /** Copies the addresses `previous` holds into `out`, each checked against its

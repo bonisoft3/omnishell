@@ -585,6 +585,15 @@ function renderSession(session, cfg, store, signOut, chrome, served = null, life
     e.preventDefault();
     signOut();
   });
+  if (self === undefined) {
+    who.addEventListener("click", (e) => {
+      const trigger = document.querySelector(".shell-screen:not([hidden]) [data-auth-trigger], .shell-screen:not([hidden]) #btn-top-login");
+      if (!trigger) return;
+      e.preventDefault();
+      if (typeof trigger.click === "function") trigger.click();
+      else trigger.dispatchEvent(new (document.defaultView?.Event ?? Event)("click", { bubbles: true }));
+    });
+  }
   box.append(who, out);
 
   // The strip is one of the places a person appears, so a rename has to reach
@@ -1351,6 +1360,28 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       } else if (action === "signout") {
         if (actionEl.localName !== "label") e.preventDefault();
         signOut();
+      } else if (action === "delete-account" && cfg.auth?.service) {
+        if (actionEl.localName !== "label") e.preventDefault();
+        void (async () => {
+          if (sessionLifecycle.busy()) return;
+          const active = session ?? sessionLifecycle.session();
+          const bearer = active?.token;
+          if (!bearer) return;
+          const res = await fetch(`${cfg.auth.service}/account`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${bearer}` },
+          });
+          if (!res.ok) throw new Error(`DELETE ${cfg.auth.service}/account failed: ${res.status}`);
+          const bridge = globalThis.AuthBridge ?? globalThis.__omnishellAuth;
+          bridge?.clearSession?.();
+          await store?.wipeAccountData?.(active?.user?.id);
+          for (const entry of [...held.values()]) discard(entry);
+          current = null;
+          nav?.remove();
+          mount.replaceChildren();
+          forgetSession();
+          location.reload();
+        })();
       } else if ((action === "passkey-signin" || action === "passkey") && cfg.auth?.service) {
         if (actionEl.localName !== "label") e.preventDefault();
         runPasskeyAuth(actionEl, "signin");

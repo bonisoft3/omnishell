@@ -40,6 +40,7 @@ const PROMOTE = {
 // (auth.providers), drawn at the gate and in a guest's strip.
 const PROVIDERS = {
   chrome_signin_google: "Continue with Google",
+  chrome_signin_apple: "Continue with Apple",
 };
 
 /** The key a provider's way in is spoken under. */

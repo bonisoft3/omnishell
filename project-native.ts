@@ -1,13 +1,8 @@
 // Deterministic compiler and runtime projection from Omnishell screen markup
-// (shell/screens/*.{html,css}, shell/design.css, shell/shell.yaml) to:
+// (shell/screens/*.{html,css}, screens/*.html, shell/design.css, shell/shell.yaml) to:
 //   1. Upstream DivKit SDUI JSON + DivVariableController descriptors (Phone: Android & iOS)
 //   2. Rust `winio` Elm-like (init / update / render) widget trees (Desktop: macOS, Windows, Linux GTK/Qt)
 //   3. Headless Omnishell native engine bundle (QuickJS / JavaScriptCore)
-//
-// Replaces hand-authored per-app native bundles and `check-parity.ts` by construction:
-// every input, action, live region, CSS state rule, `data-kinetic` 3D slot,
-// `canvas[data-layer]` fast HUD placeholder, and `data-touch-zone` derives from
-// the single vetted screen source (`shell/screens/*.{html,css}`).
 
 import { load as parseYaml } from "./interpreter/vendor/js-yaml.js";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -153,6 +148,53 @@ function parseHtmlTree(html: string): HtmlElementNode {
   return root.children[0] || root;
 }
 
+export const BLANK_SVG_DATA_URI =
+  "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%221%22%20height%3D%221%22%2F%3E";
+
+const BINDING_PLACEHOLDER_RE = /\{([a-zA-Z0-9_.\[\]]+)\}/;
+
+/**
+ * Resolve an image source (`data-image-src` or `img[src]`) for DivKit `div-image`:
+ *   - Inline `data:image/svg+xml;utf8,...` / `;base64,...` Level-0 card placeholders stay inline
+ *     (normalizing raw XML delimiters in `;utf8,` payloads when unescaped).
+ *   - Same-origin `/img/*` paths resolve against `origin` (`https://snapcards.fun`).
+ *   - Empty sources map to a 1x1 transparent SVG data URI so DivKit never fetches an empty string.
+ */
+export function resolveNativeImageUrl(
+  rawSrc: string,
+  origin = "https://snapcards.fun",
+): string {
+  const trimmed = (rawSrc || "").trim();
+  if (!trimmed) return BLANK_SVG_DATA_URI;
+
+  if (trimmed.startsWith("data:image/svg+xml")) {
+    const utf8Prefix = "data:image/svg+xml;utf8,";
+    if (trimmed.startsWith(utf8Prefix)) {
+      const payload = trimmed.slice(utf8Prefix.length);
+      if (payload.includes("<") || payload.includes("#") || payload.includes('"')) {
+        const encoded = payload
+          .replace(/%/g, "%25")
+          .replace(/#/g, "%23")
+          .replace(/</g, "%3C")
+          .replace(/>/g, "%3E")
+          .replace(/"/g, "%22");
+        return utf8Prefix + encoded;
+      }
+    }
+    return trimmed;
+  }
+
+  if (trimmed.startsWith("data:") || trimmed.startsWith("https://") || trimmed.startsWith("http://")) {
+    return trimmed;
+  }
+
+  const cleanOrigin = origin.replace(/\/+$/, "");
+  if (trimmed.startsWith("/")) {
+    return `${cleanOrigin}${trimmed}`;
+  }
+  return `${cleanOrigin}/${trimmed}`;
+}
+
 export type ThemeTokens = {
   primary: string;
   secondary: string;
@@ -181,6 +223,33 @@ export const DEFAULT_THEME: ThemeTokens = {
   fontMono: "monospace",
 };
 
+export const DEFAULT_DARK_THEME: ThemeTokens = {
+  primary: "#F7F5F0",
+  secondary: "#9CA3AF",
+  accent: "#FBBF24",
+  danger: "#EF4444",
+  neutral: "#090E17",
+  surface: "#111827",
+  border: "#1F2937",
+  surfaceMuted: "#1A2234",
+  fontSans: "sans-serif",
+  fontSerif: "serif",
+  fontMono: "monospace",
+};
+
+export type ThemePalettes = {
+  light: ThemeTokens;
+  dark: ThemeTokens;
+};
+
+const RTL_LANGS = new Set(["he", "iw", "ar", "fa", "ur", "yi"]);
+
+export function directionOfLocale(locale?: string): "ltr" | "rtl" {
+  if (!locale) return "ltr";
+  const prefix = locale.trim().toLowerCase().split(/[-_]/)[0];
+  return RTL_LANGS.has(prefix) ? "rtl" : "ltr";
+}
+
 export type VisibilityMode = "all" | "keys-only" | "touch-only";
 
 export type CssStateRule = {
@@ -195,7 +264,7 @@ export type CssStateRule = {
 
 export type NativeInputSpec = {
   field: string;
-  kind: "text" | "multiline" | "range" | "select" | "checkbox";
+  kind: "text" | "multiline" | "range" | "select" | "checkbox" | "number";
   placeholder?: string;
   label?: string;
   required: boolean;
@@ -206,7 +275,7 @@ export type NativeInputSpec = {
 
 export type NativeActionSpec = {
   id: string;
-  kind: "navigate" | "form" | "handler" | "command" | "touch";
+  kind: "navigate" | "form" | "handler" | "command" | "touch" | "popover" | "auth" | "chart" | "bridge";
   url: string;
   label: string;
   route?: string;
@@ -214,6 +283,60 @@ export type NativeActionSpec = {
   op?: string;
   handler?: string;
   command?: string;
+  popoverTarget?: string;
+  popoverOp?: "toggle" | "show" | "hide";
+};
+
+export type NativeImageSpec = {
+  src: string;
+  isResponsiveBinding: boolean;
+  sizes?: string;
+  alt?: string;
+  width?: number;
+  height?: number;
+  scale: "fit" | "fill";
+};
+
+export type NativeSheetSpec = {
+  kind: "popover" | "dialog" | "modal";
+  sheetId: string;
+  stateVar: string;
+};
+
+export type NativeFlipCardSpec = {
+  flippedBinding: string;
+  flippedVar: string;
+};
+
+export type NativeRealmSpec = {
+  unit: string;
+  customType: "web-realm" | "print-realm";
+  isolation: "realm" | "agent" | "host-dom";
+  grants: string[];
+  src?: string;
+  subdomain?: string;
+  props: Record<string, string>;
+  events: Record<string, string>;
+};
+
+export type NativeNavEntry = {
+  screen: string;
+  label: string;
+  key?: string;
+  icon?: string;
+  params?: Record<string, string>;
+};
+
+export type NativeFoldSpec = {
+  id: string;
+  table: string;
+  filter?: string;
+  handler: string;
+  reads: string[];
+  namedReads: Record<string, string>;
+  parentTable?: string;
+  parentFilter?: string;
+  parentEmptyRow?: Record<string, unknown>;
 };
 
 export type NativeLiveSpec = {
@@ -227,6 +350,11 @@ export type NativeLiveSpec = {
   reads: string[];
   namedReads: Record<string, string>;
   when?: string;
+  isRepeater?: boolean;
+  itemTemplates?: NativeNode[];
+  onMutation?: string;
+  cortexActor?: string;
+  machineRef?: string;
 };
 
 export type NativeKineticSpec = {
@@ -258,6 +386,7 @@ export type NativeNode = {
   orientation: "vertical" | "horizontal";
   text?: string;
   textBinding?: string;
+  rawText?: string;
   textFormat?: string;
   typography: "display" | "prose" | "meta" | "mono" | "body";
   stateAttrs: Record<string, string>;
@@ -268,6 +397,12 @@ export type NativeNode = {
   touchZone?: NativeTouchZoneSpec;
   input?: NativeInputSpec;
   action?: NativeActionSpec;
+  extraActions?: NativeActionSpec[];
+  image?: NativeImageSpec;
+  sheet?: NativeSheetSpec;
+  flipCard?: NativeFlipCardSpec;
+  realm?: NativeRealmSpec;
+  isProbe?: "owned" | "favorite" | "preload";
   children: NativeNode[];
 };
 
@@ -282,6 +417,9 @@ export type NativeScreenIr = {
   hudLayers: NativeHudLayerSpec[];
   touchZones: NativeTouchZoneSpec[];
   kineticMounts: NativeKineticSpec[];
+  realms?: NativeRealmSpec[];
+  folds?: NativeFoldSpec[];
+  chartTargets?: Record<string, { field: string; nextState?: string }>;
 };
 
 export type DivKitVariable = {
@@ -290,10 +428,18 @@ export type DivKitVariable = {
   value: string | number | boolean;
 };
 
+export type DivKitPaletteColor = {
+  name: string;
+  light: string;
+  dark: string;
+};
+
 export type DivKitCard = {
   card: {
     log_id: string;
     variables: DivKitVariable[];
+    palette?: DivKitPaletteColor[];
+    omnishell_meta?: Record<string, unknown>;
     states: Array<{
       state_id: number;
       div: Record<string, unknown>;
@@ -336,6 +482,10 @@ export type WinioScreenSpec = {
 export type NativeAppProjection = {
   app: string;
   theme: ThemeTokens;
+  palettes?: ThemePalettes;
+  navEntries?: NativeNavEntry[];
+  defaultLocale?: string;
+  locales?: string[];
   screens: Record<string, {
     ir: NativeScreenIr;
     divkit: DivKitCard;
@@ -345,29 +495,78 @@ export type NativeAppProjection = {
   nativeRuntimeLogic?: string;
 };
 
+export interface ScreenUnitDecl {
+  isolation?: "realm" | "agent";
+  src?: string;
+  subdomain?: string;
+  grants?: string[];
+}
+
+export interface ScreenIrOptions {
+  legacyV1?: boolean;
+  chartTargets?: Record<string, { field: string; nextState?: string }>;
+  units?: Record<string, ScreenUnitDecl>;
+  hostDom?: Record<string, { src?: string }>;
+}
+
+export interface DivKitProjectionOptions {
+  legacyV1?: boolean;
+  origin?: string;
+  palettes?: ThemePalettes;
+  themeMode?: "light" | "dark" | "auto";
+  systemColorScheme?: "light" | "dark";
+  locale?: string;
+  viewportWidthDp?: number;
+  navEntries?: NativeNavEntry[];
+}
+
+/** Extract both light and dark `light-dark(lightHex, darkHex)` palettes from CSS token declarations. */
+export function parseDesignPalettes(cssText: string): ThemePalettes {
+  const light: ThemeTokens = { ...DEFAULT_THEME };
+  const dark: ThemeTokens = { ...DEFAULT_DARK_THEME };
+  const readVar = (name: string): string | null => {
+    const snapMatches = [...cssText.matchAll(new RegExp(`--snapcards-${name}\\s*:\\s*([^;]+);`, "g"))];
+    if (snapMatches.length > 0) return snapMatches[snapMatches.length - 1][1].trim();
+    const colorMatches = [...cssText.matchAll(new RegExp(`--color-${name}\\s*:\\s*([^;]+);`, "g"))];
+    if (colorMatches.length > 0) return colorMatches[colorMatches.length - 1][1].trim();
+    const plainMatches = [...cssText.matchAll(new RegExp(`--${name}\\s*:\\s*([^;]+);`, "g"))];
+    if (plainMatches.length > 0) return plainMatches[plainMatches.length - 1][1].trim();
+    return null;
+  };
+  const pairOf = (val: string | null, lightFallback: string, darkFallback: string): [string, string] => {
+    if (!val) return [lightFallback, darkFallback];
+    const hexes = [...val.matchAll(/#[0-9a-fA-F]{3,8}\b/g)].map((m) => m[0]);
+    if (hexes.length >= 2) return [hexes[0], hexes[1]];
+    if (hexes.length === 1) return [hexes[0], hexes[0]];
+    return [lightFallback, darkFallback];
+  };
+  [light.primary, dark.primary] = pairOf(readVar("primary"), light.primary, dark.primary);
+  [light.secondary, dark.secondary] = pairOf(readVar("secondary"), light.secondary, dark.secondary);
+  [light.accent, dark.accent] = pairOf(readVar("accent"), light.accent, dark.accent);
+  [light.danger, dark.danger] = pairOf(readVar("danger"), light.danger, dark.danger);
+  [light.neutral, dark.neutral] = pairOf(readVar("neutral"), light.neutral, dark.neutral);
+  [light.surface, dark.surface] = pairOf(readVar("surface"), light.surface, dark.surface);
+  [light.border, dark.border] = pairOf(readVar("border"), light.border, dark.border);
+  [light.surfaceMuted, dark.surfaceMuted] = pairOf(readVar("surface-muted"), light.surfaceMuted, dark.surfaceMuted);
+  return { light, dark };
+}
+
 /** Extract theme design tokens from shell/design.css if present. */
 export function parseDesignTokens(cssText: string): ThemeTokens {
-  const tokens: ThemeTokens = { ...DEFAULT_THEME };
-  const readVar = (name: string): string | null => {
-    const m =
-      cssText.match(new RegExp(`--color-${name}\\s*:\\s*([^;]+);`)) ??
-      cssText.match(new RegExp(`--${name}\\s*:\\s*([^;]+);`));
-    return m ? m[1].trim() : null;
-  };
-  const hexOf = (val: string | null, fallback: string): string => {
-    if (!val) return fallback;
-    const hexMatch = val.match(/#[0-9a-fA-F]{3,8}\b/);
-    return hexMatch ? hexMatch[0] : fallback;
-  };
-  tokens.primary = hexOf(readVar("primary"), tokens.primary);
-  tokens.secondary = hexOf(readVar("secondary"), tokens.secondary);
-  tokens.accent = hexOf(readVar("accent"), tokens.accent);
-  tokens.danger = hexOf(readVar("danger"), tokens.danger);
-  tokens.neutral = hexOf(readVar("neutral"), tokens.neutral);
-  tokens.surface = hexOf(readVar("surface"), tokens.surface);
-  tokens.border = hexOf(readVar("border"), tokens.border);
-  tokens.surfaceMuted = hexOf(readVar("surface-muted"), tokens.surfaceMuted);
-  return tokens;
+  return parseDesignPalettes(cssText).light;
+}
+
+export function buildDivKitPalette(palettes: ThemePalettes): DivKitPaletteColor[] {
+  return [
+    { name: "palette_primary", light: palettes.light.primary, dark: palettes.dark.primary },
+    { name: "palette_secondary", light: palettes.light.secondary, dark: palettes.dark.secondary },
+    { name: "palette_accent", light: palettes.light.accent, dark: palettes.dark.accent },
+    { name: "palette_danger", light: palettes.light.danger, dark: palettes.dark.danger },
+    { name: "palette_neutral", light: palettes.light.neutral, dark: palettes.dark.neutral },
+    { name: "palette_surface", light: palettes.light.surface, dark: palettes.dark.surface },
+    { name: "palette_border", light: palettes.light.border, dark: palettes.dark.border },
+    { name: "palette_surface_muted", light: palettes.light.surfaceMuted, dark: palettes.dark.surfaceMuted },
+  ];
 }
 
 /** Split a selector list on top-level commas (outside parentheses and brackets). */
@@ -413,7 +612,6 @@ export function parseCssStateRules(cssText: string): CssStateRule[] {
       const val = sameAttrVals.length > 1 ? sameAttrVals.join("|") : (firstVal ?? "");
       const op: "eq" | "present" | "contains" = !rawOp ? "present" : rawOp === "~=" || rawOp === "*=" ? "contains" : "eq";
 
-      // Extract target class(es) or IDs after the last attribute selector (or on the subject element itself)
       const lastAttr = allAttrMatches[allAttrMatches.length - 1];
       const afterAttr = s.slice((lastAttr.index ?? 0) + lastAttr[0].length);
       const isMatch = afterAttr.match(/:is\(([^)]+)\)/);
@@ -482,7 +680,8 @@ function classifyTypography(classes: string[]): "display" | "prose" | "meta" | "
   return "body";
 }
 
-function inferOrientation(tag: string, classes: string[]): "vertical" | "horizontal" {
+function inferOrientation(tag: string, classes: string[], legacyV1 = false): "vertical" | "horizontal" {
+  if (!legacyV1 && (tag === "aside" || tag === "section")) return "vertical";
   if (tag === "header" || tag === "nav" || tag === "dl") return "horizontal";
   for (const c of classes) {
     if (
@@ -498,7 +697,17 @@ function inferOrientation(tag: string, classes: string[]): "vertical" | "horizon
       c.includes("btns") ||
       c.includes("pedals") ||
       c.includes("pad") ||
-      c.includes("group")
+      c.includes("group") ||
+      (!legacyV1 &&
+        (c.includes("switch") ||
+          c.includes("tabs") ||
+          c.includes("pills") ||
+          c.includes("picks") ||
+          c.includes("controls") ||
+          c.includes("stepper") ||
+          c.includes("meta") ||
+          c.includes("btn-fav") ||
+          c === "desk-locale-pill"))
     ) {
       return "horizontal";
     }
@@ -506,11 +715,24 @@ function inferOrientation(tag: string, classes: string[]): "vertical" | "horizon
   return "vertical";
 }
 
+function sanitizeVarName(raw: string): string {
+  return raw.replace(/[^a-zA-Z0-9_]/g, "_");
+}
+
+function sheetStateVarForId(sheetId: string): string {
+  if (sheetId === "login-modal-overlay" || sheetId.startsWith("login-modal")) {
+    return "modal_login_state";
+  }
+  return `sheet_${sanitizeVarName(sheetId)}_state`;
+}
+
 function canonicalActionUrl(
-  el: any,
-  formEl: any,
+  el: HtmlElementNode,
+  formEl: HtmlElementNode | null,
   messages: Record<string, string>,
-): NativeActionSpec | undefined {
+  legacyV1 = false,
+  chartTargets?: Record<string, { field: string; nextState?: string }>,
+): { primary?: NativeActionSpec; extras: NativeActionSpec[] } {
   const tag = (el.tagName || "").toLowerCase();
   const id = el.getAttribute("id") || el.getAttribute("name") || el.getAttribute("data-form") || "";
   const rawLabel =
@@ -520,17 +742,65 @@ function canonicalActionUrl(
     id ||
     tag;
 
+  const extras: NativeActionSpec[] = [];
+
+  if (!legacyV1 && el.hasAttribute("popovertarget")) {
+    const targetId = el.getAttribute("popovertarget") || "";
+    const rawOp = (el.getAttribute("popovertargetaction") || "toggle").toLowerCase();
+    const popoverOp: "toggle" | "show" | "hide" =
+      rawOp === "hide" ? "hide" : rawOp === "show" ? "show" : "toggle";
+    if (targetId) {
+      extras.push({
+        id: id || `popover_${targetId}_${popoverOp}`,
+        kind: "popover",
+        popoverTarget: targetId,
+        popoverOp,
+        url: `pronto://event/POPOVER?target=${encodeURIComponent(targetId)}&op=${popoverOp}&id=${encodeURIComponent(id)}`,
+        label: rawLabel,
+      });
+    }
+  }
+
   const touchZone = el.getAttribute("data-touch-zone");
   if (touchZone) {
     const tap = el.hasAttribute("data-touch-tap");
     const firstZone = touchZone.trim().split(/\s+/)[0];
     return {
-      id: id || `touch_${firstZone}`,
-      kind: "touch",
-      url: `pronto://touch/${encodeURIComponent(touchZone.trim())}?tap=${tap ? "1" : "0"}`,
-      label: rawLabel || firstZone,
+      primary: {
+        id: id || `touch_${firstZone}`,
+        kind: "touch",
+        url: `pronto://touch/${encodeURIComponent(touchZone.trim())}?tap=${tap ? "1" : "0"}`,
+        label: rawLabel || firstZone,
+      },
+      extras,
     };
   }
+
+  const collectDatasetParams = (): URLSearchParams => {
+    const ds = new URLSearchParams();
+    if (legacyV1) return ds;
+    for (const attr of el.attributes || []) {
+      if (
+        attr.name.startsWith("data-") &&
+        !attr.name.startsWith("data-param-") &&
+        attr.name !== "data-route" &&
+        attr.name !== "data-on-click" &&
+        attr.name !== "data-action" &&
+        attr.name !== "data-form" &&
+        attr.name !== "data-entity" &&
+        attr.name !== "data-text" &&
+        attr.name !== "data-locale" &&
+        attr.name !== "data-locale-current" &&
+        attr.name !== "data-host-dom" &&
+        attr.name !== "data-auth-action" &&
+        attr.name !== "data-auth-provider"
+      ) {
+        ds.set(`data_${attr.name.slice("data-".length)}`, attr.value);
+      }
+    }
+    return ds;
+  };
+  const unescapeBraces = (s: string) => (legacyV1 ? s : s.replace(/%7B/gi, "{").replace(/%7D/gi, "}"));
 
   const dataRoute = el.getAttribute("data-route");
   if (dataRoute) {
@@ -542,18 +812,34 @@ function canonicalActionUrl(
       }
     }
     if (el.hasAttribute("data-locale")) {
-      params.set("locale", el.getAttribute("data-locale"));
+      params.set("locale", el.getAttribute("data-locale")!);
     }
     const actionName = dataRoute === "article" ? "VIEW_ARTICLE" : dataRoute === "tag" ? "SELECT_TAG" : "NAVIGATE";
     if (actionName === "SELECT_TAG" && params.has("name")) {
       params.set("tag", params.get("name")!);
     }
+    if (!legacyV1 && el.hasAttribute("data-on-click")) {
+      const handler = el.getAttribute("data-on-click")!;
+      const ds = collectDatasetParams();
+      ds.set("handler", handler);
+      ds.set("id", id);
+      extras.unshift({
+        id: id ? `${id}_click` : `click_${handler}`,
+        kind: "handler",
+        handler,
+        url: `pronto://event/CLICK?${unescapeBraces(ds.toString())}`,
+        label: rawLabel,
+      });
+    }
     return {
-      id: id || `nav_${dataRoute}`,
-      kind: "navigate",
-      route: dataRoute,
-      url: `pronto://event/${actionName}?${params.toString()}`,
-      label: rawLabel,
+      primary: {
+        id: id || `nav_${dataRoute}`,
+        kind: "navigate",
+        route: dataRoute,
+        url: `pronto://event/${actionName}?${unescapeBraces(params.toString())}`,
+        label: rawLabel,
+      },
+      extras,
     };
   }
 
@@ -561,10 +847,13 @@ function canonicalActionUrl(
     const href = el.getAttribute("href") || "";
     if (href && href !== "#") {
       return {
-        id: id || `link_${href}`,
-        kind: "navigate",
-        url: href.startsWith("pronto://") ? href : `pronto://event/NAVIGATE?href=${encodeURIComponent(href)}`,
-        label: rawLabel,
+        primary: {
+          id: id || `link_${href}`,
+          kind: "navigate",
+          url: href.startsWith("pronto://") ? href : `pronto://event/NAVIGATE?href=${encodeURIComponent(href)}`,
+          label: rawLabel,
+        },
+        extras,
       };
     }
   }
@@ -575,24 +864,137 @@ function canonicalActionUrl(
     const command = el.getAttribute("command");
     const commandFor = el.getAttribute("commandfor");
 
+    if (!legacyV1) {
+      const authAction = el.getAttribute("data-auth-action");
+      const authProvider = el.getAttribute("data-auth-provider");
+      if (authAction || authProvider) {
+        const method = authProvider ? `oidc:${authProvider}` : authAction!;
+        extras.push({
+          id: id ? `${id}_auth` : `auth_${method}`,
+          kind: "auth",
+          url: `pronto://event/AUTH?method=${encodeURIComponent(method)}&id=${encodeURIComponent(id)}`,
+          label: rawLabel,
+        });
+      }
+      if (id === "btn-window-print" || id === "btn-print-trigger") {
+        extras.push({
+          id: `${id}_print_bridge`,
+          kind: "bridge",
+          url:
+            `omnishell://print?job=Snapcards&source=window-print&button=${encodeURIComponent(id)}` +
+            `&deck={set_id}&vendor={vendor}&paper={paper}&orientation={orientation}&card_size={card_size}&layout={layout}&cut_lines={cut_lines}`,
+          label: rawLabel,
+        });
+      } else if (id === "btn-shop-download") {
+        return {
+          primary: {
+            id,
+            kind: "bridge",
+            url: `omnishell://print?job=Snapcards&source=print-shop&format=pdf&deck={set_id}&orientation={orientation}`,
+            label: rawLabel,
+          },
+          extras,
+        };
+      } else if (id === "btn-order-print") {
+        return {
+          primary: {
+            id,
+            kind: "popover",
+            popoverTarget: "print-checkout-panel",
+            popoverOp: "show",
+            url: `pronto://event/POPOVER?target=print-checkout-panel&op=show&id=btn-order-print`,
+            label: rawLabel,
+          },
+          extras,
+        };
+      } else if (id === "btn-checkout-close") {
+        return {
+          primary: {
+            id,
+            kind: "popover",
+            popoverTarget: "print-checkout-panel",
+            popoverOp: "hide",
+            url: `pronto://event/POPOVER?target=print-checkout-panel&op=hide&id=btn-checkout-close`,
+            label: rawLabel,
+          },
+          extras,
+        };
+      } else if (id === "btn-checkout-pay") {
+        return {
+          primary: {
+            id,
+            kind: "bridge",
+            url: `omnishell://checkout?order={order_id}&deck={set_id}&return_url=${encodeURIComponent("snapcards://print/return")}`,
+            label: rawLabel,
+          },
+          extras: [
+            ...extras,
+            {
+              id: "btn-checkout-pay_event",
+              kind: "handler",
+              handler: "print-checkout",
+              url: "pronto://event/CHECKOUT_PAY?id=btn-checkout-pay&order={order_id}",
+              label: rawLabel,
+            },
+          ],
+        };
+      } else if (id === "btn-checkout-refresh") {
+        return {
+          primary: {
+            id,
+            kind: "handler",
+            handler: "print-checkout",
+            url: "pronto://event/ORDER_RECHECK?order={order_id}&id=btn-checkout-refresh",
+            label: rawLabel,
+          },
+          extras,
+        };
+      } else if (el.hasAttribute("data-host-dom") && !command && !onClick && !explicitAction) {
+        const hatch = el.getAttribute("data-host-dom") || "host-dom";
+        return {
+          primary: {
+            id: id || `host_dom_${hatch}`,
+            kind: "handler",
+            handler: hatch,
+            url: `pronto://event/HOST_DOM?hatch=${encodeURIComponent(hatch)}&id=${encodeURIComponent(id)}`,
+            label: rawLabel,
+          },
+          extras,
+        };
+      }
+    }
+
     if (command) {
+      const ds = collectDatasetParams();
+      ds.set("handler", onClick || commandFor || "");
+      ds.set("command", command);
+      ds.set("id", id);
       return {
-        id: id || `cmd_${command}`,
-        kind: "command",
-        command,
-        handler: onClick || commandFor || undefined,
-        url: `pronto://event/COMMAND?handler=${encodeURIComponent(onClick || commandFor || "")}&command=${encodeURIComponent(command)}&id=${encodeURIComponent(id)}`,
-        label: rawLabel,
+        primary: {
+          id: id || `cmd_${command}`,
+          kind: "command",
+          command,
+          handler: onClick || commandFor || undefined,
+          url: `pronto://event/COMMAND?${unescapeBraces(ds.toString())}`,
+          label: rawLabel,
+        },
+        extras,
       };
     }
 
     if (onClick) {
+      const ds = collectDatasetParams();
+      ds.set("handler", onClick);
+      ds.set("id", id);
       return {
-        id: id || `click_${onClick}`,
-        kind: "handler",
-        handler: onClick,
-        url: `pronto://event/CLICK?handler=${encodeURIComponent(onClick)}&id=${encodeURIComponent(id)}`,
-        label: rawLabel,
+        primary: {
+          id: id || `click_${onClick}`,
+          kind: "handler",
+          handler: onClick,
+          url: `pronto://event/CLICK?${unescapeBraces(ds.toString())}`,
+          label: rawLabel,
+        },
+        extras,
       };
     }
 
@@ -609,35 +1011,158 @@ function canonicalActionUrl(
       const route = ownerForm?.getAttribute("data-route") || undefined;
       if (formName === "publish-article") {
         return {
-          id: id || "publish_article",
-          kind: "form",
-          entity,
-          op,
-          url: "pronto://event/PUBLISH_ARTICLE",
-          label: rawLabel,
+          primary: {
+            id: id || "publish_article",
+            kind: "form",
+            entity,
+            op,
+            url: "pronto://event/PUBLISH_ARTICLE",
+            label: rawLabel,
+          },
+          extras,
         };
       }
       if (formName === "search" || route === "search") {
         return {
-          id: id || "search",
-          kind: "form",
-          route: "search",
-          url: "pronto://event/SEARCH",
-          label: rawLabel,
+          primary: {
+            id: id || "search",
+            kind: "form",
+            route: "search",
+            url: "pronto://event/SEARCH",
+            label: rawLabel,
+          },
+          extras,
         };
       }
+      const formQs = new URLSearchParams();
+      if (!legacyV1 && ownerForm) {
+        if (entity) formQs.set("entity", entity);
+        if (op) formQs.set("op", op);
+        for (const ch of ownerForm.children || []) {
+          if (ch.tagName === "input" && (ch.getAttribute("type") || "").toLowerCase() === "hidden") {
+            const hName = ch.getAttribute("name");
+            const hVal = ch.getAttribute("data-value") ?? ch.getAttribute("value");
+            if (hName && hVal !== null) formQs.set(hName, hVal);
+          }
+        }
+      }
+      const eventName = formName.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+      const qsSuffix = formQs.toString() ? `?${unescapeBraces(formQs.toString())}` : "";
       return {
-        id: id || `form_${formName}`,
-        kind: "form",
-        entity,
-        op,
-        url: `pronto://event/${formName.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`,
-        label: rawLabel,
+        primary: {
+          id: id || `form_${formName}`,
+          kind: "form",
+          entity,
+          op,
+          url: `pronto://event/${eventName}${qsSuffix}`,
+          label: rawLabel,
+        },
+        extras,
+      };
+    }
+
+    if (!legacyV1 && extras.length > 0) {
+      return { primary: extras[0], extras: extras.slice(1) };
+    }
+  }
+
+  if (!legacyV1) {
+    const authAction = el.getAttribute("data-auth-action");
+    const authProvider = el.getAttribute("data-auth-provider");
+    if (authAction || authProvider) {
+      const method = authProvider ? `oidc:${authProvider}` : authAction!;
+      return {
+        primary: {
+          id: id || `auth_${method}`,
+          kind: "auth",
+          url: `pronto://event/AUTH?method=${encodeURIComponent(method)}&id=${encodeURIComponent(id)}`,
+          label: rawLabel,
+        },
+        extras,
+      };
+    }
+
+    if (tag === "label" && el.getAttribute("for") === "login-modal-toggle") {
+      return {
+        primary: {
+          id: id || "toggle_login_modal",
+          kind: "popover",
+          popoverTarget: "login-modal-overlay",
+          popoverOp: "toggle",
+          url: `pronto://event/POPOVER?target=login-modal-overlay&op=toggle&id=${encodeURIComponent(id)}`,
+          label: rawLabel,
+        },
+        extras,
+      };
+    }
+
+    if (id && (chartTargets?.[id] || id.startsWith("card-flip-"))) {
+      return {
+        primary: {
+          id,
+          kind: "chart",
+          url: `pronto://event/CHART_CLICK?id=${encodeURIComponent(id)}`,
+          label: rawLabel,
+        },
+        extras,
       };
     }
   }
 
-  return undefined;
+  return { primary: undefined, extras };
+}
+
+function extractChartClickTargets(
+  actors: Record<string, unknown> | undefined,
+  screenName: string,
+): Record<string, { field: string; nextState?: string }> {
+  const targets: Record<string, { field: string; nextState?: string }> = {};
+  if (!actors) return targets;
+
+  function scanTransitions(onMap: unknown, field: string) {
+    if (!onMap || typeof onMap !== "object") return;
+    for (const [evt, transition] of Object.entries(onMap as Record<string, unknown>)) {
+      if (!evt.startsWith("click@")) continue;
+      const targetId = evt.slice("click@".length);
+      const nextState = typeof transition === "string"
+        ? transition
+        : (transition && typeof transition === "object" && typeof (transition as Record<string, unknown>).target === "string")
+          ? String((transition as Record<string, unknown>).target)
+          : undefined;
+      targets[targetId] = { field, nextState };
+    }
+  }
+
+  function scanChart(chart: unknown) {
+    if (!chart || typeof chart !== "object") return;
+    if (Array.isArray(chart)) {
+      for (const item of chart) scanChart(item);
+      return;
+    }
+    const c = chart as Record<string, unknown>;
+    const field = typeof c.field === "string" ? c.field : "status";
+    scanTransitions(c.on, field);
+    if (c.states && typeof c.states === "object") {
+      for (const st of Object.values(c.states as Record<string, unknown>)) {
+        if (st && typeof st === "object") {
+          scanTransitions((st as Record<string, unknown>).on, field);
+        }
+      }
+    }
+  }
+
+  for (const actor of Object.values(actors)) {
+    if (!actor || typeof actor !== "object") continue;
+    const a = actor as Record<string, unknown>;
+    if (a.via !== "rows" || a.screen !== screenName) continue;
+    if (a.charts && typeof a.charts === "object") {
+      for (const chart of Object.values(a.charts as Record<string, unknown>)) {
+        scanChart(chart);
+      }
+    }
+  }
+
+  return targets;
 }
 
 /** Parse one screen's HTML and CSS into the bound Omnishell NativeScreenIr. */
@@ -647,7 +1172,10 @@ export function projectScreenIr(
   htmlText: string,
   cssText: string,
   messages: Record<string, string> = {},
+  options: ScreenIrOptions = {},
 ): NativeScreenIr {
+  const legacyV1 = Boolean(options.legacyV1);
+  const chartTargets = options.chartTargets;
   const rootEl = parseHtmlTree(htmlText);
   const theme = rootEl?.getAttribute?.("data-theme") || "press";
   const stateRules = parseCssStateRules(cssText);
@@ -657,10 +1185,79 @@ export function projectScreenIr(
   const hudLayers: NativeHudLayerSpec[] = [];
   const touchZones: NativeTouchZoneSpec[] = [];
   const kineticMounts: NativeKineticSpec[] = [];
+  const realms: NativeRealmSpec[] = [];
+  const folds: NativeFoldSpec[] = [];
 
   let autoId = 0;
 
-  function walkElement(el: any, inheritedVisibility: VisibilityMode, enclosingSeat?: number): NativeNode | null {
+  function collectHiddenFolds(
+    el: HtmlElementNode,
+    parentLive?: { table: string; filter?: string; emptyRow?: Record<string, unknown> },
+  ): void {
+    const isLive = el.hasAttribute("data-live");
+    const liveTable = isLive ? el.getAttribute("data-live")! : undefined;
+    const liveFilter = isLive ? (el.getAttribute("data-filter") || undefined) : undefined;
+    const rawEmptyRow = isLive ? el.getAttribute("data-empty-row") : null;
+    const liveEmptyRow = rawEmptyRow ? (JSON.parse(rawEmptyRow) as Record<string, unknown>) : undefined;
+    if (isLive && el.hasAttribute("data-on-mutation")) {
+      const foldId = el.getAttribute("id") || `${screenName}_fold_${folds.length + 1}`;
+      const reads = (el.getAttribute("data-reads") || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const namedReads: Record<string, string> = {};
+      for (const attr of el.attributes) {
+        if (attr.name.startsWith("data-read-")) {
+          namedReads[attr.name.slice("data-read-".length)] = attr.value;
+        }
+      }
+      folds.push({
+        id: foldId,
+        table: liveTable!,
+        filter: liveFilter,
+        handler: el.getAttribute("data-on-mutation")!,
+        reads,
+        namedReads,
+        ...(parentLive
+          ? {
+              parentTable: parentLive.table,
+              ...(parentLive.filter ? { parentFilter: parentLive.filter } : {}),
+              ...(parentLive.emptyRow ? { parentEmptyRow: parentLive.emptyRow } : {}),
+            }
+          : {}),
+      });
+    }
+    const nextParent = isLive && !el.hasAttribute("data-on-mutation")
+      ? { table: liveTable!, filter: liveFilter, emptyRow: liveEmptyRow }
+      : parentLive;
+    for (const child of el.children) {
+      if ((child.tagName || "").toLowerCase() === "template") {
+        const contentRoot = child.content || child;
+        for (const tplChild of contentRoot.children || []) {
+          collectHiddenFolds(tplChild, nextParent);
+        }
+      } else {
+        collectHiddenFolds(child, nextParent);
+      }
+    }
+  }
+
+  function hasDescendantWithClass(el: HtmlElementNode, cls: string): boolean {
+    const classes = (el.getAttribute("class") || "").split(/\s+/);
+    if (classes.includes(cls)) return true;
+    for (const c of el.children) {
+      if (hasDescendantWithClass(c, cls)) return true;
+    }
+    return false;
+  }
+
+  function walkElement(
+    el: HtmlElementNode,
+    inheritedVisibility: VisibilityMode,
+    enclosingSeat?: number,
+    insideSheet = false,
+    insideHidden = false,
+  ): NativeNode | null {
     const tag = (el.tagName || "div").toLowerCase();
     if (tag === "script" || tag === "style" || tag === "svg") return null;
 
@@ -715,6 +1312,7 @@ export function projectScreenIr(
       "data-action",
       "data-on-click",
       "data-on-mutation",
+      ...(legacyV1 ? [] : ["data-image-src", "data-hatch", "data-host-dom"]),
     ]);
 
     for (const attr of el.attributes || []) {
@@ -726,6 +1324,49 @@ export function projectScreenIr(
         namedReads[attr.name.slice("data-read-".length)] = attr.value;
       } else if (attr.name.startsWith("data-") && !reservedData.has(attr.name) && !attr.name.startsWith("data-param-")) {
         stateAttrs[attr.name.slice("data-".length)] = attr.value;
+      }
+    }
+
+    let isProbe: NativeNode["isProbe"];
+    if (!legacyV1) {
+      if (classes.includes("fav-probe")) {
+        isProbe = "favorite";
+      } else if (
+        hidden &&
+        (hasDescendantWithClass(el, "owned-deck") ||
+          hasDescendantWithClass(el, "owned-preview") ||
+          hasDescendantWithClass(el, "owned-generation"))
+      ) {
+        isProbe = "owned";
+      } else if (hidden && el.getAttribute("data-live") === "next_picture") {
+        isProbe = "preload";
+      }
+      if (hidden && !insideHidden && (el.hasAttribute("data-on-mutation") || el.children.some((c) => c.tagName === "template"))) {
+        collectHiddenFolds(el);
+      }
+      if (hidden && classes.includes("delivery-geocoder")) {
+        for (const geoChild of el.children) {
+          if (geoChild.hasAttribute("data-hatch")) {
+            const unitName = geoChild.getAttribute("data-hatch")!;
+            const unitDecl = options.units?.[unitName];
+            const gProps: Record<string, string> = {};
+            const gEvents: Record<string, string> = {};
+            for (const a of geoChild.attributes) {
+              if (a.name.startsWith("data-prop-")) gProps[a.name.slice("data-prop-".length)] = a.value;
+              else if (a.name.startsWith("data-on-")) gEvents[a.name.slice("data-on-".length)] = a.value;
+            }
+            realms.push({
+              unit: unitName,
+              customType: "web-realm",
+              isolation: unitDecl?.isolation ?? "agent",
+              grants: unitDecl?.grants ?? [],
+              ...(unitDecl?.src ? { src: unitDecl.src } : {}),
+              ...(unitDecl?.subdomain ? { subdomain: unitDecl.subdomain } : {}),
+              props: gProps,
+              events: gEvents,
+            });
+          }
+        }
       }
     }
 
@@ -743,8 +1384,19 @@ export function projectScreenIr(
         .split(",")
         .map((s: string) => s.trim())
         .filter(Boolean);
+      const onMutation = !legacyV1 ? (el.getAttribute("data-on-mutation") || undefined) : undefined;
+      if (!legacyV1 && onMutation && !hidden && !insideHidden) {
+        folds.push({
+          id,
+          table: el.getAttribute("data-live")!,
+          filter: el.getAttribute("data-filter") || undefined,
+          handler: onMutation,
+          reads,
+          namedReads,
+        });
+      }
       live = {
-        table: el.getAttribute("data-live"),
+        table: el.getAttribute("data-live")!,
         filter: el.getAttribute("data-filter") || undefined,
         order: el.getAttribute("data-order") || undefined,
         select: el.getAttribute("data-select") || undefined,
@@ -754,13 +1406,20 @@ export function projectScreenIr(
         reads,
         namedReads,
         when: el.getAttribute("data-when") || undefined,
+        ...(legacyV1
+          ? {}
+          : {
+              ...(onMutation ? { onMutation } : {}),
+              ...(el.hasAttribute("data-cortex") ? { cortexActor: el.getAttribute("data-cortex")! } : {}),
+              ...(el.hasAttribute("data-machine-ref") ? { machineRef: el.getAttribute("data-machine-ref")! } : {}),
+            }),
       };
     }
 
     let kinetic: NativeKineticSpec | undefined;
     if (el.hasAttribute?.("data-kinetic")) {
       kinetic = {
-        actor: el.getAttribute("data-kinetic"),
+        actor: el.getAttribute("data-kinetic")!,
         props: kineticProps,
         events: kineticEvents,
       };
@@ -774,7 +1433,7 @@ export function projectScreenIr(
       const style = el.getAttribute("style") || "";
       const widthMatch = style.match(/width\s*:\s*([0-9.]+)em/);
       hudLayer = {
-        layer: el.getAttribute("data-layer"),
+        layer: el.getAttribute("data-layer")!,
         widthEm: widthMatch ? Number(widthMatch[1]) : undefined,
         fill: classes.includes("hud-layer-fill") || classes.includes("stk-layer"),
       };
@@ -783,7 +1442,7 @@ export function projectScreenIr(
 
     let touchZone: NativeTouchZoneSpec | undefined;
     if (el.hasAttribute?.("data-touch-zone")) {
-      const zones = el.getAttribute("data-touch-zone").trim().split(/\s+/).filter(Boolean);
+      const zones = el.getAttribute("data-touch-zone")!.trim().split(/\s+/).filter(Boolean);
       touchZone = {
         zones,
         tap: el.hasAttribute("data-touch-tap"),
@@ -792,10 +1451,87 @@ export function projectScreenIr(
       touchZones.push(touchZone);
     }
 
+    let image: NativeImageSpec | undefined;
+    if (!legacyV1 && (tag === "img" || el.hasAttribute("data-image-src"))) {
+      const isResponsive = el.hasAttribute("data-image-src");
+      const rawSrc = (isResponsive ? el.getAttribute("data-image-src") : el.getAttribute("src")) ?? "";
+      const isCoverFill = classes.some((c) => c.includes("bg") || c === "cover-photo");
+      image = {
+        src: rawSrc,
+        isResponsiveBinding: isResponsive,
+        sizes: el.getAttribute("sizes") || undefined,
+        alt: interpolateMessages(el.getAttribute("alt") || undefined, messages),
+        ...(el.hasAttribute("width") ? { width: Number(el.getAttribute("width")) } : {}),
+        ...(el.hasAttribute("height") ? { height: Number(el.getAttribute("height")) } : {}),
+        scale: isCoverFill ? "fill" : "fit",
+      };
+    }
+
+    let sheet: NativeSheetSpec | undefined;
+    if (!legacyV1 && !insideSheet) {
+      if (el.hasAttribute("popover")) {
+        sheet = {
+          kind: "popover",
+          sheetId: id,
+          stateVar: sheetStateVarForId(id),
+        };
+      } else if (tag === "dialog") {
+        sheet = {
+          kind: "dialog",
+          sheetId: id,
+          stateVar: sheetStateVarForId(id),
+        };
+      } else if (classes.includes("login-modal-overlay") || role === "dialog") {
+        const sheetId = classes.includes("login-modal-overlay") ? "login-modal-overlay" : id;
+        sheet = {
+          kind: "modal",
+          sheetId,
+          stateVar: sheetStateVarForId(sheetId),
+        };
+      }
+    }
+
+    let flipCard: NativeFlipCardSpec | undefined;
+    if (!legacyV1 && (classes.includes("flashcard-frame") || el.hasAttribute("data-flipped"))) {
+      const rawFlip = el.getAttribute("data-flipped") || "{flipped}";
+      const varMatch = rawFlip.match(BINDING_PLACEHOLDER_RE);
+      flipCard = {
+        flippedBinding: rawFlip,
+        flippedVar: sanitizeVarName(varMatch ? varMatch[1] : "flipped"),
+      };
+    }
+
+    let realm: NativeRealmSpec | undefined;
+    if (!legacyV1 && el.hasAttribute("data-hatch")) {
+      const unitName = el.getAttribute("data-hatch")!;
+      const unitDecl = options.units?.[unitName];
+      const interpolatedProps: Record<string, string> = {};
+      for (const [pk, pv] of Object.entries(kineticProps)) {
+        interpolatedProps[pk] = interpolateMessages(pv, messages) ?? pv;
+      }
+      realm = {
+        unit: unitName,
+        customType: "web-realm",
+        isolation: unitDecl?.isolation ?? "realm",
+        grants: unitDecl?.grants ?? (unitName === "delivery-map" ? ["geolocation"] : []),
+        ...(unitDecl?.src ? { src: unitDecl.src } : {}),
+        ...(unitDecl?.subdomain ? { subdomain: unitDecl.subdomain } : {}),
+        props: interpolatedProps,
+        events: kineticEvents,
+      };
+      realms.push(realm);
+    }
+
     let input: NativeInputSpec | undefined;
     if (tag === "input" || tag === "textarea" || tag === "select") {
       const inputType = (el.getAttribute("type") || "text").toLowerCase();
-      if (inputType !== "hidden" && inputType !== "submit") {
+      const isCssHiddenToggle =
+        !legacyV1 &&
+        (inputType === "radio" ||
+          classes.includes("pill-radio") ||
+          classes.includes("login-modal-chk") ||
+          classes.includes("study-mode-chk"));
+      if (inputType !== "hidden" && inputType !== "submit" && !isCssHiddenToggle) {
         const field = el.getAttribute("name") || el.getAttribute("id") || id;
         const kind: NativeInputSpec["kind"] =
           tag === "textarea"
@@ -806,9 +1542,14 @@ export function projectScreenIr(
                 ? "range"
                 : inputType === "checkbox"
                   ? "checkbox"
-                  : "text";
+                  : !legacyV1 && inputType === "number"
+                    ? "number"
+                    : "text";
         const placeholder = interpolateMessages(
-          el.getAttribute("placeholder") || el.getAttribute("aria-label") || undefined,
+          el.getAttribute("placeholder")?.trim() ||
+            el.getAttribute("aria-label") ||
+            (!legacyV1 ? el.getAttribute("aria-description") : null) ||
+            undefined,
           messages,
         );
         input = {
@@ -818,7 +1559,7 @@ export function projectScreenIr(
           required: el.hasAttribute("required"),
           ...(el.hasAttribute("min") ? { min: Number(el.getAttribute("min")) } : {}),
           ...(el.hasAttribute("max") ? { max: Number(el.getAttribute("max")) } : {}),
-          ...(el.hasAttribute("data-value") ? { valueBinding: el.getAttribute("data-value") } : {}),
+          ...(el.hasAttribute("data-value") ? { valueBinding: el.getAttribute("data-value")! } : {}),
         };
         if (!inputs.some((i) => i.field === field)) {
           inputs.push(input);
@@ -826,9 +1567,15 @@ export function projectScreenIr(
       }
     }
 
-    const action = canonicalActionUrl(el, null, messages);
+    const resolvedActions = canonicalActionUrl(el, null, messages, legacyV1, chartTargets);
+    const action = resolvedActions.primary;
     if (action && !actions.some((a) => a.url === action.url && a.id === action.id)) {
       actions.push(action);
+    }
+    for (const extra of resolvedActions.extras) {
+      if (!actions.some((a) => a.url === extra.url && a.id === extra.id)) {
+        actions.push(extra);
+      }
     }
 
     const rawTextBinding = el.getAttribute?.("data-text") || undefined;
@@ -836,22 +1583,73 @@ export function projectScreenIr(
     const textFormat = el.getAttribute?.("data-text-format") || undefined;
 
     const children: NativeNode[] = [];
+    const itemTemplates: NativeNode[] = [];
+    let sawItemTemplate = false;
+    const nextInsideSheet = insideSheet || Boolean(sheet);
+    const nextInsideHidden = insideHidden || hidden;
+
     for (const child of el.children || []) {
       const childTag = (child.tagName || "").toLowerCase();
       if (childTag === "template") {
+        const isItemTpl = !legacyV1 && child.hasAttribute("data-item");
+        if (isItemTpl) sawItemTemplate = true;
         const tplWhen = child.getAttribute?.("data-when") || undefined;
         const contentRoot = child.content || child;
         for (const tplChild of contentRoot.children || []) {
-          const walked = walkElement(tplChild, visibility, seat);
+          const walked = walkElement(tplChild, visibility, seat, nextInsideSheet, nextInsideHidden);
           if (walked) {
             if (tplWhen && walked.live) walked.live.when = tplWhen;
             children.push(walked);
+            if (isItemTpl) itemTemplates.push(walked);
           }
         }
         continue;
       }
-      const walked = walkElement(child, visibility, seat);
+      const walked = walkElement(child, visibility, seat, nextInsideSheet, nextInsideHidden);
       if (walked) children.push(walked);
+    }
+
+    if (!legacyV1 && live && sawItemTemplate) {
+      live.isRepeater = true;
+      live.itemTemplates = itemTemplates;
+    }
+
+    if (!legacyV1 && screenName === "print" && classes.includes("print-preview-wrapper")) {
+      const printSheetRealmSpec: NativeRealmSpec = {
+        unit: "print-sheet",
+        customType: "print-realm",
+        isolation: "realm",
+        grants: ["print", "canvas-300dpi"],
+        src: options.hostDom?.["window-print"]?.src || "shell/hatches/window-print.js",
+        props: {
+          deck_id: "{set_id}",
+          vendor: "{vendor}",
+          paper: "{paper}",
+          orientation: "{orientation}",
+          card_size: "{card_size}",
+          layout: "{layout}",
+          cut_lines: "{cut_lines}",
+          stock: "{stock}",
+          dpi: "300",
+        },
+        events: {
+          print: "window-print",
+          checkout: "print-checkout",
+        },
+      };
+      realms.push(printSheetRealmSpec);
+      children.unshift({
+        id: "print_sheet_realm",
+        tag: "div",
+        classes: ["print-realm-surface"],
+        visibility: "all",
+        hidden: false,
+        orientation: "vertical",
+        typography: "body",
+        stateAttrs: {},
+        realm: printSheetRealmSpec,
+        children: [],
+      });
     }
 
     let directText: string | undefined;
@@ -860,6 +1658,9 @@ export function projectScreenIr(
       if (t.length > 0) directText = t;
     }
 
+    const rawDataText = !legacyV1
+      ? (el.getAttribute("data-text") || el.getAttribute("placeholder") || undefined)
+      : undefined;
     return {
       id,
       tag,
@@ -868,9 +1669,10 @@ export function projectScreenIr(
       ariaLabel,
       visibility,
       hidden,
-      orientation: inferOrientation(tag, classes),
+      orientation: inferOrientation(tag, classes, legacyV1),
       text: directText,
       textBinding,
+      ...(rawDataText && rawDataText.includes("{msg.") ? { rawText: rawDataText } : {}),
       textFormat,
       typography: classifyTypography(classes),
       stateAttrs,
@@ -881,6 +1683,12 @@ export function projectScreenIr(
       touchZone,
       input,
       action,
+      ...(!legacyV1 && resolvedActions.extras.length > 0 ? { extraActions: resolvedActions.extras } : {}),
+      ...(!legacyV1 && image ? { image } : {}),
+      ...(!legacyV1 && sheet ? { sheet } : {}),
+      ...(!legacyV1 && flipCard ? { flipCard } : {}),
+      ...(!legacyV1 && realm ? { realm } : {}),
+      ...(!legacyV1 && isProbe ? { isProbe } : {}),
       children,
     };
   }
@@ -908,22 +1716,376 @@ export function projectScreenIr(
     hudLayers,
     touchZones,
     kineticMounts,
+    ...(legacyV1
+      ? {}
+      : {
+          folds,
+          ...(realms.length > 0 ? { realms } : {}),
+          ...(chartTargets ? { chartTargets } : {}),
+        }),
   };
 }
 
 /**
  * Deterministic Phone Back-End: lowers a bound Omnishell NativeScreenIr to an
- * upstream DivKit SDUI Card JSON with `DivVariableController` variables and
- * `div-custom` mounts for `data-kinetic` (Filament 3D surface) and `canvas[data-layer]`.
+ * upstream DivKit SDUI Card JSON with `DivVariableController` variables,
+ * `div-image`, `div-state` sheets, declarative visibility expressions,
+ * `data-live` repeater descriptors, and `div-custom` mounts (`flip-card`, `kinetic:*`).
  */
+export function applyDivTextStyle(
+  div: Record<string, unknown>,
+  node: NativeNode,
+  theme: ThemeTokens,
+  inHorizontalParent: boolean,
+): Record<string, unknown> {
+  const cls = new Set(node.classes);
+  if (inHorizontalParent && div.width === undefined) {
+    div.width = { type: "wrap_content" };
+  }
+  const isPrimaryBtn = cls.has("btn-primary") || cls.has("about-btn");
+  const isSecondaryBtn =
+    cls.has("btn-secondary") ||
+    cls.has("btn-outline") ||
+    cls.has("checkout-secondary") ||
+    cls.has("fullscreen-exit-btn");
+  const isPill =
+    cls.has("filter-pill-label") ||
+    cls.has("mobile-shelf-tab") ||
+    cls.has("quick-pick-pill") ||
+    cls.has("count-step-pill") ||
+    cls.has("theme-btn") ||
+    cls.has("lang-link") ||
+    cls.has("category-pill") ||
+    cls.has("hero-badge") ||
+    cls.has("hero-pill-category") ||
+    cls.has("desk-category-badge") ||
+    cls.has("card-specimen-seal");
+
+  if (isPrimaryBtn) {
+    div.background = [{ type: "solid", color: theme.accent }];
+    div.text_color = "#FFFFFF";
+    div.font_weight = "bold";
+    div.text_alignment_horizontal = "center";
+    div.paddings = { left: 16, right: 16, top: 10, bottom: 10 };
+    div.border = { corner_radius: 12 };
+  } else if (isSecondaryBtn) {
+    div.background = [{ type: "solid", color: theme.surface }];
+    div.text_color = theme.primary;
+    div.font_weight = "bold";
+    div.text_alignment_horizontal = "center";
+    div.paddings = { left: 14, right: 14, top: 10, bottom: 10 };
+    div.border = { corner_radius: 12, stroke: { color: theme.border, width: 1 } };
+  } else if (isPill) {
+    div.background = [{ type: "solid", color: cls.has("hero-badge") ? "#F59E0B" : theme.surfaceMuted }];
+    div.text_color = cls.has("hero-badge") ? "#181D25" : theme.secondary;
+    div.font_size = 12;
+    div.font_weight = "bold";
+    div.paddings = { left: 10, right: 10, top: 6, bottom: 6 };
+    div.border = { corner_radius: 999 };
+  }
+
+  if (cls.has("card-back-title")) {
+    div.font_size = 30;
+    div.font_weight = "bold";
+    div.text_alignment_horizontal = "center";
+  } else if (cls.has("hero-title") || cls.has("about-title") || cls.has("generator-title") || cls.has("print-main-title") || cls.has("desk-deck-title")) {
+    div.font_size = 24;
+    div.font_weight = "bold";
+  } else if (cls.has("card-set-title") || cls.has("section-title")) {
+    div.font_size = 18;
+    div.font_weight = "bold";
+  } else if (cls.has("section-subtitle") || cls.has("hero-subtitle") || cls.has("about-lede") || cls.has("contact-sheet-sub")) {
+    div.text_color = theme.secondary;
+    div.font_size = 14;
+  }
+  return div;
+}
+
+export function applyDivContainerStyle(
+  div: Record<string, unknown>,
+  node: NativeNode,
+  theme: ThemeTokens,
+  inHorizontalParent: boolean,
+): Record<string, unknown> {
+  const cls = new Set(node.classes);
+  if (node.orientation === "horizontal") {
+    div.layout_mode =
+      cls.has("lang-switch") || cls.has("theme-switch") || cls.has("mobile-shelf-tabs")
+        ? "no_wrap"
+        : "wrap";
+    div.item_spacing = cls.has("lang-switch") || cls.has("theme-switch") ? 6 : 8;
+    div.line_spacing = 8;
+    div.content_alignment_vertical = "center";
+  } else {
+    div.item_spacing = cls.has("screen") || cls.has("library-shell") || cls.has("play-container") ? 12 : 6;
+  }
+
+  if (inHorizontalParent && div.width === undefined) {
+    div.width = { type: "wrap_content" };
+  }
+
+  const isCardSurface =
+    cls.has("card-set-item") ||
+    cls.has("featured-hero") ||
+    cls.has("login-modal-card") ||
+    cls.has("card-edit-sheet") ||
+    cls.has("studio-container") ||
+    cls.has("specimen-preview-card") ||
+    cls.has("deck-selector-card") ||
+    cls.has("play-completed-card") ||
+    cls.has("print-readiness-banner") ||
+    cls.has("my-cards-cta-card") ||
+    cls.has("card-rail-item");
+
+  if (cls.has("card-face")) {
+    div.width = { type: "match_parent" };
+    div.height = { type: "match_parent" };
+    div.content_alignment_vertical = "space-between";
+    div.background = [{ type: "solid", color: theme.surface }];
+    div.border = { corner_radius: 20, stroke: { color: theme.border, width: 1 } };
+    div.paddings = { left: 16, right: 16, top: 14, bottom: 14 };
+  } else if (cls.has("face-content-back")) {
+    div.width = { type: "match_parent" };
+    div.height = { type: "fixed", value: 230 };
+    div.content_alignment_horizontal = "center";
+    div.content_alignment_vertical = "center";
+    div.paddings = { top: 20, bottom: 20, left: 12, right: 12 };
+  } else if (cls.has("plate-header")) {
+    div.width = { type: "match_parent" };
+    div.layout_mode = "no_wrap";
+    div.content_alignment_horizontal = "space-between";
+  } else if (cls.has("play-controls")) {
+    div.width = { type: "match_parent" };
+    div.content_alignment_horizontal = "center";
+    div.item_spacing = 12;
+    div.margins = { top: 12, bottom: 12 };
+  } else if (isCardSurface) {
+    div.width = inHorizontalParent
+      ? { type: "fixed", value: cls.has("card-rail-item") ? 156 : 280 }
+      : { type: "match_parent" };
+    div.background = [{ type: "solid", color: theme.surface }];
+    div.border = { corner_radius: 16, stroke: { color: theme.border, width: 1 } };
+    div.paddings = { left: 14, right: 14, top: 14, bottom: 14 };
+    div.margins = { bottom: 10 };
+    div.item_spacing = 8;
+  } else if (cls.has("btn-fav") || cls.has("deck-picker-card") || cls.has("login-method-btn") || cls.has("modal-nav-link")) {
+    div.background = [{ type: "solid", color: theme.surfaceMuted }];
+    div.border = { corner_radius: 12, stroke: { color: theme.border, width: 1 } };
+    div.paddings = { left: 10, right: 10, top: 8, bottom: 8 };
+  } else if (cls.has("top-bar-search") || cls.has("deck-search-box")) {
+    div.width = inHorizontalParent ? { type: "fixed", value: 260 } : { type: "match_parent" };
+    div.background = [{ type: "solid", color: theme.surface }];
+    div.border = { corner_radius: 12, stroke: { color: theme.border, width: 1 } };
+    div.paddings = { left: 12, right: 12, top: 6, bottom: 6 };
+    div.layout_mode = "no_wrap";
+  }
+
+  return div;
+}
+
+export function buildResponsiveShellWrapper(
+  screenName: string,
+  innerRoot: Record<string, unknown>,
+  options: {
+    viewportWidthDp: number;
+    direction: "ltr" | "rtl";
+    theme: ThemeTokens;
+    navEntries?: NativeNavEntry[];
+  },
+): Record<string, unknown> {
+  const { viewportWidthDp, direction, theme, navEntries } = options;
+  const entries = navEntries && navEntries.length > 0
+    ? navEntries
+    : [
+        { screen: "cards", label: "Home", icon: "🏠" },
+        { screen: "generate", label: "Create", icon: "✨" },
+        { screen: "cards", label: "My Cards", icon: "🗂️", params: { shelf: "mine" } },
+        { screen: "cards", label: "Gallery", icon: "🌐", params: { shelf: "gallery" } },
+        { screen: "print", label: "Print", icon: "🖨️" },
+        { screen: "about", label: "About", icon: "📖" },
+      ];
+
+  const makeNavButton = (entry: NativeNavEntry, idx: number, isActive: boolean, isPhoneBar = false): Record<string, unknown> => {
+    const qs = new URLSearchParams({ screen: entry.screen });
+    for (const [k, v] of Object.entries(entry.params ?? {})) qs.set(k, v);
+    return {
+      type: "text",
+      id: `nav_item_${entry.screen}_${idx}`,
+      text: entry.icon ? `${entry.icon} ${entry.label}` : entry.label,
+      font_size: 13,
+      font_weight: isActive ? "bold" : "medium",
+      font_family: "sans-serif",
+      text_color: isActive ? "#181D25" : theme.secondary,
+      text_alignment_horizontal: direction === "rtl" && !isPhoneBar ? "right" : "center",
+      text_alignment_vertical: "center",
+      ...(isPhoneBar
+        ? {
+            width: { type: "match_parent", weight: 1 },
+            height: { type: "fixed", value: 44 },
+          }
+        : {
+            paddings: { left: 8, right: 8, top: 10, bottom: 10 },
+          }),
+      border: { corner_radius: 10 },
+      ...(isActive ? { background: [{ type: "solid", color: "#F59E0B" }] } : {}),
+      actions: [{ log_id: `nav_${entry.screen}_${idx}`, url: `pronto://event/NAVIGATE?${qs.toString()}` }],
+    };
+  };
+
+  if (viewportWidthDp >= 768) {
+    const isStudyRoute = screenName === "card" || screenName === "explore" || screenName === "deck";
+    const railItems = entries.map((e, i) =>
+      makeNavButton(e, i, (e.screen === screenName || (isStudyRoute && e.screen === "cards")) && !e.params?.shelf, false),
+    );
+    railItems.push({
+      type: "text",
+      id: "omnishell_rail_account",
+      text: "👤 Account",
+      font_size: 12,
+      font_weight: "bold",
+      font_family: "sans-serif",
+      text_color: theme.primary,
+      paddings: { left: 8, right: 8, top: 10, bottom: 10 },
+      ...(direction === "rtl" ? { text_alignment_horizontal: "right" } : {}),
+      actions: [
+        { log_id: "rail_open_account", url: "pronto://event/COMMAND?handler=play_select&command=open-login&id=btn-top-login" },
+        { log_id: "rail_open_account_var", url: "div-action://set_variable?name=modal_login_state&value=open" },
+      ],
+    });
+    const navRail: Record<string, unknown> = {
+      type: "container",
+      id: "omnishell_tablet_nav_rail",
+      orientation: "vertical",
+      width: { type: "fixed", value: 88 },
+      height: { type: "match_parent" },
+      paddings: { left: 6, right: 6, top: 12, bottom: 12 },
+      item_spacing: 6,
+      background: [{ type: "solid", color: theme.neutral }],
+      items: railItems,
+      ...(direction === "rtl" ? { content_alignment_horizontal: "right" } : {}),
+    };
+    const mainPane: Record<string, unknown> = {
+      type: "gallery",
+      id: "omnishell_tablet_main",
+      orientation: "vertical",
+      width: { type: "match_parent" },
+      height: { type: "match_parent" },
+      paddings: { left: 20, right: 20, top: 16, bottom: 28 },
+      items: [innerRoot],
+    };
+    return {
+      type: "container",
+      id: "omnishell_tablet_shell",
+      orientation: "horizontal",
+      width: { type: "match_parent" },
+      height: { type: "match_parent" },
+      background: [{ type: "solid", color: theme.neutral }],
+      items: direction === "rtl" ? [mainPane, navRail] : [navRail, mainPane],
+      extension_props: {
+        form_factor: "tablet",
+        viewport_width_dp: viewportWidthDp,
+        layout_direction: direction,
+      },
+    };
+  }
+
+  const isStudyScreen = screenName === "card" || screenName === "explore" || screenName === "deck";
+  const phonePrimaryScreens = new Set(["cards", "generate", "print"]);
+  const phonePrimaryEntries = entries.filter(
+    (e) => phonePrimaryScreens.has(e.screen) && (!e.params || Object.keys(e.params).length === 0),
+  );
+  const barItems = phonePrimaryEntries.map((e, i) =>
+    makeNavButton(e, i, e.screen === screenName || (isStudyScreen && e.screen === "cards"), true),
+  );
+  barItems.push({
+    type: "text",
+    id: "omnishell_avatar_sheet_trigger",
+    text: "👤",
+    font_size: 16,
+    font_weight: "bold",
+    font_family: "sans-serif",
+    text_color: theme.primary,
+    text_alignment_horizontal: "center",
+    text_alignment_vertical: "center",
+    width: { type: "fixed", value: 48 },
+    height: { type: "fixed", value: 44 },
+    background: [{ type: "solid", color: theme.surfaceMuted }],
+    border: { corner_radius: 12, stroke: { color: theme.border, width: 1 } },
+    actions: [
+      { log_id: "phone_open_avatar_sheet", url: "pronto://event/COMMAND?handler=play_select&command=open-login&id=btn-top-login" },
+      { log_id: "phone_open_avatar_var", url: "div-action://set_variable?name=modal_login_state&value=open" },
+    ],
+  });
+  const orderedBarItems = direction === "rtl" ? [...barItems].reverse() : barItems;
+  const topBar: Record<string, unknown> = {
+    type: "container",
+    id: "omnishell_phone_nav_bar",
+    orientation: "horizontal",
+    width: { type: "match_parent" },
+    height: { type: "fixed", value: 64 },
+    paddings: { left: 10, right: 10, top: 8, bottom: 8 },
+    item_spacing: 6,
+    content_alignment_vertical: "center",
+    background: [{ type: "solid", color: theme.surface }],
+    border: { stroke: { color: theme.border, width: 1 } },
+    items: orderedBarItems,
+  };
+  const bodyScroll: Record<string, unknown> = {
+    type: "gallery",
+    id: "omnishell_phone_scroll",
+    orientation: "vertical",
+    width: { type: "match_parent" },
+    height: { type: "match_parent" },
+    paddings: { left: 14, right: 14, top: 12, bottom: 32 },
+    item_spacing: 12,
+    items: [innerRoot],
+  };
+  return {
+    type: "container",
+    id: "omnishell_phone_shell",
+    orientation: "vertical",
+    width: { type: "match_parent" },
+    height: { type: "match_parent" },
+    background: [{ type: "solid", color: theme.neutral }],
+    items: [topBar, bodyScroll],
+    extension_props: {
+      form_factor: "phone",
+      viewport_width_dp: viewportWidthDp,
+      layout_direction: direction,
+    },
+  };
+}
+
 export function projectScreenToDivKit(
   screenIr: NativeScreenIr,
   theme: ThemeTokens = DEFAULT_THEME,
+  options: DivKitProjectionOptions = {},
 ): DivKitCard {
+  const legacyV1 = Boolean(options.legacyV1);
+  const origin = options.origin || "https://snapcards.fun";
+  const palettes: ThemePalettes = options.palettes ?? { light: theme, dark: DEFAULT_DARK_THEME };
+  const themeMode = options.themeMode ?? "auto";
+  const resolvedScheme: "light" | "dark" =
+    themeMode === "dark"
+      ? "dark"
+      : themeMode === "light"
+        ? "light"
+        : options.systemColorScheme === "dark"
+          ? "dark"
+          : "light";
+  const activeTheme: ThemeTokens = legacyV1
+    ? theme
+    : resolvedScheme === "dark"
+      ? palettes.dark
+      : palettes.light;
+  const locale = options.locale || "pt";
+  const direction = legacyV1 ? "ltr" : directionOfLocale(locale);
+  const isTablet = !legacyV1 && typeof options.viewportWidthDp === "number" && options.viewportWidthDp >= 768;
+
   const variables: DivKitVariable[] = [];
   const seenVars = new Set<string>();
   const addVar = (name: string, type: DivKitVariable["type"], value: string | number | boolean) => {
-    const clean = name.replace(/[^a-zA-Z0-9_]/g, "_");
+    const clean = sanitizeVarName(name);
     if (seenVars.has(clean)) return clean;
     seenVars.add(clean);
     variables.push({ name: clean, type, value });
@@ -937,9 +2099,190 @@ export function projectScreenToDivKit(
     addVar(`input_${inp.field}`, "string", "");
   }
 
-  function lowerNode(node: NativeNode): Record<string, unknown> | null {
-    // Phone target omits keyboard-only hints and buttons (.keys-only), keeping .touch-only and shared UI.
-    if (node.visibility === "keys-only" || node.hidden) return null;
+  function buildDivActions(node: NativeNode): Array<Record<string, unknown>> | undefined {
+    if (legacyV1) {
+      return node.action ? [{ log_id: node.action.id, url: node.action.url }] : undefined;
+    }
+
+    const out: Array<Record<string, unknown>> = [];
+    const allSpecs: NativeActionSpec[] = [
+      ...(node.extraActions ?? []),
+      ...(node.action ? [node.action] : []),
+    ];
+
+    for (const spec of allSpecs) {
+      out.push({ log_id: spec.id, url: spec.url });
+      if (spec.popoverTarget) {
+        const stateVar = addVar(sheetStateVarForId(spec.popoverTarget), "string", "closed");
+        const nextVal = spec.popoverOp === "hide" ? "closed" : "open";
+        out.push({
+          log_id: `${spec.id}_sheet_${nextVal}`,
+          url: `div-action://set_variable?name=${encodeURIComponent(stateVar)}&value=${nextVal}`,
+        });
+      }
+      if (spec.command === "open-login") {
+        const stateVar = addVar("modal_login_state", "string", "closed");
+        addVar("status", "string", "playing");
+        out.push({
+          log_id: `${spec.id}_open_login`,
+          url: `div-action://set_variable?name=${encodeURIComponent(stateVar)}&value=open`,
+        });
+      } else if (
+        spec.command === "close-login" ||
+        spec.command === "auth-guest" ||
+        spec.command === "auth-passkey" ||
+        spec.command === "auth-google" ||
+        spec.command === "auth-apple" ||
+        spec.command === "auth-signout" ||
+        spec.command === "auth-delete"
+      ) {
+        const stateVar = addVar("modal_login_state", "string", "closed");
+        out.push({
+          log_id: `${spec.id}_close_login`,
+          url: `div-action://set_variable?name=${encodeURIComponent(stateVar)}&value=closed`,
+        });
+      }
+    }
+
+    if (node.id === "card-flip-visual" || node.id === "card-flip-prompt") {
+      const flippedVar = addVar("flipped", "string", "no");
+      out.push({
+        log_id: `${node.id}_flip_yes`,
+        url: `div-action://set_variable?name=${encodeURIComponent(flippedVar)}&value=yes`,
+      });
+    } else if (node.id === "card-flip-back" || node.id === "card-flip-back-prompt") {
+      const flippedVar = addVar("flipped", "string", "no");
+      out.push({
+        log_id: `${node.id}_flip_no`,
+        url: `div-action://set_variable?name=${encodeURIComponent(flippedVar)}&value=no`,
+      });
+    }
+
+    return out.length > 0 ? out : undefined;
+  }
+
+  function inferVisibilityExpression(node: NativeNode): string | undefined {
+    if (legacyV1) return undefined;
+
+    if (node.hidden) {
+      if (node.classes.includes("store-error") || node.role === "alert") {
+        const errVar = addVar("store_error", "string", "");
+        return `@{${errVar} != '' ? 'visible' : 'gone'}`;
+      }
+      if (node.realm?.unit === "print-payment") {
+        const payOpenVar = addVar("checkout_payment_open", "boolean", false);
+        return `@{${payOpenVar} ? 'visible' : 'gone'}`;
+      }
+      return undefined;
+    }
+
+    const cls = new Set(node.classes);
+
+    if (cls.has("fullscreen-topbar")) {
+      const v = addVar("status", "string", "playing");
+      return `@{${v} == 'fullscreen' ? 'visible' : 'gone'}`;
+    }
+    if ((cls.has("play-header") || cls.has("explore-contact-sidebar")) &&
+        (screenIr.name === "explore" || screenIr.name === "card")) {
+      const v = addVar("status", "string", "playing");
+      return `@{${v} == 'fullscreen' ? 'gone' : 'visible'}`;
+    }
+    if (cls.has("flashcard-stack-wrap") || cls.has("play-controls")) {
+      const v = addVar("status", "string", "playing");
+      return `@{${v} == 'completed' ? 'gone' : 'visible'}`;
+    }
+    if (cls.has("play-completed-card")) {
+      const v = addVar("status", "string", "playing");
+      return `@{${v} == 'completed' ? 'visible' : 'gone'}`;
+    }
+    if (cls.has("generated-deck-banner")) {
+      const st = addVar("generation_status", "string", "idle");
+      const own = addVar("has_owned_generation", "boolean", false);
+      return `@{${st} == 'done' || ${st} == 'generating' || ${st} == 'partial' || ${own} ? 'visible' : 'gone'}`;
+    }
+    if (cls.has("my-cards-cta-card")) {
+      const af = addVar("author_filter", "string", "");
+      return `@{${af} == 'mine' ? 'visible' : 'gone'}`;
+    }
+    if (cls.has("featured-hero")) {
+      const af = addVar("author_filter", "string", "");
+      return `@{${af} == 'mine' || ${af} == 'gallery' ? 'gone' : 'visible'}`;
+    }
+    if (cls.has("btn-delete-deck") || cls.has("btn-edit-card")) {
+      const own = addVar("is_owned_deck", "boolean", false);
+      return `@{${own} ? 'visible' : 'gone'}`;
+    }
+    if (cls.has("card-delete")) {
+      const own = addVar("is_owned_deck", "boolean", false);
+      const cnt = addVar("deck_card_count", "integer", 0);
+      return `@{${own} && ${cnt} > 1 ? 'visible' : 'gone'}`;
+    }
+    if (cls.has("card-delete-idle")) {
+      const ds = addVar("delete_state", "string", "idle");
+      return `@{${ds} == 'armed' || ${ds} == 'confirmed' ? 'gone' : 'visible'}`;
+    }
+    if (cls.has("card-delete-armed")) {
+      const ds = addVar("delete_state", "string", "idle");
+      return `@{${ds} == 'armed' || ${ds} == 'confirmed' ? 'visible' : 'gone'}`;
+    }
+    if (cls.has("when-unset")) {
+      const fav = addVar("is_favorited", "boolean", false);
+      return `@{${fav} ? 'gone' : 'visible'}`;
+    }
+    if (cls.has("when-set")) {
+      const fav = addVar("is_favorited", "boolean", false);
+      return `@{${fav} ? 'visible' : 'gone'}`;
+    }
+    if (cls.has("deck-loading")) {
+      const empty = addVar("deck_is_empty", "boolean", false);
+      return `@{${empty} ? 'gone' : 'visible'}`;
+    }
+    if (cls.has("deck-empty-back")) {
+      const empty = addVar("deck_is_empty", "boolean", false);
+      return `@{${empty} ? 'visible' : 'gone'}`;
+    }
+    if (cls.has("translation-error")) {
+      const tf = addVar("translation_failed_topic", "string", "");
+      return `@{${tf} != '' ? 'visible' : 'gone'}`;
+    }
+
+    for (const rule of screenIr.stateRules) {
+      if (!rule.targetClass || !cls.has(rule.targetClass)) continue;
+      if (rule.attr === "screen" || rule.attr === "locale") continue;
+      if (rule.op === "eq" && rule.value && !rule.value.includes("|")) {
+        const hasPairedHide = screenIr.stateRules.some(
+          (r) => !r.visible && r.targetClass === rule.targetClass && r.attr === rule.attr,
+        );
+        if (rule.visible && !rule.negated) {
+          if (!hasPairedHide) continue;
+          const attrVar = addVar(`state_${rule.attr}`, "string", "");
+          return `@{${attrVar} == '${rule.value}' ? 'visible' : 'gone'}`;
+        }
+        if (!rule.visible && !rule.negated && !rule.selector.includes("::before") && !rule.selector.includes("::after")) {
+          const attrVar = addVar(`state_${rule.attr}`, "string", "");
+          return `@{${attrVar} == '${rule.value}' ? 'gone' : 'visible'}`;
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  function findByClass(root: NativeNode, className: string): NativeNode | null {
+    if (root.classes.includes(className)) return root;
+    for (const c of root.children) {
+      const hit = findByClass(c, className);
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  function lowerNode(node: NativeNode, inHorizontalParent = false): Record<string, unknown> | null {
+    if (node.visibility === "keys-only") return null;
+    if (!legacyV1 && node.isProbe) return null;
+
+    const visibilityExpr = inferVisibilityExpression(node);
+    if (node.hidden && !visibilityExpr && !node.sheet) return null;
 
     if (node.kinetic) {
       for (const [k, v] of Object.entries(node.kinetic.props)) {
@@ -977,32 +2320,164 @@ export function projectScreenToDivKit(
       };
     }
 
+    if (!legacyV1 && node.flipCard) {
+      const flippedVar = addVar(node.flipCard.flippedVar, "string", "no");
+      const frontNode = findByClass(node, "card-front") ?? node.children[0];
+      const backNode = findByClass(node, "card-back") ?? node.children[1];
+      const frontDiv = frontNode ? lowerNode(frontNode, false) : null;
+      const backDiv = backNode ? lowerNode(backNode, false) : null;
+      const items = [frontDiv, backDiv].filter((x): x is Record<string, unknown> => x !== null);
+      const customId = node.children[0]?.id && node.children[0].classes.includes("card-inner")
+        ? node.children[0].id
+        : node.id;
+      return {
+        type: "custom",
+        id: customId,
+        custom_type: "flip-card",
+        width: { type: "match_parent" },
+        height: { type: "fixed", value: 380 },
+        items,
+        custom_props: {
+          flipped: `@{${flippedVar}}`,
+          flipped_variable: flippedVar,
+          perspective_px: 1200,
+          duration_ms: 600,
+          direction,
+        },
+        ...(visibilityExpr ? { visibility: visibilityExpr } : {}),
+      };
+    }
+
+    if (!legacyV1 && node.realm) {
+      const deckVar = addVar("active_deck_id", "string", "");
+      const orderVar = addVar("active_order_id", "string", "");
+      return {
+        type: "custom",
+        id: node.id,
+        custom_type: node.realm.customType,
+        width: { type: "match_parent" },
+        height:
+          node.realm.customType === "print-realm"
+            ? { type: "fixed", value: 360 }
+            : node.realm.props.mode === "locate"
+              ? { type: "fixed", value: 44 }
+              : { type: "fixed", value: 260 },
+        custom_props: {
+          unit: node.realm.unit,
+          isolation: node.realm.isolation,
+          grants: node.realm.grants,
+          ...(node.realm.src ? { src: node.realm.src } : {}),
+          ...(node.realm.subdomain ? { subdomain: node.realm.subdomain } : {}),
+          deck_id: `@{${deckVar}}`,
+          order_id: `@{${orderVar}}`,
+          locale,
+          direction,
+          theme: resolvedScheme,
+          origin,
+          props: node.realm.props,
+          events: node.realm.events,
+          print_action_url: `omnishell://print?job=Snapcards&unit=${encodeURIComponent(node.realm.unit)}&deck=@{${deckVar}}`,
+          checkout_action_url: `omnishell://checkout?order=@{${orderVar}}&deck=@{${deckVar}}&return_url=${encodeURIComponent("snapcards://print/return")}`,
+        },
+        ...(visibilityExpr ? { visibility: visibilityExpr } : {}),
+      };
+    }
+
+    if (!legacyV1 && node.image) {
+      const hasPlaceholder = BINDING_PLACEHOLDER_RE.test(node.image.src);
+      let imageUrl: string;
+      const extProps: Record<string, unknown> = {};
+      if (node.image.isResponsiveBinding) {
+        extProps.data_image_src = node.image.src;
+        if (node.image.sizes) extProps.sizes = node.image.sizes;
+      } else if (hasPlaceholder) {
+        extProps.image_src = node.image.src;
+      }
+      if (hasPlaceholder) {
+        const imgVar = addVar(`img_${node.id}`, "string", BLANK_SVG_DATA_URI);
+        imageUrl = `@{${imgVar}}`;
+      } else {
+        imageUrl = resolveNativeImageUrl(node.image.src, origin);
+      }
+      const defaultImgHeight = node.classes.includes("card-illustration-img")
+        ? 230
+        : node.classes.includes("hero-bg-photo")
+          ? 160
+          : node.classes.includes("card-rail-thumb") || node.classes.includes("deck-picker-cover")
+            ? 110
+            : 180;
+      return {
+        type: "image",
+        id: node.id,
+        image_url: imageUrl,
+        scale: node.classes.includes("hero-bg-photo") ? "fit" : node.image.scale,
+        preload_required: !node.image.isResponsiveBinding,
+        width: node.image.width
+          ? { type: "fixed", value: node.image.width }
+          : inHorizontalParent
+            ? { type: "fixed", value: 140 }
+            : { type: "match_parent" },
+        height: node.image.height
+          ? { type: "fixed", value: node.image.height }
+          : { type: "fixed", value: defaultImgHeight },
+        border: { corner_radius: 12 },
+        ...(node.image.alt ? { accessibility: { description: node.image.alt } } : {}),
+        ...(visibilityExpr ? { visibility: visibilityExpr } : {}),
+        ...(Object.keys(extProps).length > 0 ? { extension_props: extProps } : {}),
+      };
+    }
+
     if (node.input) {
       const varName = addVar(`input_${node.input.field}`, "string", "");
+      const keyboardType =
+        node.input.kind === "multiline"
+          ? "multi_line_text"
+          : !legacyV1 && (node.input.kind === "number" || node.input.kind === "range")
+            ? "number"
+            : "single_line_text";
       return {
         type: "input",
         id: node.input.field,
         hint_text: node.input.placeholder || node.input.field,
         text_variable: varName,
-        keyboard_type: node.input.kind === "multiline" ? "multi_line_text" : "single_line_text",
+        keyboard_type: keyboardType,
         font_size: node.typography === "display" ? 20 : 15,
         font_family: node.typography === "prose" ? "serif" : "sans-serif",
-        text_color: theme.primary,
+        text_color: activeTheme.primary,
+        ...(direction === "rtl" ? { text_alignment_horizontal: "right" } : {}),
         ...(node.input.placeholder
           ? { accessibility: { description: node.input.placeholder } }
           : {}),
+        ...(!legacyV1 && node.rawText ? { extension_props: { raw_text: node.rawText } } : {}),
+        ...(visibilityExpr ? { visibility: visibilityExpr } : {}),
       };
     }
 
     const childDivs: Record<string, unknown>[] = [];
-    for (const child of node.children) {
-      const lowered = lowerNode(child);
-      if (lowered) childDivs.push(lowered);
+    const childInHoriz = !legacyV1 && node.orientation === "horizontal";
+    if (legacyV1 || !node.live?.isRepeater) {
+      for (const child of node.children) {
+        const lowered = lowerNode(child, childInHoriz);
+        if (lowered) childDivs.push(lowered);
+      }
     }
 
-    const actions = node.action
-      ? [{ log_id: node.action.id, url: node.action.url }]
-      : undefined;
+    if (!legacyV1 && node.live?.empty && node.live.empty.length > 0) {
+      const countVar = addVar(`live_${node.id}_count`, "integer", 0);
+      childDivs.push({
+        type: "text",
+        id: `${node.id}_empty`,
+        text: node.live.empty,
+        font_size: 14,
+        font_weight: "regular",
+        font_family: "sans-serif",
+        text_color: activeTheme.secondary,
+        ...(direction === "rtl" ? { text_alignment_horizontal: "right" } : {}),
+        visibility: `@{${countVar} == 0 ? 'visible' : 'gone'}`,
+      });
+    }
+
+    const actions = buildDivActions(node);
 
     const customProps: Record<string, unknown> = {};
     if (node.touchZone) {
@@ -1014,48 +2489,162 @@ export function projectScreenToDivKit(
       customProps.data_live = node.live.table;
       if (node.live.filter) customProps.data_filter = node.live.filter;
       if (node.live.order) customProps.data_order = node.live.order;
+      if (!legacyV1) {
+        if (node.live.isRepeater) {
+          customProps.repeater = true;
+          const tplDivs = (node.live.itemTemplates ?? [])
+            .map((tpl) => lowerNode(tpl, childInHoriz))
+            .filter((x): x is Record<string, unknown> => x !== null);
+          if (tplDivs.length > 0) customProps.item_templates = tplDivs;
+        }
+        if (node.live.empty !== undefined && node.live.empty.length > 0) {
+          customProps.data_empty = node.live.empty;
+        }
+        if (node.live.emptyRow) {
+          customProps.data_empty_row = node.live.emptyRow;
+        }
+        if (node.live.onMutation) {
+          customProps.data_on_mutation = node.live.onMutation;
+        }
+      }
     }
     if (Object.keys(node.stateAttrs).length > 0) {
       customProps.state_attrs = node.stateAttrs;
     }
+    if (!legacyV1) {
+      if (node.classes.length > 0) customProps.classes = node.classes;
+      if (node.rawText) customProps.raw_text = node.rawText;
+    }
+
+    if (!legacyV1 && node.sheet) {
+      const stateVar = addVar(node.sheet.stateVar, "string", "closed");
+      const openDiv: Record<string, unknown> = {
+        type: "container",
+        id: node.id,
+        orientation: node.orientation,
+        items: childDivs,
+        ...(actions ? { actions } : {}),
+        ...(Object.keys(customProps).length > 0 ? { extension_props: customProps } : {}),
+      };
+      if (!legacyV1) applyDivContainerStyle(openDiv, node, activeTheme, false);
+      return {
+        type: "state",
+        id: `state_${node.sheet.sheetId}`,
+        div_id: `state_${node.sheet.sheetId}`,
+        default_state_id: "closed",
+        state_id_variable: stateVar,
+        states: [
+          { state_id: "closed" },
+          { state_id: "open", div: openDiv },
+        ],
+      };
+    }
 
     if (childDivs.length === 0) {
-      const displayText = node.text ?? node.textBinding ?? node.action?.label ?? "";
-      if (!displayText && !actions && !node.touchZone) return null;
-      return {
+      const displayText = legacyV1
+        ? (node.text ?? node.textBinding ?? node.action?.label ?? "")
+        : (node.textBinding ?? node.text ?? node.action?.label ?? "");
+      if (!displayText && !actions && !node.touchZone && !(node.live?.isRepeater && !legacyV1)) return null;
+      if (!legacyV1 && !displayText && !actions && node.live?.isRepeater) {
+        const emptyRepeater: Record<string, unknown> = {
+          type: "container",
+          id: node.id,
+          orientation: node.orientation,
+          items: [],
+          ...(visibilityExpr ? { visibility: visibilityExpr } : {}),
+          ...(Object.keys(customProps).length > 0 ? { extension_props: customProps } : {}),
+        };
+        return applyDivContainerStyle(emptyRepeater, node, activeTheme, inHorizontalParent);
+      }
+      const textDiv: Record<string, unknown> = {
         type: "text",
         id: node.id,
         text: displayText,
         font_size: node.typography === "display" ? 22 : node.typography === "meta" ? 12 : 15,
         font_weight: node.typography === "display" || node.tag === "b" || node.tag === "strong" || node.tag === "button" ? "bold" : "regular",
         font_family: node.typography === "prose" ? "serif" : "sans-serif",
-        text_color: node.tag === "button" || node.tag === "a" ? theme.accent : theme.primary,
+        text_color: node.tag === "button" || node.tag === "a" ? activeTheme.accent : activeTheme.primary,
+        ...(direction === "rtl" ? { text_alignment_horizontal: "right" } : {}),
         ...(actions ? { actions } : {}),
+        ...(visibilityExpr ? { visibility: visibilityExpr } : {}),
+        ...(Object.keys(customProps).length > 0 ? { extension_props: customProps } : {}),
+      };
+      return legacyV1 ? textDiv : applyDivTextStyle(textDiv, node, activeTheme, inHorizontalParent);
+    }
+
+    const isDeckGrid = !legacyV1 && isTablet && (node.classes.includes("deck-grid") || node.classes.includes("cards-grid"));
+    if (isDeckGrid) {
+      return {
+        type: "grid",
+        id: node.id,
+        column_count: 2,
+        items: childDivs,
+        ...(direction === "rtl" ? { content_alignment_horizontal: "right" } : {}),
+        ...(actions ? { actions } : {}),
+        ...(visibilityExpr ? { visibility: visibilityExpr } : {}),
         ...(Object.keys(customProps).length > 0 ? { extension_props: customProps } : {}),
       };
     }
 
-    return {
+    const orderedChildDivs =
+      !legacyV1 && direction === "rtl" && node.orientation === "horizontal"
+        ? [...childDivs].reverse()
+        : childDivs;
+
+    const containerDiv: Record<string, unknown> = {
       type: "container",
       id: node.id,
       orientation: node.orientation,
-      items: childDivs,
+      items: orderedChildDivs,
+      ...(!legacyV1 && direction === "rtl" ? { content_alignment_horizontal: "right" } : {}),
       ...(actions ? { actions } : {}),
+      ...(visibilityExpr ? { visibility: visibilityExpr } : {}),
       ...(Object.keys(customProps).length > 0 ? { extension_props: customProps } : {}),
     };
+    return legacyV1 ? containerDiv : applyDivContainerStyle(containerDiv, node, activeTheme, inHorizontalParent);
   }
 
-  const rootDiv = lowerNode(screenIr.root) || {
+  if (!legacyV1) {
+    addVar("theme_mode", "string", themeMode);
+    addVar("resolved_theme", "string", resolvedScheme);
+    addVar("layout_direction", "string", direction);
+  }
+
+  let rootDiv = lowerNode(screenIr.root) || {
     type: "container",
     id: `${screenIr.name}_root`,
     orientation: "vertical",
     items: [],
   };
 
+  if (!legacyV1 && typeof options.viewportWidthDp === "number") {
+    addVar("form_factor", "string", options.viewportWidthDp >= 768 ? "tablet" : "phone");
+    rootDiv = buildResponsiveShellWrapper(screenIr.name, rootDiv, {
+      viewportWidthDp: options.viewportWidthDp,
+      direction,
+      theme: activeTheme,
+      navEntries: options.navEntries,
+    });
+  }
+
   return {
     card: {
       log_id: `omnishell_${screenIr.name}`,
       variables,
+      ...(!legacyV1
+        ? {
+            palette: buildDivKitPalette(palettes),
+            omnishell_meta: {
+              screen: screenIr.name,
+              route: screenIr.route,
+              folds: screenIr.folds ?? [],
+              chart_targets: screenIr.chartTargets ?? {},
+              nav_entries: options.navEntries ?? [],
+              palettes,
+              default_locale: locale,
+            },
+          }
+        : {}),
       states: [
         {
           state_id: 0,
@@ -1072,7 +2661,6 @@ export function projectScreenToDivKit(
  */
 export function projectScreenToWinio(screenIr: NativeScreenIr): WinioScreenSpec {
   function lowerNode(node: NativeNode, isRoot = false): WinioWidgetSpec | null {
-    // Desktop target omits coarse-pointer touch controls (.touch-only), keeping .keys-only and shared UI.
     if (node.visibility === "touch-only" || node.hidden) return null;
 
     if (node.kinetic) {
@@ -1231,19 +2819,40 @@ export function emitWinioRustSource(
 }
 
 /** Project all declared screens of an app into NativeScreenIr, DivKit JSON, and Rust `winio` specs. */
-export async function projectAppNative(appDir: URL): Promise<NativeAppProjection> {
+export async function projectAppNative(
+  appDir: URL,
+  options: { origin?: string; locale?: string; viewportWidthDp?: number; themeMode?: "light" | "dark" | "auto" } = {},
+): Promise<NativeAppProjection> {
   const dirPath = fileURLToPath(appDir).replace(/\/+$/, "");
   const shellPath = `${dirPath}/shell/shell.yaml`;
   const shellText = await Deno.readTextFile(shellPath);
   const shell = (parseYaml(shellText) || {}) as {
     app?: string;
-    i18n?: { default?: string };
+    i18n?: { default?: string; locales?: string[] | Record<string, unknown> };
+    cortex?: { actors?: Record<string, unknown> };
+    units?: Record<string, ScreenUnitDecl>;
+    hostDom?: Record<string, { src?: string }>;
     routes?: Array<{
       path: string;
       screen: string;
-      files?: { html?: string; css?: string };
+      nav?: {
+        strip?: boolean;
+        label?: string;
+        key?: string;
+        icon?: string;
+        entries?: Array<{ label?: string; key?: string; icon?: string; params?: Record<string, string> }>;
+      };
+      files?: { html?: string; css?: string; shared?: string[] };
     }>;
   };
+
+  let nativeRuntimeLogic: string | undefined;
+  try {
+    nativeRuntimeLogic = await Deno.readTextFile(`${dirPath}/android/bundle/runtime_logic.js`);
+  } catch (err) {
+    if (!(err instanceof Deno.errors.NotFound)) throw err;
+  }
+  const legacyV1 = nativeRuntimeLogic !== undefined;
 
   let designCss = "";
   try {
@@ -1251,15 +2860,83 @@ export async function projectAppNative(appDir: URL): Promise<NativeAppProjection
   } catch (err) {
     if (!(err instanceof Deno.errors.NotFound)) throw err;
   }
-  const theme = parseDesignTokens(designCss);
+  let chromeCss = "";
+  if (!legacyV1) {
+    try {
+      chromeCss = await Deno.readTextFile(`${dirPath}/shell/shared/chrome.css`);
+    } catch (err) {
+      if (!(err instanceof Deno.errors.NotFound)) throw err;
+    }
+  }
+  const combinedTokenCss = chromeCss ? `${designCss}\n${chromeCss}` : designCss;
+  const palettes = parseDesignPalettes(combinedTokenCss);
+  const theme = legacyV1 ? parseDesignTokens(designCss) : palettes.light;
 
   let defaultMessages: Record<string, string> = {};
   const defaultLocale = shell.i18n?.default || "en";
+  const targetLocale = options.locale || defaultLocale;
   try {
-    const msgText = await Deno.readTextFile(`${dirPath}/messages/${defaultLocale}.json`);
+    const msgText = await Deno.readTextFile(`${dirPath}/messages/${targetLocale}.json`);
     defaultMessages = JSON.parse(msgText);
   } catch (err) {
     if (!(err instanceof Deno.errors.NotFound)) throw err;
+    if (targetLocale !== defaultLocale) {
+      try {
+        const fallbackText = await Deno.readTextFile(`${dirPath}/messages/${defaultLocale}.json`);
+        defaultMessages = JSON.parse(fallbackText);
+      } catch (err2) {
+        if (!(err2 instanceof Deno.errors.NotFound)) throw err2;
+      }
+    }
+  }
+
+  const navEntries: NativeNavEntry[] = [];
+  if (!legacyV1) {
+    let navCssIcons: Record<string, string> = {};
+    try {
+      const navCssText = await Deno.readTextFile(`${dirPath}/shell/shared/nav.css`);
+      for (const m of navCssText.matchAll(/a\[data-route="([^"]+)"\]::before\s*\{\s*content:\s*"([^"]+)"/g)) {
+        navCssIcons[m[1]] = m[2];
+      }
+    } catch (err) {
+      if (!(err instanceof Deno.errors.NotFound)) throw err;
+    }
+
+    for (const r of shell.routes || []) {
+      const hasRequiredParam = r.path.split("/").some((seg) => seg.startsWith(":") && !seg.endsWith("?"));
+      if (hasRequiredParam || r.nav?.strip === false) continue;
+      const baseLabel = (r.nav?.key && defaultMessages[r.nav.key]) || r.nav?.label || r.screen;
+      const resolvedIcon = r.nav?.icon || navCssIcons[r.screen];
+      navEntries.push({
+        screen: r.screen,
+        label: baseLabel,
+        ...(r.nav?.key ? { key: r.nav.key } : {}),
+        ...(resolvedIcon ? { icon: resolvedIcon } : {}),
+      });
+      for (const sub of r.nav?.entries || []) {
+        const subLabel = (sub.key && defaultMessages[sub.key]) || sub.label || r.screen;
+        navEntries.push({
+          screen: r.screen,
+          label: subLabel,
+          ...(sub.key ? { key: sub.key } : {}),
+          ...(sub.icon ? { icon: sub.icon } : {}),
+          ...(sub.params ? { params: sub.params } : {}),
+        });
+      }
+    }
+  }
+
+  const sharedCssCache = new Map<string, string>();
+  async function readSharedCss(rel: string): Promise<string> {
+    if (sharedCssCache.has(rel)) return sharedCssCache.get(rel)!;
+    let content = "";
+    try {
+      content = await Deno.readTextFile(`${dirPath}/${rel}`);
+    } catch (err) {
+      if (!(err instanceof Deno.errors.NotFound)) throw err;
+    }
+    sharedCssCache.set(rel, content);
+    return content;
   }
 
   const screens: NativeAppProjection["screens"] = {};
@@ -1278,26 +2955,58 @@ export async function projectAppNative(appDir: URL): Promise<NativeAppProjection
     } catch (err) {
       if (!(err instanceof Deno.errors.NotFound)) throw err;
     }
-    const ir = projectScreenIr(screenName, route.path, htmlText, cssText, defaultMessages);
-    const divkit = projectScreenToDivKit(ir, theme);
+    if (!legacyV1 && route.files?.shared) {
+      const sharedParts: string[] = [];
+      for (const sh of route.files.shared) {
+        sharedParts.push(await readSharedCss(sh));
+      }
+      cssText = `${sharedParts.join("\n")}\n${cssText}`;
+    }
+    const chartTargets = legacyV1
+      ? undefined
+      : extractChartClickTargets(shell.cortex?.actors, screenName);
+    const ir = projectScreenIr(screenName, route.path, htmlText, cssText, defaultMessages, {
+      legacyV1,
+      chartTargets,
+      ...(!legacyV1 ? { units: shell.units, hostDom: shell.hostDom } : {}),
+    });
+    const divkit = projectScreenToDivKit(ir, theme, {
+      legacyV1,
+      origin: options.origin,
+      ...(!legacyV1
+        ? {
+            palettes,
+            locale: targetLocale,
+            themeMode: options.themeMode,
+            viewportWidthDp: options.viewportWidthDp,
+            navEntries,
+          }
+        : {}),
+    });
     const winio = projectScreenToWinio(ir);
     screens[screenName] = { ir, divkit, winio };
     winioMap[screenName] = winio;
   }
 
-  let nativeRuntimeLogic: string | undefined;
-  try {
-    nativeRuntimeLogic = await Deno.readTextFile(`${dirPath}/android/bundle/runtime_logic.js`);
-  } catch (err) {
-    if (!(err instanceof Deno.errors.NotFound)) throw err;
-  }
-
   const appName = shell.app || "app";
   const winioRustSource = emitWinioRustSource(appName, winioMap);
+  const localesList = Array.isArray(shell.i18n?.locales)
+    ? shell.i18n!.locales
+    : shell.i18n?.locales && typeof shell.i18n.locales === "object"
+      ? Object.keys(shell.i18n.locales)
+      : undefined;
 
   return {
     app: appName,
     theme,
+    ...(!legacyV1
+      ? {
+          palettes,
+          navEntries,
+          defaultLocale,
+          ...(localesList ? { locales: localesList } : {}),
+        }
+      : {}),
     screens,
     winioRustSource,
     ...(nativeRuntimeLogic ? { nativeRuntimeLogic } : {}),
@@ -1393,6 +3102,31 @@ export async function selfTest(): Promise<{ failures: string[] }> {
   check(arenaWinioJson.includes('"widget":"HudLayer"'), "Desktop winio must mount HudLayer");
   check(arenaWinioJson.includes("stk-pause-btn"), "Desktop winio must include .keys-only pause button");
   check(!arenaWinioJson.includes("drive left"), "Desktop winio must omit .touch-only zones");
+
+  // 3. Test Snapcards DivKit constructs: div-image, div-state popover, and 3D flip-card div-custom
+  const studyHtml = `
+    <section class="screen" data-screen="study">
+      <button type="button" id="btn-edit" class="btn-edit-card" popovertarget="card-edit-sheet">Edit</button>
+      <div class="flashcard-frame" data-flipped="{flipped}">
+        <div class="card-inner" id="card-flip">
+          <div class="card-face card-front">
+            <div id="card-flip-visual"><img data-image-src="{back}" sizes="auto, 160px" loading="lazy" alt="Specimen" /></div>
+          </div>
+          <div class="card-face card-back">
+            <div id="card-flip-back"><h2 data-text="{front}">Capybara</h2></div>
+          </div>
+        </div>
+      </div>
+      <div id="card-edit-sheet" popover role="dialog">
+        <button type="button" popovertarget="card-edit-sheet" popovertargetaction="hide">Done</button>
+      </div>
+    </section>
+  `;
+  const studyIr = projectScreenIr("study", "/study", studyHtml, "");
+  const studyDivJson = JSON.stringify(projectScreenToDivKit(studyIr));
+  check(studyDivJson.includes('"custom_type":"flip-card"'), "Study screen must emit flip-card div-custom");
+  check(studyDivJson.includes('"type":"image"'), "Study screen must emit div-image for data-image-src");
+  check(studyDivJson.includes('"type":"state"'), "Study screen must emit div-state for [popover]");
 
   return { failures };
 }
@@ -1554,6 +3288,27 @@ ${projection.nativeRuntimeLogic ? projection.nativeRuntimeLogic.trimEnd() : `
             next.screen = params.screen;
         } else if (action === "INPUT" && params.field) {
             next.variables = Object.assign({}, next.variables, { [params.field]: params.value });
+        } else if (action === "POPOVER" && params.target) {
+            const varName = params.target === "login-modal-overlay" ? "modal_login_state" : ("sheet_" + params.target.replace(/[^a-zA-Z0-9_]/g, "_") + "_state");
+            const prev = next.variables[varName] || "closed";
+            const nextVal = params.op === "hide" ? "closed" : params.op === "show" ? "open" : (prev === "open" ? "closed" : "open");
+            next.variables = Object.assign({}, next.variables, { [varName]: nextVal });
+        } else if (action === "CHART_CLICK" && params.id) {
+            if (params.id === "card-flip-visual" || params.id === "card-flip-prompt") {
+                next.variables = Object.assign({}, next.variables, { flipped: "yes" });
+            } else if (params.id === "card-flip-back" || params.id === "card-flip-back-prompt") {
+                next.variables = Object.assign({}, next.variables, { flipped: "no" });
+            }
+        } else if (action === "COMMAND" || action === "CLICK" || action === "AUTH") {
+            if (params.command === "open-login") {
+                next.variables = Object.assign({}, next.variables, { status: "login", modal_login_state: "open" });
+            } else if (params.command === "close-login") {
+                next.variables = Object.assign({}, next.variables, { status: "playing", modal_login_state: "closed" });
+            } else if (params.command === "fullscreen") {
+                next.variables = Object.assign({}, next.variables, { status: "fullscreen" });
+            } else if (params.command === "exit-fullscreen") {
+                next.variables = Object.assign({}, next.variables, { status: "playing" });
+            }
         } else {
             throw new Error("Unknown pronto://event/ action: " + action);
         }
@@ -1562,7 +3317,16 @@ ${projection.nativeRuntimeLogic ? projection.nativeRuntimeLogic.trimEnd() : `
 
     function projectToDivKit(s) {
         const entry = PROJECTION.screens[s.screen] || Object.values(PROJECTION.screens)[0];
-        return entry ? entry.divkit : { card: { log_id: PROJECTION.app + "_sdui", states: [] } };
+        if (!entry) return { card: { log_id: PROJECTION.app + "_sdui", states: [] } };
+        const cardCopy = JSON.parse(JSON.stringify(entry.divkit));
+        if (cardCopy.card && Array.isArray(cardCopy.card.variables)) {
+            for (const v of cardCopy.card.variables) {
+                if (Object.prototype.hasOwnProperty.call(s.variables, v.name)) {
+                    v.value = s.variables[v.name];
+                }
+            }
+        }
+        return cardCopy;
     }
 
     if (typeof emitUiAst === "function") {

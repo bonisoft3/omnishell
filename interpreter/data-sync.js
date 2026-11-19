@@ -108,20 +108,52 @@ const later = (fn) => {
   return cancel;
 };
 
+function currentSession() {
+  if (typeof sessionStorage !== "undefined") {
+    const raw = sessionStorage.getItem("pronto-token");
+    if (raw) return JSON.parse(raw);
+  }
+  const bridge = globalThis.AuthBridge ?? globalThis.__omnishellAuth;
+  if (typeof bridge?.loadSession === "function") {
+    const loaded = bridge.loadSession();
+    if (loaded) return typeof loaded === "string" ? JSON.parse(loaded) : loaded;
+  }
+  return null;
+}
+
+function writeSession(next) {
+  const serialized = JSON.stringify(next);
+  if (typeof sessionStorage !== "undefined") {
+    sessionStorage.setItem("pronto-token", serialized);
+  }
+  const bridge = globalThis.AuthBridge ?? globalThis.__omnishellAuth;
+  if (typeof bridge?.saveSession === "function") {
+    bridge.saveSession(next);
+  }
+}
+
+function clearStoredSession() {
+  if (typeof sessionStorage !== "undefined") {
+    sessionStorage.removeItem("pronto-token");
+  }
+  const bridge = globalThis.AuthBridge ?? globalThis.__omnishellAuth;
+  if (typeof bridge?.clearSession === "function") {
+    bridge.clearSession();
+  }
+}
+
 function token() {
-  const session = sessionStorage.getItem("pronto-token");
-  return session ? JSON.parse(session).token : null;
+  return currentSession()?.token ?? null;
 }
 
 function userId() {
-  const session = sessionStorage.getItem("pronto-token");
-  return session ? (JSON.parse(session).user?.id ?? null) : null;
+  return currentSession()?.user?.id ?? null;
 }
 
 /** Whether the reader is a guest: no session yet, or a guest's. */
 function guest() {
-  const session = sessionStorage.getItem("pronto-token");
-  return session === null || JSON.parse(session).user?.guest === true;
+  const s = currentSession();
+  return s === null || s.user?.guest === true;
 }
 
 // The request-only reads a server-rendered document was drawn from, carried in
@@ -240,7 +272,40 @@ const CONFLICT_SENDS = 5;
 const CONFLICT_FIRST_MS = 25;
 const reloading = new Set();
 
-async function send(url, init) {
+let inflightRefresh = null;
+
+async function tryRefreshSession(requestUrl) {
+  const held = currentSession();
+  const refreshToken = held?.refresh_token ?? held?.refreshToken;
+  if (!refreshToken) return null;
+  if (inflightRefresh) return inflightRefresh;
+  const origin = new URL(requestUrl, globalThis.location?.origin || globalThis.__omnishellOrigin || "https://localhost").origin;
+  inflightRefresh = (async () => {
+    try {
+      const r = await fetch(`${origin}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+      if (!r.ok) return null;
+      const body = await r.json();
+      if (!body?.token) return null;
+      const updated = {
+        ...held,
+        token: body.token,
+        ...(body.refresh_token ? { refresh_token: body.refresh_token } : {}),
+        ...(body.user ? { user: body.user } : {}),
+      };
+      writeSession(updated);
+      return body.token;
+    } finally {
+      inflightRefresh = null;
+    }
+  })();
+  return inflightRefresh;
+}
+
+async function send(url, init, retriedRefresh = false) {
   if (init?.signal?.aborted) {
     throw init.signal.reason ?? new DOMException("aborted", "AbortError");
   }
@@ -263,13 +328,23 @@ async function send(url, init) {
   if (
     res.status === 401 &&
     !String(url).includes("/electric/") &&
+    !String(url).endsWith("/auth/refresh") &&
     !(await res.clone().text()).includes('"code":"42501"')
   ) {
+    if (!retriedRefresh) {
+      const refreshedToken = await tryRefreshSession(String(url));
+      if (refreshedToken) {
+        const nextHeaders = { ...init?.headers };
+        delete nextHeaders.authorization;
+        nextHeaders.Authorization = `Bearer ${refreshedToken}`;
+        return send(url, { ...init, headers: nextHeaders }, true);
+      }
+    }
     // Expired/invalid token: re-gate through the login screen. The reload
     // tears the page down, so this promise never settles while the store is
     // open. The server terminal's reload is its end (server/render.ts inhabit).
-    sessionStorage.removeItem("pronto-token");
-    location.reload();
+    clearStoredSession();
+    globalThis.location?.reload?.();
     return new Promise((resolve) => {
       reloading.add(() =>
         resolve({
@@ -475,6 +550,12 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   // open from now and each view loads its rows as a subset. Every other
   // table is read whole.
   const lazy = (table) => cfg.read?.[table] === "lazy";
+  const hostStorage = globalThis.__omnishellStorage;
+  const sql = cfg.sql ?? globalThis.__omnishellSql ?? hostStorage?.sql;
+  const deviceStorage = cfg.deviceStorage ?? globalThis.__omnishellDeviceStorage ?? (
+    hostStorage?.kv ? { getItem: (k) => hostStorage.kv.get(k), setItem: (k, v) => hostStorage.kv.set(k, v) } : undefined
+  );
+  const provisional = cfg.provisional ?? globalThis.__omnishellProvisional;
   const client = createMechaClient({
     carriers: cfg.carriers,
     // cfg.keys names the pk of every table whose pk is not "id" (pipeline
@@ -501,6 +582,9 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     fetcher: (url, init) => send(url, init).then(({ res }) => res),
     token,
     subject: userId,
+    ...(sql ? { sql } : {}),
+    ...(deviceStorage ? { deviceStorage } : {}),
+    ...(provisional ? { provisional } : {}),
   });
 
   // Debug seam: the running client is inspectable from the console.
@@ -526,6 +610,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   // unsynced collection is empty, not authoritative.
   async function wholeCollection(table, site) {
     whole(table, site);
+    await client.ready;
     const c = client.collections[table];
     if (c === undefined) throw new Error(`${site} reads ${table}, which has no collection`);
     if (!c.isReady()) await c.toArrayWhenReady();
@@ -2663,6 +2748,38 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     // A host-DOM hatch's authorized call, past the collections: it makes the
     // guest's session as every other write does.
     http,
+    adoptProvisionalSubject: (fromSubject, toSubject) => client.adoptProvisionalSubject(fromSubject, toSubject),
+    async wipeAccountData(deletedSubject) {
+      clearAllServed();
+      if (sql) {
+        const existing = new Set(
+          (await Promise.resolve(sql.query("SELECT name FROM sqlite_master WHERE type = 'table'")))
+            .map((r) => String(r?.name ?? "")),
+        );
+        if (existing.has("mecha_outbox")) await Promise.resolve(sql.exec("DELETE FROM mecha_outbox"));
+        if (existing.has("mecha_shape_row")) {
+          if (deletedSubject && deletedSubject !== "anon") {
+            await Promise.resolve(sql.exec("DELETE FROM mecha_shape_row WHERE subject = ?", [deletedSubject]));
+          } else {
+            await Promise.resolve(sql.exec("DELETE FROM mecha_shape_row WHERE subject != '' AND subject != 'anon'"));
+          }
+        }
+        if (existing.has("mecha_shape_meta")) {
+          if (deletedSubject && deletedSubject !== "anon") {
+            await Promise.resolve(sql.exec("DELETE FROM mecha_shape_meta WHERE subject = ?", [deletedSubject]));
+          } else {
+            await Promise.resolve(sql.exec("DELETE FROM mecha_shape_meta WHERE subject != '' AND subject != 'anon'"));
+          }
+        }
+        if (existing.has("__omnishell_kv")) await Promise.resolve(sql.exec("DELETE FROM __omnishell_kv"));
+      }
+      if (hostStorage?.kv && typeof hostStorage.kv.clear === "function") {
+        hostStorage.kv.clear();
+      }
+      if (typeof globalThis.localStorage !== "undefined") {
+        globalThis.localStorage.clear();
+      }
+    },
     flushNotifications,
     tabSnapshot,
     restoreTabs,
@@ -2676,6 +2793,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
       for (const entry of mutatilazys.values()) {
         while (entry.refs > 0) entry.release();
       }
+      client.dispose?.();
       await Promise.all(Object.values(client.collections).map(c => c.cleanup()));
       for (const abort of reloading) abort();
       reloading.clear();
