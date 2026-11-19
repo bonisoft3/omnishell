@@ -25,7 +25,9 @@
 // is reported rather than walked.
 //
 // Findings print as {severity, path, message} JSON (SPEC.md lint format);
-// exit 1 when any finding is reported.
+// exit 1 when any is more than advisory. A passing run then says on stderr
+// what it covered: a line per chart with the arrows fired out of those it
+// declares, and one for the run.
 
 import { machineRegions, resolveMachineMarkup, paramPlans } from "./interpreter/lint.ts";
 
@@ -74,6 +76,42 @@ export const fails = (findings: Finding[]) => findings.some((f) => f.severity !=
 const SEED = 20260901;
 const EPOCH = "2026-09-01T00:00:00.000Z";
 
+/** What a walk reached of one chart: the arrows it declares, the ones that
+ * fired, and the ones nothing here selects, each lot under the reason its
+ * advisory gives. A chart whose walk threw has none — its finding is the report. */
+export type Coverage = { path: string; where: string; declared: number; fired: number; unchecked: { arrows: number; why: string }[] };
+
+const UNDRIVEN = "observation sources are not driven";
+const SHADOWED = "an earlier sibling admits their event";
+const STAMPED = "stamped per row of an enclosing region";
+const BLIND = "reads through a route param no seeded row answers";
+const SUNK = "an enclosing region the seed leaves empty";
+
+/** A chart nothing here walks, as coverage: every arrow it declares is unchecked. */
+const unwalked = (path: string, table: string, filter: string | undefined, machine: Machine, why: string): Coverage => {
+  const declared = machineShape(machine).arrows.length;
+  return { path, where: `${table}[${filter ?? "*"}].${machine.field}`, declared, fired: 0, unchecked: [{ arrows: declared, why }] };
+};
+
+/** What a passing run says it covered, a line per chart and one for the run:
+ * findings are empty for a chart that fired everything and for an app that
+ * mounted nothing, and only the counts separate the two. */
+export function coverageLines(charts: Coverage[], findings: Finding[]): string[] {
+  const left = (c: Coverage) => c.unchecked.reduce((n, u) => n + u.arrows, 0);
+  const sum = (count: (c: Coverage) => number) => charts.reduce((n, c) => n + count(c), 0);
+  const unchecked = sum(left);
+  return [
+    ...charts.map((c) =>
+      `check-machines: ${c.path} ${c.where} ${c.fired}/${c.declared} arrow(s) fired${
+        c.unchecked.length === 0 ? "" : `; ${c.unchecked.map((u) => `${u.arrows} unchecked (${u.why})`).join(", ")}`
+      }`
+    ),
+    `check-machines: ${charts.length} chart(s), ${sum((c) => c.fired)}/${sum((c) => c.declared)} arrow(s) fired${
+      unchecked === 0 ? "" : `, ${unchecked} unchecked`
+    }; ${findings.length} finding(s).`,
+  ];
+}
+
 const said = (err: unknown) => err instanceof Error ? err.message : String(err);
 
 /**
@@ -87,10 +125,21 @@ export async function walkFindings(
   machine: Machine,
   harness: WalkHarness,
   opts: { owner?: unknown; sourceEvent?: (key: string) => boolean } = {},
-): Promise<Finding[]> {
+): Promise<{ findings: Finding[]; coverage?: Coverage }> {
   try {
     const walk = await walkMachine(machine, harness, opts);
     const findings: Finding[] = [];
+    const unchecked = [
+      { arrows: walk.shadowed.length, why: SHADOWED },
+      { arrows: walk.unchecked.length, why: UNDRIVEN },
+    ].filter((u) => u.arrows > 0);
+    const coverage: Coverage = {
+      path,
+      where,
+      declared: walk.arrows.length,
+      fired: walk.arrows.length - walk.shadowed.length - walk.unchecked.length,
+      unchecked,
+    };
     // Advisory, not an error: the arrows are drawn and a reader reaches them by
     // typing further. What the walk reports is its own reach.
     if (walk.shadowed.length > 0) {
@@ -105,15 +154,15 @@ export async function walkFindings(
     }
     if (walk.unchecked.length) findings.push({
       severity: "advisory", path, coverage: "unchecked",
-      message: `${where}: observation sources are not driven; events sharing their names are treated as source-driven; ${walk.unchecked.length} arrow(s) remain unchecked: ${walk.unchecked.map((a) => `${a.state} --${a.key}[${a.index}]-->`).join(", ")}`,
+      message: `${where}: ${UNDRIVEN}; events sharing their names are treated as source-driven; ${walk.unchecked.length} arrow(s) remain unchecked: ${walk.unchecked.map((a) => `${a.state} --${a.key}[${a.index}]-->`).join(", ")}`,
     });
-    return findings;
+    return { findings, coverage };
   } catch (err) {
     const findings: Finding[] = [{ severity: "error", path, message: `${where}: ${said(err)}` }];
     const sources = (machineShape(machine).arrows as { key: string }[]).filter((arrow) => opts.sourceEvent?.(arrow.key));
     if (sources.length) findings.push({ severity: "advisory", path, coverage: "unchecked",
-      message: `${where}: observation sources are not driven; events sharing their names are treated as source-driven; source coverage is unchecked` });
-    return findings;
+      message: `${where}: ${UNDRIVEN}; events sharing their names are treated as source-driven; source coverage is unchecked` });
+    return { findings };
   }
 }
 
@@ -136,8 +185,12 @@ function declaredOn(el: El): string {
 
 /** The charts one element runs: a list is several, and each is walked on its
  * own, because what a walk covers is a chart's arrows and not an element's. */
-function chartsOn(el: El): string[] {
-  const parsed: unknown = JSON.parse(declaredOn(el));
+const chartsOn = (el: El): string[] => chartsIn(declaredOn(el));
+
+/** The same, off the attribute's text: what the markup scan holds for a chart
+ * no mount carries. */
+function chartsIn(declared: string): string[] {
+  const parsed: unknown = JSON.parse(declared);
   const raw = Array.isArray(parsed) ? parsed : [parsed];
   const charts: unknown[] = [];
   for (const chart of raw) {
@@ -225,6 +278,7 @@ const CONTROL_FIELDS = new Set(["value", "checked", "valueAsNumber"]);
 function harnessFor(m: Mounted, region: El, machine: Machine, params: Record<string, string>, tables: Record<string, Row[]>, cluster: Cluster): WalkHarness {
   const { table } = readsOf(region);
   const filter = filled(readsOf(region).filter, params);
+  const columns = new Set((cluster.schema?.[table]?.fields ?? []).map((field) => field.name));
   return {
     fire: async (type, from, init) => {
       if (type === "refused") {
@@ -263,7 +317,9 @@ function harnessFor(m: Mounted, region: El, machine: Machine, params: Record<str
       if (row === undefined) throw new Error(`walk: no row of "${table}" to write on`);
       await m.store.put(table, { ...row, ...columns });
       await m.quiet();
+      return Object.fromEntries(Object.keys(columns).map((column) => [column, row[column]]));
     },
+    column: (name) => columns.has(name),
     field: () => machine.field === undefined ? undefined : seedQuery(
       Object.fromEntries(Object.keys(tables).map((t) => [t, m.rows(t)])),
       cluster, table, { filter, select: readsOf(region).select },
@@ -408,7 +464,7 @@ function stampedUnderNothing(
  * authors, and not the ones it reported as unreachable. An app floors on this:
  * a chart turned advisory is authored and undriven, and an authored-count floor
  * cannot tell those apart. */
-type Walked = { findings: Finding[]; abandoned: boolean; walked: number; authored: number };
+type Walked = { findings: Finding[]; abandoned: boolean; walked: number; authored: number; charts: Coverage[] };
 
 type ObserveBinding = { via?: string; event?: string; suffix?: boolean; missing?: string; field?: string };
 
@@ -448,9 +504,10 @@ async function walkScreen(
   const chartBindings = await appChartBindings(appDir);
   const markup = resolveMachineMarkup(await Deno.readTextFile(new URL(html, appDir)), chartBindings, route.screen);
   const authored = machineRegions(markup);
-  if (authored.length === 0) return { findings: [], abandoned: false, walked: 0, authored: 0 };
+  if (authored.length === 0) return { findings: [], abandoned: false, walked: 0, authored: 0, charts: [] };
 
   const findings: Finding[] = [];
+  const charts: Coverage[] = [];
   const params = resolveParams(route, markup, tables, cluster);
 
   // A chart in an item template is authored once and mounts once per row, so
@@ -547,6 +604,7 @@ async function walkScreen(
               : `a chart on "${table}" reads through a route param no seeded row answers, ` +
                 `so nothing here walks it`,
           });
+          charts.push(unwalked(html, table, filter, machine, stamped ? STAMPED : BLIND));
           accounted++;
         } else {
           const result = await walkFindings(
@@ -556,9 +614,10 @@ async function walkScreen(
               harnessFor(m, el, machine, params, tables, cluster),
               { owner: el, sourceEvent: observationEvents(machine, actors) },
             );
-          findings.push(...result);
+          findings.push(...result.findings);
+          if (result.coverage !== undefined) charts.push(result.coverage);
           accounted++;
-          if (!result.some((finding) => finding.coverage === "unchecked")) walked++;
+          if (!result.findings.some((finding) => finding.coverage === "unchecked")) walked++;
         }
       }
     } catch (err) {
@@ -578,7 +637,7 @@ async function walkScreen(
         abandoned = true;
       }
     }
-    if (abandoned) return { findings, abandoned, walked, authored: authored.length };
+    if (abandoned) return { findings, abandoned, walked, authored: authored.length, charts };
     i++;
   } while (i < mounted.length);
 
@@ -591,7 +650,7 @@ async function walkScreen(
       message: `the screen's charts could not be read off the mount, so none of its ` +
         `${authored.length} chart(s) is walked`,
     });
-    return { findings, abandoned: false, walked, authored: authored.length };
+    return { findings, abandoned: false, walked, authored: authored.length, charts };
   }
 
   // The floor within one screen. Nothing else notices a region the loop
@@ -626,6 +685,9 @@ async function walkScreen(
           : `a chart on "${region.table}" is inside an enclosing region the seed leaves empty, ` +
             `so nothing here walks it`,
       });
+      for (const chart of chartsIn(region.machine)) {
+        charts.push(unwalked(html, region.table, region.filter, JSON.parse(chart) as Machine, SUNK));
+      }
       continue;
     }
     findings.push({
@@ -636,7 +698,7 @@ async function walkScreen(
         `does not carry, so nothing here walks it`,
     });
   }
-  return { findings, abandoned, walked, authored: authored.length };
+  return { findings, abandoned, walked, authored: authored.length, charts };
 }
 
 export async function checkApp(appDir: URL): Promise<Walked> {
@@ -655,6 +717,7 @@ export async function checkApp(appDir: URL): Promise<Walked> {
   const endowments = await appEndowments(appDir);
   const actors = await appActors(appDir);
   const findings: Finding[] = [];
+  const charts: Coverage[] = [];
   let walked = 0;
   let authored = 0;
   for (const route of routes) {
@@ -670,6 +733,7 @@ export async function checkApp(appDir: URL): Promise<Walked> {
       continue;
     }
     findings.push(...one.findings);
+    charts.push(...one.charts);
     walked += one.walked;
     authored += one.authored;
     if (one.abandoned) {
@@ -692,7 +756,7 @@ export async function checkApp(appDir: URL): Promise<Walked> {
       message: `${authored} chart(s) are stated across this app's screens and none was walked`,
     });
   }
-  return { findings, walked, abandoned: false, authored };
+  return { findings, walked, abandoned: false, authored, charts };
 }
 
 /**
@@ -839,7 +903,7 @@ export async function selfTest(): Promise<{ failures: string[] }> {
   ];
   const failures: string[] = [];
   for (const c of cases) {
-    const got = await walkFindings("t.html", "demo[id=eq.x].state", c.machine, reducerHarness(c.machine, c.opts));
+    const { findings: got } = await walkFindings("t.html", "demo[id=eq.x].state", c.machine, reducerHarness(c.machine, c.opts));
     const ok = got.length === c.expect.length &&
       c.expect.every((want, i) => got[i].message.includes(want));
     if (!ok) {
@@ -868,7 +932,7 @@ export async function selfTest(): Promise<{ failures: string[] }> {
     },
   ];
   for (const c of owned) {
-    const got = await walkFindings(
+    const { findings: got } = await walkFindings(
       "t.html",
       "demo[id=eq.x].state",
       toggle,
@@ -884,7 +948,7 @@ export async function selfTest(): Promise<{ failures: string[] }> {
   // The differential, reached the way a walk reaches it. Every case above
   // drives an interpreter that agrees with XState, so none of them notices the
   // comparison being skipped or handed the wrong trace.
-  const misreported = await walkFindings(
+  const { findings: misreported } = await walkFindings(
     "t.html",
     "demo[id=eq.x].state",
     toggle,
@@ -896,7 +960,7 @@ export async function selfTest(): Promise<{ failures: string[] }> {
 
   // An owner over a trace nobody stamped attributes nothing; the walk must say
   // so rather than report every arrow as one the chart never took.
-  const unstamped = await walkFindings(
+  const { findings: unstamped } = await walkFindings(
     "t.html",
     "demo[id=eq.x].state",
     toggle,
@@ -1039,9 +1103,11 @@ export async function run(args: string[]): Promise<void> {
     console.error("usage: check-machines.ts <appDir> | --self-test");
     Deno.exit(1);
   }
-  const { findings } = await checkApp(new URL(`${appDir.replace(/\/*$/, "")}/`, `file://${Deno.cwd()}/`));
+  const { findings, charts } = await checkApp(new URL(`${appDir.replace(/\/*$/, "")}/`, `file://${Deno.cwd()}/`));
   console.log(JSON.stringify(findings, null, 2));
-  if (!fails(findings)) Deno.exitCode = 0;
+  if (fails(findings)) return;
+  for (const line of coverageLines(charts, findings)) console.error(line);
+  Deno.exitCode = 0;
 }
 
 if (import.meta.main) await run(Deno.args);

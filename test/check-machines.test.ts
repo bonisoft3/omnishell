@@ -1,7 +1,7 @@
 // The machine walk's own claims, run by the test verb rather than by hand:
 // check-machines.ts is a checker, not a suite, so its cases reach CI only
 // through this file.
-import { checkApp, fails, selfTest } from "../check-machines.ts";
+import { checkApp, coverageLines, fails, selfTest } from "../check-machines.ts";
 
 Deno.test({
   name: "check-machines self-test",
@@ -123,6 +123,19 @@ Deno.test({
         const result = await checkApp(new URL(`file://${dir}/`));
         if (name === "only" && (result.walked !== 0 || !result.findings.some((f) => f.coverage === "unchecked" && f.message.includes("click")) || !fails(result.findings))) throw new Error(JSON.stringify(result));
         if (name === "mixed" && (result.walked !== 1 || fails(result.findings) || !result.findings.some((f) => f.coverage === "unchecked"))) throw new Error(JSON.stringify(result));
+        // A passing run names every chart it mounted with what fired of it, so
+        // coverage is read off a green run and not off a chart broken to ask.
+        if (name === "mixed") {
+          const lines = coverageLines(result.charts, result.findings);
+          const want = [
+            "check-machines: shell/home.html item0[*].state 0/2 arrow(s) fired; 2 unchecked (observation sources are not driven)",
+            "check-machines: shell/home.html item1[*].state 2/2 arrow(s) fired",
+            "check-machines: 2 chart(s), 2/4 arrow(s) fired, 2 unchecked; 1 finding(s).",
+          ];
+          if (JSON.stringify(lines) !== JSON.stringify(want)) throw new Error(lines.join("\n"));
+        }
+        // A chart whose walk threw has no coverage to state: its finding is the report.
+        if (name === "broken" && result.charts.length !== 0) throw new Error(JSON.stringify(result.charts));
         if (name === "broken" && !result.findings.some((f) => f.severity === "error" && f.message.includes("missing-control"))) throw new Error(JSON.stringify(result));
       }
     } finally { await Deno.remove(root, { recursive: true }); }
@@ -153,4 +166,68 @@ Deno.test("a source shortcut does not hide a longer supported walk", async () =>
     },
   }, { sourceEvent: (key) => key === "signal:ready" });
   if (fired.includes("signal:ready") || !fired.includes("click@second") || !fired.includes("click@done") || result.unchecked.length !== 1) throw new Error(JSON.stringify({fired, result}));
+});
+
+Deno.test({
+  name: "a guarded event arrow is driven by the row its guard names, and the row is put back",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const root = await Deno.makeTempDir({ prefix: "machine guard " });
+    try {
+      const is = (params: Record<string, string>) => ({ type: "row-is", params });
+      const charts = {
+        // The fallback fires on the row as seeded; the guarded candidate ahead
+        // of it only once the row says what its guard asks. `far` is entered
+        // from `yes`, which only the fallback reaches: a row left saying "ok"
+        // after the first arrow was driven would shadow the way there.
+        ordered: { seed: "", chart: { field: "state", initial: "no", states: {
+          no: { on: { "click@go": [{ guard: is({ period: "ok" }), target: "sent" }, { target: "yes" }] } },
+          yes: { on: { "click@go": [{ guard: is({ period: "late" }), target: "far" }, { target: "no" }] } },
+          sent: { on: { "click@go": "no" } }, far: { on: { "click@go": "no" } },
+        } } },
+        // A state only a guarded click enters: its own arrows starve unless
+        // the route there is driven by the guard's row too.
+        gated: { seed: "", chart: { field: "state", initial: "no", states: {
+          no: { on: { "click@go": [{ guard: is({ period: "ok" }), target: "sent" }] } },
+          sent: { on: { "click@go": "no" } },
+        } } },
+        // The seed satisfies the earlier candidate, so the later one is
+        // reached only by a row that fails the first, which its own guard names.
+        seeded: { seed: "a", chart: { field: "state", initial: "no", states: {
+          no: { on: { "click@go": [{ guard: is({ period: "a" }), target: "one" }, { guard: is({ period: "b" }), target: "two" }] } },
+          one: { on: { "click@go": "no" } }, two: { on: { "click@go": "no" } },
+        } } },
+        // A guard stating nothing about the row is not the walk's to satisfy.
+        opaque: { seed: "", chart: { field: "state", initial: "no", states: {
+          no: { on: { "click@go": [{ guard: "never", target: "sent" }] } }, sent: {},
+        } } },
+      };
+      const handlers = {
+        "shell/handlers/row-is.js": "({ context }, params) => Object.entries(params).every(([column, value]) => context.items[0][column] === value)",
+        "shell/handlers/never.js": "() => false",
+      };
+      const fired: Record<string, string> = {};
+      for (const [name, { seed, chart }] of Object.entries(charts)) {
+        const dir = `${root}/${name}`;
+        await Deno.mkdir(`${dir}/shell/handlers`, { recursive: true });
+        const shell = {
+          local: { item: [{}] },
+          schema: { item: { fields: [{ name: "id", type: "string" }, { name: "state", type: "string" }, { name: "period", type: "string" }] } },
+          seed: { item: [{ id: "one", state: "no", period: seed }] },
+          routes: [{ path: "/", screen: "home", files: { html: "shell/home.html", css: "shell/home.css", handlers: Object.keys(handlers) } }],
+        };
+        await Deno.writeTextFile(`${dir}/shell/shell.yaml`, JSON.stringify(shell));
+        await Deno.writeTextFile(`${dir}/shell/home.css`, "");
+        for (const [path, source] of Object.entries(handlers)) await Deno.writeTextFile(`${dir}/${path}`, source);
+        await Deno.writeTextFile(`${dir}/shell/home.html`, `<section data-screen="home"><div data-live="item" data-filter="id=eq.one" data-machine='${JSON.stringify(chart)}'><button id="go">Go</button></div></section>`);
+        const result = await checkApp(new URL(`file://${dir}/`));
+        fired[name] = result.charts.map((c) => `${c.fired}/${c.declared}`).join() || result.findings.map((f) => f.message).join();
+      }
+      const want = { ordered: "6/6", gated: "2/2", seeded: "4/4", opaque: "item[id=eq.one].state: walk: 1 arrow(s) never fired: no --click@go[0]-->" };
+      if (JSON.stringify(fired) !== JSON.stringify(want)) throw new Error(JSON.stringify(fired, null, 2));
+    } finally {
+      await Deno.remove(root, { recursive: true });
+    }
+  },
 });

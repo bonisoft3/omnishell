@@ -37,20 +37,25 @@ export type WalkHarness = {
   wait(ms: number): Promise<void>;
   /** The machine field's current value, for the state invariant. */
   field(): unknown;
-  /** Write columns on the row, as a fold does: what an `always` arrow's guard reads. */
-  write?(columns: Record<string, unknown>): Promise<void>;
+  /** Write columns on the row, as a fold does: what an `always` arrow's guard
+   * reads. Answers what the columns held, where the harness can say. */
+  write?(columns: Record<string, unknown>): Promise<Record<string, unknown> | void>;
+  /** Whether the row has this column. A guard param named after one states
+   * the row that selects its arrow, which the walk can then write. */
+  column?(name: string): boolean;
 };
 
 const arrowId = (a: Arrow) => `${a.state}|${a.key}|${a.index}`;
 
-type Stimulus = { type: string; from?: string; init?: Record<string, unknown> } | { waitFor: string };
+type Stimulus = { type: string; from?: string; init?: Record<string, unknown>; row?: Record<string, unknown> } | { waitFor: string };
 
 /** The event leaves a guard's params name (machine.cue #EventRef). Params are
  * literals by construction — a threshold is data in the chart — so a param
  * named after an event field IS the chart saying which event satisfies the
  * arrow, and the walk can synthesize it instead of driving a key it cannot
  * guess. A param named anything else is the guard's own data and says nothing
- * about the event. */
+ * about the event; one named after a column of the row says which row selects
+ * the arrow (`rowInit`). */
 const EVENT_FIELDS = new Set(["value", "checked", "valueAsNumber", "key", "pointerX", "pointerY"]);
 
 /** The plural of the event field `key`: a SEQUENCE of keystrokes, one per
@@ -221,14 +226,24 @@ const eventInit = (candidate: unknown): Record<string, unknown> | undefined => {
   return Object.keys(init).length === 0 ? undefined : init;
 };
 
+/** The row an event arrow's guard asks for: its literal params that name
+ * neither an event field nor a sequence. Which of them are columns is the
+ * harness's to say, so this is every one that could be. */
+const rowInit = (candidate: unknown): Record<string, unknown> | undefined => {
+  const row = Object.fromEntries(
+    Object.entries(paramsOf(candidate) ?? {}).filter(([k]) => !EVENT_FIELDS.has(k) && k !== SEQUENCE_FIELD),
+  );
+  return Object.keys(row).length === 0 ? undefined : row;
+};
+
 /** A stimulus per plan step: `after:` keys are waits (the harness owns the
  * clock's real milliseconds), everything else a fire, `@` split back into
  * (type, from). */
-const stimulusOf = (key: string, init?: Record<string, unknown>): Stimulus => {
+const stimulusOf = (key: string, init?: Record<string, unknown>, row?: Record<string, unknown>): Stimulus => {
   if (key.startsWith("after:")) return { waitFor: key };
   const at = key.indexOf("@");
   const where = at < 0 ? { type: key } : { type: key.slice(0, at), from: key.slice(at + 1) };
-  return init === undefined ? where : { ...where, init };
+  return { ...where, ...(init === undefined ? {} : { init }), ...(row === undefined || key === "always" ? {} : { row }) };
 };
 
 function resolveFinalTarget(machine: Machine, stateName: string): string | undefined {
@@ -262,7 +277,7 @@ function edgesOf(machine: Machine): Map<string, Edge[]> {
         let to = resolveTarget(machine, c.target, name) ?? name;
         const finalTarget = resolveFinalTarget(machine, to);
         if (finalTarget !== undefined) to = finalTarget;
-        out.push({ key, to, init: eventInit(c) });
+        out.push({ key, to, init: eventInit(c), row: rowInit(c) });
       }
     };
     for (const [key, value] of Object.entries(s.on ?? {})) add(key, value);
@@ -292,7 +307,7 @@ function edgesOf(machine: Machine): Map<string, Edge[]> {
 
 /** Shortest key sequence from `from` to `to` over the guard-erased edges;
  * null when unreachable. */
-type Edge = { key: string; to: string; init?: Record<string, unknown> };
+type Edge = { key: string; to: string; init?: Record<string, unknown>; row?: Record<string, unknown> };
 
 function reachableFrom(edges: Map<string, Edge[]>, start: string): Set<string> {
   const reached = new Set([start]);
@@ -316,18 +331,18 @@ function routeBetween(
   to: string,
 ): Stimulus[] | null {
   if (from === to) return [];
-  const prev = new Map<string, { at: string; key: string; init?: Record<string, unknown> }>();
+  const prev = new Map<string, { at: string; key: string; init?: Record<string, unknown>; row?: Record<string, unknown> }>();
   const queue = [from];
   while (queue.length > 0) {
     const at = queue.shift()!;
     for (const e of edges.get(at) ?? []) {
       if (e.to === from || prev.has(e.to)) continue;
-      prev.set(e.to, { at, key: e.key, init: e.init });
+      prev.set(e.to, { at, key: e.key, init: e.init, row: e.row });
       if (e.to === to) {
         const steps: Stimulus[] = [];
         for (let n = to; n !== from;) {
           const p = prev.get(n)!;
-          steps.unshift(stimulusOf(p.key, p.init));
+          steps.unshift(stimulusOf(p.key, p.init, p.row));
           n = p.at;
         }
         return steps;
@@ -568,7 +583,9 @@ export async function walkMachine(
   };
   (globalThis as Record<string, unknown>).__prontoMachineTrace = trace;
   try {
-    const deliver = async (s: Stimulus) => {
+    // `written`, where given, is the attempt driving guarded arrows by the
+    // row their guards name: each write is recorded with what it replaced.
+    const deliver = async (s: Stimulus, written?: Record<string, unknown>[]) => {
       if ("waitFor" in s) {
         await harness.wait(afterMs + settleMs);
         return;
@@ -579,6 +596,12 @@ export async function walkMachine(
         await harness.write(s.init ?? {});
         await harness.wait(settleMs);
         return;
+      }
+      const asked = written === undefined ? [] : Object.entries(s.row ?? {}).filter(([k]) => harness.column?.(k));
+      if (asked.length > 0 && harness.write !== undefined) {
+        const held = await harness.write(Object.fromEntries(asked));
+        if (held !== undefined) written!.push(held);
+        await harness.wait(settleMs);
       }
       await harness.fire(s.type, s.from, s.init);
       await harness.wait(settleMs);
@@ -602,10 +625,7 @@ export async function walkMachine(
     // off those paths starve once the row has moved on. Route from the state
     // the row is actually in to each uncovered arrow's state and fire it;
     // guard-gated arrows that refuse the route stay the rotation's.
-    for (const a of wanted.values()) {
-      if (done()) break;
-      if (covered().has(arrowId(a))) continue;
-      if (a.key === "onDone" || opts.sourceEvent?.(a.key) || (hasSource && a.state !== "*" && !includesState(reachable, a.state))) continue;
+    const seek = async (a: Arrow, written?: Record<string, unknown>[]) => {
       // Let any armed timer expire first. A chart whose `after` resets a column
       // its own guards read — a typeahead buffer is the case — is reachable
       // only from the state that timer restores, and an arrow-seek that fired
@@ -614,8 +634,8 @@ export async function walkMachine(
       const startState = resolveTarget(machine, machine.initial) ?? machine.initial;
       const targetState = a.state === "*" ? String(harness.field() ?? startState) : a.state;
       const route = routeBetween(supportedEdges, String(harness.field() ?? startState), targetState);
-      if (route === null) continue;
-      for (const step of route) await deliver(step);
+      if (route === null) return;
+      for (const step of route) await deliver(step, written);
       // And again after the route, for the same reason: the steps that carried
       // the row here were themselves events, and one may have left the column a
       // guard reads holding their leftovers. Only a RESTORING timer may be
@@ -623,9 +643,25 @@ export async function walkMachine(
       if (restoringAfter) await harness.wait(afterMs + settleMs);
       // Every event this arrow asks for, in order: one keystroke for most, and
       // the sequence that walks past its shadowing siblings for a typeahead's.
-      for (const init of eventInits(candidateAt(machine, a.state, a.key, a.index), a.key)) {
-        await deliver(stimulusOf(a.key, init));
+      const candidate = candidateAt(machine, a.state, a.key, a.index);
+      for (const init of eventInits(candidate, a.key)) {
+        await deliver(stimulusOf(a.key, init, rowInit(candidate)), written);
       }
+    };
+    for (const a of wanted.values()) {
+      if (done()) break;
+      if (covered().has(arrowId(a))) continue;
+      if (a.key === "onDone" || opts.sourceEvent?.(a.key) || (hasSource && a.state !== "*" && !includesState(reachable, a.state))) continue;
+      await seek(a);
+      if (covered().has(arrowId(a)) || harness.write === undefined || harness.column === undefined) continue;
+      // The row as it stands selected neither this arrow nor the way to it.
+      // A guard's literal params naming columns are the row that does, so it
+      // is written the way an `always` arrow's is, and put back afterwards:
+      // an earlier candidate left satisfied would shadow every later one.
+      const written: Record<string, unknown>[] = [];
+      await seek(a, written);
+      for (const held of written.reverse()) await harness.write(held);
+      if (written.length > 0) await harness.wait(settleMs);
     }
 
     // Rotation rounds pick up what plans cannot promise: an arrow behind a

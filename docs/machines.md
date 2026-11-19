@@ -160,8 +160,7 @@ lifecycle cancellation. The terminal takes the middle:
 
 - **No run-to-quiescence.** `raise` shares the reduce's
   [step cap](data.md#the-step-after). `always` and `onDone` hops within one
-  transition stop at 10, silently, where they should throw the way a `raise`
-  chain does.
+  transition throw past 10, the way a `raise` chain does past its cap.
 - **A local timer never ends an inflight write**, nor does anything else a
   chart does: only the store's refusal withdraws one. So `after` moves into a
   nested pending state (`favoriting.delayed`, a degraded badge) while the parent
@@ -197,8 +196,18 @@ the HTML is the contract the reader touches, run the same however it was made.
   chart is advisory, the app check fails its coverage floor because nothing
   was walked. A browser test can exercise the route-scoped chart against a
   real event.
+  A passing run states its coverage on stderr: a line per chart with the
+  arrows fired out of those it declares and those left unchecked with the
+  reason, then the run's total.
   An `always` arrow's guard names the row that selects it in its literal params,
-  and the walk writes them, as a fold would.
+  and the walk writes them, as a fold would. A guarded event arrow is fired on
+  the row as it stands first; one that row does not select is fired again after
+  writing the guard's literal params that name columns of the row, along the
+  route to its state too, and the columns are then put back, so a later
+  candidate is not left shadowed. `"click@x": [{guard: {type: "row-is", params:
+  {period: "ok"}}, target: "sent"}, {target: "open"}]` walks both candidates
+  with no waiting state. A guard whose params name no column is not the walk's
+  to satisfy, and its arrow is an error unless the seeded row selects it.
   Its `refused` stimulus enters through the same region delivery hook as a
   store rejection; dispatching a DOM event would miss that arrow.
 - **Posing** (`test/storybook-battery.ts`, over every app from
