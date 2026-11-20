@@ -73,6 +73,7 @@ Deno.test({
     const subs = new Set();
     const knobs = { refuseNext: false };
     const store = batched({
+      answer: () => rows,
       query: async () => rows,
       subscribe: (_t, cb) => {
         subs.add(cb);

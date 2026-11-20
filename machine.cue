@@ -10,8 +10,8 @@
 // state names, raised event types — is always data. The machine is closed
 // over its row: its leaves see {items: [row]} and nothing else, its writes
 // never leave the row, and every transition lands as one stated row through
-// the same step() machinery reduces use — replay, tempo and the refusal
-// event apply with the machine knowing nothing.
+// the store — replay, tempo and the refusal event apply with the machine
+// knowing nothing.
 //
 // A machine writes the row a browser owns; a form writes the row a server
 // keeps. That is the whole choice between them — an assign states screen state

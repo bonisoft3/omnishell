@@ -47,6 +47,7 @@ Deno.test({
     let hold, entered;
     const notify = table => { for (const f of listeners.get(table) ?? []) f(); };
     const base = {
+      answer: table => tables[table].map(row => ({ ...row })),
       query: async table => {
         const rows = tables[table].map(row => ({ ...row }));
         if (table === "jobs" && hold) { entered(); await hold; }
@@ -164,4 +165,118 @@ Deno.test("startup reports cleanup failures while unwinding every listener", () 
   assert.throws(() => hub.attach(binding, { src: "rows" }), error => error instanceof AggregateError && error.errors.length === 2);
   assert.equal(stopped, 2);
   assert.equal(hub.active("rows"), false);
+});
+
+Deno.test({
+  name: "a closed attachment sends none of the writes or effects its chart had not yet sent",
+  sanitizeOps: false, sanitizeResources: false,
+  async fn() {
+    await import("./vendor/ses.umd.min.js");
+    const { interpretScreen } = await import("./screen.js");
+    const { document, Event } = parseHTML("<!doctype html><html><head></head><body><div id='shell'></div></body></html>");
+    const previousDocument = globalThis.document, previousFetch = globalThis.fetch;
+    globalThis.document = document;
+    const chart = { field: "status", initial: "idle", states: {
+      idle: { on: { click: { target: "moved", effect: { op: "create", entity: "log", values: { id: "one" } } } } },
+      moved: { on: { click: "further" } }, further: {},
+    } };
+    const html = `<section class="screen"><button id="seat" data-live="form" data-filter="id=eq.draft" data-cortex="rowFamily" data-machine='${JSON.stringify(chart)}'>Go</button></section>`;
+    globalThis.fetch = url => Promise.resolve(new Response(String(url).endsWith(".css") ? "" : html));
+    const tables = { form: [{ id: "draft", status: "idle" }], log: [] };
+    const listeners = new Map(), writes = [];
+    let gate;
+    const notify = table => { for (const f of listeners.get(table) ?? []) f(); };
+    const base = {
+      answer: table => tables[table].map(row => ({ ...row })),
+      query: async table => tables[table].map(row => ({ ...row })),
+      subscribe(table, fn) {
+        const set = listeners.get(table) ?? new Set(); listeners.set(table, set); set.add(fn);
+        return () => set.delete(fn);
+      },
+      async put(table, row) {
+        await gate;
+        tables[table][tables[table].findIndex(item => item.id === row.id)] = { ...tables[table].find(item => item.id === row.id), ...row };
+        writes.push(row.status); notify(table);
+      },
+      async create(table, row) { tables[table].push({ ...row }); notify(table); },
+    };
+    const binding = { via: "rows", screen: "sample", lifetime: "attachment", charts: { main: chart } };
+    const hub = createRowAttachments({ rowFamily: binding });
+    const route = { screen: "sample", files: { html: "sample.html", css: "sample.css", handlers: [] } };
+    let screen;
+    try {
+      screen = await interpretScreen(document.getElementById("shell"), "http://localhost/", route, batched(base), {}, { chartBindings: { rowFamily: binding }, rowAttachments: hub });
+      const lease = hub.attach(binding, { src: "rowFamily" });
+      await screen.settle();
+      let release;
+      gate = new Promise(resolve => { release = resolve; });
+      document.getElementById("seat").dispatchEvent(new Event("click"));
+      document.getElementById("seat").dispatchEvent(new Event("click"));
+      await new Promise(resolve => setTimeout(resolve, 10));
+      lease();
+      release(); gate = undefined;
+      await screen.settle();
+      assert.deepEqual(writes, ["moved"]);
+      assert.deepEqual(tables.log, []);
+    } finally {
+      screen?.stop(); globalThis.document = previousDocument; globalThis.fetch = previousFetch;
+    }
+  },
+});
+
+Deno.test({
+  name: "a reopened attachment's chart cannot take an arrow from a state only an ended lifetime stated",
+  sanitizeOps: false, sanitizeResources: false,
+  async fn() {
+    await import("./vendor/ses.umd.min.js");
+    const { interpretScreen } = await import("./screen.js");
+    const { document, Event } = parseHTML("<!doctype html><html><head></head><body><div id='shell'></div></body></html>");
+    const previousDocument = globalThis.document, previousFetch = globalThis.fetch;
+    globalThis.document = document;
+    const chart = { field: "status", initial: "idle", states: {
+      idle: { on: { click: "moved" } }, moved: { on: { click: "further" } }, further: { on: { go: "beyond" } }, beyond: {},
+    } };
+    const html = `<section class="screen"><button id="seat" data-live="form" data-filter="id=eq.draft" data-cortex="rowFamily" data-machine='${JSON.stringify(chart)}'>Go</button></section>`;
+    globalThis.fetch = url => Promise.resolve(new Response(String(url).endsWith(".css") ? "" : html));
+    const tables = { form: [{ id: "draft", status: "idle" }] };
+    const listeners = new Map(), writes = [];
+    let gate;
+    const notify = table => { for (const f of listeners.get(table) ?? []) f(); };
+    const base = {
+      answer: table => tables[table].map(row => ({ ...row })),
+      query: async table => tables[table].map(row => ({ ...row })),
+      subscribe(table, fn) {
+        const set = listeners.get(table) ?? new Set(); listeners.set(table, set); set.add(fn);
+        return () => set.delete(fn);
+      },
+      async put(table, row) {
+        await gate;
+        tables[table][0] = { ...tables[table][0], ...row };
+        writes.push(row.status); notify(table);
+      },
+    };
+    const binding = { via: "rows", screen: "sample", lifetime: "attachment", charts: { main: chart } };
+    const hub = createRowAttachments({ rowFamily: binding });
+    const route = { screen: "sample", files: { html: "sample.html", css: "sample.css", handlers: [] } };
+    let screen;
+    try {
+      screen = await interpretScreen(document.getElementById("shell"), "http://localhost/", route, batched(base), {}, { chartBindings: { rowFamily: binding }, rowAttachments: hub });
+      const lease = hub.attach(binding, { src: "rowFamily" });
+      await screen.settle();
+      let release;
+      gate = new Promise(resolve => { release = resolve; });
+      document.getElementById("seat").dispatchEvent(new Event("click"));
+      document.getElementById("seat").dispatchEvent(new Event("click"));
+      await new Promise(resolve => setTimeout(resolve, 10));
+      lease();
+      const again = hub.attach(binding, { src: "rowFamily" });
+      document.getElementById("seat").dispatchEvent(new Event("go"));
+      release(); gate = undefined;
+      await screen.settle();
+      assert.ok(!writes.includes("beyond") && !writes.includes("further"), JSON.stringify(writes));
+      again();
+    } finally {
+      screen?.stop(); globalThis.document = previousDocument; globalThis.fetch = previousFetch;
+    }
+  },
 });

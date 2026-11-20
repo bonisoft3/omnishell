@@ -31,6 +31,7 @@ function boot(html, handlerSource) {
   const calls = { puts: [], updates: [] };
   const subs = new Set();
   const store = batched({
+    answer: () => rows,
     query: async () => rows,
     subscribe: (_table, cb) => {
       subs.add(cb);

@@ -16,8 +16,8 @@ import { expect } from "@test/harness"
 import { batched } from "../interpreter/batched-store.js"
 
 /** Every call the interpreter makes on a store. */
-const SURFACE = ["query", "add", "write", "patch", "drop", "dropWhere", "upsertBy", "subscribe", "upload", "seal"]
-const RUNTIME = ["tabSnapshot", "restoreTabs", "flushNotifications", "http", "close", "seedReads", "readAhead", "waitSeed", "pose", "orderOf", "adoptProvisionalSubject", "wipeAccountData"]
+const SURFACE = ["query", "answer", "add", "write", "patch", "drop", "dropWhere", "upsertBy", "subscribe", "upload", "seal"]
+const RUNTIME = ["tabSnapshot", "restoreTabs", "flushNotifications", "http", "close", "seedReads", "readAhead", "waitSeed", "pose", "orderOf", "adoptProvisionalSubject", "wipeAccountData", "answers"]
 
 /** The singular writes a test double states for itself, which the adapter
  * decomposes a batch into. */
@@ -52,7 +52,7 @@ Deno.test("the store surface is what the adapter answers, over a double that kno
   // The double states only the singular writes; everything the interpreter
   // calls has to come out of the adapter or be passed straight through.
   const double = Object.fromEntries(
-    [...SINGULAR, "query", "subscribe", "dropWhere", "upsertBy", "upload", "seal"].map((m) => [m, () => {}]),
+    [...SINGULAR, "query", "answer", "subscribe", "dropWhere", "upsertBy", "upload", "seal"].map((m) => [m, () => {}]),
   )
   const store = batched(double) as Record<string, unknown>
   for (const call of SURFACE) {

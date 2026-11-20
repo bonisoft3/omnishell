@@ -29,8 +29,12 @@ export function batched(singular) {
     // did not would state its own `write` rather than be guessed at. `absent`,
     // the columns stated only where the row is inserted, goes to the double,
     // which alone knows whether it holds the row.
-    write: async (table, edits, onRefused) => {
+    // A double's put stands its row once it returns, which is when the batch
+    // is applied in the sense the store's `onApplied` means.
+    write: async (table, edits, onRefused, onApplied) => {
+      if (edits.length === 0) return;
       for (const e of edits) await store.put(table, { ...e.row, id: e.key }, onRefused, e.absent);
+      onApplied?.();
     },
     patch: async (table, edits, onRefused) => {
       for (const edit of edits) await store.update(table, edit.key, edit.changes, onRefused);

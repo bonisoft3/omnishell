@@ -32,6 +32,7 @@ export type Call = { op: string; table: string; id?: string; row?: Row };
 
 export type FakeDataSync = {
   query(table: string, order?: string | null, opts?: Record<string, unknown>): Promise<Row[]>;
+  answer(table: string, order?: string | null, opts?: Record<string, unknown>): Row[];
   subscribe(table: string, fn: (changes?: Change[]) => void, opts?: Record<string, unknown>): () => void;
   create(table: string, values: Row): Promise<void>;
   upsert(table: string, values: Row): Promise<void>;
@@ -164,13 +165,15 @@ export function fakeDataSync(tables: Record<string, Row[]>, cluster: Cluster = {
 
   store.rows = (table) => of(table);
 
+  // What the shipped store's `answer` is: the same read, at once.
+  store.answer = (table, order, opts = {}) => seedQuery(Object.fromEntries(data), queryCluster, table, {
+    filter: opts.filter as string | undefined,
+    select: opts.select as string | undefined,
+    order: order ?? opts.order as string | undefined,
+  }, visible);
   store.query = async (table, order, opts = {}) => {
     store.calls.push({ op: "query", table });
-    return seedQuery(Object.fromEntries(data), queryCluster, table, {
-      filter: opts.filter as string | undefined,
-      select: opts.select as string | undefined,
-      order: order ?? opts.order as string | undefined,
-    }, visible);
+    return store.answer(table, order, opts);
   };
 
   // Per table, not per read: the shipped store maintains a view over the
@@ -317,11 +320,12 @@ export function fakeDataSync(tables: Record<string, Row[]>, cluster: Cluster = {
   // on, and a batch with an edit naming none writes nothing.
   wrapped.write = whole((table, edits: { key: string; row: Row; absent?: Row }[]) => {
     if (edits.some((e) => e?.key === undefined)) throw new Error(`write ${table}: an edit names no ${keyOf(table)}`);
-  }, async (table, edits: { key: string; row: Row; absent?: Row }[]) => {
+  }, async (table, edits: { key: string; row: Row; absent?: Row }[], _onRefused?: unknown, onApplied?: () => void) => {
     // `absent` states its columns only where the row is inserted, as data-sync's write does.
     for (const e of edits) {
       await store.put(table, { ...(has(table, e.key) ? {} : e.absent), ...e.row, [keyOf(table)]: e.key });
     }
+    if (edits.length > 0) onApplied?.();
   });
   wrapped.drop = whole((table, keys: string[]) => {
     const missing = keys.find((k) => !has(table, k));

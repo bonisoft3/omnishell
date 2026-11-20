@@ -116,3 +116,18 @@ Deno.test("fixed observations discard a held read after attachment identity chan
   actor.stop();
   assert.deepEqual(events, [{ type: "adopt", value: "run-new" }]);
 });
+
+Deno.test("an actor started by its own snapshot begins having said it, and one started by another's reads afresh", async () => {
+  const said = observationSnapshot(binding, identity, rows("done", "8"), new Map())!.snapshot;
+  for (const [told, events] of [[said, 0], [{ ...said, key: JSON.stringify({ key: { id: "other", run: "run-2" }, required: [] }) }, 1], [undefined, 1]] as const) {
+    const sent: object[] = [], pending: Promise<unknown>[] = [];
+    const actor = observeActor(binding, {
+      store: { subscribe: () => () => {}, query: async () => rows("done", "8") },
+      readRow: () => form, send: async (event: object) => { sent.push(event); return true; },
+      track: (p: Promise<unknown>) => { pending.push(p); return p; }, failed: (error: unknown) => { throw error; },
+      told: () => told,
+    });
+    actor.update(); await Promise.all(pending); actor.stop();
+    assert.equal(sent.length, events);
+  }
+});

@@ -630,16 +630,21 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   // embeds come in with it, by the join's own lazy load. A read stating no
   // clause the engine can bind, or a join it cannot keep, is bounded only by
   // its tables.
-  function snapshotDemands(table, opts) {
+  // `create` false asks only after the views the read would lean on, and
+  // answers null where one is not open.
+  function snapshotDemands(table, opts, create = true) {
     const tables = snapshotTables(table, opts).filter(lazy);
     const stated = (opts.filter ?? "").split("&").filter(part => {
       const at = part.indexOf("=");
       return !["limit", "offset"].includes(part.slice(0, at)) && STATED.test(part.slice(at + 1));
     }).join("&");
     const bound = tables.includes(table) && stated !== ""
-      ? maintainedView(table, { filter: stated, select: opts.select }, true)
+      ? maintainedView(table, { filter: stated, select: opts.select }, create)
       : null;
-    return bound === null ? tables.map(completeDemand) : [bound];
+    if (bound !== null) return [bound];
+    if (create) return tables.map(completeDemand);
+    const open = tables.map((t) => maintainedView(t, { filter: `${keyOf(t)}=not.is.null` }, false));
+    return open.includes(null) ? null : open;
   }
 
   // Adapter references alone do not prevent TanStack's five-second GC after
@@ -778,6 +783,9 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   // Server tables never arrive here: Postgres owns their uniques, and their
   // bootstrap rows are 900_seed.sql.
   const preparedAt = new Map();
+  // The local tables whose preparation has finished: before then a ready
+  // collection may still lack its bootstrap rows.
+  const prepared = new Set();
   const restoredTabs = new Map();
   const ensurePrepared = (table) => {
     if (local[table] === undefined) {
@@ -786,6 +794,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     let p = preparedAt.get(table);
     if (p === undefined) {
       p = prepare(table);
+      p.then(() => prepared.add(table), () => {});
       preparedAt.set(table, p);
     }
     return p;
@@ -1359,7 +1368,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   //
   // What each term is, and why the pipeline states per reader whether its read
   // counted them, is plugins/pronto/docs/access.md#a-count-the-reader-is-inside-of.
-  async function project(table, rows) {
+  function projectNow(table, rows) {
     const p = foldSinks.get(table);
     if (p === undefined || rows.length === 0 || p.pair === undefined) return rows;
     const source = client.collections[p.from];
@@ -1388,7 +1397,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   }
 
   const query = async (table, order, opts = {}) =>
-    project(table, await read(table, order, opts));
+    projectNow(table, await read(table, order, opts));
 
   // Server reads as the tab last read them, by reader and address: a later
   // read of the same address answers from here at once, as a view answers
@@ -1701,12 +1710,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     return rows;
   }
 
-  function answersLocally(table, order, opts) {
-    if (pendingSession && !token()) return false;
-    if (maintainedView(table, { ...opts, order }, false)?.complete()) return true;
-    const tables = snapshotTables(table, opts);
-    return tables.length > 0 && tables.every((t) => !lazy(t) && client.collections[t]?.isReady?.());
-  }
+  const answersLocally = (table, order, opts) => fromTab(table, order, opts) !== undefined;
 
   /** One read of a screen not on show yet, kept for the page at `at` as a document's would be,
    * and with the reader's own token, so it holds for any reader. */
@@ -1723,23 +1727,33 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     notifySeeded(memoKey(url));
   }
 
-  async function read(table, order, opts = {}) {
-    order ??= opts.order;
+  // What decides, before any row is looked at, who answers a read: the
+  // server alone (`server`), a seed still on its way (`seed`), or the tab.
+  // read() acts on it and answer() reads it, so the two cannot disagree.
+  function owner(table, order, opts, touch = false) {
     // Independently synchronized collections can be ready before an accepted write arrives.
-    if (opts.confirmed && local[table] === undefined) return readServer(table, order, opts);
+    if (opts.confirmed && local[table] === undefined) return "server";
     const url = `${crud(table)}?${search(order, opts)}`;
     const rKey = recallKey(table, order, opts);
-    const isLocalReady = () => answersLocally(table, order, opts);
-    if (!opts.confirmed && !requestOnly(table) && local[table] === undefined && !recalled.has(rKey) &&
+    if (activeSeed !== null && !opts.confirmed && !requestOnly(table) && local[table] === undefined && !recalled.has(rKey) &&
         !hasServedRead(url) && !(keepsReads && answered.has(memoKey(url))) &&
-        !isLocalReady()) {
-      await awaitSeedForUrl(url);
-    }
-    const heldAnswer = keepsReads ? kept(answered, memoKey(url)) : undefined;
+        !answersLocally(table, order, opts)) return "seed";
+    const heldAnswer = keepsReads ? (touch ? kept(answered, memoKey(url)) : answered.get(memoKey(url))) : undefined;
     const servedForPage = !opts.confirmed && (hasServedRead(url) || Boolean(heldAnswer?.served && isServedAtPage(heldAnswer.servedAt)));
-    if (requestOnly(table) || (servedForPage && !recalled.has(rKey))) {
-      return readServer(table, order, opts);
+    if (requestOnly(table) || (servedForPage && !recalled.has(rKey))) return "server";
+    return "tab";
+  }
+
+  async function read(table, order, opts = {}) {
+    order ??= opts.order;
+    const url = `${crud(table)}?${search(order, opts)}`;
+    const rKey = recallKey(table, order, opts);
+    let by = owner(table, order, opts, true);
+    if (by === "seed") {
+      await awaitSeedForUrl(url);
+      by = owner(table, order, opts, true);
     }
+    if (by === "server") return readServer(table, order, opts);
     await Promise.all([table, ...embedDeps(opts.select, table, cfg.schema), ...accessDeps(table)].map(ensurePrepared));
     // A read the engine already maintains needs no re-derivation: the view is
     // the filter and the order, kept current by the deltas that woke us.
@@ -1780,32 +1794,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
           ...snapshotTables(table, opts).filter(t => !lazy(t)).map(t => wholeCollection(t, `a read of ${table}`)),
           ...demands.map(entry => settled(entry)),
         ]);
-        const all = c.toArray;
-        // The snapshot is a fresh array, so it is sorted in place, and copied
-        // only where a predicate, a cap or an embed makes a different one.
-        const rows = access[table] === undefined && preds.length === 0
-          ? all
-          : all.filter((r) => visible(table, r) && preds.every((p) => p(r)));
-        if (order) rows.sort(compareBy(order, orderOf(table)));
-        const limit = parseLimit(opts.filter);
-        const capped = limit === undefined ? rows : rows.slice(0, limit);
-        if (embeds.length === 0) return recall(key, table, opts, capped);
-        return recall(key, table, opts, capped.map((row) => {
-          const out = { ...row };
-          for (const { alias, table: rel, cols } of embeds) {
-            // A collection is keyed by the same column keyOf names, so the
-            // joined row is one lookup; a scan of the related table per row
-            // is the product of the two tables per read.
-            const target = client.collections[rel].get(row[`${alias}_id`]);
-            // null embed mirrors PostgREST under RLS: a joined row this
-            // reader cannot see binds blank, never leaks.
-            out[alias] =
-              target !== undefined && visible(rel, target)
-                ? Object.fromEntries(cols.map((col) => [col, target[col]]))
-                : null;
-          }
-          return out;
-        }));
+        return recall(key, table, opts, localRows(table, order, opts, c, preds, embeds));
       } finally {
         for (const release of releases) release();
       }
@@ -1813,6 +1802,73 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     // Server-computed read: fts, embed-path filter, or untranslatable
     // select/filter.
     return readServer(table, order, opts);
+  }
+
+  // A read evaluated over the collection as it stands.
+  function localRows(table, order, opts, c, preds, embeds) {
+    const all = c.toArray;
+    // The snapshot is a fresh array, so it is sorted in place, and copied
+    // only where a predicate, a cap or an embed makes a different one.
+    const rows = access[table] === undefined && preds.length === 0
+      ? all
+      : all.filter((r) => visible(table, r) && preds.every((p) => p(r)));
+    if (order) rows.sort(compareBy(order, orderOf(table)));
+    const limit = parseLimit(opts.filter);
+    const capped = limit === undefined ? rows : rows.slice(0, limit);
+    if (embeds.length === 0) return capped;
+    return capped.map((row) => {
+      const out = { ...row };
+      for (const { alias, table: rel, cols } of embeds) {
+        // A collection is keyed by the same column keyOf names, so the
+        // joined row is one lookup; a scan of the related table per row
+        // is the product of the two tables per read.
+        const target = client.collections[rel].get(row[`${alias}_id`]);
+        // null embed mirrors PostgREST under RLS: a joined row this
+        // reader cannot see binds blank, never leaks.
+        out[alias] =
+          target !== undefined && visible(rel, target)
+            ? Object.fromEntries(cols.map((col) => [col, target[col]]))
+            : null;
+      }
+      return out;
+    });
+  }
+
+  // What the tab's collections answer of a read now, before any projection,
+  // or undefined where they cannot yet: a session still being minted (unless
+  // every table is the tab's own), a table not yet prepared or synced, a view
+  // or the subsets a lazy table leans on not yet whole.
+  function fromTab(table, order, opts) {
+    if (!answers(table, opts)) return undefined;
+    const tables = [table, ...embedDeps(opts.select, table, cfg.schema), ...accessDeps(table)];
+    if (pendingSession && !token() && !tables.every((t) => local[t] !== undefined)) return undefined;
+    if (tables.some((t) => local[t] !== undefined && !prepared.has(t))) return undefined;
+    if (tables.some((t) => !lazy(t) && client.collections[t]?.isReady?.() !== true)) return undefined;
+    const held = maintainedView(table, { ...opts, order }, false);
+    if (held !== null) return held.complete() ? held.view.toArray : undefined;
+    const demands = snapshotDemands(table, opts, false);
+    if (demands === null || !demands.every((entry) => entry.complete())) return undefined;
+    return localRows(table, order, opts, client.collections[table], queryPredicates(table, opts.filter), parseSelect(opts.select));
+  }
+
+  // A read as `query` answers it, answered at once from what the tab holds,
+  // its own writes included before the server has accepted them; undefined
+  // where only a trip could answer it.
+  function answer(table, order, opts = {}) {
+    order ??= opts.order;
+    if (owner(table, order, opts) !== "tab") return undefined;
+    const rows = fromTab(table, order, opts);
+    return rows === undefined ? undefined : projectNow(table, rows);
+  }
+
+  // Whether a read can ever be answered from what the tab holds: not a table
+  // read only from the server, nor a read the server computes (a text search,
+  // a join the tab cannot make).
+  function answers(table, opts = {}) {
+    if (requestOnly(table) || client.collections[table] === undefined) return false;
+    if (routeOf(parseFilterSpec(opts.filter), parseSelect(opts.select), parseLimit(opts.filter)) === "server") return false;
+    const preds = queryPredicates(table, opts.filter);
+    return preds !== null && localEmbeds(table, parseSelect(opts.select));
   }
 
   // Server-computed regions have one blind spot the collections cannot
@@ -2262,7 +2318,11 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   // key wins where it does — a caller states identity in one place. `absent`
   // holds columns stated only if the row is inserted, judged against the
   // collection as the write lands: a machine's first write from its fallback.
-  async function write(table, edits, onRefused) {
+  // `onApplied` is told when the rows stand in the tab's own collection, the
+  // optimistic view every later read answers from, which is before the server
+  // has said yes: a writer that reads its rows back waits for this and not
+  // for the acceptance. A refusal before then is the write's rejection.
+  async function write(table, edits, onRefused, onApplied) {
     if (edits.length === 0) return;
     await ensurePrepared(table);
     const key = keyOf(table);
@@ -2282,6 +2342,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
         commands.push({ row: stated, method: have === undefined ? "POST" : "PATCH", filter: have === undefined ? undefined : filter });
       }
       for (const command of commands) await serverCommand(table, command.method, command.row, command.filter);
+      onApplied?.();
       return;
     }
     const collection = await mutationCollection(table, "a write by key");
@@ -2312,18 +2373,14 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     // row and promotes another never holds both in a unique's domain, not even
     // for the one change event between the two calls.
     if (standing.length > 0) {
-      await settle(
-        onSettled(client.update(table, standing), table, standing.map((e) => String(e.key))),
-        ACCEPT_MS,
-        onRefused,
-      );
+      const updated = onSettled(client.update(table, standing), table, standing.map((e) => String(e.key)));
+      if (fresh.length === 0) onApplied?.();
+      await settle(updated, ACCEPT_MS, onRefused);
     }
     if (fresh.length > 0) {
-      await settle(
-        onSettled(client.insert(table, fresh), table, fresh.map((r) => String(r[key]))),
-        ACCEPT_MS,
-        onRefused,
-      );
+      const inserted = onSettled(client.insert(table, fresh), table, fresh.map((r) => String(r[key])));
+      onApplied?.();
+      await settle(inserted, ACCEPT_MS, onRefused);
     }
   }
 
@@ -2731,6 +2788,8 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
   };
   return {
     query,
+    answer,
+    answers,
     orderOf,
     seedReads,
     readAhead,

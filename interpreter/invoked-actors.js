@@ -22,19 +22,22 @@ export function invocationSpecs(machine, state) {
 export function invokedActors(machine, implementations, start) {
   const running = new Map();
   const exits = (path, paths) => paths.some((parent) => parent === "" || path === parent || path.startsWith(`${parent}.`));
+  // Answers the sources it stopped.
   const stopWhere = (matches) => {
-    const errors = [];
+    const errors = [], stopped = [];
     for (const [key, held] of running) {
       if (!matches(key, held)) continue;
       running.delete(key);
+      stopped.push(held.src);
       try { held.actor.stop(); } catch (error) { errors.push(error); }
     }
     if (errors.length === 1) throw errors[0];
     if (errors.length > 1) throw new AggregateError(errors, "Observer cleanup failed");
+    return stopped;
   };
   return {
     exit(paths) {
-      stopWhere((_key, held) => exits(held.path, paths));
+      return stopWhere((_key, held) => exits(held.path, paths));
     },
     sync(state) {
       const specs = invocationSpecs(machine, state);
@@ -42,7 +45,7 @@ export function invokedActors(machine, implementations, start) {
       stopWhere((key) => !wanted.has(key));
       for (const spec of specs) {
         if (!Object.hasOwn(implementations, spec.src)) throw new Error(`invoke ${spec.id}: undeclared actor ${spec.src}`);
-        if (!running.has(spec.key)) running.set(spec.key, { path: spec.path, actor: start(implementations[spec.src], spec) });
+        if (!running.has(spec.key)) running.set(spec.key, { path: spec.path, src: spec.src, actor: start(implementations[spec.src], spec) });
         running.get(spec.key).actor.update();
       }
     },

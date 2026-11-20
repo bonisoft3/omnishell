@@ -46,7 +46,9 @@ const PAGE = `<!doctype html>
   let rows = []
   let notify = () => {}
   const store = {
+    answer: () => rows,
     query: async () => rows,
+    write: async (_t, edits, _refused, applied) => { rows = edits.map((e) => ({ ...e.row, id: e.key })); applied?.(); await notify() },
     subscribe: (_t, fn) => { notify = fn; return () => {} },
     create: async () => {}, update: async () => {}, remove: async () => {},
     put: async (_t, row) => { rows = [row]; await notify() },

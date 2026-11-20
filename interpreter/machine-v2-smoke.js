@@ -138,6 +138,7 @@ function boot(html = SCREEN_HTML, rows = []) {
   const subs = new Set();
   const knobs = { refuseNext: false, refuseUpsert: false, failUpsert: false, slowUpsertMs: 0 };
   const baseStore = {
+    answer: () => rows,
     query: async () => rows,
     subscribe: (_table, cb) => {
       subs.add(cb);

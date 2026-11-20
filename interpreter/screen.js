@@ -291,11 +291,11 @@ let held = 0;
 // numbers together are the whole answer, because nothing becomes due that a
 // caller did not advance to.
 //
-// `waits` counts TIMERS THE CLOCK HOLDS and not arrows still to fire: a state
-// re-entered by its own refresh arms a second one, and the generation mark
-// kills the first when it comes due. So the number a driver can act on is
+// `waits` counts TIMERS THE CLOCK HOLDS and not arrows still to fire: a chart's
+// timer is cancelled when its state is left, but one that comes due may find
+// every arrow it could take declined. So the number a driver can act on is
 // zero-or-not, and reading it as "transitions pending" would count a wait that
-// exists only to be discarded.
+// moves nothing.
 let busy = 0;
 globalThis.__prontoBusy = () => ({ regions: busy, waits: pending.size });
 // The seed's generators, declared ahead of the clock because a held clock can
@@ -356,11 +356,22 @@ if (MANUAL) {
   };
 }
 // Every wait says what armed it. The label is what due() reports, and a held
-// clock with an unlabelled wait could only answer "something".
-const rest = (ms, label) => {
-  if (!MANUAL) return new Promise((resolve) => setTimeout(resolve, ms));
+// clock with an unlabelled wait could only answer "something". `cancelling`
+// is handed the wait's cancel: a cancelled wait never comes due, and a held
+// clock stops counting it.
+const rest = (ms, label, cancelling) => {
+  if (!MANUAL) {
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      cancelling?.(() => clearTimeout(timer));
+    });
+  }
   if (label?.kind === undefined) throw new Error(`a held wait of ${ms}ms names no kind`);
-  return new Promise((fire) => pending.add({ at: held + ms, fire, label }));
+  return new Promise((fire) => {
+    const wait = { at: held + ms, fire, label };
+    pending.add(wait);
+    cancelling?.(() => pending.delete(wait));
+  });
 };
 // The clock the screen reads, not the one the host runs: a held clock answers
 // from where the caller advanced it, so a row stamped {now} lands on the same
@@ -2721,7 +2732,21 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // handler never receives a node or an Event — it is evaluated in a
   // compartment with nothing endowed, so it could not use one, and it stays
   // testable with no DOM. A region-level event (a tick) carries no id.
-  function wireEvents(region, items, getRows, handlers, ctx, readCurrent) {
+  // A chart's lifetime ends: nothing queued is taken, its waits are
+  // cancelled, its observers stopped, and what it began comes back to nobody.
+  const endChart = (region, field) => {
+    const chart = region[`_prontoMachine_${field}_chart`];
+    if (chart !== undefined) {
+      for (const item of chart.queue.splice(0)) item.resolve?.(false);
+      for (const cancel of chart.cancels.splice(0)) cancel();
+      chart.epoch += 1;
+      chart.timers += 1;
+      chart.standing = undefined;
+    }
+    region[`_prontoMachine_${field}_invokes`]?.stop();
+  };
+
+  function wireEvents(region, items, getRows, handlers, ctx) {
     const gesture = (run) => {
       let release;
       const paused = new Promise((resolve) => { release = resolve; });
@@ -2828,15 +2853,12 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     };
     const deliver = (entity, id, err) => {
       report(err);
+      region._prontoOutbox?.withdraw(entity);
       const fired = refusal(entity, id, err);
       if (machineRefused.length > 0) {
         for (const hear of machineRefused) hear(fired);
         return;
       }
-      // The store withdrew the write, so the chain-local machine view holding
-      // it is withdrawn with it — the refusal transition concludes from what
-      // the store still holds, not from the state that was just rolled back.
-      region._prontoMachineRow = undefined;
       if (rowsReduce) {
         step(rowsReduce, fired, 0).catch((e) => {
           report(e);
@@ -2884,7 +2906,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       mutationWrites.add(promise);
       try { return await promise; } finally { mutationWrites.delete(promise); }
     };
-    const applyUpdates = async (updates, deliver, active) => {
+    // `applied` is told when the store holds the rows in its own collection,
+    // before it has accepted them (see data-sync's write).
+    const applyUpdates = async (updates, deliver, active, applied) => {
       // Every update is classified before any is written. A refusal mid-batch
       // is a fact about the world; a malformed update is the fold's own bug,
       // and finding it after half the batch has landed is worse than not
@@ -2905,7 +2929,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         const run = updates.slice(at, upto);
         try {
           if (op === "put") {
-            await submitMutation(store.write(entity, run.map((x) => ({ key: x.id, row: x.row, ...(x.absent === undefined ? {} : { absent: x.absent }) })), (err) => deliver(entity, id, err)), active);
+            await submitMutation(store.write(entity, run.map((x) => ({ key: x.id, row: x.row, ...(x.absent === undefined ? {} : { absent: x.absent }) })), (err) => deliver(entity, id, err), applied), active);
           } else if (op === "delete") {
             await submitMutation(store.drop(entity, run.map((x) => x.id), (err) => deliver(entity, id, err)), active);
           } else {
@@ -2918,7 +2942,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         } catch (err) {
           // A fast refusal (rejected inside the store's acceptance window) is
           // the same fact as a late one and takes the same path. Anything else
-          // stays the outer catch's network-error.
+          // is the caller's to report.
           if (err?.name !== "NonRetriableError") throw err;
           deliver(entity, id, err);
           return false;
@@ -2929,7 +2953,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       return true;
     };
 
-    const applyEffects = async (effects, deliver, active) => {
+    // `acknowledge` hears each effect's acknowledgement; by default every
+    // chart on the region that draws `sync_ack` does.
+    const applyEffects = async (effects, deliver, active, acknowledge) => {
       for (const eff of effects) {
         if (active && !active()) return false;
         const entity = eff.entity ?? region.dataset.live;
@@ -2974,22 +3000,23 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         }
         if (refused) return false;
         dirty.add(entity);
-        if (machineAck.length > 0) {
+        if (!active || active()) {
           const ackEvent = { type: "sync_ack", entity, token: eff.token };
-          for (const hear of machineAck) hear(ackEvent);
+          if (acknowledge !== undefined) acknowledge(ackEvent);
+          else for (const hear of machineAck) hear(ackEvent);
         }
       }
       return true;
     };
 
-    const step = async (reduce, event, depth, pause, seat, automatic = event.type === "mutation", active, readItems) => {
-      if (held === "stopped" || (active && !active())) return;
+    const step = async (reduce, event, depth, pause, seat, automatic = event.type === "mutation") => {
+      if (held === "stopped") return;
       const next = await track((async () => {
         if (held === "stopped") return;
         checkSettlement(region);
         const rows = await worldOf();
-        const items = readItems ? await readItems() : getRows();
-        if ((automatic && !mutationActive()) || (active && !active())) return;
+        const items = getRows();
+        if (automatic && !mutationActive()) return;
         if (event.type === "mutation" && seat) {
           event = { ...event, visit: seat.visitEpoch !== visitEpoch };
           seat.visitEpoch = visitEpoch;
@@ -2999,9 +3026,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         if (typeof result?.then === "function") {
           throw new Error(`handler for "${event.type}" returned a promise; a reduce returns its updates`);
         }
-        if (!await applyUpdates(result?.updates ?? [], deliver, active ?? (automatic ? mutationActive : undefined))) return;
+        if (!await applyUpdates(result?.updates ?? [], deliver, automatic ? mutationActive : undefined)) return;
         if (result?.effects && result.effects.length > 0) {
-          if (!await applyEffects(result.effects, deliver, active ?? (automatic ? mutationActive : undefined))) return;
+          if (!await applyEffects(result.effects, deliver, automatic ? mutationActive : undefined)) return;
         }
         if (automatic && seat) {
           for (const update of [...(result?.updates ?? []), ...(result?.effects ?? [])]) {
@@ -3014,7 +3041,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         }
         return result?.then;
       })());
-      if (!next?.type || (active && !active())) return;
+      if (!next?.type) return;
       if (next.delay > 0) {
         pause?.();
         await rest(next.delay / TEMPO, { kind: "then", type: next.type });
@@ -3022,7 +3049,6 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         // the screen is on show, settle would track its writes and keep the screen hidden.
         await screenOpts.presented;
       }
-      if (active && !active()) return;
       const carried = { type: next.type };
       // A draw the reduce asked for. It has no randomness of its own — the
       // compartment endows nothing — so it says it wants one and is called
@@ -3048,7 +3074,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       if (typeof carried.type === "string" && carried.type.startsWith("intent:")) {
         screen.dispatchEvent?.(new CustomEvent("pronto:intent", { detail: carried, bubbles: true }));
       }
-      await step(reduce, carried, depth + 1, pause, seat, automatic, active, readItems);
+      await step(reduce, carried, depth + 1, pause, seat, automatic);
     };
 
     const bind = (el, id) => {
@@ -3154,7 +3180,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // data-machine: the #Machine subset — machine.cue holds the vocabulary
     // and its doctrine — executed here without a compartment, because a
     // machine is data. Every transition lands as one stated row through the
-    // same step() path as a reduce; leaves are called over the row-closed
+    // region's outbox (see the chart below); leaves are called over the row-closed
     // world {items: [row]} (no rows key, so a reaching leaf fails on
     // undefined). `<type>@<dom-id>` narrows a transition to one affordance
     // with the bare type as its fallback, a state's transitions hide
@@ -3175,29 +3201,93 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       ? []
       : declaredCharts(region.dataset.machine, region.dataset.live);
     // Each chart is mounted on its own, knowing nothing of its siblings. What
-    // they share is the ROW — `_prontoMachineRow` accumulates every chart's
-    // stated columns within one tick, which is what makes two charts one write
-    // — and everything a chart owns alone is keyed by its field.
+    // they share is the ROW, and the outbox its writes go out through, in the
+    // order they were stated; everything a chart owns alone is keyed by its
+    // field.
     if (screenOpts.handlers !== false && screenOpts.mountUnits !== false && region.dataset.cortex !== undefined && (!region.dataset.cortex || !screenOpts.rowAttachments)) {
       throw new ProgramError(`region "${region.dataset.live}": data-cortex needs a row attachment family`);
     }
     if (screenOpts.handlers !== false && screenOpts.mountUnits !== false && region.dataset.cortex !== undefined && !charts.length) {
       throw new ProgramError(`region "${region.dataset.live}": data-cortex needs a machine`);
     }
+    // How the charts on this region write. A chart is one more writer to the
+    // store, which is optimistic: a write stands in the tab's collection as
+    // soon as it is judged, and is confirmed or withdrawn later. So a chart
+    // keeps no copy of its writes: it reads its row from the store at each
+    // turn (`_prontoAnswer`), and after stating a write it takes no turn
+    // until the store holds it (`applying`), which is local and quick. The
+    // arrow's effects follow their own write's acceptance and hold up nothing.
+    if (charts.length > 0) region._prontoOutbox ??= (() => {
+      const box = { charts: new Set(), io: undefined, applying: 0 };
+      box.waiting = () => box.applying > 0;
+      // A write or an effect that fails other than by the store's refusal is
+      // a failure of the screen's, reported as any run's is.
+      box.run = (work) => finite(work).finished.catch((err) => {
+        report(err);
+        setState("network-error");
+      });
+      box.wake = () => {
+        for (const chart of box.charts) chart.send({ kind: "row" });
+      };
+      box.send = (c) => {
+        const { applyUpdates, applyEffects, deliver } = box.io;
+        // Nothing of a write outlives the screen or the lifetime of the chart
+        // that stated it (a closed attachment, a detached region, another
+        // row), nor the write itself: one the store withdraws, however late,
+        // takes the effects not yet sent. What comes back is the chart's to
+        // hear only in that lifetime.
+        const going = () => held !== "stopped" && c.chart.epoch === c.epoch && !c.withdrawn;
+        // A refusal or an acknowledgement is the issuing chart's event, in the
+        // lifetime that issued it; a chart that draws no `refused` leaves a
+        // refusal to the region, as any writer's.
+        const heard = (entity, id, err) => {
+          if (held === "stopped" || c.chart.epoch !== c.epoch) return report(err);
+          if (!c.chart.refuses) return deliver(entity, id, err);
+          report(err);
+          box.wake();
+          c.chart.send({ kind: "event", event: box.io.refusal(entity, id, err), epoch: c.epoch });
+        };
+        const acknowledge = (event) => c.chart.send({ kind: "event", event, epoch: c.epoch });
+        if (c.updates.length === 0) {
+          if (c.effects.length > 0) box.run(() => applyEffects(c.effects, heard, going, acknowledge));
+          return;
+        }
+        const refused = (entity, id, err) => {
+          c.withdrawn = true;
+          heard(entity, id, err);
+        };
+        box.applying += 1;
+        let applied = false;
+        const apply = () => {
+          if (applied) return;
+          applied = true;
+          box.applying -= 1;
+          box.wake();
+        };
+        box.run(async () => {
+          let ok;
+          try { ok = await applyUpdates(c.updates, refused, going, apply); } finally { apply(); }
+          if (ok && c.effects.length > 0) await applyEffects(c.effects, heard, going, acknowledge);
+        });
+      };
+      // The store withdrew a write to this region's collection: the charts
+      // read their rows again, in turn.
+      box.withdraw = (entity) => {
+        if (entity === region.dataset.live) box.wake();
+      };
+      return box;
+    })();
     for (const machine of charts) {
       const mine = (what) => `_prontoMachine_${machine.field}_${what}`;
       const family = screenOpts.mountUnits === false ? undefined : region.dataset.cortex;
       let gate = region[mine("gate")];
       if (family !== undefined && !gate) {
-        gate = region[mine("gate")] = { enabled: false, generation: 0, wake: () => {} };
+        gate = region[mine("gate")] = { enabled: false, wake: () => {} };
         const unregister = screenOpts.rowAttachments.register(family, {
-          start() { gate.enabled = true; gate.generation++; gate.wake(); },
+          start() { gate.enabled = true; gate.wake(); },
           stop() {
             gate.enabled = false;
-            gate.generation++;
-            region[mine("afterGen")] = (region[mine("afterGen")] ?? 0) + 1;
-            region[mine("armed")] = undefined;
-            region[mine("invokes")]?.stop();
+            endChart(region, machine.field);
           },
         }, route.screen);
         cleanups.push(() => { unregister(); delete region[mine("gate")]; });
@@ -3208,10 +3298,6 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
       // a select firing an arrow written for a checkbox must not take the
       // screen down, and writing undefined would be a hole no later reader can
       // tell from a value the app meant.
-      // Which state this chart's last transition entered, read by runMachine
-      // to arm the timer. It never outlives one call, so it is not the
-      // region's to hold.
-      let entered;
       const NO_FIELD = Symbol("no field");
       const eventField = (event, field) => {
         if (!EVENT_FIELDS.has(field)) {
@@ -3375,102 +3461,253 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         try { return engine(row, event, keys, preview); }
         catch (error) { if (error === NO_FIELD) return undefined; throw error; }
       };
-      const apply = (row, event, keys = eventKeys(event), expectState) => {
-        if (row === undefined || (expectState !== undefined && row[machine.field] !== expectState)) return { updates: [] };
+      // The chart: one per region and field, made once and kept across the
+      // region's rewiring, the way an XState actor outlives what sends to it.
+      // It takes one event at a time from its mailbox and runs it to
+      // completion against the row the store holds (see `view`). A turn
+      // awaits nothing: the row it states and the arrow's effects go out
+      // through the region's outbox, and what comes back — an
+      // acknowledgement, a refusal, the store's next row — is an event in the
+      // mailbox like a gesture or a timer. What each wiring adds is only the
+      // code a turn runs.
+      //   epoch     its lifetime, ended by a closed attachment, a detached
+      //             region or another row: what was begun in an earlier one
+      //             (an effect, an observer's delivery) is not acted on
+      //   gone      the region is detached, until it is wired again on show
+      //   receiver  the key of the row it stands for
+      //   standing  the state the chart last entered, by an arrow or by
+      //             finding the row moved there; a row standing elsewhere is
+      //             an entry like any other
+      //   timers    the generation of its timers: entering a state bumps it
+      //             and cancels the waits armed under the older one
+      //   handed    during a delivery's turn, the snapshot delivered, for an
+      //             observer of the same source the turn restarts
+      //   heard     each source's last snapshot and how often it was said
+      //             with nothing else happening to the chart: no other event,
+      //             no move it met, no `always` a refresh selected
+      const chart = region[mine("chart")] ??= { queue: [], pumping: false, epoch: 0, gone: false, receiver: undefined, standing: undefined, timers: 0, cancels: [], handed: undefined, heard: new Map() };
+      // A chart writes its row and reads it back at once from the tab: a
+      // region the tab can never answer has no row a chart can stand in.
+      if (typeof store.answer !== "function") {
+        throw new ProgramError(`region "${region.dataset.live}": a chart reads its row from the store at each turn, and this store does not answer a read at once (answer)`);
+      }
+      if (region._prontoAnswers === false) {
+        throw new ProgramError(`region "${region.dataset.live}": a chart stands in a row the tab holds, and this region's read is answered by the server (a table read only from the server, or a read the server computes); render that list without a chart, and nest in each item a region of the row itself (data-filter="id=eq.{id}") holding the chart`);
+      }
+      const outbox = region._prontoOutbox;
+      outbox.charts.add(chart);
+      // Wired on show the region's handle has it; wired while the screen is
+      // away, it waits for the screen to come back.
+      chart.gone = !mutationActive();
+      outbox.io = { applyUpdates, applyEffects, deliver, refusal };
+      const key = cfg.keys?.[region.dataset.live] ?? "id";
+
+      // The row the store holds, as the region's own read selects it. Until
+      // the store can answer it there is no row, and the chart waits for the
+      // region's next wake.
+      const view = () => region._prontoAnswer()?.[0];
+
+      const REPEATS = 8;
+      const send = (item) => {
+        chart.queue.push(item);
+        chart.pump();
+      };
+      chart.send = send;
+      chart.pump = () => {
+        if (chart.pumping) return;
+        chart.pumping = true;
+        try {
+          while (chart.queue.length > 0) {
+            if (held === "stopped" || chart.gone) {
+              for (const item of chart.queue.splice(0)) item.resolve?.(false);
+              return;
+            }
+            // The row in hand does not show the store's latest write yet.
+            if (outbox.waiting()) return;
+            const item = chart.queue.shift();
+            try {
+              if (!enabled() || (item.epoch !== undefined && item.epoch !== chart.epoch)) { item.resolve?.(false); continue; }
+              turn(item);
+            } catch (err) {
+              item.resolve?.(false);
+              failed(err);
+              report(err);
+              setState("network-error");
+            }
+          }
+        } finally { chart.pumping = false; }
+      };
+
+      // Leaves the state it was in for `state`: its waits are cancelled, the
+      // new state's are armed. Observers follow the state in `observe`.
+      const leave = () => {
+        chart.timers += 1;
+        for (const cancel of chart.cancels.splice(0)) cancel();
+        chart.standing = undefined;
+      };
+      const enter = (state, row) => {
+        leave();
+        chart.standing = state;
+        arm(state, chart.timers, row);
+      };
+
+      // A row in hand standing where the chart did not put it was moved by
+      // somebody else, and the chart has entered that state, wherever it
+      // first meets the row: its timers are armed and its observers started
+      // before anything is asked of it. An empty or missing column stands in
+      // the initial state, as the engine reads it; another row, or none, ends
+      // the chart's lifetime.
+      const meet = (row) => {
+        if (row?.[key] !== chart.receiver) {
+          endChart(region, machine.field);
+          chart.receiver = row?.[key];
+        }
+        if (row === undefined) return false;
+        const current = resolveTarget(row[machine.field] || machine.initial);
+        if (!resolveStateNode(current)) {
+          if (chart.standing !== undefined) {
+            leave();
+            region[mine("invokes")]?.stop();
+          }
+          return false;
+        }
+        if (current !== chart.standing) {
+          chart.heard.clear();
+          enter(current, row);
+        }
+        observe();
+        return true;
+      };
+
+      // One event, run to completion. Nothing here awaits.
+      const take = (event, keys, how = {}) => {
+        const row = view();
+        if (!meet(row)) return false;
+        // What another row's turn began is spent once this turn meets the row
+        // that replaced it; a timer whose turn met another entry is spent.
+        if (how.epoch !== undefined && how.epoch !== chart.epoch) return false;
+        if (how.generation !== undefined && how.generation !== chart.timers) return false;
+        checkSettlement(region);
         const result = fire(row, event, keys);
-        if (!result?.taken) return { updates: [] };
+        if (!result?.taken) return false;
         const patch = result.patch ?? {};
-        const out = { updates: [] };
+        let stated, absent;
         if (result.state !== row[machine.field] || Object.keys(patch).length > 0 || result.enter.length > 0) {
           const fromFallback = row === region._prontoFallbackRow;
-          const stated = { id: row.id, ...(fromFallback ? {} : { [machine.field]: row[machine.field] }), ...patch, ...(result.targeted ? { [machine.field]: result.state } : {}) };
-          out.updates = [{ op: "put", id: stated.id, row: stated, ...(fromFallback ? { absent: row } : {}) }];
-          region._prontoMachineRow = { ...row, ...stated };
+          stated = { [key]: row[key], ...(fromFallback && !result.targeted ? {} : { [machine.field]: result.state }), ...patch };
+          if (fromFallback) absent = row;
         }
-        if (result.enter.length) entered = result.state;
-        if (result.effects?.length) out.effects = result.effects;
-        if (result.raised !== undefined) out.then = { type: result.raised };
-        region[mine("invokes")]?.exit(result.exit);
-        return out;
+        if (stated !== undefined || result.effects?.length) issue(row[key], stated, absent, result.effects ?? []);
+        try {
+          // The source whose delivery this is has said what it says to any
+          // observer of it the turn restarts.
+          const stopped = region[mine("invokes")]?.exit(result.exit) ?? [];
+          if (how.delivery && stopped.includes(how.delivery.src)) chart.handed = how.delivery;
+          if (result.enter.length) enter(result.state, stated === undefined ? row : { ...row, ...stated });
+          observe();
+        } finally { chart.handed = undefined; }
+        // A raised event is the chart's next, before anything else in its mailbox.
+        if (result.raised !== undefined) {
+          const depth = (how.depth ?? 0) + 1;
+          if (depth >= STEPS) throw new Error(`handler chain did not settle in ${STEPS} steps at "${result.raised}"`);
+          const raised = { type: result.raised };
+          chart.queue.unshift({ kind: "raise", event: raised, keys: eventKeys(raised), depth, automatic: how.automatic, epoch: chart.epoch });
+        }
+        return true;
       };
 
-      const machineRow = (state) => region._prontoMachineRow ?? state.items[0];
-
-      const machineReduce = ({ context: state, event }) => {
-        const row = machineRow(state);
-        if (row === undefined) return { updates: [] };
-        return apply(row, event);
+      // The store's rows, read: the chart meets them, then asks its `always`
+      // arrows, since a column somebody else wrote is what selects one.
+      const adopt = () => {
+        const row = view();
+        if (!meet(row)) return;
+        if (resolveStateNode(chart.standing)?.always !== undefined && fire(row, { type: "always" }, ["always"], true)?.taken === true) {
+          chart.heard.clear();
+          take({ type: "always" }, ["always"]);
+        }
       };
-      // A chart raises, it never draws; named all the same, so a draw it
-      // ever asked for would be its own.
-      actorOf.set(machineReduce, machine.field);
 
-      // Every invocation arms the state its chain ended in; the entered flag
-      // is set even on a self-target, which is what re-arms the timer.
-      const runMachine = (reduce, event, automatic = false, release, generation = gate?.generation, readItems) => finite(async (pause) => {
-        const active = () => enabled() && (!gate || gate.generation === generation) && (!automatic || mutationActive());
-        if (!active()) return;
-        entered = undefined;
-        await step(reduce, event, 0, () => { pause(); release?.(); }, undefined, automatic, active, readItems);
-        if (!active()) return;
-        if (entered !== undefined) armAfter(entered);
-        syncInvocations();
-      }).finished;
+      const turn = (item) => {
+        if (item.automatic && !mutationActive()) { item.resolve?.(false); return; }
+        if (item.kind === "row") return adopt();
+        if (item.kind === "delivery") {
+          // The chart meets the row before what the source says. Should
+          // meeting it take an `always` arrow, the event waits for that write.
+          adopt();
+          if (outbox.waiting()) {
+            chart.queue.unshift(item);
+            return;
+          }
+          const row = view();
+          if (!row || !item.attached(row)) return item.resolve(false);
+          // What a hand-over cannot settle — two sources restarting each
+          // other, an identity a delivery itself moves — ends here, by name:
+          // one snapshot said too often with nothing else happening.
+          const source = JSON.stringify([item.src, item.snapshot.key]);
+          const last = chart.heard.get(source);
+          const times = last && last.revision === String(item.snapshot.revision) && last.value === item.snapshot.value ? last.times + 1 : 1;
+          if (times > REPEATS) {
+            item.resolve(false);
+            throw new ProgramError(`observation "${item.src}" told ${region.dataset.live}.${machine.field} "${item.event.type}" ${REPEATS} times with its source unchanged and nothing else happening: the chart restarts the observation by what it says`);
+          }
+          chart.heard.set(source, { revision: String(item.snapshot.revision), value: item.snapshot.value, times });
+          take(item.event, eventKeys(item.event), { delivery: { src: item.src, snapshot: item.snapshot }, automatic: true, epoch: item.epoch });
+          item.resolve(true);
+          return;
+        }
+        // Anything but an observation's delivery, and what it raises, is news
+        // its repeats are measured from.
+        if (item.kind !== "raise") chart.heard.clear();
+        if (item.kind === "timer") take({ type: `after:${item.key}` }, [`after:${item.key}`], { generation: item.generation });
+        else take(item.event, item.keys ?? eventKeys(item.event), { depth: item.depth, automatic: item.automatic, epoch: item.epoch });
+      };
 
-      const syncInvocations = () => {
-        if (!enabled() || !mutationActive() || screenOpts.mountUnits === false) return;
-        const actors = region[mine("invokes")] ??= invokedActors(machine, screenOpts.actors ?? {}, (binding) => {
+      // The row and the arrow's effects, out in the order the chart stated
+      // them. A write the store refuses takes its effects with it, as the
+      // premise they concluded from is withdrawn.
+      const issue = (id, stated, absent, effects) => {
+        const updates = stated === undefined ? [] : [{ op: "put", id, row: stated, ...(absent === undefined ? {} : { absent }) }];
+        outbox.send({ chart, epoch: chart.epoch, updates, effects });
+      };
+
+      const observe = () => {
+        if (!enabled() || !mutationActive() || screenOpts.mountUnits === false || chart.standing === undefined) return;
+        const actors = region[mine("invokes")] ??= invokedActors(machine, screenOpts.actors ?? {}, (binding, spec) => {
           if (binding.via !== "observe") throw new ProgramError(`unsupported invoked actor adapter ${binding.via}`);
           return observeActor(binding, {
-            store, readRow: () => region._prontoMachineRow ?? getRows()[0], track,
+            store, readRow: () => region[mine("chart")].view(), track,
             failed: (error) => { failed(error); setState("network-error"); },
-            send: async (event, attached) => {
-              let delivered = false;
-              const receiver = (region._prontoMachineRow ?? getRows()[0])?.id;
-              const reduce = ({ context: world, event: fired }) => {
-                const row = world.items[0];
-                if (!row || row.id !== receiver || !mutationActive() || !attached(row)) return { updates: [] };
-                delivered = true;
-                return apply(row, fired);
-              };
-              actorOf.set(reduce, machine.field);
-              await gesture((release) => runMachine(reduce, event, true, release, undefined, readCurrent));
-              return delivered;
+            told: () => {
+              const handed = region[mine("chart")].handed;
+              return handed?.src === spec.src ? handed.snapshot : undefined;
             },
+            send: (event, attached, snapshot) => new Promise((resolve) => {
+              const current = region[mine("chart")];
+              current.send({ kind: "delivery", event, attached, snapshot, src: spec.src, epoch: current.epoch, resolve, automatic: true });
+            }),
           });
         });
-        const row = region._prontoMachineRow ?? getRows()[0];
-        if (row) actors.sync(row[machine.field] || machine.initial);
+        // The state the chart stands in, which a turn has moved before the
+        // store shows its write.
+        actors.sync(chart.standing);
       };
 
-      // `after` is the relocated invoke: armed on state entry, canceled on
-      // exit, re-armed by a self-target, performed by the terminal's clock.
-      // The generation mark IS the cancellation — any arm bumps it, an
-      // expired wait with a stale generation dies silently, and so the
-      // duplicate-chain hazard is inexpressible here.
-      const armAfter = (stateName) => {
-        region[mine("afterGen")] = (region[mine("afterGen")] ?? 0) + 1;
-        const gen = region[mine("afterGen")];
-        region[mine("armed")] = stateName;
+      // `after` is the relocated invoke: armed on state entry, cancelled on
+      // exit, re-armed by a re-entering target, performed by the terminal's
+      // clock. A wait already firing when its state was left finds the
+      // chart's generation moved on, and so the duplicate-chain hazard is
+      // inexpressible here.
+      const arm = (stateName, generation, row) => {
         const node = resolveStateNode(stateName);
         const spec = node?.after ?? machine.states[stateName]?.after;
         if (spec === undefined) return;
         for (const [key, t] of Object.entries(spec)) {
-          const row = region._prontoMachineRow ?? getRows()[0];
           const world = { items: row === undefined ? [] : [row] };
           const ms = /^\d+$/.test(key) ? Number(key) : handlers.get(key)?.({ context: world, event: { type: "after" } });
           if (typeof ms !== "number") {
             throw new Error(`machine after "${key}" is neither milliseconds nor a module returning them`);
           }
           const list = machineCandidates(t).map((c, index) => ({ c, key: `after:${key}`, index, origin: stateName }));
-          // A raise from an after transition routes through the full lookup;
-          // only the timer's own event applies the armed transition, and only
-          // while the machine still stands in the state that armed it.
-          const timerReduce = ({ context: state, event }) =>
-            event.type === `after:${key}`
-              ? apply(machineRow(state), event, [`after:${key}`], stateName)
-              : machineReduce({ context: state, event });
-          actorOf.set(timerReduce, machine.field);
           // Periodic when every arrow the timer can take lands back in the
           // state that armed it and raises nothing: a metronome re-arms
           // forever, and a driver waiting for the queue to empty would wait
@@ -3485,15 +3722,17 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             periodic: list.length > 0 && list.every(({ c }) => resolveTarget(c.target, stateName) === stateName && c.raise === undefined),
           };
           (async () => {
-            await rest(ms / TEMPO, label);
-            if (region[mine("afterGen")] !== gen) return;
-            await runMachine(timerReduce, { type: `after:${key}` });
+            await rest(ms / TEMPO, label, (cancel) => chart.cancels.push(cancel));
+            const current = region[mine("chart")];
+            if (current.timers !== generation) return;
+            current.send({ kind: "timer", key, generation });
           })().catch((err) => {
             report(err);
             setState("network-error");
           });
         }
       };
+      chart.view = view;
 
       const SYNTHESIZED_EVENTS = new Set(["refused", "sync_ack"]);
       const shape = machineShape(machine);
@@ -3503,10 +3742,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         const once = mine(`on:${type}`);
         if (region[once]) continue;
         region[once] = true;
-        region.addEventListener(type, async (e) => {
+        region.addEventListener(type, (e) => {
           try {
             if (!enabled()) return;
-            const generation = gate?.generation;
             const fired = { type };
             const src = e.target?.closest?.("[id]");
             if (src && src.id !== "" && region.contains(src)) fired.from = src.id;
@@ -3537,13 +3775,14 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             // incoherent to keep, where a chart answering a printable key is a
             // reader typing and the browser's job stands. The set is the one
             // data-key already admits.
+            const current = region[mine("chart")];
             if (DISPLACING_EVENTS.has(type) || (type === "keydown" && ROVING_KEYS.has(e.key))) {
-              const row = region._prontoMachineRow ?? getRows()[0];
-              if (row !== undefined && fire(row, fired, eventKeys(fired), true)?.taken === true) {
+              const row = current.view();
+              if (row !== undefined && current.fire(row, fired, eventKeys(fired), true)?.taken === true) {
                 e.preventDefault();
               }
             }
-            await gesture((pause) => runMachine(machineReduce, fired, false, pause, generation));
+            current.send({ kind: "event", event: fired, keys: eventKeys(fired) });
           } catch (err) {
             report(err);
             setState("network-error");
@@ -3551,12 +3790,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         });
       }
       if (shape.handled.includes("refused")) {
-        machineRefused.push((fired) => {
-          runMachine(machineReduce, fired).catch((err) => {
-            report(err);
-            setState("network-error");
-          });
-        });
+        machineRefused.push((fired) => send({ kind: "event", event: fired, keys: eventKeys(fired) }));
         // A machine that draws the refused arrow is a mounted consumer of the
         // event whether or not a mutation reduce shares the region, so a
         // form's refusal must route here rather than to the .store-error
@@ -3564,38 +3798,15 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         region._prontoRefusal = deliver;
       }
       if (shape.handled.includes("sync_ack")) {
-        machineAck.push((fired) => {
-          runMachine(machineReduce, fired).catch((err) => {
-            report(err);
-            setState("network-error");
-          });
-        });
+        machineAck.push((fired) => send({ kind: "event", event: fired, keys: eventKeys(fired) }));
       }
+      chart.fire = fire;
+      chart.refuses = shape.handled.includes("refused");
+      // The store has answered with the region's rows: the chart reads them
+      // as an event of its own, in turn.
       const wake = () => {
         if (!enabled()) return;
-        const current = (region._prontoMachineRow ?? getRows()[0])?.[machine.field];
-        if (current !== undefined && !resolveStateNode(current)) return;
-        if (screenOpts.mountUnits !== false && mutationActive()) syncInvocations();
-        // A state change the machine did not make — a refusal's rollback among
-        // them — re-arms on the refresh it causes; the entered flag covers the
-        // machine's own moves.
-        if (current !== undefined) {
-          if (region[mine("armed")] !== current) armAfter(current);
-          // On every refresh, not only a new state: a fold's foreign fact arrives as a column,
-          // and this is the chart reading it.
-          const node = resolveStateNode(current);
-          if (node?.always !== undefined) {
-            const standing = region._prontoMachineRow ?? getRows()[0];
-            // Asked of the row in hand first: a step reads the region's whole world, on every refresh.
-            // Held to the state it was asked in, which a gesture may have left by the time it runs,
-            // and a raise it chains is an ordinary event.
-            if (fire(standing, { type: "always" }, ["always"], true)?.taken === true) runMachine(({ context: state, event }) => event.type === "always" ? apply(machineRow(state), event, ["always"], current) : machineReduce({ context: state, event }), { type: "always" }).catch((err) => {
-              failed(err);
-              report(err);
-            });
-          }
-        }
-
+        send({ kind: "row" });
       };
       if (gate) gate.wake = wake;
       wake();
@@ -3856,13 +4067,23 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         fallbackRow[chart.field] = initialVal;
       }
     }
-    // Read back by the machine reduce (wired per refresh, outside this scope):
-    // a write concluding from the fallback must state the whole fallback row.
+    // A chart's first write from the fallback states the fallback's columns
+    // where the row is still absent (see `absent` in wireEvents).
     region._prontoFallbackRow = fallbackRow;
-    const readCurrent = async () => {
-      const rows = await store.query(table, opts.order, { ...opts, current: true });
-      return rows.length === 0 && region._prontoFallbackRow === currentRow && fallbackRow !== undefined ? [fallbackRow] : rows;
+    // Which row the region stands for: a list's first; a slot's one row, or
+    // its fallback where it has none. A slot matching more than one stands
+    // for none (the render refuses it).
+    const shownRow = (rows) => templates.length > 0 ? rows[0] : rows.length > 1 ? undefined : rows[0] ?? fallbackRow;
+    // The region's read answered at once from what the tab holds, as a
+    // chart's turn reads it (see `view` in wireEvents); undefined where the
+    // store cannot answer without a trip. And whether it ever can.
+    region._prontoAnswer = () => {
+      const rows = store.answer?.(table, opts.order, opts);
+      if (rows === undefined) return undefined;
+      const shown = shownRow(rows);
+      return shown === undefined ? [] : [shown];
     };
+    region._prontoAnswers = store.answers?.(table, opts);
     let currentRow;
     // The slot's one ctx, mutated in place across refreshes. bind() wires each
     // listener once, and the step/worldOf closures it captures read this
@@ -4405,7 +4626,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
             wireKeysOn(region);
             const nodes = fresh.map((f) => f.node);
             for (const f of fresh) if (f.tmpl._prontoHasKeys) wireKeysIn(f.node);
-            const { deliver, apply } = wireEvents(region, nodes, () => currentRows, handlers, ctx, readCurrent);
+            const { deliver, apply } = wireEvents(region, nodes, () => currentRows, handlers, ctx);
             const dragName = region.dataset.handler;
             if (handlers.has(dragName) && dragging) {
               wireDrag(region, nodes, () => currentRows, lateReduce(handlers, dragName), deliver, apply);
@@ -4444,16 +4665,14 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         // data-empty-row supplies the fallback for pipeline sinks whose row
         // only appears after the first source event.
         if (rows.length > 1) {
+          // Its charts stand for no row now, and stop what they ran for one.
+          region._prontoOutbox?.wake();
           throw new SlotCardinalityError(
             `slot region "${table}" (filter ${JSON.stringify(opts.filter ?? "")}) matched ${rows.length} rows; a slot binds at most one`,
           );
         }
-        let row = rows[0];
-        if (row === undefined && fallbackRow !== undefined) row = fallbackRow;
+        const row = shownRow(rows);
         currentRow = row;
-        // The store's answer now includes every machine write that preceded
-        // this wake, so the chain-local view has nothing newer to add.
-        region._prontoMachineRow = undefined;
         if (row === undefined) {
           // Vanished singleton (row deleted or its visibility revoked
           // mid-visit): the screen's "gone" state owns the frame. The output
@@ -4513,7 +4732,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         slotCtx.row = row;
         // A singleton has affordances too, and its one row is what they act
         // on: the reduce is handed it the way a list's is handed its rows.
-        wireEvents(region, null, () => (currentRow === undefined ? [] : [currentRow]), handlers, slotCtx, readCurrent);
+        wireEvents(region, null, () => (currentRow === undefined ? [] : [currentRow]), handlers, slotCtx);
         finishActions();
         bindAttributes(region, slotCtx);
         wireKeysIn(region);
@@ -4684,15 +4903,12 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     const detach = () => {
       clearTimeout(retryTimer);
       // An armed machine timer dies with the subscriptions — a wait expiring
-      // on a torn-down region must not write into the live store — and the
-      // cleared mark is what lets resume's refresh re-arm the standing state.
+      // on a torn-down region must not write into the live store — and a
+      // chart standing nowhere is what lets resume's refresh re-arm the state.
       for (const chart of mounted) {
-        const gate = region[`_prontoMachine_${chart.field}_gate`];
-        if (gate) gate.generation++;
-        const gen = `_prontoMachine_${chart.field}_afterGen`;
-        region[gen] = (region[gen] ?? 0) + 1;
-        region[`_prontoMachine_${chart.field}_armed`] = undefined;
-        region[`_prontoMachine_${chart.field}_invokes`]?.stop();
+        endChart(region, chart.field);
+        const held = region[`_prontoMachine_${chart.field}_chart`];
+        if (held !== undefined) held.gone = true;
       }
       unsub?.();
       unsub = null;

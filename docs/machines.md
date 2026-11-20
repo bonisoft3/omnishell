@@ -54,14 +54,18 @@ machine too.
   rows; the transient state of an interaction is a machine's, and no app chart
   carries code.
 - **Closed over the row.** Leaves see `{items: [row]}` and the event, and every
-  transition lands as one stated row through the `step()` a reduce uses, so
-  replay, `?tempo=`, `?clock=manual`, `?seed=` and refusals apply with the
-  machine knowing nothing. A foreign fact is derived into a column first. The
-  row belongs to a `tab` or `device` entity — nothing keeps a server row's
-  transitions — and other entities are reached only by effect. Nothing checks
-  the durability: `writeLint` returns early for every other one and no other
-  rule asks, so a `data-machine` over a `live` table mounts and writes its
-  state there. A `check markup` rule would make it a build failure.
+  transition lands as one stated row through the store, so replay, `?tempo=`,
+  `?clock=manual`, `?seed=` and refusals apply with the machine knowing
+  nothing. A foreign fact is derived into a column first. The row belongs to a
+  `tab` or `device` entity — nothing keeps a server row's transitions — and
+  other entities are reached only by effect. A chart on a region the tab
+  cannot answer itself (a table read only from the server, a read the server
+  computes) is refused at mount: render that list without a chart, and nest in
+  each item a region of the row itself (`data-filter="id=eq.{id}"`) holding
+  it. Over a `live` table, which the tab answers from its synced collection,
+  nothing checks the durability: `writeLint` returns early for every other one
+  and no other rule asks, so the chart mounts and writes its state there. A
+  `check markup` rule would make it a build failure.
 - **State names are the ARIA attribute's values** where one speaks the state,
   so one column is both the semantics and the styling hook.
 - **Generated grammar is not vocabulary.** A spelling only a component writes
@@ -83,6 +87,26 @@ then its `field: initial`. An explicit
 `data-empty-row` is the whole row, resolved against the enclosing row;
 the terminal does not merge defaults into it. The machine's assignments
 then write through the same row path as a reduce.
+
+## How a chart runs
+
+As an XState actor does: one event at a time from its mailbox, each run to
+completion before the next, nothing awaited inside one. Gestures, timers,
+observations, acknowledgements, refusals and the store's next rows are all
+events in that mailbox.
+
+- **The row is the store's.** A turn reads the chart's row as the store holds
+  it now, its own writes included before the server has accepted them, and as
+  the region's read selects it. After stating a write the chart takes no turn
+  until the store holds it, which is local and quick.
+- **Effects follow their own write** once the store accepts it, and hold up no
+  later write. A write the store withdraws, however late, takes its effects not
+  yet sent; its `sync_ack` and `refused` come back to the chart that wrote it.
+- **Entry owns the state's resources.** Entering a state, by an arrow or by
+  finding the row moved there, arms its `after` waits and starts its
+  observations; leaving cancels and stops them.
+- **A lifetime ends** with a closed attachment, a detached region or another
+  row: what was begun in it and comes back later moves nothing.
 
 ## Effects
 

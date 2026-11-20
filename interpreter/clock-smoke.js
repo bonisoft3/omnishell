@@ -73,6 +73,7 @@ async function mountScreen(screen, html, rows) {
     for (const cb of subs.get(table) ?? []) setTimeout(cb, 0);
   };
   const store = batched({
+    answer: (table) => tables[table].map((r) => ({ ...r })),
     query: (table) => Promise.resolve(tables[table].map((r) => ({ ...r }))),
     subscribe: (table, cb) => {
       if (!subs.has(table)) subs.set(table, new Set());
@@ -263,10 +264,11 @@ async function drawnIn(order, source = DRAWER) {
   globalThis.document = document;
   const tables = { draw: [{ id: "alpha", n: 0 }, { id: "beta", n: 0 }] };
   const store = batched({
-    query: (table, _order, opts) => {
+    answer: (table, _order, opts) => {
       const id = /id=eq\.(\w+)/.exec(opts?.filter ?? "")?.[1];
-      return Promise.resolve(tables[table].filter((r) => id === undefined || r.id === id).map((r) => ({ ...r })));
+      return tables[table].filter((r) => id === undefined || r.id === id).map((r) => ({ ...r }));
     },
+    query: (table, order, opts) => Promise.resolve(store.answer(table, order, opts)),
     subscribe: () => () => {},
     update: (table, id, changes) => {
       const i = tables[table].findIndex((r) => r.id === id);

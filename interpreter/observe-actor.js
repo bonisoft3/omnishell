@@ -26,12 +26,16 @@ export function observationSnapshot(binding, identity, rows, cursors) {
   if (prior && (revision !== undefined && prior.revision !== undefined ? revision < prior.revision || revision === prior.revision && prior.value === value : prior.value === value)) return;
   return {
     event: row ? { type: binding.suffix === false ? binding.event : `${binding.event}${value}`, value } : { type: binding.missing },
+    snapshot: { key, revision, value },
     acknowledge() { cursors.set(key, { revision, value }); },
   };
 }
 
 // The actor owns only an attachment. Its source rows retain their own lifetime.
-export function observeActor(binding, { store, readRow, send, track, failed }) {
+// `told` answers the snapshot whose delivery started this actor, if one did: a
+// source restarted by what it said has said it, and repeating it would restart
+// the source again without end. Any other start reads the source afresh.
+export function observeActor(binding, { store, readRow, send, track, failed, told = /** @type {() => any} */ (() => undefined) }) {
   let active = true;
   let identity;
   let generation = 0;
@@ -55,7 +59,7 @@ export function observeActor(binding, { store, readRow, send, track, failed }) {
     }
     if (!attached()) return;
     const delivery = observationSnapshot(binding, held, rows, cursors);
-    if (delivery && await send(delivery.event, attached)) delivery.acknowledge();
+    if (delivery && await send(delivery.event, attached, delivery.snapshot)) delivery.acknowledge();
   };
   const refresh = () => {
     if (!active) return;
@@ -76,6 +80,8 @@ export function observeActor(binding, { store, readRow, send, track, failed }) {
       if (same(identity, next)) return;
       identity = next;
       cursors.clear();
+      const heard = told();
+      if (heard !== undefined && heard.key === JSON.stringify(next)) cursors.set(heard.key, { revision: heard.revision, value: heard.value });
       generation += 1;
       refresh();
     },
