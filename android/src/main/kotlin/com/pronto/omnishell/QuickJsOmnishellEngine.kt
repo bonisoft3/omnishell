@@ -26,7 +26,9 @@ class QuickJsOmnishellEngine(
     private val storageBridge: StorageBridge,
     private val initialScript: String = "",
     val authBridge: AuthBridge = AuthBridge(KeyValueSessionStore(storageBridge)),
-    val origin: String = "https://snapcards.fun",
+    // The app's own origin, which every relative address the runtime asks for
+    // resolves against; there is no app to default to.
+    val origin: String,
     val printBridge: PrintBridge = PrintBridge(networkBridge = networkBridge, origin = origin)
 ) : OmnishellEngine {
     private val executor = Executors.newSingleThreadExecutor { runnable ->
@@ -204,6 +206,29 @@ class QuickJsOmnishellEngine(
             authBridge.oidcStart(
                 provider = provider,
                 optionsJson = optsJson,
+                networkBridge = networkBridge,
+                onResolve = { res -> resolveAsyncInJs(reqId, res) },
+                onReject = { err -> rejectAsyncInJs(reqId, err) }
+            )
+        }
+
+        qjs.function("__nativeAuthRedeemTicket") { args ->
+            val reqId = args[0] as String
+            val optsJson = args[1] as String
+            authBridge.redeemTicket(
+                optionsJson = optsJson,
+                networkBridge = networkBridge,
+                onResolve = { res -> resolveAsyncInJs(reqId, res) },
+                onReject = { err -> rejectAsyncInJs(reqId, err) }
+            )
+        }
+
+        qjs.function("__nativeAuthPasskeyLogin") { args ->
+            val reqId = args[0] as String
+            val optsJson = args[1] as String
+            authBridge.passkeyLogin(
+                optionsJson = optsJson,
+                networkBridge = networkBridge,
                 onResolve = { res -> resolveAsyncInJs(reqId, res) },
                 onReject = { err -> rejectAsyncInJs(reqId, err) }
             )
@@ -559,6 +584,22 @@ class QuickJsOmnishellEngine(
                     });
                     return JSON.parse(raw);
                 },
+                appleSignIn: (options) => globalThis.__omnishellAuth.oidcStart("apple", {
+                    origin: options.origin,
+                    guestBearerToken: options.guestBearerToken
+                }),
+                redeemTicket: async (options) => {
+                    const raw = await globalThis.__makeAsyncPromise((reqId) => {
+                        __nativeAuthRedeemTicket(reqId, JSON.stringify(options || {}));
+                    });
+                    return JSON.parse(raw);
+                },
+                passkeyLogin: async (options) => {
+                    const raw = await globalThis.__makeAsyncPromise((reqId) => {
+                        __nativeAuthPasskeyLogin(reqId, JSON.stringify(options || {}));
+                    });
+                    return JSON.parse(raw);
+                },
                 loadSession: () => {
                     const raw = __nativeAuthLoadSession();
                     return raw ? JSON.parse(raw) : null;
@@ -609,7 +650,7 @@ class QuickJsOmnishellEngine(
 
                 function normUrl(reqOrStr) {
                     const raw = typeof reqOrStr === "string" ? reqOrStr : reqOrStr.url;
-                    return new URL(raw, globalThis.__omnishellOrigin || "https://snapcards.fun");
+                    return new URL(raw, globalThis.__omnishellOrigin);
                 }
 
                 function openCacheSync(cacheName) {

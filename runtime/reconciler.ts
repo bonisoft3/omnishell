@@ -1279,12 +1279,13 @@ export function emitNativeHostRuntimeJs(): string {
     if (trimmed.startsWith("data:") || trimmed.startsWith("https://") || trimmed.startsWith("http://")) {
       return trimmed;
     }
-    const cleanOrigin = String(origin || "https://snapcards.fun").replace(/\\/+$/, "");
+    const cleanOrigin = origin.replace(/\\/+$/, "");
     return trimmed.startsWith("/") ? (cleanOrigin + trimmed) : (cleanOrigin + "/" + trimmed);
   }
 
   const sql = typeof __omnishellStorage !== "undefined" && __omnishellStorage ? __omnishellStorage.sql : null;
-  const origin = typeof __omnishellOrigin === "string" && __omnishellOrigin ? __omnishellOrigin : "https://snapcards.fun";
+  if (typeof __omnishellOrigin !== "string" || !__omnishellOrigin) throw new Error("the native host gave no __omnishellOrigin");
+  const origin = __omnishellOrigin;
 
   sql.exec("CREATE TABLE IF NOT EXISTS mecha_shape_row (shape_id TEXT NOT NULL, subject TEXT NOT NULL, row_key TEXT NOT NULL, row_json TEXT NOT NULL, seq INTEGER PRIMARY KEY AUTOINCREMENT, UNIQUE (shape_id, subject, row_key));");
 

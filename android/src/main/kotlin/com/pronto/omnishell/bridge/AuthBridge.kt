@@ -1,8 +1,11 @@
 package com.pronto.omnishell.bridge
 
+import com.pronto.omnishell.network.NativeFetchResponse
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -58,8 +61,42 @@ data class OidcCeremonyResult(
     val ticket: String,
     val codeVerifier: String,
     val callbackUrl: String,
-    val session: AuthSession? = null
+    val session: AuthSession? = null,
+    val held: Held? = null
 )
+
+// The sign-in answers of runtime/auth-bridge.ts, whose `Held` says what the
+// runtime does with one.
+@Serializable
+data class HeldUser(val handle: String, val name: String? = null)
+
+@Serializable
+data class Held(val user: HeldUser, val ticket: String? = null, val codeVerifier: String? = null)
+
+@Serializable
+data class SignInResult(val session: AuthSession? = null, val held: Held? = null)
+
+@Serializable
+data class RedeemTicketOptions(val origin: String, val ticket: String, val codeVerifier: String)
+
+@Serializable
+data class PasskeyLoginOptions(val origin: String, val guestBearerToken: String? = null)
+
+@Serializable
+private data class IssuedUser(val id: String, val handle: String, val guest: Boolean = false)
+
+@Serializable
+private data class Issued(
+    val token: String,
+    @SerialName("refresh_token") val refreshToken: String? = null,
+    val user: IssuedUser
+)
+
+@Serializable
+private data class LoginRequired(val user: HeldUser, val ticket: String? = null)
+
+@Serializable
+private data class LoginStart(val rpId: String, val challenge: String, val state: String)
 
 @Serializable
 data class DeleteAccountRequest(
@@ -127,6 +164,7 @@ class AuthBridge(
 ) {
     companion object {
         private val secureRandom = SecureRandom()
+        private const val PROVISIONAL = "provisional-offline:"
 
         fun base64UrlEncode(bytes: ByteArray): String =
             Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
@@ -146,13 +184,182 @@ class AuthBridge(
         fun buildNativeOidcStartUrl(
             origin: String,
             provider: String,
-            codeChallenge: String
+            codeChallenge: String,
+            guestBearerToken: String? = null
         ): String {
             val cleanOrigin = origin.trimEnd('/')
             val encProvider = URLEncoder.encode(provider, StandardCharsets.UTF_8)
             val encChallenge = URLEncoder.encode(codeChallenge, StandardCharsets.UTF_8)
-            return "$cleanOrigin/auth/oidc/$encProvider/start?return=native&code_challenge=$encChallenge"
+            // A guest's token is the browser's id_token_hint: an auth sheet sets no
+            // header. A provisional guest, minted offline, has no account to hint at.
+            val hint = guestBearerToken?.takeIf { it.isNotBlank() && !it.startsWith(PROVISIONAL) }
+                ?.let { "&promote_token=${URLEncoder.encode(it, StandardCharsets.UTF_8)}" }
+                .orEmpty()
+            return "$cleanOrigin/auth/oidc/$encProvider/start?return=native&code_challenge=$encChallenge$hint"
         }
+    }
+
+    private fun post(
+        networkBridge: NetworkBridge,
+        url: String,
+        body: String,
+        bearer: String?,
+        onResponse: (NativeFetchResponse) -> Unit,
+        onReject: (String) -> Unit
+    ) {
+        val fetchOpts = buildJsonObject {
+            put("method", "POST")
+            put("headers", buildJsonObject {
+                put("content-type", "application/json")
+                if (bearer != null) put("Authorization", "Bearer $bearer")
+            })
+            put("body", body)
+        }.toString()
+        networkBridge.nativeFetchAsync(
+            url = url,
+            optionsJson = fetchOpts,
+            onResolve = { raw ->
+                val response = try {
+                    json.decodeFromString<NativeFetchResponse>(raw)
+                } catch (t: Throwable) {
+                    onReject("Invalid response from $url: ${t.message}")
+                    return@nativeFetchAsync
+                }
+                onResponse(response)
+            },
+            onReject = onReject
+        )
+    }
+
+    /** A 2xx is this bridge's session, saved; a 409 is the account held. */
+    private fun answer(
+        path: String,
+        response: NativeFetchResponse,
+        codeVerifier: String?,
+        onAnswer: (SignInResult) -> Unit,
+        onReject: (String) -> Unit
+    ) {
+        if (response.status != 409 && response.status !in 200..299) {
+            onReject("POST $path failed with status ${response.status}")
+            return
+        }
+        val result = try {
+            if (response.status == 409) {
+                val refused = json.decodeFromString<LoginRequired>(response.body)
+                SignInResult(held = Held(refused.user, refused.ticket, codeVerifier))
+            } else {
+                val issued = json.decodeFromString<Issued>(response.body)
+                val session = AuthSession(
+                    token = issued.token,
+                    refreshToken = issued.refreshToken,
+                    userId = issued.user.id,
+                    handle = issued.user.handle,
+                    isGuest = issued.user.guest
+                )
+                saveSession(session)
+                SignInResult(session = session)
+            }
+        } catch (t: Throwable) {
+            onReject("Invalid POST $path answer: ${t.message}")
+            return
+        }
+        onAnswer(result)
+    }
+
+    private fun redeem(
+        opts: RedeemTicketOptions,
+        networkBridge: NetworkBridge,
+        onAnswer: (SignInResult) -> Unit,
+        onReject: (String) -> Unit
+    ) {
+        if (opts.origin.isBlank() || opts.ticket.isBlank() || opts.codeVerifier.isBlank()) {
+            onReject("redeemTicket requires origin, ticket, and codeVerifier")
+            return
+        }
+        val body = buildJsonObject {
+            put("ticket", opts.ticket)
+            put("code_verifier", opts.codeVerifier)
+        }.toString()
+        post(
+            networkBridge, "${opts.origin.trimEnd('/')}/auth/oidc/session", body, null,
+            onResponse = { answer("/auth/oidc/session", it, opts.codeVerifier, onAnswer, onReject) },
+            onReject = onReject
+        )
+    }
+
+    /** A provider sign-in's ticket redeemed with the verifier it was started with. */
+    fun redeemTicket(
+        optionsJson: String,
+        networkBridge: NetworkBridge,
+        onResolve: (String) -> Unit,
+        onReject: (String) -> Unit
+    ) {
+        val opts = try {
+            json.decodeFromString<RedeemTicketOptions>(optionsJson)
+        } catch (t: Throwable) {
+            onReject("Invalid redeemTicket options: ${t.message}")
+            return
+        }
+        redeem(opts, networkBridge, { onResolve(json.encodeToString(it)) }, onReject)
+    }
+
+    /** A passkey sign-in, start to session: this bridge's session, or the account held. */
+    fun passkeyLogin(
+        optionsJson: String,
+        networkBridge: NetworkBridge,
+        onResolve: (String) -> Unit,
+        onReject: (String) -> Unit
+    ) {
+        val handler = credentialHandler ?: run {
+            onReject("AuthBridge.passkeyLogin requires a configured NativeCredentialHandler")
+            return
+        }
+        val opts = try {
+            json.decodeFromString<PasskeyLoginOptions>(optionsJson)
+        } catch (t: Throwable) {
+            onReject("Invalid passkeyLogin options: ${t.message}")
+            return
+        }
+        if (opts.origin.isBlank()) {
+            onReject("passkeyLogin requires origin")
+            return
+        }
+        val base = opts.origin.trimEnd('/')
+        post(networkBridge, "$base/auth/login/start", "{}", null, onResponse = { started ->
+            if (started.status !in 200..299) {
+                onReject("POST /auth/login/start failed with status ${started.status}")
+                return@post
+            }
+            val start = try {
+                json.decodeFromString<LoginStart>(started.body)
+            } catch (t: Throwable) {
+                onReject("Invalid POST /auth/login/start answer: ${t.message}")
+                return@post
+            }
+            handler.passkeySignIn(
+                options = PasskeySignInOptions(rpId = start.rpId, challenge = start.challenge),
+                onSuccess = { assertion ->
+                    val body = try {
+                        // A native host renews by refresh token, having no cookie.
+                        JsonObject(mapOf(
+                            "state" to JsonPrimitive(start.state),
+                            "response" to json.parseToJsonElement(assertion),
+                            "refresh" to JsonPrimitive(true)
+                        )).toString()
+                    } catch (t: Throwable) {
+                        onReject("Invalid passkey assertion: ${t.message}")
+                        return@passkeySignIn
+                    }
+                    post(
+                        networkBridge, "$base/auth/login/verify", body,
+                        opts.guestBearerToken?.takeIf { it.isNotBlank() },
+                        onResponse = { answer("/auth/login/verify", it, null, { r -> onResolve(json.encodeToString(r)) }, onReject) },
+                        onReject = onReject
+                    )
+                },
+                onFailure = { onReject(it.message ?: it.javaClass.simpleName) }
+            )
+        }, onReject = onReject)
     }
 
     fun passkeySignIn(
@@ -210,6 +417,7 @@ class AuthBridge(
     fun oidcStart(
         provider: String,
         optionsJson: String?,
+        networkBridge: NetworkBridge,
         onResolve: (String) -> Unit,
         onReject: (String) -> Unit
     ) {
@@ -233,7 +441,7 @@ class AuthBridge(
         }
         val verifier = opts.codeVerifier ?: generatePkceVerifier()
         val challenge = computePkceChallengeS256(verifier)
-        val startUrl = buildNativeOidcStartUrl(opts.origin, provider, challenge)
+        val startUrl = buildNativeOidcStartUrl(opts.origin, provider, challenge, opts.guestBearerToken)
 
         handler.oidcStart(
             provider = provider,
@@ -243,8 +451,16 @@ class AuthBridge(
             onSuccess = { ceremony ->
                 if (ceremony.session != null) {
                     saveSession(ceremony.session)
+                    onResolve(json.encodeToString(ceremony))
+                } else {
+                    // The host returns the callback's ticket; the bridge redeems it.
+                    redeem(
+                        RedeemTicketOptions(opts.origin, ceremony.ticket, ceremony.codeVerifier),
+                        networkBridge,
+                        { r -> onResolve(json.encodeToString(ceremony.copy(session = r.session, held = r.held))) },
+                        onReject
+                    )
                 }
-                onResolve(json.encodeToString(ceremony))
             },
             onFailure = { onReject(it.message ?: it.javaClass.simpleName) }
         )

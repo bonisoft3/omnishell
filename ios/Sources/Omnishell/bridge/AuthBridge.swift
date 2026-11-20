@@ -97,18 +97,79 @@ public struct OidcCeremonyResult: Codable, Equatable, Sendable {
     public let codeVerifier: String
     public let callbackUrl: String
     public let session: AuthSession?
+    public let held: Held?
 
     public init(
         ticket: String,
         codeVerifier: String,
         callbackUrl: String,
-        session: AuthSession? = nil
+        session: AuthSession? = nil,
+        held: Held? = nil
     ) {
         self.ticket = ticket
         self.codeVerifier = codeVerifier
         self.callbackUrl = callbackUrl
         self.session = session
+        self.held = held
     }
+}
+
+// The sign-in answers of runtime/auth-bridge.ts, whose `Held` says what the
+// runtime does with one.
+public struct HeldUser: Codable, Equatable, Sendable {
+    public let handle: String
+    public let name: String?
+}
+
+public struct Held: Codable, Equatable, Sendable {
+    public let user: HeldUser
+    public let ticket: String?
+    public let codeVerifier: String?
+}
+
+public struct SignInResult: Codable, Equatable, Sendable {
+    public let session: AuthSession?
+    public let held: Held?
+}
+
+public struct RedeemTicketOptions: Codable, Sendable {
+    public let origin: String
+    public let ticket: String
+    public let codeVerifier: String
+
+    public init(origin: String, ticket: String, codeVerifier: String) {
+        self.origin = origin
+        self.ticket = ticket
+        self.codeVerifier = codeVerifier
+    }
+}
+
+public struct PasskeyLoginOptions: Codable, Sendable {
+    public let origin: String
+    public let guestBearerToken: String?
+}
+
+private struct IssuedUser: Decodable {
+    let id: String
+    let handle: String
+    let guest: Bool?
+}
+
+private struct Issued: Decodable {
+    let token: String
+    let refresh_token: String?
+    let user: IssuedUser
+}
+
+private struct LoginRequired: Decodable {
+    let user: HeldUser
+    let ticket: String?
+}
+
+private struct LoginStart: Decodable {
+    let rpId: String
+    let challenge: String
+    let state: String
 }
 
 public struct AppleSignInOptions: Codable, Equatable, Sendable {
@@ -335,6 +396,8 @@ public final class AuthBridge: @unchecked Sendable {
         self.credentialHandler = credentialHandler
     }
 
+    private static let provisional = "provisional-offline:"
+
     public static func base64UrlEncode(_ data: Data) -> String {
         return data.base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
@@ -358,7 +421,8 @@ public final class AuthBridge: @unchecked Sendable {
     public static func buildNativeOidcStartUrl(
         origin: String,
         provider: String,
-        codeChallenge: String
+        codeChallenge: String,
+        guestBearerToken: String? = nil
     ) throws -> URL {
         let cleanOrigin = origin.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let encodedProvider = provider.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? provider
@@ -367,10 +431,207 @@ public final class AuthBridge: @unchecked Sendable {
             URLQueryItem(name: "return", value: "native"),
             URLQueryItem(name: "code_challenge", value: codeChallenge)
         ]
+        // A guest's token is the browser's id_token_hint: an auth sheet sets no
+        // header. A provisional guest, minted offline, has no account to hint at.
+        if let hint = guestBearerToken, !hint.isEmpty, !hint.hasPrefix(provisional) {
+            comps?.queryItems?.append(URLQueryItem(name: "promote_token", value: hint))
+        }
         guard let url = comps?.url else {
             throw AuthBridgeError.invalidPayload("Malformed OIDC start origin '\(origin)'")
         }
         return url
+    }
+
+    private func post(
+        networkBridge: NetworkBridge,
+        url: String,
+        body: String,
+        bearer: String?,
+        onResponse: @escaping @Sendable (NativeFetchResponse) -> Void,
+        onReject: @escaping @Sendable (String) -> Void
+    ) {
+        var headers = ["content-type": "application/json"]
+        if let bearer = bearer { headers["Authorization"] = "Bearer \(bearer)" }
+        let fetchOpts: String
+        do {
+            fetchOpts = String(decoding: try jsonEncoder.encode(NativeFetchRequest(method: "POST", headers: headers, body: body)), as: UTF8.self)
+        } catch {
+            onReject(error.localizedDescription)
+            return
+        }
+        networkBridge.nativeFetchAsync(
+            url: url,
+            optionsJson: fetchOpts,
+            onResolve: { [jsonDecoder] raw in
+                do {
+                    onResponse(try jsonDecoder.decode(NativeFetchResponse.self, from: Data(raw.utf8)))
+                } catch {
+                    onReject("Invalid response from \(url): \(error.localizedDescription)")
+                }
+            },
+            onReject: onReject
+        )
+    }
+
+    /// A 2xx is this bridge's session, saved; a 409 is the account held.
+    private func answer(
+        path: String,
+        response: NativeFetchResponse,
+        codeVerifier: String?,
+        onAnswer: @escaping @Sendable (SignInResult) -> Void,
+        onReject: @escaping @Sendable (String) -> Void
+    ) {
+        guard response.status == 409 || (200...299).contains(response.status) else {
+            onReject("POST \(path) failed with status \(response.status)")
+            return
+        }
+        let result: SignInResult
+        do {
+            let body = Data(response.body.utf8)
+            if response.status == 409 {
+                let refused = try jsonDecoder.decode(LoginRequired.self, from: body)
+                result = SignInResult(session: nil, held: Held(user: refused.user, ticket: refused.ticket, codeVerifier: codeVerifier))
+            } else {
+                let issued = try jsonDecoder.decode(Issued.self, from: body)
+                let session = AuthSession(
+                    token: issued.token,
+                    refreshToken: issued.refresh_token,
+                    userId: issued.user.id,
+                    handle: issued.user.handle,
+                    isGuest: issued.user.guest == true
+                )
+                try saveSession(session)
+                result = SignInResult(session: session, held: nil)
+            }
+        } catch {
+            onReject("Invalid POST \(path) answer: \(error.localizedDescription)")
+            return
+        }
+        onAnswer(result)
+    }
+
+    private func redeem(
+        _ opts: RedeemTicketOptions,
+        networkBridge: NetworkBridge,
+        onAnswer: @escaping @Sendable (SignInResult) -> Void,
+        onReject: @escaping @Sendable (String) -> Void
+    ) {
+        guard !opts.origin.isEmpty, !opts.ticket.isEmpty, !opts.codeVerifier.isEmpty else {
+            onReject(AuthBridgeError.invalidPayload("redeemTicket requires origin, ticket, and codeVerifier").localizedDescription)
+            return
+        }
+        let body: String
+        do {
+            body = String(decoding: try JSONSerialization.data(withJSONObject: ["ticket": opts.ticket, "code_verifier": opts.codeVerifier]), as: UTF8.self)
+        } catch {
+            onReject(error.localizedDescription)
+            return
+        }
+        let cleanOrigin = opts.origin.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        post(
+            networkBridge: networkBridge,
+            url: "\(cleanOrigin)/auth/oidc/session",
+            body: body,
+            bearer: nil,
+            onResponse: { response in
+                self.answer(path: "/auth/oidc/session", response: response, codeVerifier: opts.codeVerifier, onAnswer: onAnswer, onReject: onReject)
+            },
+            onReject: onReject
+        )
+    }
+
+    private func resolveEncoded<T: Encodable>(
+        _ value: T,
+        onResolve: @escaping @Sendable (String) -> Void,
+        onReject: @escaping @Sendable (String) -> Void
+    ) {
+        do {
+            onResolve(String(decoding: try jsonEncoder.encode(value), as: UTF8.self))
+        } catch {
+            onReject(error.localizedDescription)
+        }
+    }
+
+    /// A provider sign-in's ticket redeemed with the verifier it was started with.
+    public func redeemTicket(
+        optionsJson: String,
+        networkBridge: NetworkBridge,
+        onResolve: @escaping @Sendable (String) -> Void,
+        onReject: @escaping @Sendable (String) -> Void
+    ) {
+        let opts: RedeemTicketOptions
+        do {
+            opts = try jsonDecoder.decode(RedeemTicketOptions.self, from: Data(optionsJson.utf8))
+        } catch {
+            onReject(AuthBridgeError.invalidPayload("redeemTicket options: \(error.localizedDescription)").localizedDescription)
+            return
+        }
+        redeem(opts, networkBridge: networkBridge, onAnswer: { result in
+            self.resolveEncoded(result, onResolve: onResolve, onReject: onReject)
+        }, onReject: onReject)
+    }
+
+    /// A passkey sign-in, start to session: this bridge's session, or the account held.
+    public func passkeyLogin(
+        optionsJson: String,
+        networkBridge: NetworkBridge,
+        onResolve: @escaping @Sendable (String) -> Void,
+        onReject: @escaping @Sendable (String) -> Void
+    ) {
+        guard let handler = credentialHandler else {
+            onReject(AuthBridgeError.missingCredentialHandler("passkeyLogin").localizedDescription)
+            return
+        }
+        let opts: PasskeyLoginOptions
+        do {
+            opts = try jsonDecoder.decode(PasskeyLoginOptions.self, from: Data(optionsJson.utf8))
+        } catch {
+            onReject(AuthBridgeError.invalidPayload("passkeyLogin options: \(error.localizedDescription)").localizedDescription)
+            return
+        }
+        guard !opts.origin.isEmpty else {
+            onReject(AuthBridgeError.invalidPayload("passkeyLogin requires origin").localizedDescription)
+            return
+        }
+        let base = opts.origin.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let guest = opts.guestBearerToken.flatMap { $0.isEmpty ? nil : $0 }
+        post(networkBridge: networkBridge, url: "\(base)/auth/login/start", body: "{}", bearer: nil, onResponse: { started in
+            guard (200...299).contains(started.status) else {
+                onReject("POST /auth/login/start failed with status \(started.status)")
+                return
+            }
+            let start: LoginStart
+            do {
+                start = try self.jsonDecoder.decode(LoginStart.self, from: Data(started.body.utf8))
+            } catch {
+                onReject("Invalid POST /auth/login/start answer: \(error.localizedDescription)")
+                return
+            }
+            handler.passkeySignIn(options: PasskeySignInOptions(rpId: start.rpId, challenge: start.challenge)) { result in
+                let body: String
+                switch result {
+                case .failure(let error):
+                    onReject(error.localizedDescription)
+                    return
+                case .success(let assertion):
+                    do {
+                        let response = try JSONSerialization.jsonObject(with: Data(assertion.utf8))
+                        // A native host renews by refresh token, having no cookie.
+                        body = String(decoding: try JSONSerialization.data(withJSONObject: [
+                            "state": start.state, "response": response, "refresh": true
+                        ]), as: UTF8.self)
+                    } catch {
+                        onReject("Invalid passkey assertion: \(error.localizedDescription)")
+                        return
+                    }
+                }
+                self.post(networkBridge: networkBridge, url: "\(base)/auth/login/verify", body: body, bearer: guest, onResponse: { verified in
+                    self.answer(path: "/auth/login/verify", response: verified, codeVerifier: nil, onAnswer: { r in
+                        self.resolveEncoded(r, onResolve: onResolve, onReject: onReject)
+                    }, onReject: onReject)
+                }, onReject: onReject)
+            }
+        }, onReject: onReject)
     }
 
     public func passkeySignIn(
@@ -426,6 +687,7 @@ public final class AuthBridge: @unchecked Sendable {
     public func oidcStart(
         provider: String,
         optionsJson: String?,
+        networkBridge: NetworkBridge,
         onResolve: @escaping @Sendable (String) -> Void,
         onReject: @escaping @Sendable (String) -> Void
     ) {
@@ -449,7 +711,8 @@ public final class AuthBridge: @unchecked Sendable {
             startUrl = try Self.buildNativeOidcStartUrl(
                 origin: opts.origin,
                 provider: provider,
-                codeChallenge: challenge
+                codeChallenge: challenge,
+                guestBearerToken: opts.guestBearerToken
             )
         } catch {
             onReject(error.localizedDescription)
@@ -461,18 +724,35 @@ public final class AuthBridge: @unchecked Sendable {
             startUrl: startUrl,
             codeVerifier: verifier,
             options: opts
-        ) { [weak self, jsonEncoder] result in
+        ) { result in
             switch result {
             case .success(let ceremony):
-                if let session = ceremony.session, let self = self {
-                    try? self.saveSession(session)
+                if let session = ceremony.session {
+                    do {
+                        try self.saveSession(session)
+                    } catch {
+                        onReject(error.localizedDescription)
+                        return
+                    }
+                    self.resolveEncoded(ceremony, onResolve: onResolve, onReject: onReject)
+                    return
                 }
-                do {
-                    let encoded = try jsonEncoder.encode(ceremony)
-                    onResolve(String(data: encoded, encoding: .utf8) ?? "{}")
-                } catch {
-                    onReject(error.localizedDescription)
-                }
+                // The host returns the callback's ticket; the bridge redeems it.
+                self.redeem(
+                    RedeemTicketOptions(origin: opts.origin, ticket: ceremony.ticket, codeVerifier: ceremony.codeVerifier),
+                    networkBridge: networkBridge,
+                    onAnswer: { r in
+                        let answered = OidcCeremonyResult(
+                            ticket: ceremony.ticket,
+                            codeVerifier: ceremony.codeVerifier,
+                            callbackUrl: ceremony.callbackUrl,
+                            session: r.session,
+                            held: r.held
+                        )
+                        self.resolveEncoded(answered, onResolve: onResolve, onReject: onReject)
+                    },
+                    onReject: onReject
+                )
             case .failure(let error):
                 onReject(error.localizedDescription)
             }
@@ -518,6 +798,7 @@ public final class AuthBridge: @unchecked Sendable {
 
     public func signInWithApple(
         optionsJson: String,
+        networkBridge: NetworkBridge,
         onResolve: @escaping @Sendable (String) -> Void,
         onReject: @escaping @Sendable (String) -> Void
     ) {
@@ -554,6 +835,7 @@ public final class AuthBridge: @unchecked Sendable {
                         self.oidcStart(
                             provider: "apple",
                             optionsJson: oidcStr,
+                            networkBridge: networkBridge,
                             onResolve: onResolve,
                             onReject: onReject
                         )

@@ -21,7 +21,8 @@ struct OmnishellEngineTests {
         let engine = JavaScriptCoreOmnishellEngine(
             networkBridge: networkBridge,
             storageBridge: storageBridge,
-            initialScript: script
+            initialScript: script,
+            origin: "https://test.example"
         )
         defer {
             engine.close()
@@ -54,7 +55,8 @@ struct OmnishellEngineTests {
         let engine = JavaScriptCoreOmnishellEngine(
             networkBridge: networkBridge,
             storageBridge: storageBridge,
-            initialScript: script
+            initialScript: script,
+            origin: "https://test.example"
         )
         defer {
             engine.close()

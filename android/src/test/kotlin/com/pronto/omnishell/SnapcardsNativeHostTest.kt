@@ -105,7 +105,8 @@ class SnapcardsNativeHostTest {
         val engine = QuickJsOmnishellEngine(
             networkBridge = NetworkBridge(OkHttpFetchClient()),
             storageBridge = StorageBridge(kv, db),
-            initialScript = script
+            initialScript = script,
+            origin = "https://snapcards.fun"
         )
 
         engine.start()
@@ -290,6 +291,114 @@ class SnapcardsNativeHostTest {
         assertTrue(ast.contains("\"promoted\":true"))
         assertTrue(ast.contains("\"ticket\":\"ticket_android_99\""))
         assertTrue(ast.contains("\"token\":\"jwt_android_oidc\""))
+        engine.close()
+    }
+
+    // The runtime's account sheet offers the held account and switches by
+    // redeeming the ticket the 409 returned with the start's verifier; a host
+    // that dropped either left Switch with nothing to redeem.
+    @Test
+    fun `a guest's sign-in held by another account is offered, stays the guest, and switches with the same verifier`() = runBlocking {
+        val redeemed = java.util.Collections.synchronizedList(mutableListOf<String>())
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val body = request.body.readUtf8()
+                return when (request.path) {
+                    "/auth/oidc/session" -> {
+                        redeemed.add(body)
+                        if (body.contains("\"ticket\":\"held-1\"")) {
+                            MockResponse().setResponseCode(409)
+                                .setBody("""{"error":"login_required","user":{"handle":"Alice-3fa2"},"ticket":"switch-1"}""")
+                        } else {
+                            MockResponse().setResponseCode(200)
+                                .setBody("""{"token":"alice-jwt","refresh_token":"rt-1","user":{"id":"alice","handle":"Alice-3fa2"}}""")
+                        }
+                    }
+                    "/auth/login/start" -> MockResponse().setResponseCode(200)
+                        .setBody("""{"rpId":"localhost","challenge":"c1","state":"s1"}""")
+                    "/auth/login/verify" -> if (request.getHeader("Authorization") == "Bearer guest-jwt") {
+                        MockResponse().setResponseCode(409).setBody("""{"error":"login_required","user":{"handle":"Bob-77aa"}}""")
+                    } else {
+                        MockResponse().setResponseCode(500)
+                    }
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        val origin = server.url("/").toString().trimEnd('/')
+        val storageBridge = StorageBridge(SqliteKeyValueStore(db), db)
+        val startUrls = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val authBridge = AuthBridge(
+            sessionStore = KeyValueSessionStore(storageBridge),
+            credentialHandler = object : NativeCredentialHandler {
+                override fun passkeySignIn(options: PasskeySignInOptions, onSuccess: (String) -> Unit, onFailure: (Throwable) -> Unit) {
+                    onSuccess("""{"id":"cred-bob"}""")
+                }
+
+                override fun passkeyRegister(options: PasskeyRegisterOptions, onSuccess: (String) -> Unit, onFailure: (Throwable) -> Unit) {
+                    onFailure(UnsupportedOperationException("passkeyRegister"))
+                }
+
+                override fun oidcStart(
+                    provider: String,
+                    startUrl: String,
+                    codeVerifier: String,
+                    options: OidcStartOptions,
+                    onSuccess: (OidcCeremonyResult) -> Unit,
+                    onFailure: (Throwable) -> Unit
+                ) {
+                    startUrls.add(startUrl)
+                    onSuccess(OidcCeremonyResult(ticket = "held-1", codeVerifier = codeVerifier, callbackUrl = "snapcards://auth/callback?ticket=held-1"))
+                }
+            }
+        )
+        authBridge.saveSession(AuthSession(token = "guest-jwt", userId = "guest", isGuest = true))
+
+        val script = """
+            (async () => {
+                const offered = await AuthBridge.oidcStart('google', { origin: '$origin', guestBearerToken: 'guest-jwt' });
+                const stayed = AuthBridge.loadSession();
+                const passkey = await AuthBridge.passkeyLogin({ origin: '$origin', guestBearerToken: 'guest-jwt' });
+                const switched = await AuthBridge.redeemTicket({ origin: '$origin', ticket: offered.held.ticket, codeVerifier: offered.held.codeVerifier });
+                emitUiAst(JSON.stringify({
+                    held: offered.held.user.handle,
+                    offeredSession: offered.session === undefined,
+                    verifier: offered.held.codeVerifier === offered.codeVerifier,
+                    stayed: stayed.token,
+                    passkeyHeld: passkey.held.user.handle,
+                    passkeyTicket: passkey.held.ticket === undefined,
+                    switched: switched.session.userId,
+                    saved: AuthBridge.loadSession().token
+                }));
+            })();
+        """.trimIndent()
+        val engine = QuickJsOmnishellEngine(
+            networkBridge = NetworkBridge(OkHttpFetchClient()),
+            storageBridge = storageBridge,
+            initialScript = script,
+            authBridge = authBridge,
+            origin = origin
+        )
+        engine.start()
+        var retries = 0
+        while (!engine.uiAst.value.contains("\"saved\"") && retries < 80) {
+            delay(25)
+            retries++
+        }
+
+        val ast = engine.uiAst.value
+        assertTrue(ast.contains("\"held\":\"Alice-3fa2\""), ast)
+        assertTrue(ast.contains("\"offeredSession\":true"), ast)
+        assertTrue(ast.contains("\"verifier\":true"), ast)
+        assertTrue(ast.contains("\"stayed\":\"guest-jwt\""), ast)
+        assertTrue(ast.contains("\"passkeyHeld\":\"Bob-77aa\""), ast)
+        assertTrue(ast.contains("\"passkeyTicket\":true"), ast)
+        assertTrue(ast.contains("\"switched\":\"alice\""), ast)
+        assertTrue(ast.contains("\"saved\":\"alice-jwt\""), ast)
+        assertTrue(startUrls.single().contains("promote_token=guest-jwt"), startUrls.single())
+        val verifier = Regex("\"code_verifier\":\"([^\"]+)\"").find(redeemed[0])!!.groupValues[1]
+        assertTrue(redeemed[1].contains("\"ticket\":\"switch-1\"") && redeemed[1].contains("\"code_verifier\":\"$verifier\""), redeemed[1])
+        assertTrue(startUrls.single().contains("code_challenge=${AuthBridge.computePkceChallengeS256(verifier)}"))
         engine.close()
     }
 

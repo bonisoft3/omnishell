@@ -124,6 +124,62 @@ private final class MockCredentialHandler: NativeCredentialHandler {
     }
 }
 
+private final class HeldCredentialHandler: NativeCredentialHandler, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _startUrls: [String] = []
+    var startUrls: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return _startUrls
+    }
+
+    func passkeySignIn(
+        options: PasskeySignInOptions,
+        completion: @escaping @Sendable (Result<String, Error>) -> Void
+    ) {
+        completion(.success("{\"id\":\"cred-bob\"}"))
+    }
+
+    func passkeyRegister(
+        options: PasskeyRegisterOptions,
+        completion: @escaping @Sendable (Result<String, Error>) -> Void
+    ) {
+        completion(.failure(AuthBridgeError.missingCredentialHandler("passkeyRegister")))
+    }
+
+    func oidcStart(
+        provider: String,
+        startUrl: URL,
+        codeVerifier: String,
+        options: OidcStartOptions,
+        completion: @escaping @Sendable (Result<OidcCeremonyResult, Error>) -> Void
+    ) {
+        lock.lock()
+        _startUrls.append(startUrl.absoluteString)
+        lock.unlock()
+        completion(.success(OidcCeremonyResult(
+            ticket: "held-1",
+            codeVerifier: codeVerifier,
+            callbackUrl: "snapcards://auth/callback?ticket=held-1"
+        )))
+    }
+}
+
+private func requestBody(_ req: URLRequest) -> String {
+    if let b = req.httpBody { return String(decoding: b, as: UTF8.self) }
+    guard let stream = req.httpBodyStream else { return "" }
+    stream.open()
+    defer { stream.close() }
+    var data = Data()
+    var buf = [UInt8](repeating: 0, count: 1024)
+    while true {
+        let n = stream.read(&buf, maxLength: buf.count)
+        if n <= 0 { break }
+        data.append(buf, count: n)
+    }
+    return String(decoding: data, as: UTF8.self)
+}
+
 private final class MockPrintHandler: NativePrintHandler, @unchecked Sendable {
     var jobs: [PrintJobRequest] = []
     var checkouts: [CheckoutSessionRequest] = []
@@ -211,7 +267,8 @@ struct SnapcardsNativeHostTests {
         let engine = JavaScriptCoreOmnishellEngine(
             networkBridge: networkBridge,
             storageBridge: storageBridge,
-            initialScript: script
+            initialScript: script,
+            origin: "https://snapcards.fun"
         )
         defer {
             engine.close()
@@ -451,6 +508,103 @@ struct SnapcardsNativeHostTests {
         #expect(host.variableStorage.listenerCount == 1)
         #expect(host.render(astJson: cardJson, onAction: { _ in }) == true)
         #expect(host.variableStorage.listenerCount == 1)
+    }
+
+    // The runtime's account sheet offers the held account and switches by
+    // redeeming the ticket the 409 returned with the start's verifier; a host
+    // that dropped either left Switch with nothing to redeem.
+    @Test("A guest's sign-in held by another account is offered, stays the guest, and switches with the same verifier")
+    func heldSignInOffersStaysAndSwitches() async throws {
+        final class Redeemed: @unchecked Sendable {
+            let lock = NSLock()
+            var bodies: [String] = []
+        }
+        let redeemed = Redeemed()
+        StubLongPollUrlProtocol.setHandler { req in
+            let json = ["Content-Type": "application/json"]
+            let body = requestBody(req)
+            switch req.url?.path ?? "" {
+            case "/auth/oidc/session":
+                redeemed.lock.lock()
+                redeemed.bodies.append(body)
+                redeemed.lock.unlock()
+                if body.contains("\"held-1\"") {
+                    return (409, json, Data("{\"error\":\"login_required\",\"user\":{\"handle\":\"Alice-3fa2\"},\"ticket\":\"switch-1\"}".utf8), 0)
+                }
+                return (200, json, Data("{\"token\":\"alice-jwt\",\"refresh_token\":\"rt-1\",\"user\":{\"id\":\"alice\",\"handle\":\"Alice-3fa2\"}}".utf8), 0)
+            case "/auth/login/start":
+                return (200, json, Data("{\"rpId\":\"localhost\",\"challenge\":\"c1\",\"state\":\"s1\"}".utf8), 0)
+            case "/auth/login/verify" where req.value(forHTTPHeaderField: "Authorization") == "Bearer guest-jwt":
+                return (409, json, Data("{\"error\":\"login_required\",\"user\":{\"handle\":\"Bob-77aa\"}}".utf8), 0)
+            default:
+                return (500, [:], Data(), 0)
+            }
+        }
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.protocolClasses = [StubLongPollUrlProtocol.self]
+        let networkBridge = NetworkBridge(client: URLSessionFetchClient(session: URLSession(configuration: cfg)))
+
+        let db = try CSystemSqliteDatabase(path: ":memory:")
+        let kv = try SqliteKeyValueStore(db: db)
+        let storageBridge = StorageBridge(sqlDatabase: db, keyValueStore: kv)
+        defer { storageBridge.close() }
+        let handler = HeldCredentialHandler()
+        let authBridge = AuthBridge(sessionStore: KeyValueSessionStore(storageBridge: storageBridge), credentialHandler: handler)
+        try authBridge.saveSession(AuthSession(token: "guest-jwt", userId: "guest", isGuest: true))
+
+        let origin = "https://snapcards.test"
+        let engine = JavaScriptCoreOmnishellEngine(
+            networkBridge: networkBridge,
+            storageBridge: storageBridge,
+            authBridge: authBridge,
+            origin: origin
+        )
+        defer { engine.close() }
+        try engine.start()
+        _ = engine.evaluateJs("""
+            (async () => {
+                const offered = await AuthBridge.oidcStart('google', { origin: '\(origin)', guestBearerToken: 'guest-jwt' });
+                const stayed = AuthBridge.loadSession();
+                const passkey = await AuthBridge.passkeyLogin({ origin: '\(origin)', guestBearerToken: 'guest-jwt' });
+                const switched = await AuthBridge.redeemTicket({ origin: '\(origin)', ticket: offered.held.ticket, codeVerifier: offered.held.codeVerifier });
+                emitUiAst(JSON.stringify({
+                    held: offered.held.user.handle,
+                    offeredSession: offered.session === undefined,
+                    verifier: offered.held.codeVerifier === offered.codeVerifier,
+                    stayed: stayed.token,
+                    passkeyHeld: passkey.held.user.handle,
+                    passkeyTicket: passkey.held.ticket === undefined,
+                    switched: switched.session.userId,
+                    saved: AuthBridge.loadSession().token
+                }));
+            })();
+        """)
+        for _ in 0..<80 {
+            if engine.uiAst.contains("\"saved\"") { break }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+
+        let ast = engine.uiAst
+        #expect(ast.contains("\"held\":\"Alice-3fa2\""))
+        #expect(ast.contains("\"offeredSession\":true"))
+        #expect(ast.contains("\"verifier\":true"))
+        #expect(ast.contains("\"stayed\":\"guest-jwt\""))
+        #expect(ast.contains("\"passkeyHeld\":\"Bob-77aa\""))
+        #expect(ast.contains("\"passkeyTicket\":true"))
+        #expect(ast.contains("\"switched\":\"alice\""))
+        #expect(ast.contains("\"saved\":\"alice-jwt\""))
+        let startUrl = try #require(handler.startUrls.first)
+        #expect(startUrl.contains("promote_token=guest-jwt"))
+        redeemed.lock.lock()
+        let bodies = redeemed.bodies
+        redeemed.lock.unlock()
+        try #require(bodies.count == 2)
+        let first = try JSONSerialization.jsonObject(with: Data(bodies[0].utf8)) as? [String: String]
+        let second = try JSONSerialization.jsonObject(with: Data(bodies[1].utf8)) as? [String: String]
+        let verifier = try #require(first?["code_verifier"])
+        #expect(second?["ticket"] == "switch-1")
+        #expect(second?["code_verifier"] == verifier)
+        #expect(startUrl.contains("code_challenge=\(AuthBridge.computePkceChallengeS256(verifier))"))
     }
 
     @Test("PrintRealmDivCustomBlockFactory, PrintBridge, Sign in with Apple + Delete Account, and iPad/RTL/Dark display work end to end")

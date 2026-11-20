@@ -30,7 +30,9 @@ public final class JavaScriptCoreOmnishellEngine: OmnishellEngine, @unchecked Se
         storageBridge: StorageBridge,
         initialScript: String = "",
         authBridge: AuthBridge? = nil,
-        origin: String = "https://snapcards.fun",
+        // The app's own origin, which every relative address the runtime asks
+        // for resolves against; there is no app to default to.
+        origin: String,
         printBridge: PrintBridge? = nil,
         resourcesUrl: URL? = nil
     ) {
@@ -279,6 +281,7 @@ public final class JavaScriptCoreOmnishellEngine: OmnishellEngine, @unchecked Se
             self.authBridge.oidcStart(
                 provider: provider,
                 optionsJson: optStr,
+                networkBridge: self.networkBridge,
                 onResolve: { [weak self] json in
                     guard let self = self else { return }
                     self.queue.async {
@@ -294,6 +297,48 @@ public final class JavaScriptCoreOmnishellEngine: OmnishellEngine, @unchecked Se
             )
         }
         ctx.setObject(authOidcStartBlock, forKeyedSubscript: "__nativeAuthOidcStart" as NSString)
+
+        let authRedeemTicketBlock: @convention(block) (String, String) -> Void = { [weak self] reqId, optsJson in
+            guard let self = self else { return }
+            self.authBridge.redeemTicket(
+                optionsJson: optsJson,
+                networkBridge: self.networkBridge,
+                onResolve: { [weak self] json in
+                    guard let self = self else { return }
+                    self.queue.async {
+                        self.context?.globalObject.invokeMethod("__onAsyncResolve", withArguments: [reqId, json])
+                    }
+                },
+                onReject: { [weak self] err in
+                    guard let self = self else { return }
+                    self.queue.async {
+                        self.context?.globalObject.invokeMethod("__onAsyncReject", withArguments: [reqId, err])
+                    }
+                }
+            )
+        }
+        ctx.setObject(authRedeemTicketBlock, forKeyedSubscript: "__nativeAuthRedeemTicket" as NSString)
+
+        let authPasskeyLoginBlock: @convention(block) (String, String) -> Void = { [weak self] reqId, optsJson in
+            guard let self = self else { return }
+            self.authBridge.passkeyLogin(
+                optionsJson: optsJson,
+                networkBridge: self.networkBridge,
+                onResolve: { [weak self] json in
+                    guard let self = self else { return }
+                    self.queue.async {
+                        self.context?.globalObject.invokeMethod("__onAsyncResolve", withArguments: [reqId, json])
+                    }
+                },
+                onReject: { [weak self] err in
+                    guard let self = self else { return }
+                    self.queue.async {
+                        self.context?.globalObject.invokeMethod("__onAsyncReject", withArguments: [reqId, err])
+                    }
+                }
+            )
+        }
+        ctx.setObject(authPasskeyLoginBlock, forKeyedSubscript: "__nativeAuthPasskeyLogin" as NSString)
 
         let authLoadSessionBlock: @convention(block) () -> JSValue? = { [weak self] in
             guard let self = self, let json = self.authBridge.loadSessionJson() else {
@@ -324,6 +369,7 @@ public final class JavaScriptCoreOmnishellEngine: OmnishellEngine, @unchecked Se
             guard let self = self else { return }
             self.authBridge.signInWithApple(
                 optionsJson: optsJson,
+                networkBridge: self.networkBridge,
                 onResolve: { [weak self] resJson in
                     guard let self = self else { return }
                     self.queue.async {
@@ -719,6 +765,18 @@ public final class JavaScriptCoreOmnishellEngine: OmnishellEngine, @unchecked Se
                     });
                     return JSON.parse(raw);
                 },
+                redeemTicket: async (options) => {
+                    const raw = await globalThis.__makeAsyncPromise((reqId) => {
+                        __nativeAuthRedeemTicket(reqId, JSON.stringify(options || {}));
+                    });
+                    return JSON.parse(raw);
+                },
+                passkeyLogin: async (options) => {
+                    const raw = await globalThis.__makeAsyncPromise((reqId) => {
+                        __nativeAuthPasskeyLogin(reqId, JSON.stringify(options || {}));
+                    });
+                    return JSON.parse(raw);
+                },
                 loadSession: () => {
                     const raw = __nativeAuthLoadSession();
                     return raw ? JSON.parse(raw) : null;
@@ -776,7 +834,7 @@ public final class JavaScriptCoreOmnishellEngine: OmnishellEngine, @unchecked Se
 
                 function normUrl(reqOrStr) {
                     const raw = typeof reqOrStr === "string" ? reqOrStr : reqOrStr.url;
-                    return new URL(raw, globalThis.__omnishellOrigin || "https://snapcards.fun");
+                    return new URL(raw, globalThis.__omnishellOrigin);
                 }
 
                 function openCacheSync(cacheName) {

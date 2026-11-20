@@ -66,7 +66,7 @@ class OmnishellEngineTest {
             });
         """.trimIndent()
 
-        engine = QuickJsOmnishellEngine(networkBridge, storageBridge, testScript)
+        engine = QuickJsOmnishellEngine(networkBridge, storageBridge, testScript, origin = "https://test.example")
     }
 
     @AfterEach
@@ -119,7 +119,7 @@ class OmnishellEngineTest {
 
         val netBridge = NetworkBridge(OkHttpFetchClient())
         val storBridge = StorageBridge(SqliteKeyValueStore(db), db)
-        val fetchEngine = QuickJsOmnishellEngine(netBridge, storBridge, script)
+        val fetchEngine = QuickJsOmnishellEngine(netBridge, storBridge, script, origin = "https://test.example")
 
         fetchEngine.start()
 
@@ -146,7 +146,7 @@ class OmnishellEngineTest {
 
         val netBridge = NetworkBridge(OkHttpFetchClient())
         val storBridge = StorageBridge(SqliteKeyValueStore(db), db)
-        val storageEngine = QuickJsOmnishellEngine(netBridge, storBridge, script)
+        val storageEngine = QuickJsOmnishellEngine(netBridge, storBridge, script, origin = "https://test.example")
 
         storageEngine.start()
 
@@ -181,7 +181,7 @@ class OmnishellEngineTest {
 
         val netBridge = NetworkBridge(OkHttpFetchClient())
         val storBridge = StorageBridge(SqliteKeyValueStore(db), db)
-        val sseEngine = QuickJsOmnishellEngine(netBridge, storBridge, script)
+        val sseEngine = QuickJsOmnishellEngine(netBridge, storBridge, script, origin = "https://test.example")
 
         sseEngine.start()
 
