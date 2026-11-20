@@ -97,41 +97,34 @@ Deno.test({
   sanitizeResources: false,
   async fn() {
     const fake = server();
-    const session = sessionStorage.getItem("pronto-token");
-    sessionStorage.setItem("pronto-token", JSON.stringify({ token: "reader-token", user: { id: "reader", guest: false } }));
-    try {
-      await withBrowser({ fetch: fake.fetch }, async createStore => {
-        const store = createStore(fake.base, {
-          tables: ["note"], carriers: FIXTURE_CARRIERS,
-          read: { note: "lazy" },
-          access: { note: { scope: "private", owner: "owner_id" } },
-          uniques: { note: [["owner_id", "slug"]] },
-          schema: { note: { durability: "server", fields: [
-            { name: "id", type: "string" }, { name: "slug", type: "string" }, { name: "title", type: "string" }, { name: "owner_id", type: "string" },
-          ] } },
-        });
-        await store.add("note", [{ slug: "new", title: "created", txid: "99", scope_id: "forged", $synced: false }]);
-        const created = fake.rows.find(row => row.slug === "new");
-        assert(created.id === "n2" && created.owner_id === "reader", "the server owns absent primary-key and owner defaults");
-        const sent = JSON.parse(fake.requests[0].body)[0];
-        assert(!Object.hasOwn(sent, "id") && !Object.hasOwn(sent, "owner_id") && !Object.hasOwn(sent, "txid") && !Object.hasOwn(sent, "scope_id") && !Object.hasOwn(sent, "$synced"), "the command carries only submitted domain values");
-        await store.upsertBy("note", { slug: "new", title: "upserted" });
-        assert(fake.rows.filter(row => row.slug === "new").length === 1 && created.title === "upserted", "an existing natural key is updated");
-        assert(fake.requests.some(request => request.url.searchParams.get("owner_id") === "eq.reader"), "the session's owner completes the natural key lookup");
-        await store.upsertBy("note", { slug: "fresh", title: "inserted" });
-        assert(fake.rows.filter(row => row.slug === "fresh").length === 1, "an absent natural key creates one row");
-        await store.write("note", [{ key: "n2", row: { title: "written" } }, { key: "n4", row: { slug: "written", title: "new write" } }]);
-        assert(created.title === "written" && fake.rows.some(row => row.id === "n4"), "write by key updates or inserts the stated row");
-        await store.dropWhere("note", "slug=eq.new");
-        assert(!fake.rows.some(row => row.slug === "new") && fake.rows.some(row => row.slug === "fresh"), "a filtered delete remains scoped");
-        assert(fake.requests.every(request => request.headers.Authorization === "Bearer reader-token"), "each read and command carries authentication");
-        assert(globalThis.__mechaClient.collections.note.size === 0 && globalThis.__prontoViews.size === 0, "server commands retain no replicated state");
-        await globalThis.__mechaClient.collections.note.cleanup();
+    await withBrowser({ fetch: fake.fetch, storage: { "pronto-token": { token: "reader-token", user: { id: "reader", guest: false } } } }, async createStore => {
+      const store = createStore(fake.base, {
+        tables: ["note"], carriers: FIXTURE_CARRIERS,
+        read: { note: "lazy" },
+        access: { note: { scope: "private", owner: "owner_id" } },
+        uniques: { note: [["owner_id", "slug"]] },
+        schema: { note: { durability: "server", fields: [
+          { name: "id", type: "string" }, { name: "slug", type: "string" }, { name: "title", type: "string" }, { name: "owner_id", type: "string" },
+        ] } },
       });
-    } finally {
-      if (session === null) sessionStorage.removeItem("pronto-token");
-      else sessionStorage.setItem("pronto-token", session);
-    }
+      await store.add("note", [{ slug: "new", title: "created", txid: "99", scope_id: "forged", $synced: false }]);
+      const created = fake.rows.find(row => row.slug === "new");
+      assert(created.id === "n2" && created.owner_id === "reader", "the server owns absent primary-key and owner defaults");
+      const sent = JSON.parse(fake.requests[0].body)[0];
+      assert(!Object.hasOwn(sent, "id") && !Object.hasOwn(sent, "owner_id") && !Object.hasOwn(sent, "txid") && !Object.hasOwn(sent, "scope_id") && !Object.hasOwn(sent, "$synced"), "the command carries only submitted domain values");
+      await store.upsertBy("note", { slug: "new", title: "upserted" });
+      assert(fake.rows.filter(row => row.slug === "new").length === 1 && created.title === "upserted", "an existing natural key is updated");
+      assert(fake.requests.some(request => request.url.searchParams.get("owner_id") === "eq.reader"), "the session's owner completes the natural key lookup");
+      await store.upsertBy("note", { slug: "fresh", title: "inserted" });
+      assert(fake.rows.filter(row => row.slug === "fresh").length === 1, "an absent natural key creates one row");
+      await store.write("note", [{ key: "n2", row: { title: "written" } }, { key: "n4", row: { slug: "written", title: "new write" } }]);
+      assert(created.title === "written" && fake.rows.some(row => row.id === "n4"), "write by key updates or inserts the stated row");
+      await store.dropWhere("note", "slug=eq.new");
+      assert(!fake.rows.some(row => row.slug === "new") && fake.rows.some(row => row.slug === "fresh"), "a filtered delete remains scoped");
+      assert(fake.requests.every(request => request.headers.Authorization === "Bearer reader-token"), "each read and command carries authentication");
+      assert(globalThis.__mechaClient.collections.note.size === 0 && globalThis.__prontoViews.size === 0, "server commands retain no replicated state");
+      await globalThis.__mechaClient.collections.note.cleanup();
+    });
   },
 });
 

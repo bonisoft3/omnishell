@@ -90,14 +90,14 @@ describe("a document carrying its reads", () => {
         asked.push(String(input))
         return new Response(JSON.stringify([{ id: "t1", name: "network" }]), { status: 200 })
       }
-      sessionStorage.setItem("pronto-token", JSON.stringify({ token: "t", user: signedIn ? { id: "u1" } : { id: "g1", guest: true } }))
+      localStorage.setItem("pronto-token", JSON.stringify({ token: "t", user: signedIn ? { id: "u1" } : { id: "g1", guest: true } }))
       await fn(asked)
     } finally {
       for (const [n, d] of ambient) {
         if (d === undefined) delete global[n]
         else Object.defineProperty(globalThis, n, d)
       }
-      sessionStorage.removeItem("pronto-token")
+      localStorage.removeItem("pronto-token")
     }
   }
 
@@ -255,7 +255,7 @@ describe("a document carrying its reads", () => {
   // microtask queue, until the page ran out of heap ("Aw, Snap").
   it("refuses a subscribe once the session settled without a token, rather than waiting on it again", async () => {
     await inDocument(async () => {
-      sessionStorage.removeItem("pronto-token")
+      localStorage.removeItem("pronto-token")
       const settled = Promise.resolve({ token: "t", user: { id: "g1", guest: true } })
       const refused = new Promise<unknown>((resolve) => {
         globalThis.addEventListener("unhandledrejection", (event) => { event.preventDefault(); resolve(event.reason) }, { once: true })
@@ -288,7 +288,7 @@ describe("a document carrying its reads", () => {
       globalThis.fetch = async () => new Response(JSON.stringify({ code: "42501", message: "new row violates row-level security policy" }), { status: 401 })
       await expect(http("/crud/team", { method: "POST", body: "{}" })).rejects.toThrow("401 POST /crud/team")
       expect(reloaded).toBe(false)
-      expect(sessionStorage.getItem("pronto-token")).not.toBe(null)
+      expect(localStorage.getItem("pronto-token")).not.toBe(null)
     })
   })
 
@@ -308,7 +308,7 @@ describe("a document carrying its reads", () => {
       try {
         for (let i = 0; i < 20 && !reloaded; i++) await new Promise((r) => setTimeout(r, 5))
         expect(reloaded).toBe(true)
-        expect(sessionStorage.getItem("pronto-token")).toBe(null)
+        expect(localStorage.getItem("pronto-token")).toBe(null)
       } finally {
         unsub()
         await store.close()
@@ -318,12 +318,12 @@ describe("a document carrying its reads", () => {
 
   it("answers a live-durability table from #pronto-reads while guest minting is still in flight", async () => {
     await inDocument(async (asked) => {
-      sessionStorage.removeItem("pronto-token")
+      localStorage.removeItem("pronto-token")
       let settleGuest!: () => void
       const guestSession = new Promise<{ token: string; user: { id: string; guest: boolean } }>((resolve) => {
         settleGuest = () => {
           const s = { token: "t", user: { id: "g1", guest: true } }
-          sessionStorage.setItem("pronto-token", JSON.stringify(s))
+          localStorage.setItem("pronto-token", JSON.stringify(s))
           resolve(s)
         }
       })
@@ -340,7 +340,7 @@ describe("a document carrying its reads", () => {
       try {
         expect(await store.query("team", null, { filter: "slug=eq.flamengo" })).toEqual(served)
         expect(asked).toEqual([])
-        expect(sessionStorage.getItem("pronto-token")).toBe(null)
+        expect(localStorage.getItem("pronto-token")).toBe(null)
       } finally {
         unsub()
         await store.close()
@@ -382,12 +382,12 @@ describe("a document carrying its reads", () => {
   // reader identity when `POST /auth/guest` settles.
   it("keeps #pronto-reads across local tab writes, concurrent region reads, current reduce reads, and guest token settlement", async () => {
     await inDocument(async (asked) => {
-      sessionStorage.removeItem("pronto-token")
+      localStorage.removeItem("pronto-token")
       let settleGuest!: () => void
       const guestSession = new Promise<{ token: string; user: { id: string; guest: boolean } }>((resolve) => {
         settleGuest = () => {
           const s = { token: "t", user: { id: "g1", guest: true } }
-          sessionStorage.setItem("pronto-token", JSON.stringify(s))
+          localStorage.setItem("pronto-token", JSON.stringify(s))
           resolve(s)
         }
       })
@@ -623,7 +623,7 @@ describe("a document carrying its reads", () => {
 
   it("consumes a served read at most once across ticks for current: true and isolates re-minted guest sessions", async () => {
     await inDocument(async (asked) => {
-      sessionStorage.removeItem("pronto-token")
+      localStorage.removeItem("pronto-token")
       const store = createStore("", {
         ...cfg,
         ensureSession: async () => ({ token: "t1", user: { id: "g1", guest: true } }),
@@ -637,11 +637,11 @@ describe("a document carrying its reads", () => {
         expect(asked).toEqual([read])
 
         // Settling the first guest token keeps the pre-mint reader identity, but a later guest token does not reuse it.
-        sessionStorage.setItem("pronto-token", JSON.stringify({ token: "t1", user: { id: "g1", guest: true } }))
+        localStorage.setItem("pronto-token", JSON.stringify({ token: "t1", user: { id: "g1", guest: true } }))
         expect(await store.query("team", null, { filter: "slug=eq.flamengo" })).toEqual([{ id: "t1", name: "network" }])
         await new Promise((r) => setTimeout(r, 0))
         const countAfterG1 = asked.length
-        sessionStorage.setItem("pronto-token", JSON.stringify({ token: "t2", user: { id: "g2", guest: true } }))
+        localStorage.setItem("pronto-token", JSON.stringify({ token: "t2", user: { id: "g2", guest: true } }))
         await store.query("team", null, { filter: "slug=eq.flamengo" })
         expect(asked.length).toBe(countAfterG1 + 1)
       } finally {
@@ -692,7 +692,7 @@ describe("a document carrying its reads", () => {
   // minted token and reloaded the page in a loop.
   it("keeps a local table subscription live during guest minting while deferring remote data-reads shapes until the session settles", async () => {
     await inDocument(async (asked) => {
-      sessionStorage.removeItem("pronto-token")
+      localStorage.removeItem("pronto-token")
       const shapeAuths: (string | null)[] = []
       globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input)
@@ -719,7 +719,7 @@ describe("a document carrying its reads", () => {
       const guestSession = new Promise<{ token: string; user: { id: string; guest: boolean } }>((resolve) => {
         settleGuest = () => {
           const s = { token: "guest-jwt", user: { id: "g1", guest: true } }
-          sessionStorage.setItem("pronto-token", JSON.stringify(s))
+          localStorage.setItem("pronto-token", JSON.stringify(s))
           resolve(s)
         }
       })

@@ -27,10 +27,10 @@ const fold = `({ context }) => {
 }`
 
 async function boot(html = chart, handlers = { seed, fold }, prepare?: (store: any) => void) {
-  const ambient = { document: globalThis.document, fetch: globalThis.fetch, sessionStorage: globalThis.sessionStorage }
+  const ambient = { document: globalThis.document, fetch: globalThis.fetch, localStorage: globalThis.localStorage }
   const { document } = parseHTML("<html><head></head><body><div id='app'></div></body></html>")
   globalThis.document = document as any
-  globalThis.sessionStorage = { getItem: () => null } as any
+  globalThis.localStorage = { getItem: () => null } as any
   const files: Record<string, string> = { "chart.html": html, "chart.css": "" }
   for (const [name, body] of Object.entries(handlers)) files[`${name}.js`] = body
   globalThis.fetch = ((url: URL | string) => {
@@ -232,7 +232,7 @@ describe("a screen's present work", () => {
       "<html><head><style id='screen-css-stale'>.x{color:red}</style></head><body><div id='app'></div><div id='bg' hidden></div></body></html>",
     )
     globalThis.document = preDoc as any
-    globalThis.sessionStorage = { getItem: () => null } as any
+    globalThis.localStorage = { getItem: () => null } as any
     const httpMethods: string[] = []
     globalThis.fetch = ((url: URL | string, init?: RequestInit) => {
       const m = init?.method ?? "GET"

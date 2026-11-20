@@ -13,8 +13,9 @@
 // document.
 import { addressedReads, prefetchScreen } from "./screen.js";
 
-/** @param {{ addresses: any, appBase: any, store: any }} opts */
-export function startLinkPrefetch({ addresses, appBase, store }) {
+/** `storeOf` answers the page's store, which a session change replaces.
+ * @param {{ addresses: any, appBase: any, storeOf: () => any }} opts */
+export function startLinkPrefetch({ addresses, appBase, storeOf }) {
   const asked = new Map();
 
   const saving = () => {
@@ -27,7 +28,7 @@ export function startLinkPrefetch({ addresses, appBase, store }) {
     const markup = await prefetchScreen(appBase, found.route);
     // A read that did not come leaves the screen to ask, and to say so if it fails too.
     await Promise.allSettled(addressedReads(markup, found.params).map((read) =>
-      store.readAhead(read.table, read.order, read.opts, url.href)));
+      storeOf().readAhead(read.table, read.order, read.opts, url.href)));
   }
 
   function want(href) {
@@ -59,6 +60,10 @@ export function startLinkPrefetch({ addresses, appBase, store }) {
   addEventListener("focusin", intent);
 
   return {
+    /** Every address may be read ahead again: the store that held them is gone. */
+    forget() {
+      asked.clear();
+    },
     /** The strip's links, once the browser is idle: a browser that cannot
      * say when it is gets them on intent alone. */
     idle() {

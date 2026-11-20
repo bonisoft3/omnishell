@@ -494,7 +494,7 @@ describe("the server terminal's store", () => {
     try {
       inhabit("http://caddy:8080", (err) => (died = err))
       global.fetch = () => Promise.resolve(new Response("", { status: 401 }))
-      sessionStorage.setItem("pronto-token", JSON.stringify({ token: "refused" }))
+      localStorage.setItem("pronto-token", JSON.stringify({ token: "refused" }))
       const read = createStore("http://caddy:8080", { tables: [], carriers: FIXTURE_CARRIERS }).query("game", null, {})
       await new Promise((r) => setTimeout(r, 0))
       expect(String(died)).toContain("refused")
@@ -504,7 +504,7 @@ describe("the server terminal's store", () => {
         if (d === undefined) delete global[n]
         else Object.defineProperty(globalThis, n, d)
       }
-      sessionStorage.removeItem("pronto-token")
+      localStorage.removeItem("pronto-token")
     }
   })
 })

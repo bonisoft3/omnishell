@@ -400,4 +400,47 @@ describe("AuthBridge headless contract", () => {
       storage.close();
     }
   });
+
+  it("follows the browser's policy: an account a guest's sign-in finds held is offered, and switching redeems the ticket it returned", async () => {
+    const storage = createSqliteStorageBridge(":memory:");
+    try {
+      const posted: Array<{ path: string; body: Record<string, unknown>; auth: string | null }> = [];
+      const fetcher: typeof fetch = async (input, init) => {
+        const path = new URL(String(input)).pathname;
+        const body = init?.body ? JSON.parse(String(init.body)) : {};
+        posted.push({ path, body, auth: new Headers(init?.headers).get("Authorization") });
+        if (path === "/auth/oidc/session" && body.ticket === "held-1") {
+          return Response.json({ error: "login_required", user: { handle: "Alice-3fa2" }, ticket: "switch-1" }, { status: 409 });
+        }
+        if (path === "/auth/oidc/session") return Response.json({ token: "tok-alice", refresh_token: "rt-1", user: { id: "alice", handle: "Alice-3fa2" } });
+        if (path === "/auth/login/start") return Response.json({ rpId: "snapcards.fun", challenge: "chal", state: "st" });
+        if (path === "/auth/login/verify") return Response.json({ error: "login_required", user: { handle: "Bob-77aa" }, offer: "o1" }, { status: 409 });
+        throw new Error(`unexpected ${path}`);
+      };
+      const auth = createAuthBridge({
+        kv: storage.kv,
+        fetcher,
+        credentialHandler: {
+          passkeySignIn: () => Promise.resolve({ id: "cred-1" }),
+          passkeyRegister: () => Promise.resolve({}),
+          oidcStart: (_p, _url, codeVerifier) => Promise.resolve({ ticket: "held-1", codeVerifier, callbackUrl: "snapcards://auth/callback?ticket=held-1" }),
+        },
+      });
+      const offered = await auth.oidcStart("google", { origin: ORIGIN, guestBearerToken: "guest.jwt" });
+      expect(offered.held?.user.handle).toBe("Alice-3fa2");
+      expect(auth.loadSession()).toBe(null);
+      const switched = await auth.redeemTicket({ origin: ORIGIN, ticket: offered.held!.ticket!, codeVerifier: offered.held!.codeVerifier! });
+      expect(switched.session?.userId).toBe("alice");
+      expect(switched.session?.refreshToken).toBe("rt-1");
+      expect(posted.at(-1)?.body.code_verifier).toBe(offered.codeVerifier);
+
+      // A passkey sign-in asks for its refresh token, hints the guest, and is held the same way.
+      const passkey = await auth.passkeyLogin({ origin: ORIGIN, guestBearerToken: "guest.jwt" });
+      expect(passkey.held?.user.handle).toBe("Bob-77aa");
+      const verify = posted.find((p) => p.path === "/auth/login/verify")!;
+      expect([verify.body.refresh, verify.auth]).toEqual([true, "Bearer guest.jwt"]);
+    } finally {
+      storage.close();
+    }
+  });
 });

@@ -38,7 +38,7 @@ import {
   type Catalogs,
 } from "./screen-harness.ts";
 import { screenEnv } from "../interpreter/fragment.js";
-import { drawStrip, guestBox, hasStrip, offersGuest } from "../interpreter/chrome.js";
+import { drawStrip, hasStrip, offersSignin, signinBox } from "../interpreter/chrome.js";
 import { resolveMachineMarkup } from "../interpreter/lint.ts";
 import { load as parseYaml } from "../interpreter/vendor/js-yaml.js";
 import { cssRules, hasSurfaceRules, mergeSheets, routeSheet, unstyledWidgets, type VRoot } from "./visibility.ts";
@@ -154,10 +154,15 @@ export async function runStorybookBatteryForApp(
     routes?: { nav?: unknown }[];
     auth?: unknown;
   };
-  const stripGuest = offersGuest(shellCfg);
+  const stripGuest = offersSignin(shellCfg);
   const stripEnabled = (shellCfg.routes ?? []).every((r) => r.nav !== undefined) &&
     hasStrip(shellCfg, null, stripGuest);
   const screens = new Map(routes.map(route => [route.screen, route.files]));
+  const designPath = join(appDir, "shell/design.css");
+  const designCss = await Deno.stat(designPath).then(() => Deno.readTextFile(designPath), (e) => {
+    if (e instanceof Deno.errors.NotFound) return null;
+    throw e;
+  });
   const { interpretScreen } = await import("../interpreter/screen.js");
 
   for (const [screenName, files] of [...screens].sort(([a], [b]) => a.localeCompare(b))) {
@@ -166,7 +171,9 @@ export async function runStorybookBatteryForApp(
     const html = resolveMachineMarkup(await Deno.readTextFile(htmlPath), chartBindings, screenName);
     const css = await Deno.readTextFile(join(appDir, files.css));
     const fileMap: Record<string, string> = { [files.html]: html, [files.css]: css };
-    const sharedSheets = [];
+    // Every page carries the program's design layer first: the nav's chrome
+    // (Sign in and its ways, sign-out) is styled there, not by any screen.
+    const sharedSheets = designCss === null ? [] : [cssRules(designCss)];
     for (const sh of files.shared ?? []) {
       if (!sh.endsWith(".css")) continue;
       const shText = await Deno.readTextFile(join(appDir, sh));
@@ -338,7 +345,7 @@ export async function runStorybookBatteryForApp(
       const mount = frameDoc.getElementById("shell");
       if (stripEnabled && mount) {
         const nav = drawStrip(frameDoc, shellCfg);
-        if (stripGuest) nav.append(guestBox(frameDoc, shellCfg));
+        if (stripGuest) nav.append(signinBox(frameDoc, shellCfg));
         mount.before(nav);
       }
 

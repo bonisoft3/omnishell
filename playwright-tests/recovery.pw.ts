@@ -40,7 +40,7 @@ async function serve(authenticated = false, automaticGuest = false, promoteTo?: 
       navigator.serviceWorker.register("/offline-first-sw.js");
       createShell({config:"./shell.json",mount:document.getElementById("app")})
         .then(app => { window.appReady = !!app.store; window.navigate = app.navigate; window.cortex = app.cortex; });`],
-    ["shell/shell.json", JSON.stringify({ app: "release", tables: automaticGuest ? ["unused"] : [], read: { unused: "lazy" }, ...(authenticated ? { auth: { required: true, service: "/auth", promote: !!promoteTo } } : {}), local: { probe: "tab" }, carriers: FIXTURE_CARRIERS, routes: [
+    ["shell/shell.json", JSON.stringify({ app: "release", tables: automaticGuest ? ["unused"] : [], read: { unused: "lazy" }, ...(authenticated ? { auth: { required: true, service: "/auth" } } : {}), local: { probe: "tab" }, carriers: FIXTURE_CARRIERS, routes: [
       { path: "/", screen: "home", nav: { label: "Home" }, files: { html: "shell/screens/home.html", css: "shell/screens/home.css", handlers: [] } },
       { path: "/other", screen: "other", nav: { label: "Other" }, files: { html: "shell/screens/other.html", css: "shell/screens/other.css", handlers: [] } },
     ] })],
@@ -227,6 +227,8 @@ async function serve(authenticated = false, automaticGuest = false, promoteTo?: 
     if (path === "auth/login/start") return Response.json({ state: "challenge", challenge: "AA" })
     if (path === "auth/login/verify") return Response.json({ token: "promoted", user: { id: promoteTo, handle: "Promoted", guest: false } })
     if (path === "auth/guest") return Response.json({ token: "userB", user: { id: "B", handle: "User B", guest: true } })
+    // The device's session: a guest adopted, and every sign-out clearing it.
+    if (path === "auth/session/adopt" || path === "auth/signout") return new Response(null, { status: 204 })
     if (!path || path === "other" || (mutationDrain && (path === "english" || path === "hebrew")) || (retarget && path.startsWith("deck/"))) return new Response(entry, { headers: { "Content-Type": "text/html", "Cache-Control": "no-cache" } })
     if (path.endsWith("-other.html")) {
       await transition.gate
@@ -480,7 +482,8 @@ describe("release draft recovery", () => {
       const server = await serve(true, false, switchAccount === "promotion" ? "B" : switchAccount === "same-promotion" ? "A" : undefined)
       try {
         await withPage(async page => {
-          await page.addInitScript(() => {
+          // Only a person has a sign-out to press; only a guest a sign-in.
+          await page.addInitScript((guest) => {
             Object.defineProperty(navigator.credentials, "get", { value: async () => ({
               id: "credential", rawId: new ArrayBuffer(1), type: "public-key",
               getClientExtensionResults: () => ({}),
@@ -488,8 +491,8 @@ describe("release draft recovery", () => {
             }) })
             if (sessionStorage.getItem("seeded")) return
             sessionStorage.setItem("seeded", "yes")
-            sessionStorage.setItem("pronto-token", JSON.stringify({ token: "userA", user: { id: "A", handle: "User A", guest: true } }))
-          })
+            localStorage.setItem("pronto-token", JSON.stringify({ token: "userA", user: { id: "A", handle: "User A", guest } }))
+          }, switchAccount.endsWith("promotion"))
           await page.goto(server.base)
           await ready(page, "A")
           await page.locator('input[name="draft"]').fill("private draft for A")
@@ -499,16 +502,20 @@ describe("release draft recovery", () => {
           await refresh(page)
           await ready(page, "B")
           if (switchAccount === "signout") {
+            // A person's way out is in their chip's panel.
+            await page.locator(".shell-person").click()
             await page.locator(".shell-signout").click()
             await page.locator(".login-guest").waitFor()
             expect(await page.evaluate(() => sessionStorage.getItem("pronto-release-recovery"))).toBe(null)
             await page.locator(".login-guest").click()
           } else if (switchAccount.endsWith("promotion")) {
+            // Sign in opens its panel; the device is the way in.
             await page.locator(".shell-signin").click()
-            await page.waitForFunction(() => JSON.parse(sessionStorage.getItem("pronto-token")!).user.guest === false)
+            await page.locator(".shell-signin-panel .shell-passkey").click()
+            await page.waitForFunction(() => JSON.parse(localStorage.getItem("pronto-token")!).user.guest === false)
             await page.waitForFunction(() => (window as any).appReady && document.querySelector(".shell-signout") !== null)
           } else {
-            await page.evaluate(same => sessionStorage.setItem("pronto-token", JSON.stringify({
+            await page.evaluate(same => localStorage.setItem("pronto-token", JSON.stringify({
               token: "new-token", user: { id: same ? "A" : "B", handle: "New session", guest: false },
             })), switchAccount === "same-account")
             await page.reload()
@@ -564,7 +571,7 @@ describe("release draft recovery", () => {
         release()
         await ready(page, "A")
         expect(await page.locator('input[name="draft"]').inputValue()).toBe("guest draft")
-        expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("pronto-token")!).user.id)).toBe("B")
+        expect(await page.evaluate(() => JSON.parse(localStorage.getItem("pronto-token")!).user.id)).toBe("B")
       })
     } finally { await server.close() }
   })
@@ -583,10 +590,10 @@ describe("release draft recovery", () => {
         await refresh(page)
         await ready(page, "B")
         expect(await page.evaluate(() => Object.keys(JSON.parse(sessionStorage.getItem("pronto-release-recovery")!).screens))).toHaveLength(1)
-        await page.evaluate(() => sessionStorage.setItem("pronto-token", "{malformed"))
+        await page.evaluate(() => localStorage.setItem("pronto-token", "{malformed"))
         await page.reload()
         await ready(page, "B")
-        expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("pronto-token")!).user.guest)).toBe(true)
+        expect(await page.evaluate(() => JSON.parse(localStorage.getItem("pronto-token")!).user.guest)).toBe(true)
         expect(await page.evaluate(() => sessionStorage.getItem("pronto-release-recovery"))).toBe(null)
         await page.evaluate(() => (window as any).navigate("/").finished)
         expect(await page.locator('[data-screen="home"] input[name="draft"]').inputValue()).toBe("")

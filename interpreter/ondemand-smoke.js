@@ -389,7 +389,7 @@ Deno.test({
       const element = { textContent, remove: () => (inDocument = false) };
       globalThis.document.getElementById = (id) => id === "pronto-reads" && inDocument ? element : null;
       globalThis.location = new URL("http://localhost/jogador/p1");
-      sessionStorage.setItem("pronto-token", JSON.stringify({ token: "t", user: { id: "g1", guest: true } }));
+      localStorage.setItem("pronto-token", JSON.stringify({ token: "t", user: { id: "g1", guest: true } }));
       const store = createStore(fake.base, { ...cfg, mintedGuest: true });
       const refreshes = [];
       const stop = store.subscribe("stat", () => refreshes.push(store.query("stat", null, first)), first);
@@ -407,7 +407,7 @@ Deno.test({
         assert(read[0].player.name === "Bia Renomeada", `the second region reads the rename: ${read[0].player.name}`);
       } finally {
         stop();
-        sessionStorage.removeItem("pronto-token");
+        localStorage.removeItem("pronto-token");
         delete globalThis.location;
       }
     });

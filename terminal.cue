@@ -123,11 +123,12 @@ _presenterPolicy: _ @embed(file="presenter-security-policy.txt", type=text)
 
 		// Platform doctrine, published as data. Pronto reads this at compile
 		// time: the prelude describes it to hop 1, and #emit refuses an app auth
-		// mode the terminal does not offer. Users never type identifiers — a
-		// passkey ceremony is one tap with a server-generated display handle,
-		// and a guest mint (always rendered, origin-independent, no ceremony)
-		// issues the same identity shape. `providers` are the ones the terminal
-		// draws a way in for, at the gate and in a guest's strip, and adopts
+		// mode the terminal does not offer. Users never type identifiers or
+		// read the word passkey — the device is the way in, set up only when it
+		// comes back empty and the reader asks, with a server-generated display
+		// handle — and a guest mint (always rendered, origin-independent, no
+		// ceremony) issues the same identity shape. `providers` are the ones the terminal draws a
+		// way in for, at the gate and behind the nav's one Sign in, and adopts
 		// the session of when the provider sends the reader back; the auth
 		// service runs the sign-in itself.
 		// `chrome` is the strip the terminal draws for a signed-in person and
@@ -469,7 +470,7 @@ _presenterPolicy: _ @embed(file="presenter-security-policy.txt", type=text)
 		modules: [...#Path]
 		modules: [
 			"shell.js", "cortex-navigation.js", "row-attachments.js", "machine-engine.js", "observe-actor.js", "invoked-actors.js", "chrome.js", "screen.js", "fragment.js", "data-sync.js", "validate.js", "render.js",
-			"release-plan.js", "early-gestures.js", "early-replay.js", "nav-feedback.js", "preloads.js", "link-prefetch.js", "markup.js", "script-url.js", "deferred-boot.js",
+			"release-plan.js", "early-gestures.js", "early-replay.js", "nav-feedback.js", "preloads.js", "link-prefetch.js", "passkey-signals.js", "signin.js", "markup.js", "script-url.js", "deferred-boot.js",
 			"host-dom.js", "hatch.js", "hatch-worker.js", "hatch-presenter.js", "presenter-realm.js", "presenter.js",
 			"storybook.js", "jessie.js", "statechart.js", "kinetic.js", "kinetic-milestones.js", "kinetic-session.js", "kinetic-sound.js", "kinetic-mount.js", "rtc-channel.js", "prng.js",
 			"vendor/mecha-client.js", "vendor/xstate.js", "vendor/js-yaml.js", "vendor/ses.umd.min.js", "vendor/morphlex.js",

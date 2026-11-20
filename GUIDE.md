@@ -16,15 +16,59 @@ i18n, testing, release, the build loop — is
 If you have written Elm, React with `useReducer`, or htmx, you already know the
 shape; [Lineage](#lineage-and-mappings) at the foot is the translation table.
 
-## Guest passkeys
+## Signing in
 
-Apps that declare `auth.promote` show separate Sign in and Create a passkey
-actions in the navigation strip. Creation uses the current guest session, so
-its identity and existing rows are retained. A server-refused login does not
-start registration. Both actions are disabled during a ceremony.
+Any app that declares `capabilities.auth` gets one **Sign in** in the nav for
+anyone not signed in as a person, opening one panel in place, never over the
+page: "Continue with" each provider, then "Passkey" wherever the browser has
+passkeys. With no provider and no passkeys there is no Sign in at all. What
+the reader sees as a visitor, a guest and a person, how passkeys, faces and
+providers sign them in, and what a session claims is
+[pronto's identity](../pronto/docs/identity.md). Do not draw your
+own sign-in entry or a login modal; an app that requires a sign-in
+(`auth.required`) gets the terminal's login screen instead, and reloads into
+it on sign-out. Rename edits the name on the chip; an app that keeps the name
+itself (`auth.self.name`) has its column renamed instead. An app's own
+`data-auth-action="device"` signs in with the device's passkey and, where the
+device holds none of this app's, asks "What should we call you?"; only a
+device asked alone (WebAuthn's immediate UI mode) says it is empty, and
+anywhere else a refusal is the reader's dismissal.
 
-The chrome classes are `.shell-signin` and `.shell-register`; catalogue copy
-includes `chrome_passkey`, `chrome_passkey_create` and `chrome_passkey_failed`.
+Where a guest first has something worth keeping, place an inline offer in the
+screen, visible under `body[data-auth="guest"]`:
+
+```html
+<p class="keep">Keep this on your devices.
+  <button type="button" data-auth-action="passkey-register">{msg.keep_action}</button></p>
+```
+
+`data-auth-action` is `device` (the one way in: the device's passkey, or,
+with nothing saved there, the account made on it — the guest's, keeping its
+work), `passkey-register` (set this device up, keeping a guest's work; a
+person already has a way in, and is refused), `passkey-signin` (a passkey on
+this device or a phone), `rename` (the nav's rename, keeping a visitor's
+guest first) or `signout`; `data-auth-provider="google"` leaves
+for the provider, a guest's sign-in taking the guest along. A failure is
+announced beside the control (`.shell-auth-feedback[role=alert]`). A guest's
+sign-in whose passkey or provider is another account's is not switched to:
+the feedback names that account (`.shell-auth-taken`) and offers
+`.shell-auth-choice` buttons, Switch to it and Stay here.
+`[data-auth-field="handle"|"name"]` shows who the session is. The nav's
+classes are `.shell-signin` (`.shell-guest` for a shown guest), `.shell-person`
+(a person's chip), `.shell-chip-who` and `.shell-chip-label` inside either,
+`.shell-signin-panel`, `.shell-signin-ways`, `.shell-provider`,
+`.shell-passkey` (Passkey), `.shell-accounts` (its step: `.shell-faces`,
+`.shell-face`, `.shell-face-pick`, `.shell-face-mark`, `.shell-face-name`,
+`.shell-face-forget`, `.shell-passkey-form`, `.shell-passkey-go`),
+`.shell-name-form`, `.shell-rename`, `.shell-rename-form`,
+`.shell-account-page`, `.shell-signout` and `.shell-guest-signout`; its copy
+is `chrome_passkey`, `chrome_signin_with`, `chrome_device`, `chrome_close`,
+`chrome_guest`, `chrome_guest_signout_hint`, `chrome_signin`,
+`chrome_passkey_failed`, `chrome_taken`, `chrome_switch`, `chrome_stay`,
+`chrome_name_title`, `chrome_continue`, `chrome_back`, `chrome_signout`,
+`chrome_profile`, `chrome_rename`, `chrome_name_label`, `chrome_save`,
+`chrome_name_taken`, `chrome_keep`, `chrome_forget`, `chrome_this_device`,
+`chrome_signed_in_guest` and `chrome_create_passkey`.
 
 ## What you are writing
 

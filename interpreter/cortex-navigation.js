@@ -201,9 +201,13 @@ export function createCortexNavigation({ config, actors }, activate, attach) {
   };
 }
 
-export function authPosture(session, promote = false) {
+/** Who the reader is to the page: nobody yet, a guest who has written
+ * something (a minted guest is nobody until it does), or a person. */
+export function authPosture(session) {
   if (!session) return "anonymous";
-  if (session.user?.guest) return promote && !session.committed ? "anonymous" : "guest";
+  // A guest is shown once it wrote, or once Sign in on a device nobody
+  // signed in on made it the reader (`shown`).
+  if (session.user?.guest) return session.committed || session.shown ? "guest" : "anonymous";
   return "user";
 }
 
@@ -248,14 +252,11 @@ export const SESSION_LIFECYCLE_CHART = Object.freeze({
 export function createSessionLifecycle(options = {}) {
   const {
     session: initialSession = null,
-    promote = false,
     required = false,
     ensureSession = null,
     passkeySignin = null,
     passkeyRegister = null,
     signOut = null,
-    hasKnownPasskeys = null,
-    isProviderHinted = null,
   } = options;
 
   const pending = new Map();
@@ -270,25 +271,33 @@ export function createSessionLifecycle(options = {}) {
     else entry.resolve(outcome);
   };
 
-  const runCeremony = (runner) => fromPromise(async ({ input }) => {
+  // A sign-in asks the device straight away: minting a guest first would
+  // spend the click's activation, which immediate mode needs live. Only a
+  // register gives a session the passkey, so only it needs one.
+  const runCeremony = (runner, needsSession) => fromPromise(async ({ input }) => {
     if (typeof runner !== "function") {
-      throw { token: input.token, error: new Error("Passkey ceremony runner is not configured"), recoveryOffered: false, activeSession: input.session ?? null };
+      throw { token: input.token, error: new Error("Passkey ceremony runner is not configured"), empty: false, taken: null, activeSession: input.session ?? null };
     }
     let activeSession = input.session ?? null;
     try {
-      if (!activeSession && typeof ensureSession === "function") {
+      if (needsSession && !activeSession && typeof ensureSession === "function") {
         activeSession = await ensureSession();
       }
-      const next = await runner(activeSession);
+      const next = await runner(activeSession, input.how, input.name);
       const sameOwner = sessionOwnerOf(next) !== undefined && sessionOwnerOf(next) === sessionOwnerOf(activeSession);
-      const transitionMode = !required && input.origin === "action" && sameOwner ? "in-place" : "reload";
+      const transitionMode = !required && input.origin === "action" ? "in-place" : "reload";
       return { token: input.token, session: next, activeSession, sameOwner, transitionMode };
     } catch (error) {
-      const recoveryOffered = Boolean(
-        error?.unknownCredential === true ||
-          (error?.name === "NotAllowedError" && typeof hasKnownPasskeys === "function" && hasKnownPasskeys(error?.rpId)),
-      );
-      throw { token: input.token, error, recoveryOffered, activeSession };
+      // The device came back empty (the runner says so), where its way in
+      // asks a name to make the account under, or the passkey is another
+      // account's, which the reader may take or leave.
+      throw {
+        token: input.token,
+        error,
+        empty: error?.empty === true,
+        taken: error?.taken ?? null,
+        activeSession,
+      };
     }
   });
 
@@ -303,21 +312,21 @@ export function createSessionLifecycle(options = {}) {
 
   const applySessionSet = [
     {
-      guard: ({ event }) => authPosture(event.session, promote) === "user",
+      guard: ({ event }) => authPosture(event.session) === "user",
       target: "#session.user.idle",
       actions: assign({
         session: ({ event }) => event.session,
         error: () => null,
-        recoveryOffered: () => false,
+        empty: () => false,
       }),
     },
     {
-      guard: ({ event }) => authPosture(event.session, promote) === "guest",
+      guard: ({ event }) => authPosture(event.session) === "guest",
       target: "#session.guest.idle",
       actions: assign({
         session: ({ event }) => event.session,
         error: () => null,
-        recoveryOffered: () => false,
+        empty: () => false,
       }),
     },
     {
@@ -325,7 +334,7 @@ export function createSessionLifecycle(options = {}) {
       actions: assign({
         session: ({ event }) => event.session ?? null,
         error: () => null,
-        recoveryOffered: () => false,
+        empty: () => false,
       }),
     },
   ];
@@ -345,55 +354,33 @@ export function createSessionLifecycle(options = {}) {
         target: "authenticating",
         actions: assign({
           error: () => null,
-          recoveryOffered: () => false,
+          empty: () => false,
         }),
       },
       "passkey.register": {
         target: "registering",
         actions: assign({
           error: () => null,
-          recoveryOffered: () => false,
+          empty: () => false,
         }),
       },
-      signout: postureName === "guest"
-        ? [
-          {
-            guard: () => !required && promote && !(typeof isProviderHinted === "function" && isProviderHinted()),
-            target: "#session.anonymous.idle",
-            actions: [
-              assign({
-                session: ({ context }) => {
-                  if (!context.session) return null;
-                  const { committed: _, ...rest } = context.session;
-                  return rest;
-                },
-                error: () => null,
-                recoveryOffered: () => false,
-                transitionMode: () => "in-place",
-              }),
-              ({ context, event }) => queueMicrotask(() => finish(event.token, { mode: "in-place", session: context.session })),
-            ],
-          },
-          {
-            target: "#session.signingOut",
-            actions: assign({ returnPosture: () => "guest" }),
-          },
-        ]
-        : {
-          target: "#session.signingOut",
-          actions: assign({ returnPosture: () => postureName }),
-        },
+      // A guest's way out forgets it, as a person's does: its work stays
+      // with the account no device holds any more.
+      signout: {
+        target: "#session.signingOut",
+        actions: assign({ returnPosture: () => postureName }),
+      },
     };
 
     const doneTransition = [
       {
-        guard: ({ event }) => authPosture(event.output.session, promote) === "guest",
+        guard: ({ event }) => authPosture(event.output.session) === "guest",
         target: "#session.guest.idle",
         actions: [
           assign({
             session: ({ event }) => event.output.session,
             error: () => null,
-            recoveryOffered: () => false,
+            empty: () => false,
             transitionMode: ({ event }) => event.output.transitionMode,
           }),
           ({ event }) => queueMicrotask(() => finish(event.output.token, {
@@ -411,7 +398,7 @@ export function createSessionLifecycle(options = {}) {
           assign({
             session: ({ event }) => event.output.session,
             error: () => null,
-            recoveryOffered: () => false,
+            empty: () => false,
             transitionMode: ({ event }) => event.output.transitionMode,
           }),
           ({ event }) => queueMicrotask(() => finish(event.output.token, {
@@ -429,23 +416,24 @@ export function createSessionLifecycle(options = {}) {
       assign({
         session: ({ context, event }) => context.session ?? event.error.activeSession ?? null,
         error: ({ event }) => event.error.error,
-        recoveryOffered: ({ event }) => Boolean(event.error.recoveryOffered),
+        empty: ({ event }) => event.error.empty,
       }),
       ({ event }) => queueMicrotask(() => finish(event.error.token, {
         status: "failed",
         error: event.error.error,
-        recoveryOffered: Boolean(event.error.recoveryOffered),
+        empty: event.error.empty,
+        taken: event.error.taken,
       })),
     ];
 
     const errorTransition = [
       {
-        guard: ({ context, event }) => authPosture(context.session ?? event.error.activeSession ?? null, promote) === "user",
+        guard: ({ context, event }) => authPosture(context.session ?? event.error.activeSession ?? null) === "user",
         target: "#session.user.failed",
         actions: errorActions,
       },
       {
-        guard: ({ context, event }) => authPosture(context.session ?? event.error.activeSession ?? null, promote) === "guest",
+        guard: ({ context, event }) => authPosture(context.session ?? event.error.activeSession ?? null) === "guest",
         target: "#session.guest.failed",
         actions: errorActions,
       },
@@ -480,6 +468,7 @@ export function createSessionLifecycle(options = {}) {
             input: ({ context, event }) => ({
               token: event.token,
               origin: event.origin ?? "action",
+              how: event.how,
               session: context.session,
             }),
             onDone: doneTransition,
@@ -493,6 +482,7 @@ export function createSessionLifecycle(options = {}) {
             input: ({ context, event }) => ({
               token: event.token,
               origin: event.origin ?? "action",
+              name: event.name,
               session: context.session,
             }),
             onDone: doneTransition,
@@ -503,7 +493,7 @@ export function createSessionLifecycle(options = {}) {
     };
   };
 
-  const initialPosture = authPosture(initialSession, promote);
+  const initialPosture = authPosture(initialSession);
   const machine = createMachine(
     {
       id: "session",
@@ -511,7 +501,7 @@ export function createSessionLifecycle(options = {}) {
       context: {
         session: initialSession,
         error: null,
-        recoveryOffered: false,
+        empty: false,
         transitionMode: null,
         returnPosture: initialPosture,
       },
@@ -526,13 +516,15 @@ export function createSessionLifecycle(options = {}) {
             onDone: {
               target: "#session.anonymous.idle",
               actions: [
+                // The page becomes a visitor's in place; one that admits only
+                // a signed-in reader reloads into its gate.
                 assign({
                   session: () => null,
                   error: () => null,
-                  recoveryOffered: () => false,
-                  transitionMode: () => "reload",
+                  empty: () => false,
+                  transitionMode: () => required ? "reload" : "in-place",
                 }),
-                ({ event }) => queueMicrotask(() => finish(event.output.token, { mode: "reload" })),
+                ({ event }) => queueMicrotask(() => finish(event.output.token, { mode: required ? "reload" : "in-place" })),
               ],
             },
             onError: [
@@ -557,8 +549,8 @@ export function createSessionLifecycle(options = {}) {
     },
     {
       actors: {
-        passkeySignin: runCeremony(passkeySignin),
-        passkeyRegister: runCeremony(passkeyRegister),
+        passkeySignin: runCeremony(passkeySignin, false),
+        passkeyRegister: runCeremony(passkeyRegister, true),
         signOut: signOutActor,
       },
     },
@@ -575,10 +567,10 @@ export function createSessionLifecycle(options = {}) {
       if ("user" in val) return "user";
       if ("guest" in val) return "guest";
       if ("anonymous" in val) {
-        return snap.context.session ? authPosture(snap.context.session, promote) : "anonymous";
+        return snap.context.session ? authPosture(snap.context.session) : "anonymous";
       }
     }
-    return authPosture(snap.context.session, promote);
+    return authPosture(snap.context.session);
   };
 
   const ceremonyState = () => {
@@ -595,9 +587,9 @@ export function createSessionLifecycle(options = {}) {
     return state === "authenticating" || state === "registering" || state === "signingOut";
   };
 
-  const dispatchCeremony = (type, origin = "action") => {
+  const dispatchCeremony = (type, origin = "action", how = undefined, name = undefined) => {
     if (stopped || busy()) return Promise.resolve({ status: "busy" });
-    const event = { type, token: ++seq, origin };
+    const event = { type, token: ++seq, origin, how, name };
     if (!actor.getSnapshot().can(event)) return Promise.resolve({ status: "busy" });
     return new Promise((resolve, reject) => {
       pending.set(event.token, { resolve, reject });
@@ -631,11 +623,14 @@ export function createSessionLifecycle(options = {}) {
       }
       return actor.getSnapshot().context.session ?? current;
     },
-    signInPasskey({ origin = "action" } = {}) {
-      return dispatchCeremony("passkey.signin", origin);
+    // `how` is "device" for the device's own way in (immediate where the
+    // browser has it), and absent for one that also reaches a phone.
+    signInPasskey({ origin = "action", how } = {}) {
+      return dispatchCeremony("passkey.signin", origin, how);
     },
-    registerPasskey({ origin = "action" } = {}) {
-      return dispatchCeremony("passkey.register", origin);
+    // `name` is what the account is called, the one the reader gave.
+    registerPasskey({ origin = "action", name } = {}) {
+      return dispatchCeremony("passkey.register", origin, undefined, name);
     },
     signOut() {
       if (stopped || busy()) return Promise.resolve({ mode: "busy" });

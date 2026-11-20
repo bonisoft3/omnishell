@@ -17,40 +17,75 @@ import { directionOf, localeTable, requiredParams, routeHref, routeParams } from
 
 // The gate's copy, reachable only where the app requires a sign-in.
 const LOGIN = {
-  chrome_signin_hint: "One tap with your passkey — new here, one is created for you.",
-  chrome_signin: "Continue",
+  chrome_signin_hint: "Face ID, fingerprint or screen lock — no password.",
   chrome_signin_guest: "Continue as guest",
   chrome_signin_failed: "That did not go through. Try again.",
 };
 
-// The strip's, drawn wherever a session exists — behind a gate, or as the guest
+// The nav's, drawn wherever a session exists — behind a gate, or as the guest
 // every app with a table of its own is handed.
 const SESSION = {
   chrome_signout: "sign out",
 };
 
-// A guest's way to a passkey, drawn where the app offers one (auth.promote).
-const PROMOTE = {
-  chrome_passkey: "sign in",
-  chrome_passkey_create: "create a passkey",
-  chrome_passkey_failed: "sign-in did not go through",
+// The ways in, drawn for anyone not signed in as a person wherever the app
+// declares auth: the gate's, and the nav's Sign in, which opens one panel —
+// "Continue with" each provider, then Passkey. Passkey opens onto the
+// accounts this device signed in with, and one field: the browser's own
+// autofill offers every passkey it holds for the site, and a new name makes
+// one. A guest is "Guest" to itself, signed in on this device; its panel
+// keeps its work the same ways and ends in a quiet Sign out, which no sign-in
+// brings back; its sign-in into another account offers that account or the
+// guest. A person's chip opens onto their page, Rename and Sign out. Nobody
+// sees their own handle's suffix or a guest's generated name: those are for
+// others.
+const SIGNIN = {
+  chrome_passkey: "Sign in",
+  chrome_signin: "Continue with this device",
+  chrome_signin_with: "Continue with",
+  chrome_device: "Passkey",
+  chrome_close: "Close",
+  chrome_guest: "Guest",
+  chrome_guest_signout_hint: "Its work can't be recovered",
+  chrome_passkey_failed: "Sign-in did not go through",
+  chrome_taken: "Already an account",
+  chrome_switch: "Switch to it",
+  chrome_stay: "Stay here",
+  chrome_name_title: "What should we call you?",
+  chrome_continue: "Continue",
+  chrome_back: "Back",
+  chrome_profile: "My page",
+  chrome_rename: "Rename",
+  chrome_name_label: "Your name",
+  chrome_save: "Save",
+  chrome_name_taken: "Another account here has that name",
+  chrome_keep: "Keep it with",
+  chrome_forget: "Forget on this device",
+  chrome_this_device: "This device",
+  chrome_signed_in_guest: "Signed in as guest",
+  chrome_create_passkey: "Create a passkey",
+  chrome_delete_account: "Delete account",
+  chrome_delete_confirm: "Delete for good",
 };
 
-// A provider's way in, one word per provider the auth service knows
-// (auth.providers), drawn at the gate and in a guest's strip.
+// A provider's way in, one sentence per provider the auth service knows
+// (auth.providers): the gate's link, and the name the panel's button is read
+// by. What the button shows is the provider's own name, which no language
+// translates.
 const PROVIDERS = {
   chrome_signin_google: "Continue with Google",
   chrome_signin_apple: "Continue with Apple",
 };
+const PROVIDER_NAMES = { google: "Google", apple: "Apple" };
 
 /** The key a provider's way in is spoken under. */
 export const providerKey = (provider) => `chrome_signin_${provider}`;
 
 /** Which copy a reader can reach, by the surface that shows it: an app is asked
  * for the group its own declaration puts on screen, never for the rest. */
-export const CHROME_KEYS = { login: Object.keys(LOGIN), session: Object.keys(SESSION), promote: Object.keys(PROMOTE), providers: Object.keys(PROVIDERS) };
+export const CHROME_KEYS = { login: Object.keys(LOGIN), session: Object.keys(SESSION), signin: Object.keys(SIGNIN), providers: Object.keys(PROVIDERS) };
 
-export const CHROME = { ...LOGIN, ...SESSION, ...PROMOTE, ...PROVIDERS };
+export const CHROME = { ...LOGIN, ...SESSION, ...SIGNIN, ...PROVIDERS };
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -171,9 +206,8 @@ export function providerHref(service, provider, here) {
   return `${service}/oidc/${encodeURIComponent(provider)}/start?return=${encodeURIComponent(here)}`;
 }
 
-/** Whether a guest's strip offers a way to sign in: a passkey (auth.promote),
- * or a provider. */
-export const offersGuest = (cfg) => Boolean(cfg.auth?.promote) || (cfg.auth?.providers?.length ?? 0) > 0;
+/** Whether the nav offers a guest a way in: wherever the app declares auth. */
+export const offersSignin = (cfg) => cfg.auth !== undefined;
 
 /** What the chrome says, in the language the page is in. A key no group holds
  * is the terminal asking for copy it never wrote, which no catalogue can
@@ -196,7 +230,7 @@ export function stripRoutes(cfg) {
  * `session` is the restored one; `mintedGuest`, one minted on first write. */
 export function hasStrip(cfg, session, mintedGuest = false) {
   const guest = session ? Boolean(session.user?.guest) : mintedGuest;
-  const person = guest ? offersGuest(cfg) : Boolean(session);
+  const person = guest ? offersSignin(cfg) : Boolean(session);
   return stripRoutes(cfg).length > 1 || person || Boolean(cfg.brand?.label);
 }
 
@@ -237,31 +271,204 @@ export const supportsPasskeys = () =>
   Boolean(globalThis.PublicKeyCredential) &&
   globalThis.window.isSecureContext !== false;
 
-/** A guest's end of the strip where the app offers a way in (offersGuest):
- * one gesture each, a passkey's (sign-in or create) and every provider's,
- * their words and the providers' addresses the strip's to write in the page's
- * language (localizeStrip), the key saying which word. */
-export function guestBox(doc, cfg) {
+/** The name a handle carries, as its own person reads it: the words its `-`
+ * joins for addresses, without the four hex digits that keep it apart for
+ * others (`lemon-manatee-8048` is "lemon manatee"). */
+export const nameOf = (handle) => (handle ?? "").replace(/-[0-9a-f]{4}$/, "").replaceAll("-", " ");
+
+function stroke(doc, cls, shapes) {
+  const svg = doc.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("class", cls);
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  for (const [tag, attrs] of shapes) {
+    const shape = doc.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs)) shape.setAttribute(k, v);
+    svg.append(shape);
+  }
+  return svg;
+}
+
+const worded = (doc, tag, cls, key) => {
+  const el = doc.createElement(tag);
+  if (cls) el.className = cls;
+  el.setAttribute("data-key", key);
+  return el;
+};
+
+/** The nav's end for anyone not signed in as a person (offersSignin): a
+ * control that opens one panel in place — never over the page. For a visitor
+ * it is Sign in; for a guest it is "Guest", on this device, with an open
+ * lock, and the panel is about keeping its work. Passkey is a
+ * `data-auth-action` control, so one handler opens its accounts; it starts
+ * hidden, shown where the browser has passkeys. Words and the providers'
+ * addresses are the nav's to write in the page's language (localizeStrip),
+ * each `data-key` saying which word. */
+export function signinBox(doc, cfg, guest = null) {
   const box = doc.createElement("span");
   box.className = "shell-me";
-  if (cfg?.auth?.promote) {
-    const signIn = doc.createElement("button");
-    signIn.setAttribute("type", "button");
-    signIn.className = "shell-signin";
-    signIn.setAttribute("data-key", "chrome_passkey");
-    const create = doc.createElement("button");
-    create.setAttribute("type", "button");
-    create.className = "shell-register";
-    create.setAttribute("data-key", "chrome_passkey_create");
-    box.append(signIn, create);
+  const open = doc.createElement("button");
+  open.setAttribute("type", "button");
+  open.className = "shell-signin";
+  open.setAttribute("aria-expanded", "false");
+  open.setAttribute("aria-controls", "shell-signin-panel");
+  if (guest === null) {
+    open.setAttribute("data-key", "chrome_passkey");
+    // With no provider the device is the only way in, and only the browser
+    // knows whether it can ask the device alone (renderSignin).
+    if ((cfg.auth.providers ?? []).length === 0) open.setAttribute("hidden", "");
+  } else {
+    open.classList.add("shell-guest");
+    const mark = doc.createElement("span");
+    mark.className = "shell-avatar";
+    mark.setAttribute("aria-hidden", "true");
+    mark.append(stroke(doc, "shell-guest-icon", [["circle", { cx: "12", cy: "8", r: "4" }], ["path", { d: "M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8" }]]));
+    chip(doc, open, mark, worded(doc, "span", "handle", "chrome_guest"), worded(doc, "span", "shell-chip-label", "chrome_this_device"), false);
   }
-  for (const provider of cfg?.auth?.providers ?? []) {
+  const panel = doc.createElement("div");
+  panel.className = "shell-signin-panel";
+  panel.id = "shell-signin-panel";
+  panel.setAttribute("role", "group");
+  panel.setAttribute("aria-labelledby", "shell-signin-title");
+  panel.setAttribute("hidden", "");
+  const head = doc.createElement("div");
+  head.className = "shell-signin-head";
+  const title = worded(doc, "strong", "shell-signin-title", guest === null ? "chrome_passkey" : "chrome_signed_in_guest");
+  title.id = "shell-signin-title";
+  const close = doc.createElement("button");
+  close.setAttribute("type", "button");
+  close.className = "shell-signin-close";
+  close.setAttribute("data-label-key", "chrome_close");
+  close.append(stroke(doc, "shell-close-icon", [["path", { d: "M6 6l12 12M18 6L6 18" }]]));
+  head.append(title, close);
+  const ways = doc.createElement("div");
+  ways.className = "shell-signin-ways";
+  for (const provider of cfg.auth.providers ?? []) {
     const a = doc.createElement("a");
     a.className = "shell-provider";
     a.setAttribute("data-provider", provider);
-    a.setAttribute("data-key", providerKey(provider));
-    box.append(a);
+    a.setAttribute("data-label-key", providerKey(provider));
+    const mark = doc.createElement("span");
+    mark.className = "shell-provider-mark";
+    mark.setAttribute("aria-hidden", "true");
+    mark.textContent = (PROVIDER_NAMES[provider] ?? provider)[0].toUpperCase();
+    const name = doc.createElement("span");
+    name.textContent = PROVIDER_NAMES[provider] ?? provider;
+    a.append(mark, name);
+    ways.append(a);
   }
+  const device = doc.createElement("button");
+  device.setAttribute("type", "button");
+  device.className = "shell-passkey";
+  device.setAttribute("data-auth-action", "accounts");
+  device.setAttribute("hidden", "");
+  device.append(passkeyIcon(doc), worded(doc, "span", "", "chrome_device"));
+  ways.append(device);
+  panel.append(head, worded(doc, "p", "shell-signin-with", guest === null ? "chrome_signin_with" : "chrome_keep"), ways);
+  if (guest !== null) {
+    const out = worded(doc, "button", "shell-guest-signout", "chrome_signout");
+    out.setAttribute("type", "button");
+    out.setAttribute("data-auth-action", "signout");
+    out.setAttribute("data-title-key", "chrome_guest_signout_hint");
+    panel.append(out);
+  }
+  box.append(open, panel);
+  return box;
+}
+
+/** A person's name as they see it: the name alone, never the suffix that
+ * keeps their handle apart for others. */
+export function ownName(doc, handle, name = nameOf(handle)) {
+  const shown = doc.createElement("span");
+  shown.className = "handle";
+  shown.textContent = name;
+  return shown;
+}
+
+/** The passkey mark: a person and a key. */
+export const passkeyIcon = (doc) => stroke(doc, "shell-passkey-icon", [
+  ["circle", { cx: "9", cy: "7.5", r: "3.5" }], ["path", { d: "M2.5 20c0-3.6 2.9-6.5 6.5-6.5 1.3 0 2.5.4 3.5 1" }],
+  ["circle", { cx: "17.5", cy: "13.5", r: "2.5" }], ["path", { d: "M17.5 16v5M17.5 19h2" }],
+]);
+
+/** The one this device is, on the control that opens its panel: a mark, the
+ * name, a word under it, and a lock — open for a guest, whose work nothing
+ * keeps, closed for a person. */
+function chip(doc, open, mark, name, label, locked) {
+  const who = doc.createElement("span");
+  who.className = "shell-chip-who";
+  who.append(name, label);
+  open.append(mark, who, stroke(doc, "shell-lock", [
+    ["rect", { x: "4", y: "11", width: "16", height: "10", rx: "2" }],
+    ["path", { d: locked ? "M8 11V7a4 4 0 0 1 8 0v4" : "M8 11V7a4 4 0 0 1 7.6-1.7" }],
+  ]));
+}
+
+function renameItem(doc) {
+  const rename = doc.createElement("button");
+  rename.setAttribute("type", "button");
+  rename.className = "shell-rename";
+  rename.setAttribute("data-auth-action", "rename");
+  rename.append(worded(doc, "span", "", "chrome_rename"));
+  return rename;
+}
+
+/** A person's end of the nav: their chip, opening the account's panel in
+ * place — their page where the app has one, Rename, and Sign out, after which
+ * the account is still among Passkey's. `label` is the word under the name:
+ * the address a provider vouched for, or the copy key of how they signed in. */
+export function accountBox(doc, cfg, user, label) {
+  const box = doc.createElement("span");
+  box.className = "shell-me";
+  const open = doc.createElement("button");
+  open.setAttribute("type", "button");
+  open.className = "shell-person";
+  open.setAttribute("aria-expanded", "false");
+  open.setAttribute("aria-controls", "shell-account-panel");
+  const word = label.key === undefined ? doc.createElement("span") : worded(doc, "span", "", label.key);
+  word.classList.add("shell-chip-label");
+  if (label.text !== undefined) word.textContent = label.text;
+  const name = nameOf(user.handle);
+  const mark = doc.createElement("span");
+  mark.className = "shell-avatar";
+  mark.setAttribute("aria-hidden", "true");
+  mark.textContent = [...name][0]?.toLocaleUpperCase() ?? "";
+  chip(doc, open, mark, ownName(doc, user.handle), word, true);
+  const panel = doc.createElement("div");
+  panel.className = "shell-signin-panel shell-account";
+  panel.id = "shell-account-panel";
+  panel.setAttribute("role", "group");
+  panel.setAttribute("hidden", "");
+  const self = cfg.auth?.self;
+  if (self !== undefined) {
+    const route = cfg.routes.find((r) => r.screen === self.route);
+    if (route === undefined) throw new Error(`auth.self names "${self.route}", which is no route of this app`);
+    // The person is fixed for the session; only the locale of their address
+    // moves, so the strip's own pass composes the href (localizeStrip).
+    const page = worded(doc, "a", "shell-account-page", "chrome_profile");
+    page.setAttribute("data-route", self.route);
+    for (const [, name] of route.path.matchAll(/:(\w+)/g)) page.setAttribute(`data-param-${name}`, user[name]);
+    panel.append(page);
+  }
+  const out = doc.createElement("button");
+  out.setAttribute("type", "button");
+  out.className = "shell-signout";
+  out.setAttribute("data-auth-action", "signout");
+  out.append(worded(doc, "span", "", "chrome_signout"));
+  // Deleting is for good, so the first press only asks (data-confirm) and the
+  // panel closing takes the question back.
+  const drop = doc.createElement("button");
+  drop.setAttribute("type", "button");
+  drop.className = "shell-delete";
+  drop.setAttribute("data-auth-action", "delete-account");
+  drop.append(worded(doc, "span", "shell-delete-ask", "chrome_delete_account"), worded(doc, "span", "shell-delete-confirm", "chrome_delete_confirm"));
+  panel.append(renameItem(doc), out, drop);
+  box.append(open, panel);
   return box;
 }
 
@@ -288,9 +495,8 @@ export function localizeStrip(nav, cfg, { locale, here, search = "", messages, e
       ? (messages?.[locale]?.[cfg.brand.key] ?? messages?.[cfg.i18n?.default]?.[cfg.brand.key] ?? cfg.brand.label)
       : cfg.brand.label;
   }
-  // The strip's own links, and not the person's: renderSession's anchor
-  // names a route too, and is a name and a handle rather than a word — a
-  // label written onto it takes both down.
+  // The strip's own links, and not the account's: its page is worded by its
+  // data-key below.
   for (const a of nav.querySelectorAll(":scope > a[data-route]")) {
     // Re-apply even when `key` is absent so a served strip adopted from a
     // cached document picks up renamed default-language labels in `shell.yaml`.
@@ -308,14 +514,17 @@ export function localizeStrip(nav, cfg, { locale, here, search = "", messages, e
       a.setAttribute("title", word);
     }
   }
-  const out = nav.querySelector(".shell-signout");
-  if (out) out.textContent = chromeText("chrome_signout", { messages, locale });
-  for (const button of nav.querySelectorAll(".shell-signin, .shell-register")) {
-    button.textContent = chromeText(button.getAttribute("data-key"), { messages, locale });
+  for (const el of nav.querySelectorAll(".shell-me [data-key]")) {
+    el.textContent = chromeText(el.getAttribute("data-key"), { messages, locale });
+  }
+  for (const el of nav.querySelectorAll(".shell-me [data-label-key]")) {
+    el.setAttribute("aria-label", chromeText(el.getAttribute("data-label-key"), { messages, locale }));
+  }
+  for (const el of nav.querySelectorAll(".shell-me [data-title-key]")) {
+    el.setAttribute("title", chromeText(el.getAttribute("data-title-key"), { messages, locale }));
   }
   // The provider brings the reader back to the page they left, in its language.
   for (const a of nav.querySelectorAll(".shell-provider")) {
-    a.textContent = chromeText(a.getAttribute("data-key"), { messages, locale });
     if (here !== undefined) a.setAttribute("href", providerHref(cfg.auth?.service, a.getAttribute("data-provider"), here + search));
   }
 }

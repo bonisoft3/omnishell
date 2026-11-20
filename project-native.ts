@@ -2178,6 +2178,16 @@ export function projectScreenToDivKit(
 
     const cls = new Set(node.classes);
 
+    // The projected account sheet's parts (nativeAccountSheet).
+    if (cls.has("native-ways") || cls.has("native-held")) {
+      const v = addVar("held_handle", "string", "");
+      return `@{${v} ${cls.has("native-held") ? "!=" : "=="} '' ? 'visible' : 'gone'}`;
+    }
+    if (cls.has("native-delete-ask") || cls.has("native-delete-confirm")) {
+      const v = addVar("delete_confirm", "string", "no");
+      return `@{${v} ${cls.has("native-delete-confirm") ? "==" : "!="} 'yes' ? 'visible' : 'gone'}`;
+    }
+
     if (cls.has("fullscreen-topbar")) {
       const v = addVar("status", "string", "playing");
       return `@{${v} == 'fullscreen' ? 'visible' : 'gone'}`;
@@ -2819,6 +2829,42 @@ export function emitWinioRustSource(
 }
 
 /** Project all declared screens of an app into NativeScreenIr, DivKit JSON, and Rust `winio` specs. */
+/** The account sheet a native host shows from its rail or bar: on the web the
+ * terminal's chip and panel draw it, which a native host has no DOM for, so
+ * the projection writes the same choices from the app's auth declaration —
+ * a passkey, each provider, the way out and deleting the account — and every
+ * screen carries it as the sheet the host's account button opens. */
+export function nativeAccountSheet(auth: { service?: string; providers?: string[] } | undefined): string {
+  if (auth?.service === undefined) return "";
+  const names: Record<string, string> = { google: "Google", apple: "Apple" };
+  const choice = (id: string, attr: string, text: string) =>
+    `<button type="button" id="${id}" class="login-method-btn" ${attr}><span class="login-method-title">${text}</span></button>`;
+  // The runtime's variables say which part shows (inferVisibilityExpression):
+  // the ways in, or the account a guest's sign-in found held; Delete account,
+  // or, once asked, the press that deletes for good.
+  return [
+    `<div class="login-modal-overlay" id="login-modal-overlay" data-native-account>`,
+    `<div class="login-modal-card" role="dialog" aria-labelledby="native-account-title">`,
+    `<button type="button" id="btn-login-close" command="close-login" commandfor="shell" aria-label="{msg.chrome_close}">✕</button>`,
+    `<div class="native-ways">`,
+    `<strong id="native-account-title" data-text="{msg.chrome_keep}"></strong>`,
+    choice("btn-auth-passkey", `data-auth-action="passkey-signin"`, `<span data-text="{msg.chrome_device}"></span>`),
+    ...(auth.providers ?? []).map((p) => choice(`btn-auth-${p}`, `data-auth-provider="${p}"`, names[p] ?? p)),
+    choice("btn-auth-signout", `data-auth-action="signout"`, `<span data-text="{msg.chrome_signout}"></span>`),
+    `<div class="native-delete-ask">`,
+    choice("btn-auth-delete", `data-auth-action="delete-ask"`, `<span data-text="{msg.chrome_delete_account}"></span>`),
+    `</div><div class="native-delete-confirm">`,
+    choice("btn-auth-delete-confirm", `data-auth-action="delete-account"`, `<span data-text="{msg.chrome_delete_confirm}"></span>`),
+    `</div></div>`,
+    `<div class="native-held">`,
+    `<p data-text="{msg.chrome_taken}"></p><strong data-text="{held_handle}"></strong>`,
+    choice("btn-auth-switch", `data-auth-action="switch"`, `<span data-text="{msg.chrome_switch}"></span>`),
+    choice("btn-auth-stay", `data-auth-action="stay"`, `<span data-text="{msg.chrome_stay}"></span>`),
+    `</div>`,
+    `</div></div>`,
+  ].join("");
+}
+
 export async function projectAppNative(
   appDir: URL,
   options: { origin?: string; locale?: string; viewportWidthDp?: number; themeMode?: "light" | "dark" | "auto" } = {},
@@ -2832,6 +2878,7 @@ export async function projectAppNative(
     cortex?: { actors?: Record<string, unknown> };
     units?: Record<string, ScreenUnitDecl>;
     hostDom?: Record<string, { src?: string }>;
+    auth?: { service?: string; providers?: string[] };
     routes?: Array<{
       path: string;
       screen: string;
@@ -2948,7 +2995,10 @@ export async function projectAppNative(
     if (screens[screenName]) continue;
     const htmlRel = route.files?.html || `shell/screens/${screenName}.html`;
     const cssRel = route.files?.css || `shell/screens/${screenName}.css`;
-    const htmlText = await Deno.readTextFile(`${dirPath}/${htmlRel}`);
+    const screenHtml = await Deno.readTextFile(`${dirPath}/${htmlRel}`);
+    const close = screenHtml.lastIndexOf("</");
+    const sheet = legacyV1 ? "" : nativeAccountSheet(shell.auth);
+    const htmlText = sheet === "" || close < 0 ? screenHtml : `${screenHtml.slice(0, close)}${sheet}${screenHtml.slice(close)}`;
     let cssText = "";
     try {
       cssText = await Deno.readTextFile(`${dirPath}/${cssRel}`);

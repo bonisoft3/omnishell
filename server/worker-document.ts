@@ -12,7 +12,7 @@ export function appRenderer(assets: Record<string, string>, origin: string) {
   const appBase = new URL(origin + '/')
   Object.assign(globalThis, {
     location: appBase,
-    sessionStorage: Object.freeze({ getItem: () => null }),
+    localStorage: Object.freeze({ getItem: () => null }),
     CSS: { escape: (value: string) => value },
   })
   const canonical = new Map<string, string>()

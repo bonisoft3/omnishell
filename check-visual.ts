@@ -835,7 +835,7 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
     try {
       const context = await browser.newContext()
       try {
-        if (session !== undefined) await context.addInitScript((s) => { if (window === window.top) sessionStorage.setItem("pronto-token", JSON.stringify(s)) }, session)
+        if (session !== undefined) await context.addInitScript((s) => { if (window === window.top) localStorage.setItem("pronto-token", JSON.stringify(s)) }, session)
         for (const hole of tabHoles) {
           const route = routes.find((r) => r.path === hole.route)
           const parentPath = hole.route.slice(0, hole.route.lastIndexOf("/")) || "/"
@@ -1244,7 +1244,7 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
         // The shell reads its session only behind `auth.required`, which a
         // browser-only app never declares, so it is written only where minted.
         if (session !== undefined) {
-          await context.addInitScript((s) => { if (window === window.top) sessionStorage.setItem("pronto-token", JSON.stringify(s)) }, session)
+          await context.addInitScript((s) => { if (window === window.top) localStorage.setItem("pronto-token", JSON.stringify(s)) }, session)
         }
         let next = 0
         const lane = async () => {

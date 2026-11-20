@@ -2558,21 +2558,47 @@ export function emitNativeHostRuntimeJs(): string {
     }
 
     if (action === "AUTH") {
-      state.variables.status = "playing";
-      state.variables.modal_login_state = "closed";
+      // The account sheet (project-native.ts's nativeAccountSheet): a way in,
+      // the account a guest's sign-in found held for Switch or Stay, and
+      // deleting, which asks once first.
+      const vars = state.variables;
       const method = q.method || "";
-      if (typeof AuthBridge !== "undefined") {
-        if (method === "oidc:apple" && AuthBridge.appleSignIn) {
-          AuthBridge.appleSignIn({}).then(() => emitFullRender());
-        } else if (method.startsWith("oidc:") && AuthBridge.oidcStart) {
-          AuthBridge.oidcStart(method.slice(5), {}).then(() => emitFullRender());
-        } else if (method === "delete-account" && AuthBridge.deleteAccount) {
-          AuthBridge.deleteAccount({}).then(() => emitFullRender());
-        } else if (method === "signout" && AuthBridge.clearSession) {
-          AuthBridge.clearSession();
-        }
+      vars.status = "playing";
+      const done = (result) => {
+        const held = result && result.held ? result.held : null;
+        vars.held_handle = held ? held.user.handle : "";
+        vars.held_ticket = held && held.ticket ? held.ticket : "";
+        vars.held_verifier = held && held.codeVerifier ? held.codeVerifier : "";
+        vars.modal_login_state = held ? "open" : "closed";
+        emitFullRender();
+      };
+      if (method === "delete-ask") {
+        vars.delete_confirm = "yes";
+        emitFullRender();
+        return;
       }
-      emitFullRender();
+      if (method !== "delete-account") vars.delete_confirm = "no";
+      // A guest signs in with its token, so an account another holds is offered.
+      const kept = AuthBridge.loadSession();
+      const minted = kept && kept.isGuest && kept.token.indexOf("provisional-offline:") !== 0;
+      const opts = minted ? { origin, guestBearerToken: kept.token } : { origin };
+      if (method === "passkey-signin") AuthBridge.passkeyLogin(opts).then(done);
+      else if (method === "oidc:apple") AuthBridge.appleSignIn(opts).then(done);
+      else if (method.startsWith("oidc:")) AuthBridge.oidcStart(method.slice(5), opts).then(done);
+      else if (method === "switch") {
+        (vars.held_ticket
+          ? AuthBridge.redeemTicket({ origin, ticket: vars.held_ticket, codeVerifier: vars.held_verifier })
+          : AuthBridge.passkeyLogin({ origin })).then(done);
+      } else if (method === "stay") done(null);
+      else if (method === "delete-account" && vars.delete_confirm === "yes") {
+        AuthBridge.deleteAccount({ origin }).then(() => {
+          vars.delete_confirm = "no";
+          done(null);
+        });
+      } else if (method === "signout") {
+        AuthBridge.clearSession();
+        done(null);
+      } else emitFullRender();
     }
   }
 

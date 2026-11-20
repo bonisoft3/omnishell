@@ -23,6 +23,7 @@ export async function until(cond, what) {
  */
 export async function withBrowser({ fetch, storage = {} }, fn) {
   const saved = {
+    localStorage: Object.getOwnPropertyDescriptor(globalThis, "localStorage"),
     fetch: globalThis.fetch,
     window: globalThis.window,
     document: globalThis.document,
@@ -71,7 +72,8 @@ export async function withBrowser({ fetch, storage = {} }, fn) {
     for (const ch of channels) ch.close();
     globalThis.BroadcastChannel = saved.BroadcastChannel;
     globalThis.fetch = saved.fetch;
-    delete globalThis.localStorage;
+    if (saved.localStorage === undefined) delete globalThis.localStorage;
+    else Object.defineProperty(globalThis, "localStorage", saved.localStorage);
     if (saved.window === undefined) delete globalThis.window;
     else globalThis.window = saved.window;
     if (saved.document === undefined) delete globalThis.document;

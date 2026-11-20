@@ -52,7 +52,7 @@ routes:
 // `words` says one thing, in the reader's language.
 const screenHtml = (name) => name === "words" ? `<section class="screen" data-screen="words"><h1>words</h1><p class="greet" data-text="{msg.greet}"></p></section>` : `<section class="screen" data-screen="${name}">${name === "other" ? "" : `<h1>${name}</h1>`}
 <a class="rules" data-route="regras">R</a>
-${name === "home" ? '<form data-action="navigate" data-route="search"><input name="q"></form>' : ""}
+${name === "home" ? '<form data-action="navigate" data-route="search"><input name="q"></form><div class="sheet" popover></div>' : ""}
 </section>`;
 
 // Every file the page fetches, which its release names.
@@ -171,6 +171,7 @@ function boot({
   };
 
   sessionStorage.clear();
+  localStorage.clear();
   Object.defineProperty(globalThis, "caches", {value: {delete: () => Promise.resolve(true)}, configurable: true});
   const held = [];
   const minted = [];
@@ -191,6 +192,8 @@ function boot({
       const status = answers.length > 1 ? answers.shift() : answers[0];
       return Promise.resolve(new Response(status === 200 ? "const reduce = ({ context }) => context;\nreduce;" : "", {status}));
     }
+    // The device takes up the guest minted ahead of it, and lets a session go.
+    if (u.endsWith("/auth/session/adopt") || u.endsWith("/auth/signout")) return Promise.resolve(new Response(null, { status: 204 }));
     if (u.endsWith("/auth/guest")) {
       minted.push(u);
       if (offline) return Promise.reject(new TypeError("Failed to fetch"));
@@ -335,6 +338,22 @@ Deno.test({
       app.interceptedWith?.scroll === "manual",
       `intercepted with ${JSON.stringify(app.interceptedWith?.scroll)}`,
     );
+  },
+});
+
+Deno.test({
+  name: "a screen left behind closes its open popovers, so they do not come back open with it",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    // Regression: a sheet opened from a screen stayed in the top layer when a
+    // link inside it moved to another screen, and showed again on return.
+    const app = await start();
+    const sheet = app.mount.querySelector('.shell-screen [data-screen="home"] .sheet') ?? app.mount.querySelector(".sheet");
+    let closed = 0;
+    sheet.hidePopover = () => closed++;
+    await app.goto("/other");
+    assert(closed === 1, `the home screen's popover was asked to close ${closed} times`);
   },
 });
 

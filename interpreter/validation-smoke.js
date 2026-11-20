@@ -91,30 +91,25 @@ Deno.test({
   async fn() {
     await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
     serve({ "shell/validations/own-article.js": OWN_ARTICLE });
-    sessionStorage.setItem("pronto-token", JSON.stringify({ token: "t", user: { id: "u1" } }));
-    try {
-      await withBrowser({}, async (createStore) => {
-        const store = createStore("", owned("shell/validations/own-article.js"));
-        // The form never says whose the row is — the server's DEFAULT would —
-        // so a predicate reading the owner judges nothing unless the seat fills
-        // it from the session first.
-        const mine = await refusal(store.add("favorite", [{ id: "f1", article_id: "a1" }]));
-        assert(mine?.validation === "own-article", `the session's user owns the row, got ${mine?.message}`);
-        const theirs = await refusal(store.add("favorite", [{ id: "f2", article_id: "a2" }]));
-        assert(theirs === null, `another author's article is accepted for that owner, got ${theirs?.message}`);
+    await withBrowser({ storage: { "pronto-token": { token: "t", user: { id: "u1" } } } }, async (createStore) => {
+      const store = createStore("", owned("shell/validations/own-article.js"));
+      // The form never says whose the row is — the server's DEFAULT would —
+      // so a predicate reading the owner judges nothing unless the seat fills
+      // it from the session first.
+      const mine = await refusal(store.add("favorite", [{ id: "f1", article_id: "a1" }]));
+      assert(mine?.validation === "own-article", `the session's user owns the row, got ${mine?.message}`);
+      const theirs = await refusal(store.add("favorite", [{ id: "f2", article_id: "a2" }]));
+      assert(theirs === null, `another author's article is accepted for that owner, got ${theirs?.message}`);
 
-        // A row this reader may write but does not own: it states its owner,
-        // so nothing is filled and it is judged as that owner's.
-        const shared = await refusal(store.add("favorite", [{ id: "f3", article_id: "a1", user_id: "u2" }]));
-        assert(shared === null, `a stated owner stands, got ${shared?.message}`);
-        // Merged first, filled second: the update omits the owner, and the
-        // owner it is judged by is the standing row's, not this session's.
-        const again = await refusal(store.patch("favorite", [{ key: "f3", changes: { article_id: "a1" } }]));
-        assert(again === null, `an update keeps the row's own owner, got ${again?.message}`);
-      });
-    } finally {
-      sessionStorage.removeItem("pronto-token");
-    }
+      // A row this reader may write but does not own: it states its owner,
+      // so nothing is filled and it is judged as that owner's.
+      const shared = await refusal(store.add("favorite", [{ id: "f3", article_id: "a1", user_id: "u2" }]));
+      assert(shared === null, `a stated owner stands, got ${shared?.message}`);
+      // Merged first, filled second: the update omits the owner, and the
+      // owner it is judged by is the standing row's, not this session's.
+      const again = await refusal(store.patch("favorite", [{ key: "f3", changes: { article_id: "a1" } }]));
+      assert(again === null, `an update keeps the row's own owner, got ${again?.message}`);
+    });
   },
 });
 

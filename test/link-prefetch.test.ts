@@ -39,7 +39,7 @@ async function withLinks(run: (hover: (href: string) => void, linkPrefetch: { se
         if (gate.fail) throw new Error("the read did not come")
       },
     }
-    const linkPrefetch = startLinkPrefetch({ addresses, appBase: "https://app.test/shell/", store })
+    const linkPrefetch = startLinkPrefetch({ addresses, appBase: "https://app.test/shell/", storeOf: () => store })
     const hover = (href: string) => handlers.pointerover({ target: { closest: () => ({ href, target: "", hasAttribute: () => false, getAttribute: () => href }) } })
     await run(hover, linkPrefetch, seen, gate)
   } finally {

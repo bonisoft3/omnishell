@@ -3,7 +3,7 @@ import { parseHTML } from 'linkedom'
 import { appRenderer } from '../server/worker-document.ts'
 
 Deno.test('native SSR refuses matched SPA and private routes before reading or streaming', async () => {
-  const keys = ['fetch', 'location', 'sessionStorage', 'CSS', 'requestAnimationFrame']
+  const keys = ['fetch', 'location', 'localStorage', 'CSS', 'requestAnimationFrame']
   const saved = keys.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const)
   const cfg = { tables: [], schema: {}, routes: [
     { path: '/match/:id/edit', screen: 'editor', ssr: 'spa', access: 'private' },
@@ -31,7 +31,7 @@ Deno.test('native SSR refuses matched SPA and private routes before reading or s
 })
 
 Deno.test('native SSR renders an app without locale configuration and preserves its declared language', async () => {
-  const keys = ['fetch', 'location', 'sessionStorage', 'CSS', 'requestAnimationFrame', '__mechaClient', '__prontoViews']
+  const keys = ['fetch', 'location', 'localStorage', 'CSS', 'requestAnimationFrame', '__mechaClient', '__prontoViews']
   const saved = keys.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const)
   const cfg = {
     app: 'Plain app', tables: [], schema: {},
@@ -65,7 +65,7 @@ import { FIXTURE_CARRIERS } from '../interpreter/fixture-types.js'
 import { stripProgressiveReads, takeProgressiveReads } from '../interpreter/data-sync.js'
 
 Deno.test('native SSR embeds snapshot /crud reads in #pronto-reads and omits them on 404', async () => {
-  const keys = ['fetch', 'location', 'sessionStorage', 'CSS', 'requestAnimationFrame', '__mechaClient', '__prontoViews']
+  const keys = ['fetch', 'location', 'localStorage', 'CSS', 'requestAnimationFrame', '__mechaClient', '__prontoViews']
   const saved = keys.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const)
   const cfg = {
     app: 'Team app',
@@ -107,7 +107,7 @@ Deno.test('native SSR embeds snapshot /crud reads in #pronto-reads and omits the
 })
 
 Deno.test('native SSR streams top-down chunks and progressive prefetch reads before nested regions settle', async () => {
-  const keys = ['fetch', 'location', 'sessionStorage', 'CSS', 'requestAnimationFrame', '__mechaClient', '__prontoViews']
+  const keys = ['fetch', 'location', 'localStorage', 'CSS', 'requestAnimationFrame', '__mechaClient', '__prontoViews']
   const saved = keys.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const)
   const cfg = {
     app: 'Team app',

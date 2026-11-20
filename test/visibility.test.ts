@@ -714,22 +714,22 @@ describe("frozen app sheets", () => {
   });
 });
 
-// Regression rationale: guestBox mounts <button class="shell-signin"> and
-// <button class="shell-register"> in body > nav .shell-me; if an app or
-// design.css styles only .shell-signout or gates the strip rules behind @media,
+// Regression rationale: signinBox mounts <button class="shell-signin"> and,
+// beside an empty answer, <button class="shell-auth-choice"> in body > nav
+// .shell-me; if an app or design.css styles only .shell-signout or gates the strip rules behind @media,
 // the buttons render with the browser's default UA bevel control.
 describe("unstyled native box widgets", () => {
-  it("reports nav .shell-signin and .shell-register buttons when only .shell-signout or @media rules exist", () => {
+  it("reports nav .shell-signin and .shell-auth-choice buttons when only .shell-signout or @media rules exist", () => {
     const navHtml = `<nav><span class="shell-me">
       <button type="button" class="shell-signin" id="signin">Sign in</button>
-      <button type="button" class="shell-register" id="register">Create a passkey</button>
+      <button type="button" class="shell-auth-choice" id="register">Create a passkey</button>
       <a class="shell-provider" data-provider="google">Google</a>
     </span></nav>`;
     const unstyled = screen(
       navHtml,
       `body > nav .shell-signout { background: #fff; border: 1px solid #ccc; }
        @media (min-width: 860px) {
-         body > nav .shell-register { display: none !important; }
+         body > nav .shell-auth-choice { display: none !important; }
          body > nav .shell-signin { background: #fff; border: 1px solid #ccc; }
        }`,
     );
@@ -740,7 +740,7 @@ describe("unstyled native box widgets", () => {
 
     const styled = screen(
       navHtml,
-      `body > nav .shell-register { display: none !important; }
+      `body > nav .shell-auth-choice { display: none !important; }
        body > nav .shell-signin, body > nav .shell-signout { background: #fff; border: 1px solid #ccc; }`,
     );
     expect(unstyledWidgets(styled.document, styled.sheet)).toEqual([]);

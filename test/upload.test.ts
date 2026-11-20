@@ -40,8 +40,8 @@ Deno.test({ name: "authenticated native file uploads", sanitizeOps: false, sanit
   const prior = names.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const)
   const session = storage()
   let reloads = 0
-  Object.defineProperty(globalThis, "sessionStorage", { value: session, configurable: true, writable: true })
-  Object.defineProperty(globalThis, "localStorage", { value: storage(), configurable: true, writable: true })
+  Object.defineProperty(globalThis, "sessionStorage", { value: storage(), configurable: true, writable: true })
+  Object.defineProperty(globalThis, "localStorage", { value: session, configurable: true, writable: true })
   Object.defineProperty(globalThis, "location", { value: { search: "", reload: () => reloads++ }, configurable: true, writable: true })
   const signIn = (token: string) => session.setItem("pronto-token", JSON.stringify({ token, user: { id: token } }))
   const real = createStore()

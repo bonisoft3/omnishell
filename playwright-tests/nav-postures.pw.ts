@@ -74,10 +74,15 @@ let currentHtml = ""
 let server: Deno.HttpServer<Deno.NetAddr> | null = null
 let baseUrl = ""
 
+// `email` is the person signed in, under their chip; "account" is their chip
+// with its panel open; null is a visitor, whose Sign in is drawn already open
+// onto its ways in; "guest" is a kept guest's open panel, "taken" that panel
+// offering the account a guest's sign-in found (shell.js's offerTaken), and
+// "name" it asking the name to make the account under (shell.js's nameForm).
 async function renderPosturePage(
   page: Parameters<Parameters<typeof withPage>[0]>[0],
   css: string,
-  email: string,
+  email: string | null,
 ) {
   currentHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -133,23 +138,84 @@ async function renderPosturePage(
     </section>
   </div>
   <script type="module">
-    import { drawStrip, localizeStrip } from "/interpreter/chrome.js";
-    const cfg = ${JSON.stringify(CFG)};
+    import { accountBox, drawStrip, localizeStrip, signinBox } from "/interpreter/chrome.js";
+    const cfg = ${JSON.stringify(email === null || email === "guest" || email === "taken" || email === "name" ? { ...CFG, auth: { required: false, providers: ["google"] } } : CFG)};
+    const email = ${JSON.stringify(email)};
     const mount = document.getElementById("app");
     const navEl = drawStrip(document, cfg);
-    const me = document.createElement("span");
-    me.className = "shell-me";
-    const who = document.createElement("span");
-    who.className = "shell-who";
-    who.textContent = ${JSON.stringify(email)};
-    const signOut = document.createElement("button");
-    signOut.type = "button";
-    signOut.className = "shell-signout";
-    signOut.textContent = "sign out";
-    me.append(who, signOut);
-    navEl.append(me);
+    // The panel as the boot leaves it open where the browser asks the device
+    // alone (shell.js renderSignin).
+    const opened = (guest = null) => {
+      const me = signinBox(document, cfg, guest);
+      const open = me.querySelector(".shell-signin");
+      open.hidden = false;
+      open.setAttribute("aria-expanded", "true");
+      me.querySelector(".shell-signin-panel").hidden = false;
+      me.querySelector(".shell-passkey").hidden = false;
+      return me;
+    };
+    if (email === null) {
+      navEl.append(opened());
+    } else if (email === "guest") {
+      navEl.append(opened({ id: "g1", handle: "sunlit-fox-3fa2", guest: true }));
+    } else if (email === "taken") {
+      // The shell's offerTaken: a kept guest's sign-in into another account.
+      const me = opened({ id: "g1", handle: "sunlit-fox-3fa2", guest: true });
+      const feedback = document.createElement("div");
+      feedback.className = "shell-auth-feedback";
+      feedback.setAttribute("role", "alert");
+      const msg = document.createElement("p");
+      msg.className = "shell-auth-error";
+      msg.textContent = "Already an account";
+      const who = document.createElement("p");
+      who.className = "shell-auth-taken";
+      const handle = document.createElement("span");
+      handle.className = "handle";
+      handle.textContent = "amber-otter";
+      const suffix = document.createElement("span");
+      suffix.className = "suffix";
+      suffix.textContent = "#77aa";
+      handle.append(suffix);
+      who.append(handle);
+      feedback.append(msg, who);
+      for (const [choice, word] of [["switch", "Switch to it"], ["stay", "Stay here"]]) {
+        const next = document.createElement("button");
+        next.type = "button";
+        next.className = "shell-auth-choice";
+        next.dataset.authChoice = choice;
+        next.textContent = word;
+        feedback.append(next);
+      }
+      const panel = me.querySelector(".shell-signin-panel");
+      for (const el of panel.children) el.hidden = true;
+      panel.append(feedback);
+      navEl.append(me);
+    } else if (email === "name") {
+      // The shell's nameForm in place of the ways in.
+      const me = opened({ id: "g1", handle: "sunlit-fox-3fa2", guest: true });
+      const panel = me.querySelector(".shell-signin-panel");
+      for (const el of panel.children) el.hidden = true;
+      const form = document.createElement("form");
+      form.className = "shell-name-form";
+      form.innerHTML = '<button type="button" class="shell-name-back" aria-label="Back"><svg class="shell-back-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>'
+        + '<label class="shell-name-label" for="shell-name-input">What should we call you?</label>'
+        + '<input id="shell-name-input" name="given-name" autocomplete="given-name" placeholder="Your name">'
+        + '<button type="submit" class="shell-name-continue"><svg class="shell-device-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2.5"/></svg><span>Continue</span></button>';
+      panel.append(form);
+      navEl.append(me);
+    } else {
+      // A person's chip, the account's panel open where asked.
+      const me = accountBox(document, cfg, { id: "u1", handle: "Alexandra-Christiansen-3fa2" }, email === "account" ? { key: "chrome_device" } : { text: email });
+      if (email === "account") {
+        me.querySelector(".shell-person").setAttribute("aria-expanded", "true");
+        me.querySelector(".shell-signin-panel").hidden = false;
+      }
+      navEl.append(me);
+    }
     localizeStrip(navEl, cfg, { here: "/" });
     document.body.insertBefore(navEl, mount);
+    // A reader reaches the control before pressing it: a phone's bar scrolls.
+    navEl.querySelector(".shell-me > :is(.shell-signin, .shell-person)")?.scrollIntoView({ block: "nearest", inline: "nearest" });
     document.body.dataset.ready = "1";
   </script>
 </body>
@@ -208,6 +274,116 @@ describe("shell.nav postures visual lint", () => {
             { viewport },
           ))
       }
+    }
+  }
+
+  // The ways in open in place, inside whatever the posture is: a bar's row, a
+  // rail's column, a capsule at the bottom of a phone. A narrow bar scrolls
+  // sideways, so a way merely laid out is not one a reader can see: each must
+  // sit inside the viewport.
+  for (const nav of POSTURES) {
+    for (const [vpName, viewport] of [
+      ["desktop 1440x900", { width: 1440, height: 900 }],
+      ["phone 390x844", { width: 390, height: 844 }],
+    ] as const) {
+      it(`${nav} keeps an open Sign in's panel in sight on ${vpName}`, () =>
+        withPage(
+          async (page) => {
+            await page.emulateMedia({ colorScheme: "light" })
+            await renderPosturePage(page, await designCssFor(nav), null)
+            expect(await runAppVisualBattery(page)).toEqual([])
+            const seen = await page.evaluate(() =>
+              [...document.querySelectorAll("body > nav .shell-me > .shell-signin, body > nav .shell-signin-panel, body > nav .shell-signin-title, body > nav .shell-signin-ways > *")]
+                .filter((el) => {
+                  const r = el.getBoundingClientRect()
+                  return r.width > 0 && r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight
+                })
+                .map((el) => el.className.split(" ")[0])
+            )
+            expect(seen).toEqual(["shell-signin", "shell-signin-panel", "shell-signin-title", "shell-provider", "shell-passkey"])
+          },
+          { viewport },
+        ))
+      it(`${nav} keeps a person's chip and open account panel in sight on ${vpName}`, () =>
+        withPage(
+          async (page) => {
+            await page.emulateMedia({ colorScheme: "light" })
+            await renderPosturePage(page, await designCssFor(nav), "account")
+            expect(await runAppVisualBattery(page)).toEqual([])
+            const seen = await page.evaluate(() =>
+              [...document.querySelectorAll("body > nav .shell-me > .shell-person, body > nav .shell-signin-panel, body > nav .shell-signin-panel > *")]
+                .filter((el) => {
+                  const r = el.getBoundingClientRect()
+                  return r.width > 0 && r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight
+                })
+                .map((el) => el.className.split(" ")[0])
+            )
+            expect(seen).toEqual(["shell-person", "shell-signin-panel", "shell-rename", "shell-signout", "shell-delete"])
+          },
+          { viewport },
+        ))
+      it(`${nav} keeps the name asked in place of the ways in, in sight on ${vpName}`, () =>
+        withPage(
+          async (page) => {
+            await page.emulateMedia({ colorScheme: "light" })
+            await renderPosturePage(page, await designCssFor(nav), "name")
+            expect(await runAppVisualBattery(page)).toEqual([])
+            const seen = await page.evaluate(() =>
+              [...document.querySelectorAll("body > nav .shell-name-form > *")]
+                .filter((el) => {
+                  const r = el.getBoundingClientRect()
+                  return r.width > 0 && r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight
+                })
+                .map((el) => el.className || el.id)
+            )
+            expect(seen).toEqual(["shell-name-back", "shell-name-label", "shell-name-input", "shell-name-continue"])
+          },
+          { viewport },
+        ))
+      it(`${nav} keeps a kept guest's chip and open panel in sight on ${vpName}`, () =>
+        withPage(
+          async (page) => {
+            await page.emulateMedia({ colorScheme: "light" })
+            await renderPosturePage(page, await designCssFor(nav), "guest")
+            expect(await runAppVisualBattery(page)).toEqual([])
+            const seen = await page.evaluate(() =>
+              [...document.querySelectorAll("body > nav .shell-me > .shell-signin, body > nav .shell-signin-panel, body > nav .shell-signin-ways > *, body > nav .shell-guest-signout")]
+                .filter((el) => {
+                  const r = el.getBoundingClientRect()
+                  return r.width > 0 && r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight
+                })
+                .map((el) => el.className.split(" ")[0])
+            )
+            expect(seen).toEqual(["shell-signin", "shell-signin-panel", "shell-provider", "shell-passkey", "shell-guest-signout"])
+          },
+          { viewport },
+        ))
+    }
+  }
+
+  for (const nav of POSTURES) {
+    for (const [vpName, viewport] of [
+      ["desktop 1440x900", { width: 1440, height: 900 }],
+      ["phone 390x844", { width: 390, height: 844 }],
+    ] as const) {
+      it(`${nav} keeps a guest's choice of another account in sight on ${vpName}`, () =>
+        withPage(
+          async (page) => {
+            await page.emulateMedia({ colorScheme: "light" })
+            await renderPosturePage(page, await designCssFor(nav), "taken")
+            expect(await runAppVisualBattery(page)).toEqual([])
+            const seen = await page.evaluate(() =>
+              [...document.querySelectorAll("body > nav .shell-signin-panel > .shell-auth-feedback > *")]
+                .filter((el) => {
+                  const r = el.getBoundingClientRect()
+                  return r.width > 0 && r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight
+                })
+                .map((el) => el.textContent)
+            )
+            expect(seen).toEqual(["Already an account", "amber-otter#77aa", "Switch to it", "Stay here"])
+          },
+          { viewport },
+        ))
     }
   }
 

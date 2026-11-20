@@ -410,14 +410,16 @@ export async function serve(env: (name: string) => string | undefined = (name) =
     messages[tag] = compileCatalog(JSON.parse(await (await read(`/messages/${tag}.json`)).text()));
   }
   // A guest is who a document is rendered for, minted the way a reader's tab
-  // mints one. Its token is the store's, through sessionStorage as in a tab.
+  // mints one. Its token is the store's, through localStorage as in a tab —
+  // Deno's own would write it to disk, so the process's lives in memory.
+  Object.defineProperty(globalThis, "localStorage", { value: sessionStorage, configurable: true });
   await keepGuest(
     async () => {
       const minted = await fetch(`${door}/auth/guest`, { method: "POST" });
       if (!minted.ok) throw new Error(`${minted.status} minting a guest through ${door}: ${await minted.text()}`);
       return await minted.json();
     },
-    (guest) => sessionStorage.setItem("pronto-token", JSON.stringify(guest)),
+    (guest) => localStorage.setItem("pronto-token", JSON.stringify(guest)),
     die,
   );
   // What a render reads through the door's /crud, carried in its document.

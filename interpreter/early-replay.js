@@ -14,6 +14,10 @@ export async function replayEarlyGestures(doc, settle) {
     const { target, type, value, key, shiftKey, altKey, ctrlKey, metaKey } = gesture;
     if (!target.isConnected) continue;
     if (type === "click" && target.closest("a[href]")) continue;
+    // A sign-in asks the device with the reader's own click, whose activation
+    // a replay does not carry: refused at once, it would read as a device with
+    // nothing saved. The reader presses it again, now that it answers.
+    if (type === "click" && target.closest("[data-auth-action]")) continue;
     // The binding that adopted this control wrote the row's value over it. A file input's value
     // is not the browser's to take back, and its files stayed.
     if ((type === "input" || type === "change") && typeof value === "string" && target.type !== "file") target.value = value;

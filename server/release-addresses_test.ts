@@ -108,9 +108,9 @@ Deno.test('a tree addressed without ICE servers keeps the config it was given', 
 })
 
 // A guest the app offers no sign-in to has no strip (chrome.js hasStrip), so
-// the release preloads none of its screens; one offered a passkey has one.
+// the release preloads none of its screens; one whose app declares auth has one.
 Deno.test('a screen preloads the strip only where a reader can meet one', async () => {
-  for (const [auth, preloaded] of [[undefined, []], [{ promote: true }, ['regras']]] as const) {
+  for (const [auth, preloaded] of [[undefined, []], [{ service: '/auth' }, ['regras']]] as const) {
     const out = await tree()
     try {
       const guests = { tables: ['notes'], ...(auth ? { auth } : {}), routes: [

@@ -272,17 +272,15 @@ Deno.test("failed recovery preserves both navigation and row attachment errors",
   } finally { nav.stop(); }
 });
 
-Deno.test("session lifecycle: authPosture and guest commit/in-place signout transitions", async () => {
+Deno.test("session lifecycle: authPosture, guest commit, and a guest's sign-out forgets it", async () => {
   assertEquals(Object.keys(SESSION_LIFECYCLE_CHART.states), ["anonymous", "guest", "user", "signingOut"]);
-  assertEquals(authPosture(null, true), "anonymous");
-  assertEquals(authPosture({ token: "t1", user: { id: "g1", guest: true } }, true), "anonymous");
-  assertEquals(authPosture({ token: "t1", user: { id: "g1", guest: true, handle: "g" }, committed: true }, true), "guest");
-  assertEquals(authPosture({ token: "t1", user: { id: "g1", guest: true } }, false), "guest");
-  assertEquals(authPosture({ token: "t2", user: { id: "u1", handle: "u" } }, true), "user");
+  assertEquals(authPosture(null), "anonymous");
+  assertEquals(authPosture({ token: "t1", user: { id: "g1", guest: true } }), "anonymous");
+  assertEquals(authPosture({ token: "t1", user: { id: "g1", guest: true, handle: "g" }, committed: true }), "guest");
+  assertEquals(authPosture({ token: "t2", user: { id: "u1", handle: "u" } }), "user");
 
   let minted: any = null;
   const lc = createSessionLifecycle({
-    promote: true,
     required: false,
     ensureSession: async () => {
       minted = { token: "tok-g1", user: { id: "g1", handle: "amber-fox", guest: true } };
@@ -297,9 +295,11 @@ Deno.test("session lifecycle: authPosture and guest commit/in-place signout tran
     assertEquals(lc.posture(), "guest");
     assertEquals(lc.snapshot().value, { guest: "idle" });
 
+    // Signing a guest out leaves no session: kept uncommitted, its token
+    // would still read the work "can't be recovered" promised was gone.
     const out = await lc.signOut();
     assertEquals(out.mode, "in-place");
-    assertEquals(out.session.committed, undefined);
+    assertEquals(lc.session(), null);
     assertEquals(lc.posture(), "anonymous");
     assertEquals(lc.snapshot().value, { anonymous: "idle" });
   } finally {
@@ -307,24 +307,31 @@ Deno.test("session lifecycle: authPosture and guest commit/in-place signout tran
   }
 });
 
-Deno.test("session lifecycle: passkey refusal, recovery offer, explicit registration, and concurrent ceremony rejection", async () => {
+Deno.test("session lifecycle: an app that admits only a signed-in reader reloads into its gate on sign-out", async () => {
+  const lc = createSessionLifecycle({ session: { token: "tok-u1", user: { id: "u1", handle: "ada" } }, required: true, signOut: async () => {} });
+  try {
+    assertEquals((await lc.signOut()).mode, "reload");
+    assertEquals(lc.session(), null);
+  } finally {
+    lc.stop();
+  }
+});
+
+Deno.test("session lifecycle: passkey refusal, an empty device, another account's passkey, explicit registration, and concurrent ceremony rejection", async () => {
   const guest = { token: "tok-g1", user: { id: "g1", handle: "amber-fox", guest: true } };
   let releaseSignin: ((val: any) => void) | null = null;
   let rejectSignin: ((err: any) => void) | null = null;
-  let known = false;
 
   const lc = createSessionLifecycle({
     session: guest,
-    promote: true,
     required: false,
-    hasKnownPasskeys: () => known,
     passkeySignin: () => new Promise((resolve, reject) => {
       releaseSignin = resolve;
       rejectSignin = reject;
     }),
-    passkeyRegister: async (active: any) => ({
+    passkeyRegister: async (active: any, _how: unknown, name?: string) => ({
       token: "tok-u1",
-      user: { id: active.user.id, handle: active.user.handle },
+      user: { id: active.user.id, handle: name ? `${name}-3fa2` : active.user.handle },
     }),
   });
   try {
@@ -337,14 +344,14 @@ Deno.test("session lifecycle: passkey refusal, recovery offer, explicit registra
     assertEquals((await lc.registerPasskey({ origin: "action" })).status, "busy");
     assertEquals((await lc.signOut()).mode, "busy");
 
-    // Unknown credential refusal offers explicit recovery and enters failed state.
+    // A device the runner found empty, signed into by a way that is not the
+    // device's own, fails saying so, and makes nothing.
     const unknownErr: any = new Error("401 unknown credential");
-    unknownErr.unknownCredential = true;
-    unknownErr.rpId = "localhost";
+    unknownErr.empty = true;
     rejectSignin!(unknownErr);
     const failedOutcome = await firstAttempt;
     assertEquals(failedOutcome.status, "failed");
-    assertEquals(failedOutcome.recoveryOffered, true);
+    assertEquals(failedOutcome.empty, true);
     assertEquals(lc.ceremonyState(), "failed");
     assertEquals(lc.busy(), false);
 
@@ -357,17 +364,40 @@ Deno.test("session lifecycle: passkey refusal, recovery offer, explicit registra
     assertEquals(cancelledAfterCommit.status, "failed");
     assertEquals(lc.posture(), "guest");
     assertEquals(lc.snapshot().value, { guest: "failed" });
-    const inPlaceOut = await lc.signOut();
-    assertEquals(inPlaceOut.mode, "in-place");
+    const guestOut = await lc.signOut();
+    assertEquals(guestOut.mode, "in-place");
     assertEquals(lc.posture(), "anonymous");
     assertEquals(lc.snapshot().value, { anonymous: "idle" });
+    lc.setSession(guest);
 
-    // Expired state 401 does not offer passkey recovery.
+    // A refusal the runner did not call empty is a dismissal: nothing is made.
+    const noneAttempt = lc.signInPasskey({ origin: "action", how: "device" });
+    rejectSignin!(Object.assign(new Error("dismissed"), { name: "NotAllowedError" }));
+    assertEquals(await noneAttempt.then((o) => [o.status, o.empty]), ["failed", false]);
+
+    // An expired state is no empty device.
     const secondAttempt = lc.signInPasskey({ origin: "action" });
     rejectSignin!(new Error("401 invalid state"));
     const expiredOutcome = await secondAttempt;
     assertEquals(expiredOutcome.status, "failed");
-    assertEquals(expiredOutcome.recoveryOffered, false);
+    assertEquals(expiredOutcome.empty, false);
+
+    // Another account's passkey comes back as that account, to take or leave.
+    const takenAttempt = lc.signInPasskey({ origin: "action", how: "device" });
+    const owner = { token: "tok-owner", user: { id: "u9", handle: "amber-otter" } };
+    rejectSignin!(Object.assign(new Error("409 login_required"), { taken: owner }));
+    assertEquals(await takenAttempt.then((o) => [o.status, o.taken]), ["failed", owner]);
+    assertEquals(lc.session(), guest);
+
+    // The device's own way in, on a device with nothing saved, stops there:
+    // the account is made once the reader names it, the guest's, in place.
+    const deviceAttempt = lc.signInPasskey({ origin: "action", how: "device" });
+    rejectSignin!(Object.assign(new Error("nothing saved"), { name: "NotAllowedError", empty: true }));
+    assertEquals(await deviceAttempt.then((o) => [o.status, o.empty]), ["failed", true]);
+    const made = await lc.registerPasskey({ origin: "action", name: "Ada" });
+    assertEquals([made.status, made.sameOwner, made.transitionMode], ["authenticated", true, "in-place"]);
+    assertEquals(made.session.user, { id: "g1", handle: "Ada-3fa2" });
+    lc.setSession(guest);
 
     // Explicit registration promotes guest in-place when sameOwner is true and origin is "action".
     const regOutcome = await lc.registerPasskey({ origin: "action" });
@@ -390,11 +420,11 @@ Deno.test("session lifecycle: passkey refusal, recovery offer, explicit registra
     const failedAgain = lc.signInPasskey({ origin: "action" });
     rejectSignin!(unknownErr);
     await failedAgain;
-    assertEquals(lc.snapshot().context.recoveryOffered, true);
+    assertEquals(lc.snapshot().context.empty, true);
     lc.setSession(null);
     assertEquals(lc.posture(), "anonymous");
     assertEquals(lc.snapshot().context.error, null);
-    assertEquals(lc.snapshot().context.recoveryOffered, false);
+    assertEquals(lc.snapshot().context.empty, false);
   } finally {
     lc.stop();
   }
@@ -404,13 +434,10 @@ Deno.test("session lifecycle: failed provider signout restores previous posture,
   let shouldFail = true;
   let releaseSignOut: (() => void) | null = null;
   let holdSignOut = false;
-  let hinted = true;
   const seenStates: any[] = [];
   const lc = createSessionLifecycle({
     session: { token: "tok-u1", user: { id: "u1", handle: "alice" } },
-    promote: true,
     required: false,
-    isProviderHinted: () => hinted,
     signOut: async () => {
       if (holdSignOut) {
         await new Promise<void>((resolve) => {
@@ -428,7 +455,7 @@ Deno.test("session lifecycle: failed provider signout restores previous posture,
     assertEquals(lc.session()?.user?.id, "u1");
     assertEquals(seenStates.length > 0, true);
 
-    // Guest posture with provider hint enters signingOut, recovers to guest.idle on error, and reloads on success.
+    // A guest enters signingOut, recovers to guest.idle on error, and reloads on success.
     lc.setSession({ token: "tok-g1", user: { id: "g1", handle: "guest-1", guest: true }, committed: true });
     assertEquals(lc.posture(), "guest");
     await assertRejects(() => lc.signOut(), Error, "503 oidc signout unavailable");
@@ -437,7 +464,7 @@ Deno.test("session lifecycle: failed provider signout restores previous posture,
 
     shouldFail = false;
     const out = await lc.signOut();
-    assertEquals(out.mode, "reload");
+    assertEquals(out.mode, "in-place");
     assertEquals(lc.posture(), "anonymous");
     assertEquals(lc.session(), null);
 

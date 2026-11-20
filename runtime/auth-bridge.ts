@@ -59,6 +59,26 @@ export interface OidcCeremonyResult {
   codeVerifier: string;
   callbackUrl: string;
   session?: AuthSession;
+  /** The account a guest's sign-in found another holds (login_required): the
+   * host offers it, and redeeming `ticket` with `codeVerifier` switches to it;
+   * otherwise the guest stays. A passkey's carries no ticket: switching is
+   * signing in with it again, without the guest. */
+  held?: Held;
+}
+
+export type Held = { user: { handle: string; name?: string }; ticket?: string; codeVerifier?: string };
+
+export interface PasskeyLoginOptions {
+  origin: string;
+  guestBearerToken?: string;
+  fetcher?: typeof fetch;
+}
+
+export interface RedeemTicketOptions {
+  origin: string;
+  ticket: string;
+  codeVerifier: string;
+  fetcher?: typeof fetch;
 }
 
 export interface AppleSignInOptions {
@@ -98,6 +118,10 @@ export interface NativeCredentialHandler {
 
 export interface AuthBridge {
   passkeySignIn(options: PasskeySignInOptions): Promise<Record<string, unknown>>;
+  /** A passkey sign-in, start to session: this bridge's session, or the account held. */
+  passkeyLogin(options: PasskeyLoginOptions): Promise<{ session?: AuthSession; held?: Held }>;
+  /** A provider sign-in's ticket redeemed with the verifier it was started with. */
+  redeemTicket(options: RedeemTicketOptions): Promise<{ session?: AuthSession; held?: Held }>;
   passkeyRegister(options: PasskeyRegisterOptions): Promise<Record<string, unknown>>;
   oidcStart(provider: string, options: OidcStartOptions): Promise<OidcCeremonyResult>;
   appleSignIn(options: AppleSignInOptions): Promise<AppleSignInResult | OidcCeremonyResult>;
@@ -132,11 +156,16 @@ export function buildNativeOidcStartUrl(
   origin: string,
   provider: string,
   codeChallenge: string,
+  guestBearerToken?: string,
 ): string {
   const cleanOrigin = origin.replace(/\/+$/, "");
+  // A guest's token is the browser's id_token_hint: an auth sheet sets no
+  // header. A provisional guest, minted offline, has no account to hint at.
+  const hint = guestBearerToken && !guestBearerToken.startsWith(PROVISIONAL) ? guestBearerToken : null;
   const params = new URLSearchParams({
     return: "native",
     code_challenge: codeChallenge,
+    ...(hint ? { promote_token: hint } : {}),
   });
   return `${cleanOrigin}/auth/oidc/${encodeURIComponent(provider)}/start?${params.toString()}`;
 }
@@ -165,9 +194,11 @@ export function validateAuthSession(raw: unknown): AuthSession {
   };
 }
 
+const PROVISIONAL = "provisional-offline:";
+
 export function createProvisionalOfflineGuestSession(uuid: string = crypto.randomUUID()): AuthSession {
   return {
-    token: `provisional-offline:${uuid}`,
+    token: `${PROVISIONAL}${uuid}`,
     refreshToken: null,
     userId: uuid,
     handle: null,
@@ -218,6 +249,33 @@ export function createAuthBridge(options: {
 }): AuthBridge {
   const { kv, sql: configuredSql, credentialHandler, fetcher: configuredFetcher } = options;
 
+  /** The auth service's answer as this bridge's session. */
+  const sessionOf = (body: { token: string; refresh_token?: string; user: { id: string; handle: string; guest?: boolean } }): AuthSession =>
+    validateAuthSession({
+      token: body.token,
+      refreshToken: body.refresh_token ?? null,
+      userId: body.user.id,
+      handle: body.user.handle,
+      isGuest: body.user.guest === true,
+    });
+
+  async function redeem(opts: RedeemTicketOptions): Promise<{ session?: AuthSession; held?: Held }> {
+    const doFetch = opts.fetcher ?? configuredFetcher ?? fetch;
+    const res = await doFetch(`${opts.origin.replace(/\/+$/, "")}/auth/oidc/session`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ticket: opts.ticket, code_verifier: opts.codeVerifier }),
+    });
+    if (res.status === 409) {
+      const body = await res.json();
+      return { held: { user: body.user, ticket: body.ticket, codeVerifier: opts.codeVerifier } };
+    }
+    if (!res.ok) throw new Error(`POST /auth/oidc/session failed with status ${res.status}`);
+    const session = sessionOf(await res.json());
+    kv.set(SESSION_KV_KEY, JSON.stringify(session));
+    return { session };
+  }
+
   function requireCredentialHandler(op: string): NativeCredentialHandler {
     if (!credentialHandler) {
       throw new Error(`AuthBridge.${op} requires a configured NativeCredentialHandler`);
@@ -226,6 +284,29 @@ export function createAuthBridge(options: {
   }
 
   return {
+    async passkeyLogin(opts: PasskeyLoginOptions) {
+      if (!opts?.origin) throw new Error("passkeyLogin requires origin");
+      const doFetch = opts.fetcher ?? configuredFetcher ?? fetch;
+      const base = opts.origin.replace(/\/+$/, "");
+      const started = await doFetch(`${base}/auth/login/start`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+      if (!started.ok) throw new Error(`POST /auth/login/start failed with status ${started.status}`);
+      const start = await started.json();
+      const response = await requireCredentialHandler("passkeyLogin").passkeySignIn({ rpId: start.rpId, challenge: start.challenge, allowCredentials: [] });
+      const verified = await doFetch(`${base}/auth/login/verify`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(opts.guestBearerToken ? { Authorization: `Bearer ${opts.guestBearerToken}` } : {}) },
+        // A native host renews by refresh token, having no cookie.
+        body: JSON.stringify({ state: start.state, response, refresh: true }),
+      });
+      if (verified.status === 409) return { held: { user: (await verified.json()).user } };
+      if (!verified.ok) throw new Error(`POST /auth/login/verify failed with status ${verified.status}`);
+      const session = sessionOf(await verified.json());
+      kv.set(SESSION_KV_KEY, JSON.stringify(session));
+      return { session };
+    },
+
+    redeemTicket: redeem,
+
     async passkeySignIn(signInOpts: PasskeySignInOptions): Promise<Record<string, unknown>> {
       if (!signInOpts.rpId || !signInOpts.challenge) {
         throw new Error("passkeySignIn requires rpId and challenge");
@@ -245,7 +326,7 @@ export function createAuthBridge(options: {
       if (!oidcOpts?.origin) throw new Error("oidcStart requires origin");
       const verifier = oidcOpts.codeVerifier ?? generatePkceVerifier();
       const challenge = await computePkceChallengeS256(verifier);
-      const startUrl = buildNativeOidcStartUrl(oidcOpts.origin, provider, challenge);
+      const startUrl = buildNativeOidcStartUrl(oidcOpts.origin, provider, challenge, oidcOpts.guestBearerToken);
       const result = await requireCredentialHandler("oidcStart").oidcStart(
         provider,
         startUrl,
@@ -255,8 +336,10 @@ export function createAuthBridge(options: {
       if (result.session) {
         const validated = validateAuthSession(result.session);
         kv.set(SESSION_KV_KEY, JSON.stringify(validated));
+        return result;
       }
-      return result;
+      // The host returns the callback's ticket; the bridge redeems it.
+      return { ...result, ...(await redeem({ origin: oidcOpts.origin, ticket: result.ticket, codeVerifier: result.codeVerifier })) };
     },
 
     async appleSignIn(appleOpts: AppleSignInOptions): Promise<AppleSignInResult | OidcCeremonyResult> {

@@ -82,6 +82,7 @@ function boot(at = "/") {
   });
 
   sessionStorage.clear();
+  localStorage.clear();
   const profile = { id: "u1", display_name: "Ada", txid: "1" };
   const handle = `profile-${boots}`;
   let offset = 1;
@@ -95,6 +96,8 @@ function boot(at = "/") {
   globalThis.fetch = async (url, init = {}) => {
     const u = String(url);
     if (u.endsWith("shell.yaml")) return Promise.resolve(new Response(CONFIG_YAML));
+    // The device takes up the guest minted ahead of it, and lets a session go.
+    if (u.endsWith("/auth/session/adopt") || u.endsWith("/auth/signout")) return Promise.resolve(new Response(null, { status: 204 }));
     if (u.endsWith("/auth/guest")) {
       return Promise.resolve(
         new Response(JSON.stringify({ token: "t", user: { id: "u1", handle: "sunlit-fox-01" } }), {
@@ -215,7 +218,7 @@ Deno.test({
     // than replacing it, so nothing takes the session's chrome down unless
     // sign-out does: left alone, the reader is signed out into the screen and
     // the strip they were already looking at, and sees no change at all.
-    assert(sessionStorage.getItem("pronto-token") === null, "the token is gone");
+    assert(localStorage.getItem("pronto-token") === null, "the token is gone");
     assert(app.document.querySelector("nav") === null, "the strip went with the session");
     assert(
       app.mount.querySelector(".shell-screen") === null,
@@ -245,31 +248,25 @@ Deno.test({
 });
 
 Deno.test({
-  name: "the signed-in person is named, and their name leads to their own page",
+  name: "the signed-in person is named on their chip, whose panel leads to their own page",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
     const app = await signedIn();
-    const who = app.document.querySelector("nav a.shell-who");
-    assert(who !== null, "the person's name in the strip is a link");
+    const named = () => app.document.querySelector("nav .shell-person .shell-chip-who .handle")?.firstChild?.textContent;
+    const page = app.document.querySelector("nav .shell-account a.shell-account-page");
+    assert(page !== null, "the account's panel leads to the person's page");
     assert(
-      who.getAttribute("href") === "/profile/sunlit-fox-01",
-      `links to ${who.getAttribute("href")}, not the person's own page`,
-    );
-    assert(
-      who.querySelector(".handle").textContent === "sunlit-fox-01",
-      "the handle names them",
+      page.getAttribute("href") === "/profile/sunlit-fox-01",
+      `links to ${page.getAttribute("href")}, not the person's own page`,
     );
     // A rename has to reach the strip the way it reaches a byline, so the name
     // is read live rather than taken from the token, whose claims are fixed for
     // the session.
-    assert(
-      who.querySelector(".name").textContent === "Ada",
-      `the strip reads ${JSON.stringify(who.querySelector(".name").textContent)}, not the name they set`,
-    );
+    assert(named() === "Ada", `the chip reads ${JSON.stringify(named())}, not the name they set`);
     app.rename("Augusta");
     await settle();
-    assert(who.querySelector(".name").textContent === "Augusta", "a remote profile rename reaches the strip");
+    assert(named() === "Augusta", "a remote profile rename reaches the chip");
   },
 });
 
@@ -279,16 +276,16 @@ Deno.test({
   sanitizeResources: false,
   async fn() {
     const app = await signedIn();
-    const out = app.document.querySelector("nav .shell-signout");
+    const out = app.document.querySelector("nav .shell-signout > span");
     assert(out.textContent === CATALOGUE.chrome_signout, `the way out reads ${JSON.stringify(out.textContent)}`);
     assert(app.document.querySelector('nav > a[data-route="home"]').textContent === "Início", "the strip is localized");
-    // The person's own anchor names a route too, so a label pass that asked the
-    // route table for every `a[data-route]` in the strip would find it and
-    // write a word over the name and handle it holds — the only place a signed
-    // in reader is told who they are.
-    const who = app.document.querySelector("nav a.shell-who");
-    assert(who.querySelector(".handle")?.textContent === "sunlit-fox-01", `the handle is ${who.innerHTML}`);
-    assert(who.querySelector(".name")?.textContent === "Ada", `the name is ${who.innerHTML}`);
+    // The person's page names a route too, so a label pass that asked the
+    // route table for every `a[data-route]` in the strip would write a
+    // route's word over it; the chip holds the name, which no pass writes.
+    const page = app.document.querySelector("nav a.shell-account-page");
+    assert(page.textContent !== "Início", `the person's page is worded ${page.textContent}`);
+    const who = app.document.querySelector("nav .shell-chip-who .handle");
+    assert(who?.firstChild?.textContent === "Ada", `the name is ${who?.outerHTML}`);
   },
 });
 

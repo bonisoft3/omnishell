@@ -1,7 +1,7 @@
 // A guest the app offers no sign-in to gets no strip: signing out only mints
-// another. A provider is a sign-in as much as a passkey is: counting only the
-// passkey took the strip, and the only way to sign in, from an app whose one
-// route signs in through Google.
+// another. Declaring auth is offering one, a provider's or a passkey's alike:
+// counting only some ways in once took the strip, and the only way to sign in,
+// from an app whose one route signs in through Google.
 import { describe, expect, it } from "@test/harness";
 import { parseHTML } from "npm:linkedom@0.18.4";
 import { CHROME_ICONS, drawStrip, hasStrip, localizeStrip } from "../interpreter/chrome.js";
@@ -12,10 +12,10 @@ const guest = { user: { guest: true } };
 
 describe("hasStrip", () => {
   it("leaves a guest no strip when there is nothing to gain", () => {
-    expect(hasStrip({ routes: routes(1), auth: {} }, guest)).toBe(false);
+    expect(hasStrip({ routes: routes(1) }, guest)).toBe(false);
   });
-  it("gives a guest the strip for a passkey or a provider", () => {
-    expect(hasStrip({ routes: routes(1), auth: { promote: true } }, guest)).toBe(true);
+  it("gives a guest the strip wherever the app declares auth", () => {
+    expect(hasStrip({ routes: routes(1), auth: {} }, guest)).toBe(true);
     expect(hasStrip({ routes: routes(1), auth: { providers: ["google"] } }, guest)).toBe(true);
     expect(hasStrip({ routes: routes(1), auth: { providers: ["google"] } }, null, true)).toBe(true);
   });

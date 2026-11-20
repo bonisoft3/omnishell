@@ -108,23 +108,22 @@ const later = (fn) => {
   return cancel;
 };
 
+// A native host's bridge holds its session; a page's is in localStorage.
 function currentSession() {
-  if (typeof sessionStorage !== "undefined") {
-    const raw = sessionStorage.getItem("pronto-token");
-    if (raw) return JSON.parse(raw);
-  }
   const bridge = globalThis.AuthBridge ?? globalThis.__omnishellAuth;
   if (typeof bridge?.loadSession === "function") {
     const loaded = bridge.loadSession();
-    if (loaded) return typeof loaded === "string" ? JSON.parse(loaded) : loaded;
+    return loaded ? (typeof loaded === "string" ? JSON.parse(loaded) : loaded) : null;
   }
-  return null;
+  if (typeof localStorage === "undefined") return null;
+  const raw = localStorage.getItem("pronto-token");
+  return raw ? JSON.parse(raw) : null;
 }
 
 function writeSession(next) {
   const serialized = JSON.stringify(next);
-  if (typeof sessionStorage !== "undefined") {
-    sessionStorage.setItem("pronto-token", serialized);
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem("pronto-token", serialized);
   }
   const bridge = globalThis.AuthBridge ?? globalThis.__omnishellAuth;
   if (typeof bridge?.saveSession === "function") {
@@ -133,8 +132,8 @@ function writeSession(next) {
 }
 
 function clearStoredSession() {
-  if (typeof sessionStorage !== "undefined") {
-    sessionStorage.removeItem("pronto-token");
+  if (typeof localStorage !== "undefined") {
+    localStorage.removeItem("pronto-token");
   }
   const bridge = globalThis.AuthBridge ?? globalThis.__omnishellAuth;
   if (typeof bridge?.clearSession === "function") {
@@ -274,8 +273,7 @@ const reloading = new Set();
 
 let inflightRefresh = null;
 
-async function tryRefreshSession(requestUrl) {
-  const held = currentSession();
+async function tryRefreshSession(requestUrl, held) {
   const refreshToken = held?.refresh_token ?? held?.refreshToken;
   if (!refreshToken) return null;
   if (inflightRefresh) return inflightRefresh;
@@ -310,6 +308,7 @@ async function send(url, init, retriedRefresh = false) {
     throw init.signal.reason ?? new DOMException("aborted", "AbortError");
   }
   if (pendingSession && !token()) await pendingSession();
+  const sender = currentSession();
   const t = token();
   if (t && !init?.headers?.Authorization && !init?.headers?.authorization) {
     init = { ...init, headers: { ...init?.headers, Authorization: `Bearer ${t}` } };
@@ -331,8 +330,16 @@ async function send(url, init, retriedRefresh = false) {
     !String(url).endsWith("/auth/refresh") &&
     !(await res.clone().text()).includes('"code":"42501"')
   ) {
+    // The request was its sender's: another tab that made this device another
+    // account's meanwhile is no reason to retry it as that account, nor to
+    // end that account's session for it. The other tab's change reloads this one.
+    const current = currentSession();
+    if ((current?.user?.id ?? null) !== (sender?.user?.id ?? null)) {
+      throw new DOMException("the session changed while the request was out", "AbortError");
+    }
     if (!retriedRefresh) {
-      const refreshedToken = await tryRefreshSession(String(url));
+      // Renewed since it was sent, by another request: sent again with that token.
+      const refreshedToken = current && current.token !== sender?.token ? current.token : await tryRefreshSession(String(url), current);
       if (refreshedToken) {
         const nextHeaders = { ...init?.headers };
         delete nextHeaders.authorization;

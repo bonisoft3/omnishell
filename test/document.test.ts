@@ -92,11 +92,13 @@ describe("a prerendered document", () => {
     })
 
     it(`draws the strip a guest sees at ${address}`, () => {
-      // truco puts no route on its strip but offers sign-in to promote.
+      // truco puts no route on its strip but declares auth and no provider, so
+      // its one way in is the device, which only the browser can say it asks
+      // alone: Sign in is drawn hidden, and the boot shows it where it can.
       const strip = doc(address).querySelectorAll("body > nav")
       expect(strip.length).toBe(1)
-      expect(strip[0].querySelector(".shell-me .shell-signin")).not.toBe(null)
-      expect(strip[0].querySelector(".shell-me .shell-register")).not.toBe(null)
+      expect(strip[0].querySelector(".shell-me > .shell-signin[hidden]")).not.toBe(null)
+      expect(strip[0].querySelector('.shell-signin-panel[hidden] .shell-passkey[data-auth-action="accounts"][hidden]')).not.toBe(null)
     })
 
     it(`boots only after it has painted, at ${address}`, () => {

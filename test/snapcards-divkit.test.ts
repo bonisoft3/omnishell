@@ -68,18 +68,21 @@ describe("Snapcards 6 core screens -> DivKit compilation & headless reconciliati
       expect(typeof entry.divkit.card.states[0].div.type).toBe("string");
     }
 
-    // `about` resolves all 3 fanned `/img/*` seed cards into origin-qualified `div-image` blocks + login modal `div-state`
+    // `about` resolves all 3 fanned `/img/*` seed cards into origin-qualified `div-image` blocks + its ⋯ sheet `div-state`
     const aboutImages = findNodesOfType(projection.screens.about.divkit, "image");
     expect(aboutImages.length).toBe(3);
     for (const img of aboutImages) {
       expect(String(img.image_url).startsWith("https://snapcards.fun/img/insecure/plain/s3://mecha-objects/seed/")).toBe(true);
     }
     const aboutStates = findNodesOfType(projection.screens.about.divkit, "state");
+    expect(aboutStates.some((s) => s.id === "state_more-sheet-about")).toBe(true);
+    // No screen draws its own sign-in: the projection adds the account sheet from `auth`.
     expect(aboutStates.some((s) => s.id === "state_login-modal-overlay")).toBe(true);
 
-    // `generate` lowers all 3 `[popover]` menus (`draft-loc-menu`, `locale-combo-menu`, `difficulty-combo-menu`) + login modal to `div-state`
+    // `generate` lowers all 3 `[popover]` menus (`draft-loc-menu`, `locale-combo-menu`, `difficulty-combo-menu`) + its ⋯ sheet to `div-state`
     const genStates = findNodesOfType(projection.screens.generate.divkit, "state");
     const genStateIds = genStates.map((s) => String(s.id));
+    expect(genStateIds.includes("state_more-sheet-generate")).toBe(true);
     expect(genStateIds.includes("state_login-modal-overlay")).toBe(true);
     expect(genStateIds.includes("state_draft-loc-menu")).toBe(true);
     expect(genStateIds.includes("state_locale-combo-menu")).toBe(true);
@@ -106,6 +109,7 @@ describe("Snapcards 6 core screens -> DivKit compilation & headless reconciliati
 
       const states = findNodesOfType(divCard, "state");
       expect(states.some((s) => s.id === "state_card-edit-sheet")).toBe(true);
+      expect(states.some((s) => s.id === `state_more-sheet-${studyScreen}`)).toBe(true);
       expect(states.some((s) => s.id === "state_login-modal-overlay")).toBe(true);
 
       // Visibility expressions for `[data-status]` (`fullscreen`, `completed`) and ownership (`is_owned_deck`)
@@ -121,6 +125,11 @@ describe("Snapcards 6 core screens -> DivKit compilation & headless reconciliati
     expect(cardsJson.includes("@{is_favorited ? 'visible' : 'gone'}")).toBe(true);
     expect(cardsJson.includes("@{is_favorited ? 'gone' : 'visible'}")).toBe(true);
     expect(cardsJson.includes("@{author_filter == 'mine' ? 'visible' : 'gone'}")).toBe(true);
+    // The account sheet shows an account a guest's sign-in found held, with Switch and Stay, and
+    // Delete account asks once before the press that deletes.
+    expect(cardsJson.includes("@{held_handle != '' ? 'visible' : 'gone'}")).toBe(true);
+    expect(cardsJson.includes("@{delete_confirm == 'yes' ? 'visible' : 'gone'}")).toBe(true);
+    expect(cardsJson.includes("method=delete-ask") && cardsJson.includes("method=switch")).toBe(true);
 
     // `deck` emits empty-state template for `data-empty`
     const deckJson = JSON.stringify(projection.screens.deck.divkit);
@@ -295,6 +304,7 @@ describe("Snapcards 6 core screens -> DivKit compilation & headless reconciliati
     const g = globalThis as Record<string, unknown>;
     const prevFetch = globalThis.fetch;
     const prevSessionStorage = g.sessionStorage;
+    const prevLocalStorage = g.localStorage;
     const prevHostStorage = g.__omnishellStorage;
     const prevAuthBridge = g.AuthBridge;
 
@@ -420,7 +430,9 @@ describe("Snapcards 6 core screens -> DivKit compilation & headless reconciliati
     let bridge2: ReturnType<typeof createSqliteStorageBridge> | null = null;
     try {
       g.fetch = fakeFetch;
+      // A native host has no web storage: the session is the bridge's alone.
       delete g.sessionStorage;
+      delete g.localStorage;
       g.AuthBridge = {
         loadSession: () => heldAuthSession,
         saveSession: (next: Record<string, unknown>) => { heldAuthSession = next; },
@@ -506,6 +518,8 @@ describe("Snapcards 6 core screens -> DivKit compilation & headless reconciliati
       g.fetch = prevFetch;
       if (prevSessionStorage === undefined) delete g.sessionStorage;
       else g.sessionStorage = prevSessionStorage;
+      if (prevLocalStorage === undefined) delete g.localStorage;
+      else g.localStorage = prevLocalStorage;
       if (prevHostStorage === undefined) delete g.__omnishellStorage;
       else g.__omnishellStorage = prevHostStorage;
       if (prevAuthBridge === undefined) delete g.AuthBridge;

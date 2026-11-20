@@ -10,13 +10,15 @@ import { parseMarkup } from "./markup.js";
 //
 // Auth (cfg.auth: {required, service, providers}): the login screen is
 // terminal chrome, driving the WebAuthn ceremony or the guest mint against the
-// auth service and stashing {token, user} in sessionStorage["pronto-token"]. A
-// provider's sign-in leaves the page and comes back to it, so the boot adopts
-// that session from the auth service (adoptProviderSession). Storybook
+// auth service and stashing {token, user} in localStorage["pronto-token"] — one
+// account per device, every tab the same reader. The auth service keeps the
+// device's session in an HttpOnly cookie besides, whatever way it came in by,
+// so the boot takes it up where the page holds none or one expired — a
+// provider's sign-in comes back to the page that way (adoptDeviceSession). Storybook
 // bypasses it entirely: the fixture adapter runs without the cluster, so no auth
 // service exists to sign against.
 
-import { chromeText, describe, drawStrip, guestBox, hasStrip, localizeStrip, offersGuest, providerHref, providerKey, stripRoutes, supportsPasskeys } from "./chrome.js";
+import { chromeText, describe, drawStrip, hasStrip, localizeStrip, nameOf, offersSignin, ownName, providerHref, stripRoutes } from "./chrome.js";
 import { localeAt, localeTable, ProgramError, restatedHref, routeAt, routeHref, screenEnv, Unanswered } from "./fragment.js";
 import { activateScreenStyle, fetchText, forgetFiles, interpretScreen, prefetchScreen, templateHash, submitsOnChange, AssetMissing } from "./screen.js";
 import { compileCatalog } from "./vendor/messages.js";
@@ -24,13 +26,13 @@ import { filesMoved, planRelease } from "./release-plan.js";
 import { replayEarlyGestures, takeEarlyGestures } from "./early-replay.js";
 import { navFeedback } from "./nav-feedback.js";
 import { createRowAttachments } from "./row-attachments.js";
-import { authPosture, createCortexNavigation, createSessionLifecycle, SESSION_LIFECYCLE_CHART } from "./cortex-navigation.js";
-export { authPosture, createSessionLifecycle, SESSION_LIFECYCLE_CHART } from "./cortex-navigation.js";
+import { authPosture, createCortexNavigation, createSessionLifecycle } from "./cortex-navigation.js";
 export { routeAt } from "./fragment.js";
 import { assetURL, preloadLinkedScreens, preloadScreen, releaseOf, setRelease } from "./preloads.js";
 import { startLinkPrefetch } from "./link-prefetch.js";
+import { signalName } from "./passkey-signals.js";
+import { accountLives, adoptDeviceSession, adoptGuest, askAhead, cover, deviceAccounts, deviceName, dropAhead, forgetAccount, forgetSession, keepsWork, learnDeviceAlone, loginCeremony, mintGuest, nameForm, nameTaken, postJson, recoveryKey, registerCeremony, rememberAccount, renameAccount, renderLogin, renderSession, renderSignin, sessionOwner, storedSessionOwner, syncAuthDOM, uncover, upgradeEarlierGuest } from "./signin.js";
 
-const recoveryKey = "pronto-release-recovery";
 const releaseKey = (imports) => templateHash(JSON.stringify(imports));
 // How often an open page asks whether a deployment landed, besides whenever it
 // is shown again.
@@ -41,577 +43,6 @@ const ENTRY_CACHE = "pronto-entries-v1";
 // A release's map as served in an entry, read without parsing the document,
 // which the policy's Trusted Types forbid on a string.
 const SERVED_MAP = /<script\b[^>]*\bid="pronto-assets"[^>]*>([\s\S]*?)<\/script>/;
-const sessionOwner = (session) => {
-  if (session === null) return null;
-  const subject = claimsOf(session.token)?.sub ?? session.user?.id;
-  return JSON.stringify(subject === undefined ? ["token", session.token] : ["subject", subject]);
-};
-const forgetSession = () => {
-  sessionStorage.removeItem(recoveryKey);
-  sessionStorage.removeItem("pronto-token");
-};
-const storedSessionOwner = () => {
-  try {
-    return sessionOwner(JSON.parse(sessionStorage.getItem("pronto-token") ?? "null"));
-  } catch (error) {
-    if (!(error instanceof SyntaxError)) throw error;
-    forgetSession();
-    return undefined;
-  }
-};
-
-/** Whether the account a stored token names still exists.
- *
- * Deliberately fails OPEN: a cluster that cannot be reached is a cluster that
- * cannot answer the question, and signing somebody out because their wifi
- * dropped would be a worse bug than the one this prevents. Only a definite
- * empty answer — the request succeeded and the row is not there — ends the
- * session.
- */
-async function accountLives(session) {
-  const sub = claimsOf(session.token)?.sub;
-  if (!sub) return true;
-  try {
-    const res = await fetch(`/crud/app_user?id=eq.${encodeURIComponent(sub)}&select=id&limit=1`, {
-      headers: { Authorization: `Bearer ${session.token}` },
-    });
-    // A refused token is a dead session, however live its account.
-    if (res.status === 401) return false;
-    if (!res.ok) return true;
-    return (await res.json()).length > 0;
-  } catch {
-    return true;
-  }
-}
-
-// The auth service leaves this readable cookie beside the HttpOnly one a
-// provider's sign-in sets (mecha's services/auth/README.md#provider-sign-in),
-// so a tab that has none never asks for a session it does not have.
-const PROVIDER_HINT = "mecha_oidc_hint";
-const providerHinted = () => (globalThis.document?.cookie ?? "").split(";").some((c) => c.trim().startsWith(`${PROVIDER_HINT}=`));
-
-/** The browser's provider sign-in as this tab's session, or null. A redirect
- * cannot write sessionStorage, so the provider's return lands here, and so
- * does every tab opened later. A live non-guest session keeps its identity;
- * an expired bearer can be renewed by the longer-lived cookie. Fails open
- * as accountLives does: offline, the tab boots as it would have. */
-async function adoptProviderSession(cfg) {
-  if ((cfg.auth?.providers?.length ?? 0) === 0 || !providerHinted()) return null;
-  let held = null;
-  try {
-    held = JSON.parse(sessionStorage.getItem("pronto-token") ?? "null");
-  } catch (error) {
-    if (!(error instanceof SyntaxError)) throw error;
-  }
-  if (held !== null && !held.user?.guest && await accountLives(held)) return null;
-  let res;
-  try {
-    res = await fetch(`${cfg.auth.service}/oidc/session`, { method: "POST", credentials: "same-origin" });
-  } catch (error) {
-    if (!(error instanceof TypeError)) throw error;
-    return null;
-  }
-  // Signed out elsewhere, or the link revoked: the hint is stale, and the
-  // next boot need not ask.
-  if (res.status === 401) {
-    document.cookie = `${PROVIDER_HINT}=; Path=/; Max-Age=0`;
-    return null;
-  }
-  if (!res.ok) throw new Error(`${res.status} POST ${cfg.auth.service}/oidc/session`);
-  const session = await res.json();
-  if (sessionOwner(session) !== sessionOwner(held)) sessionStorage.removeItem(recoveryKey);
-  sessionStorage.setItem("pronto-token", JSON.stringify(session));
-  return session;
-}
-
-/** A guest session from the auth service. A served or kept document on show
- * (`reading`) stays the page while no answer can arrive — a tab opened offline
- * paints what the worker kept, and holds no session yet, since one lives in
- * the tab — so the mint is asked again once the browser is back online, or a
- * backoff has passed. With nothing on show, there is nothing to keep. */
-async function mintGuest(cfg, reading) {
-  for (let wait = 2000; ; wait = Math.min(wait * 2, 15000)) {
-    let res;
-    try {
-      res = await fetch(`${cfg.auth?.service ?? "/auth"}/guest`, { method: "POST" });
-    } catch (err) {
-      // fetch rejects with a TypeError when no answer arrived at all.
-      if (!reading || !(err instanceof TypeError)) throw err;
-      await new Promise((resolve) => {
-        const timer = setTimeout(resolve, wait);
-        addEventListener("online", () => {
-          clearTimeout(timer);
-          resolve();
-        }, { once: true });
-      });
-      continue;
-    }
-    if (!res.ok) throw new Error(`Guest auth failed with status ${res.status}: ${await res.text()}`);
-    return res.json();
-  }
-}
-
-/** The JWT payload, or null if it is not one. */
-function claimsOf(token) {
-  try {
-    const part = String(token).split(".")[1];
-    return JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/")));
-  } catch {
-    return null;
-  }
-}
-
-// WebAuthn wire format: the auth service speaks @simplewebauthn JSON
-// (base64url strings) while navigator.credentials wants ArrayBuffers.
-const bufFromB64u = (s) =>
-  Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)).buffer;
-const b64uFromBuf = (buf) =>
-  btoa(String.fromCharCode(...new Uint8Array(buf)))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-
-async function postJson(url, body, token) {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const detail = (await res.text().catch(() => "")).slice(0, 200);
-    throw new Error(`${res.status} POST ${url}${detail ? `: ${detail}` : ""}`);
-  }
-  return res.json();
-}
-
-const passkeyStoreKey = (rpId) => `pronto-passkey-ids:${rpId || "default"}`;
-const rpIdOf = (options) => options?.rpId ?? options?.rp?.id ?? globalThis.location?.hostname;
-function knownPasskeys(rpId) {
-  try {
-    const raw = globalThis.localStorage?.getItem(passkeyStoreKey(rpId));
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.filter((id) => typeof id === "string" && id.length > 0) : [];
-  } catch {
-    return [];
-  }
-}
-function rememberPasskey(rpId, credId) {
-  if (!rpId || !credId) return;
-  try {
-    const next = [...new Set([...knownPasskeys(rpId), credId])];
-    globalThis.localStorage?.setItem(passkeyStoreKey(rpId), JSON.stringify(next));
-  } catch {}
-}
-function forgetPasskey(rpId, credId) {
-  if (!rpId || !credId) return;
-  try {
-    const next = knownPasskeys(rpId).filter((id) => id !== credId);
-    if (next.length === 0) globalThis.localStorage?.removeItem(passkeyStoreKey(rpId));
-    else globalThis.localStorage?.setItem(passkeyStoreKey(rpId), JSON.stringify(next));
-  } catch {}
-}
-
-// Both ceremonies are usernameless by terminal doctrine (one tap; identity
-// is generated server-side): POST {service}/<kind>/start {} → the WebAuthn
-// options object flat, plus `state` (the server's stateless challenge JWT,
-// echoed back verbatim); then POST {service}/<kind>/verify
-// {state, response} → {token, user}. A register started with a session's token
-// gives that session's identity the passkey rather than minting a new one.
-async function registerCeremony(service, token) {
-  const { state, ...options } = await postJson(`${service}/register/start`, {}, token);
-  const rpId = rpIdOf(options);
-  const seen = new Set();
-  const excluded = [
-    ...(options.excludeCredentials ?? []),
-    ...knownPasskeys(rpId).map((id) => ({ id, type: "public-key" })),
-  ].filter((c) => c?.id && !seen.has(c.id) && seen.add(c.id));
-  let cred;
-  try {
-    cred = await navigator.credentials.create({
-      publicKey: {
-        ...options,
-        challenge: bufFromB64u(options.challenge),
-        user: { ...options.user, id: bufFromB64u(options.user.id) },
-        excludeCredentials: excluded.map((c) => ({
-          ...c,
-          id: bufFromB64u(c.id),
-        })),
-      },
-    });
-  } catch (err) {
-    if (err?.name === "InvalidStateError") {
-      for (const c of excluded) rememberPasskey(rpId, c.id);
-    }
-    throw err;
-  }
-  const session = await postJson(`${service}/register/verify`, {
-    state,
-    response: {
-      id: cred.id,
-      rawId: b64uFromBuf(cred.rawId),
-      type: cred.type,
-      clientExtensionResults: cred.getClientExtensionResults(),
-      authenticatorAttachment: cred.authenticatorAttachment ?? undefined,
-      response: {
-        clientDataJSON: b64uFromBuf(cred.response.clientDataJSON),
-        attestationObject: b64uFromBuf(cred.response.attestationObject),
-        transports: cred.response.getTransports?.() ?? [],
-      },
-    },
-  });
-  rememberPasskey(rpId, cred.id);
-  return session;
-}
-
-async function loginCeremony(service) {
-  const { state, ...options } = await postJson(`${service}/login/start`, {});
-  const rpId = rpIdOf(options);
-  let cred;
-  try {
-    cred = await navigator.credentials.get({
-      publicKey: {
-        ...options,
-        challenge: bufFromB64u(options.challenge),
-        allowCredentials: (options.allowCredentials ?? []).map((c) => ({
-          ...c,
-          id: bufFromB64u(c.id),
-        })),
-      },
-    });
-  } catch (err) {
-    if (err && typeof err === "object") {
-      err.rpId = rpId;
-    }
-    throw err;
-  }
-  try {
-    const session = await postJson(`${service}/login/verify`, {
-      state,
-      response: {
-        id: cred.id,
-        rawId: b64uFromBuf(cred.rawId),
-        type: cred.type,
-        clientExtensionResults: cred.getClientExtensionResults(),
-        response: {
-          clientDataJSON: b64uFromBuf(cred.response.clientDataJSON),
-          authenticatorData: b64uFromBuf(cred.response.authenticatorData),
-          signature: b64uFromBuf(cred.response.signature),
-          userHandle: cred.response.userHandle ? b64uFromBuf(cred.response.userHandle) : undefined,
-        },
-      },
-    });
-    rememberPasskey(rpId, cred.id);
-    return session;
-  } catch (err) {
-    const msg = String(err?.message ?? "");
-    if (msg.startsWith("401 ") && (msg.includes('"unknownCredential":true') || msg.includes("unknown credential"))) {
-      try {
-        await globalThis.PublicKeyCredential?.signalUnknownCredential?.({
-          rpId,
-          credentialId: cred.id,
-        });
-      } catch {}
-      forgetPasskey(rpId, cred.id);
-      if (err && typeof err === "object") {
-        err.unknownCredential = true;
-        err.rpId = rpId;
-      }
-    }
-    throw err;
-  }
-}
-
-// Register and login are one gesture when no passkey exists for this domain:
-// attempt the discoverable get; when no resident credential materializes
-// (NotAllowedError) and no valid passkey is remembered for this rpId, create
-// one. A server-refused login (401) prunes the unknown credential above and
-// stays refused until a passkey is explicitly created. Once a valid passkey is
-// known for this rpId, canceling get() stays a cancel rather than minting a
-// duplicate passkey.
-async function passkeyCeremony(service, token) {
-  try {
-    return await loginCeremony(service);
-  } catch (err) {
-    const rpId = err?.rpId ?? globalThis.location?.hostname;
-    if (err?.name === "NotAllowedError" && knownPasskeys(rpId).length === 0) {
-      return registerCeremony(service, token);
-    }
-    throw err;
-  }
-}
-
-// Resolves {token, user} once a ceremony succeeds; failures surface inline
-// and leave the form live for another attempt. `chrome` answers the terminal's
-// own copy in the reader's language.
-function renderLogin(mount, cfg, chrome) {
-  const wrap = document.createElement("div");
-  wrap.className = "shell-login";
-  // Every word is written in after the template rather than interpolated into
-  // it: a catalogue is app data, and data spliced into markup is an injection
-  // seam where a literal was none.
-  wrap.append(parseMarkup(document, `<header class="login-intro">
-    <span class="login-mark" aria-hidden="true"></span>
-    <h1 id="shell-login-title"></h1>
-    <p class="login-hint" id="shell-login-hint"></p>
-  </header><form aria-labelledby="shell-login-title" aria-describedby="shell-login-hint">
-    <p class="login-error" role="alert" hidden></p>
-    <div class="login-actions">
-      <button type="submit" class="login-passkey"></button>
-      <button type="button" class="login-guest"></button>
-    </div>
-  </form>`));
-  // A provider's way in leaves the page, so it is a link, not a button: the
-  // provider brings the reader back to this address, where the boot adopts
-  // the session (adoptProviderSession).
-  const here = `${location.pathname ?? "/"}${location.search ?? ""}`;
-  for (const provider of cfg.auth.providers ?? []) {
-    const a = document.createElement("a");
-    a.className = "login-provider";
-    a.dataset.provider = provider;
-    a.href = providerHref(cfg.auth.service, provider, here);
-    a.textContent = chrome(providerKey(provider));
-    wrap.querySelector(".login-passkey").before(a);
-  }
-  wrap.querySelector("h1").textContent = cfg.app;
-  wrap.querySelector(".login-mark").textContent = [...cfg.app][0]?.toLocaleUpperCase() ?? "";
-  wrap.querySelector(".login-hint").textContent = chrome("chrome_signin_hint");
-  wrap.querySelector("button[type=submit]").textContent = chrome("chrome_signin");
-  wrap.querySelector(".login-guest").textContent = chrome("chrome_signin_guest");
-  mount.replaceChildren(wrap);
-  return new Promise((resolve) => {
-    const form = wrap.querySelector("form");
-    const error = wrap.querySelector(".login-error");
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      error.setAttribute("hidden", "");
-      try {
-        resolve(await passkeyCeremony(cfg.auth.service));
-      } catch (err) {
-        // What failed is the platform's own sentence, in whatever language
-        // the browser threw it in and about a ceremony the reader did not
-        // ask to know the shape of. It goes to the console, where it is
-        // diagnosable; the reader is told, in theirs, that it did not work.
-        console.error(err);
-        error.textContent = chrome("chrome_signin_failed");
-        error.removeAttribute("hidden");
-      }
-    });
-    // Guest is terminal doctrine, rendered unconditionally: passkey ceremonies
-    // verify the server-pinned WEBAUTHN_ORIGIN, so on any other origin this is
-    // the only door that opens. Each click mints a fresh generated identity.
-    wrap.querySelector(".login-guest").addEventListener("click", async () => {
-      error.setAttribute("hidden", "");
-      try {
-        const s = await postJson(`${cfg.auth.service}/guest`, {});
-        s.committed = true;
-        resolve(s);
-      } catch (err) {
-        console.error(err);
-        error.textContent = chrome("chrome_signin_failed");
-        error.removeAttribute("hidden");
-      }
-    });
-  });
-}
-
-function syncGuestChrome(box, session, { signOut, chrome, cfg } = {}) {
-  const signIn = box.querySelector(".shell-signin");
-  if (session?.user?.guest && session.committed) {
-    box.dataset.auth = "guest";
-    if (document.body) document.body.dataset.auth = "guest";
-    if (signIn) signIn.hidden = true;
-    let who = box.querySelector(":scope > .shell-who");
-    if (!who) {
-      who = document.createElement("span");
-      who.className = "shell-who";
-      who.dataset.guest = "";
-      const name = document.createElement("span");
-      name.className = "name";
-      const handle = document.createElement("span");
-      handle.className = "handle";
-      who.append(name, handle);
-      box.prepend(who);
-    }
-    // The provider's name over the handle, when the sign-in vouched for one.
-    const name = who.querySelector(".name");
-    if (name) name.textContent = session.user.name ?? "";
-    const handle = who.querySelector(".handle");
-    if (handle) handle.textContent = session.user.name ? "" : (session.user.handle ?? "");
-    let out = box.querySelector(":scope > .shell-signout");
-    if (!out && signOut) {
-      out = document.createElement("a");
-      out.className = "shell-signout";
-      out.href = "#";
-      out.textContent = chrome?.("chrome_signout", document.documentElement.lang || cfg?.i18n?.default) ?? "";
-      out.addEventListener("click", (e) => {
-        e.preventDefault();
-        signOut();
-      });
-      box.append(out);
-    }
-  } else {
-    box.dataset.auth = "anonymous";
-    if (document.body) document.body.dataset.auth = "anonymous";
-    if (signIn) signIn.hidden = false;
-    box.querySelector(":scope > .shell-who")?.remove();
-    box.querySelector(":scope > .shell-signout")?.remove();
-  }
-}
-
-function syncAuthDOM(nav, session, opts = {}) {
-  const promote = offersGuest(opts.cfg);
-  if (opts.lifecycle && opts.lifecycle.session() !== session) {
-    opts.lifecycle.setSession(session);
-  }
-  const auth = opts.lifecycle ? opts.lifecycle.posture() : authPosture(session, promote);
-  if (document.body) document.body.dataset.auth = auth;
-  const box = nav?.querySelector(":scope > .shell-me");
-  if (box && auth !== "user" && promote) syncGuestChrome(box, session, opts);
-  for (const el of document.querySelectorAll("[data-auth-field]")) {
-    const field = el.dataset.authField;
-    if (auth === "anonymous") {
-      delete el._prontoAuthOverride;
-      if (el._prontoAuthAnonymous !== undefined) {
-        el.textContent = el._prontoAuthAnonymous;
-        delete el._prontoAuthAnonymous;
-      }
-    } else if (field === "handle" || field === "name") {
-      if (el._prontoAuthAnonymous === undefined) el._prontoAuthAnonymous = el.textContent ?? "";
-      const val = field === "name" ? (session?.user?.name ?? session?.user?.handle ?? "") : (session?.user?.handle ?? "");
-      el._prontoAuthOverride = val;
-      el.textContent = val;
-    }
-  }
-}
-
-function renderPromote(lifecycle, cfg, chrome, served = null, initialSession = null, signOut = null) {
-  const box = served?.querySelector(".shell-signin, .shell-provider") ? served : guestBox(document, cfg);
-  syncGuestChrome(box, initialSession, { signOut, chrome, cfg });
-  const openModalIfPresent = (e) => {
-    const trigger = document.querySelector(".shell-screen:not([hidden]) [data-auth-trigger], .shell-screen:not([hidden]) #btn-top-login");
-    if (!trigger) return false;
-    e.preventDefault();
-    if (typeof trigger.click === "function") trigger.click();
-    else trigger.dispatchEvent(new (document.defaultView?.Event ?? Event)("click", { bubbles: true }));
-    return true;
-  };
-  box.addEventListener("click", (e) => {
-    if (e.target?.closest?.(".shell-who[data-guest]")) openModalIfPresent(e);
-  });
-  const signIn = box.querySelector(".shell-signin");
-  const create = box.querySelector(".shell-register");
-  if (!supportsPasskeys()) {
-    signIn?.remove();
-    create?.remove();
-    return box;
-  }
-  const authenticate = async (button, kind) => {
-    if (lifecycle.busy()) return;
-    if (signIn) signIn.disabled = true;
-    if (create) create.disabled = true;
-    let outcome;
-    try {
-      outcome = kind === "register"
-        ? await lifecycle.registerPasskey({ origin: "strip" })
-        : await lifecycle.signInPasskey({ origin: "strip" });
-    } finally {
-      if (signIn) signIn.disabled = false;
-      if (create) create.disabled = false;
-    }
-    if (!outcome || outcome.status === "busy" || outcome.status === "stopped") return;
-    if (outcome.status === "failed") {
-      console.error(outcome.error);
-      button.dataset.key = "chrome_passkey_failed";
-      button.textContent = chrome(button.dataset.key, document.documentElement.lang);
-      return;
-    }
-    if (!outcome.sameOwner) sessionStorage.removeItem(recoveryKey);
-    sessionStorage.setItem("pronto-token", JSON.stringify(outcome.session));
-    location.reload();
-  };
-  signIn?.addEventListener("click", (e) => {
-    if (openModalIfPresent(e)) return;
-    authenticate(signIn, "signin");
-  });
-  create?.addEventListener("click", () => authenticate(create, "register"));
-  return box;
-}
-function renderSession(session, cfg, store, signOut, chrome, served = null, lifecycle = null) {
-  // A guest keeps a way in to gain: a passkey's one gesture signs in to the
-  // passkey's account where the device has one, and otherwise makes one of
-  // this guest, keeping what it wrote; a provider's signs in as the person it
-  // links. A served document's strip already holds that box (document.js), and
-  // it is the one bound.
-  if (session.user.guest && offersGuest(cfg)) {
-    return renderPromote(lifecycle, cfg, chrome, served, session, signOut);
-  }
-
-  const self = cfg.auth?.self;
-  const who = document.createElement(self === undefined ? "span" : "a");
-  who.className = "shell-who";
-  if (self !== undefined) {
-    const route = cfg.routes.find((r) => r.screen === self.route);
-    if (route === undefined) throw new Error(`auth.self names "${self.route}", which is no route of this app`);
-    // The person is fixed for the session; only the locale of their address
-    // moves, so the strip's own pass composes the href (localizeStrip).
-    who.dataset.route = self.route;
-    for (const [, name] of route.path.matchAll(/:(\w+)/g)) {
-      who.setAttribute(`data-param-${name}`, session.user[name]);
-    }
-  }
-  const name = document.createElement("span");
-  name.className = "name";
-  // The provider's name over the handle, when the sign-in vouched for one.
-  name.textContent = session.user.name ?? "";
-  const handle = document.createElement("span");
-  handle.className = "handle";
-  handle.textContent = session.user.name ? "" : session.user.handle;
-  who.append(name, handle);
-
-  const box = document.createElement("span");
-  box.className = "shell-me";
-  box.dataset.auth = session.user.guest ? "guest" : "user";
-  if (document.body) document.body.dataset.auth = box.dataset.auth;
-  const out = document.createElement("a");
-  out.className = "shell-signout";
-  out.href = "#";
-  // Written twice on purpose. localizeStrip moves it to the page's language on
-  // every navigation, like the labels beside it — but it runs from show(),
-  // past a currentRoute() that throws on an address the app has no route for,
-  // and the strip outlives that banner because it hangs beside the mount. The
-  // only way out of a session may not be a control with no word on it.
-  out.textContent = chrome("chrome_signout", cfg.i18n?.default);
-  out.addEventListener("click", (e) => {
-    e.preventDefault();
-    signOut();
-  });
-  if (self === undefined) {
-    who.addEventListener("click", (e) => {
-      const trigger = document.querySelector(".shell-screen:not([hidden]) [data-auth-trigger], .shell-screen:not([hidden]) #btn-top-login");
-      if (!trigger) return;
-      e.preventDefault();
-      if (typeof trigger.click === "function") trigger.click();
-      else trigger.dispatchEvent(new (document.defaultView?.Event ?? Event)("click", { bubbles: true }));
-    });
-  }
-  box.append(who, out);
-
-  // The strip is one of the places a person appears, so a rename has to reach
-  // it the way it reaches a byline: read live, not stamped from the token,
-  // whose claims are fixed for the session.
-  if (self?.name !== undefined) {
-    const paint = async () => {
-      const [row] = await store.query(self.name.table, undefined, {
-        filter: `id=eq.${session.user.id}`,
-      });
-      name.textContent = row?.[self.name.column] ?? "";
-    };
-    store.subscribe(self.name.table, paint);
-    paint();
-  }
-  return box;
-}
-
 /** The app's catalogues, keyed by tag, fetched one locale at a time: a reader
  * is in one language, and the five they are not in cost a page its first paint
  * on a slow link. `ensure` answers once the locale's file has been asked for,
@@ -819,20 +250,6 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       [...mount.querySelectorAll("input[type=password]")].some(field => field.value !== "") ||
       [...mount.querySelectorAll("input[type=file]")].some(field => field.files?.length > 0);
   };
-  const idle = () => new Promise(resolve => {
-    const events = ["focusout", "input", "change"];
-    const check = () => {
-      if (editing()) return;
-      for (const type of events) document.removeEventListener(type, changed, true);
-      observer.disconnect();
-      resolve();
-    };
-    const changed = () => queueMicrotask(check);
-    const observer = new document.defaultView.MutationObserver(check);
-    for (const type of events) document.addEventListener(type, changed, true);
-    observer.observe(mount, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-submitting"] });
-    check();
-  });
   // A document rendered before this script ran (document.js), from the
   // network or from the service worker's copy: its screen in the mount, its
   // strip beside it, and the template it was rendered from in its head. The
@@ -960,6 +377,9 @@ export async function createShell({ config, mount, preload = true, hostDomModule
     const dataPlane = import("./data-sync.js");
 
     let session = null;
+    // A sign-in no longer waits for the guest minted at boot, so it can land
+    // first; the guest arriving after must not take its place.
+    let signedIn = false;
     let mintedGuest = false;
     let guestSession = null;
     let recovery = null;
@@ -970,9 +390,19 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       } else sessionStorage.removeItem(recoveryKey);
     };
     const hadInitialOwner = initialDraftOwner !== null;
-    if (cfg.auth?.required || (cfg.tables?.length ?? 0) > 0) await adoptProviderSession(cfg);
+    dropAhead();
+    if (cfg.auth) learnDeviceAlone();
+    // One account per device: a tab whose account another tab changed — a
+    // sign-in, a sign-out — is that account's page no longer. A token renewed
+    // keeps its account; a tab still minting its guest takes the one stored.
+    addEventListener("storage", (e) => {
+      if (e.key !== "pronto-token" || (session === null && guestSession !== null)) return;
+      if (sessionOwner(e.newValue === null ? null : JSON.parse(e.newValue)) !== sessionOwner(session)) location.reload();
+    });
+    if (cfg.auth) await upgradeEarlierGuest(cfg);
+    const adopted = cfg.auth?.required || (cfg.tables?.length ?? 0) > 0 ? await adoptDeviceSession(cfg) : null;
     if (cfg.auth?.required) {
-      const stored = sessionStorage.getItem("pronto-token");
+      const stored = localStorage.getItem("pronto-token");
       // A stored token is not a session. The account it names can be gone —
       // the row dropped, the database recreated — and nothing about the token
       // says so: it is still correctly signed and unexpired, reads are public
@@ -985,7 +415,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       if (stored && !(await accountLives(JSON.parse(stored)))) {
         forgetSession();
       }
-      const live = sessionStorage.getItem("pronto-token");
+      const live = localStorage.getItem("pronto-token");
       if (live) {
         session = JSON.parse(live);
       } else {
@@ -997,10 +427,10 @@ export async function createShell({ config, mount, preload = true, hostDomModule
         // it, so nothing else will: left here, the login form outlives the
         // sign-in it gated and sits above every screen for the session.
         mount.replaceChildren();
-        sessionStorage.setItem("pronto-token", JSON.stringify(session));
+        localStorage.setItem("pronto-token", JSON.stringify(session));
       }
     } else if ((cfg.tables?.length ?? 0) > 0) {
-      let stored = sessionStorage.getItem("pronto-token");
+      let stored = localStorage.getItem("pronto-token");
       if (stored) {
         try {
           if (!(await accountLives(JSON.parse(stored)))) {
@@ -1016,10 +446,19 @@ export async function createShell({ config, mount, preload = true, hostDomModule
         session = JSON.parse(stored);
       } else {
         mintedGuest = true;
-        guestSession = mintGuest(cfg, served !== null).then((s) => {
+        // Minted ahead of the reader, so without the device's cookie: a sign-in
+        // that finishes first keeps it, and a guest kept is adopted after.
+        guestSession = mintGuest(cfg, served !== null, false).then(async (minted) => {
+          if (signedIn) return minted;
+          // Another of this device's tabs kept its guest first: that one is
+          // this device's, and this tab's is left unused.
+          const kept = JSON.parse(localStorage.getItem("pronto-token") ?? "null");
+          const s = kept ?? minted;
+          if (kept === null) await adoptGuest(cfg, s);
+          if (signedIn) return s;
           session = s;
           if (!hadInitialOwner) initialDraftOwner = sessionOwner(s);
-          sessionStorage.setItem("pronto-token", JSON.stringify(s));
+          localStorage.setItem("pronto-token", JSON.stringify(s));
           if (recovery && recovery.owner === null && !hadInitialOwner) {
             recovery.owner = sessionOwner(s);
             retainRecovery();
@@ -1034,19 +473,17 @@ export async function createShell({ config, mount, preload = true, hostDomModule
     let localizeCurrentStrip = null;
     const sessionLifecycle = createSessionLifecycle({
       session,
-      promote: offersGuest(cfg),
       required: Boolean(cfg.auth?.required),
       ensureSession: () => session ?? (guestSession ? guestSession : Promise.resolve(null)),
-      passkeySignin: (s) => passkeyCeremony(cfg.auth.service, s?.user?.guest ? s.token : undefined),
-      passkeyRegister: (s) => registerCeremony(cfg.auth.service, s?.user?.guest ? s.token : undefined),
+      // A guest with work signs in with its token, so another account's
+      // passkey is offered rather than switched to; one that wrote nothing
+      // has nothing to lose, and is switched from silently.
+      passkeySignin: (s, how) => loginCeremony(cfg.auth.service, how, keepsWork(s) ? s.token : null),
+      passkeyRegister: (s, _how, name) => registerCeremony(cfg.auth.service, s?.token, name),
       signOut: async () => {
-        if (providerHinted()) {
-          const res = await fetch(`${cfg.auth.service}/oidc/signout`, { method: "POST", credentials: "same-origin" });
-          if (!res.ok) throw new Error(`${res.status} POST ${cfg.auth.service}/oidc/signout`);
-        }
+        const res = await fetch(`${cfg.auth.service}/signout`, { method: "POST", credentials: "same-origin" });
+        if (!res.ok) throw new Error(`${res.status} POST ${cfg.auth.service}/signout`);
       },
-      hasKnownPasskeys: (rpId) => knownPasskeys(rpId ?? globalThis.location?.hostname).length > 0,
-      isProviderHinted: providerHinted,
     });
     if (guestSession) {
       guestSession = guestSession.then((s) => {
@@ -1055,25 +492,51 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       });
     }
     const commitGuest = async () => {
+      const before = session;
       const s = await sessionLifecycle.commitGuest();
       if (!s?.user?.guest) return s;
+      // Every gesture's write asks; a guest already kept is unchanged, and its
+      // chip, with any panel open on it, stays as it is.
+      if (before?.committed && before.token === s.token) return s;
       session = s;
-      sessionStorage.setItem("pronto-token", JSON.stringify(s));
+      localStorage.setItem("pronto-token", JSON.stringify(s));
+      const box = nav?.querySelector(":scope > .shell-me");
+      if (box && offersSignin(cfg)) box.replaceWith(renderSession(s, cfg, store, chrome));
       syncAuthDOM(nav, s, { signOut, chrome, cfg, lifecycle: sessionLifecycle });
       localizeCurrentStrip?.();
       return s;
     };
 
+    // Sign in on a device nobody signed in on asks nothing: the guest this
+    // page already reads as becomes the reader, shown, and its panel opens on
+    // keeping it. It wrote nothing, so a sign-in elsewhere leaves it silently.
+    document.addEventListener("click", (e) => {
+      const open = e.target?.closest?.(".shell-me > .shell-signin:not(.shell-guest)");
+      if (!open || !session?.user?.guest || authPosture(session) !== "anonymous" || deviceAccounts().length > 0) return;
+      e.stopImmediatePropagation();
+      session = { ...session, shown: true };
+      localStorage.setItem("pronto-token", JSON.stringify(session));
+      sessionLifecycle.setSession(session);
+      const box = renderSignin(cfg, null, session);
+      open.closest(".shell-me").replaceWith(box);
+      localizeCurrentStrip();
+      syncAuthDOM(nav, session, { signOut, chrome, cfg, lifecycle: sessionLifecycle });
+      box.querySelector(":scope > .shell-signin").click();
+    }, true);
+
     await catalogued;
     const { createStore } = await dataPlane;
-    const store = createStore("", {
+    // One store per session: its rows and shapes are what that session
+    // reached, so another session gets a new one (becomeSession).
+    const makeStore = () => createStore("", {
       ...cfg,
       appBase,
       mintedGuest,
       ensureSession: guestSession ? () => guestSession : null,
       onRemoteWrite: () => { if (gesture > 0) commitGuest(); },
     });
-    const linkPrefetch = startLinkPrefetch({ addresses, appBase, store });
+    let store = makeStore();
+    const linkPrefetch = startLinkPrefetch({ addresses, appBase, storeOf: () => store });
     recovery = JSON.parse(sessionStorage.getItem(recoveryKey) ?? "null");
     const owner = session === null ? storedSessionOwner() : sessionOwner(session);
     if (initialDraftOwner !== owner) initialFields = null;
@@ -1183,23 +646,60 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       localizeStrip(nav, cfg, { locale, here: location.pathname, search: location.search ?? "", messages, explicitLocale });
     };
 
-    // Signing out lands on the door with nothing of the session left standing.
-    // The chrome comes down here because the stack appends rather than
-    // replaces, so nothing else would take it down; the document is then
-    // replaced because the screens' subscriptions and the store's token are
-    // the session too, and re-gating in place would keep both.
-    signOut = async () => {
-      // The provider's cookie first, or the reload adopts the session again;
-      // a sign-out that cannot reach the auth service leaves the reader signed
-      // in, and on screen as they were.
-      const outcome = await sessionLifecycle.signOut();
-      if (!outcome || outcome.mode === "busy" || outcome.mode === "stopped") return;
-      if (outcome.mode === "in-place") {
-        session = outcome.session;
-        sessionStorage.setItem("pronto-token", JSON.stringify(session));
-        syncAuthDOM(nav, session, { signOut, chrome, cfg, lifecycle: sessionLifecycle });
+    // The page becomes another session's in place — a visitor's, or another
+    // account's: the screens on hand and the store's rows and shapes were the
+    // last session's, so they go with it, and the address is drawn again from
+    // what the next one reaches. A visitor of an app that keeps tables has its
+    // next guest before anything is taken down, as its boot does, so no
+    // moment shows the page without a session. A person with no strip to
+    // stand in has one only as the boot draws it.
+    const become = async (next) => {
+      const person = next !== null && !next.user.guest;
+      if (person && !nav) {
+        sessionStorage.removeItem(recoveryKey);
+        localStorage.setItem("pronto-token", JSON.stringify(next));
+        location.reload();
         return;
       }
+      for (const entry of [...held.values()]) discard(entry);
+      current = null;
+      presented = null;
+      preview = null;
+      sessionStorage.removeItem(recoveryKey);
+      recovery = null;
+      forgetSession();
+      if (next !== null) localStorage.setItem("pronto-token", JSON.stringify(next));
+      session = next;
+      signedIn = person;
+      mintedGuest = next !== null && !person;
+      guestSession = null;
+      sessionLifecycle.setSession(next);
+      await store.close();
+      store = makeStore();
+      globalThis.__prontoStore = store;
+      linkPrefetch.forget();
+      const box = nav?.querySelector(":scope > .shell-me");
+      if (box) {
+        box.querySelector("[data-step]")?._release?.();
+        box.replaceWith(person ? renderSession(next, cfg, store, chrome)
+          : offersSignin(cfg) ? renderSignin(cfg) : Object.assign(document.createElement("span"), { className: "shell-me" }));
+      }
+      localizeCurrentStrip();
+      syncAuthDOM(nav, session, { signOut, chrome, cfg, lifecycle: sessionLifecycle });
+      await show("replace");
+    };
+    const becomeVisitor = async () => await become((cfg.tables?.length ?? 0) > 0 ? await mintGuest(cfg, false) : null);
+
+    // Signing out forgets the device's account. The cookies go first, or the
+    // next boot takes the session up again; a sign-out that cannot reach the
+    // auth service leaves the reader signed in, and on screen as they were.
+    signOut = async () => {
+      const outcome = await sessionLifecycle.signOut();
+      if (!outcome || outcome.mode === "busy" || outcome.mode === "stopped") return;
+      if (outcome.mode === "in-place") return await becomeVisitor();
+      // An app that admits only a signed-in reader lands on its gate, which
+      // the boot draws: the chrome comes down here because the stack appends
+      // rather than replaces, so nothing else would take it down.
       for (const entry of [...held.values()]) discard(entry);
       current = null;
       nav?.remove();
@@ -1227,141 +727,468 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       else mount.before(nav);
       const servedBox = kept?.querySelector(":scope > .shell-me") ?? null;
       if (session) {
-        const box = renderSession(session, cfg, store, signOut, chrome, servedBox, sessionLifecycle);
+        const box = renderSession(session, cfg, store, chrome, servedBox);
         if (box !== servedBox) {
           servedBox?.remove();
           nav.append(box);
         }
-      } else if (mintedGuest && offersGuest(cfg)) {
-        const box = renderPromote(sessionLifecycle, cfg, chrome, servedBox, null, signOut);
+      } else if (mintedGuest && offersSignin(cfg)) {
+        const box = renderSignin(cfg, servedBox);
         if (box !== servedBox) {
           servedBox?.remove();
           nav.append(box);
         }
-      } else if (mintedGuest) {
-        guestSession = guestSession.then((s) => {
-          const box = renderSession(s, cfg, store, signOut, chrome, servedBox, sessionLifecycle);
-          if (box !== servedBox) {
-            servedBox?.remove();
-            nav.append(box);
-          }
-          if (current !== null) {
-            const explicitLocale = Boolean(cfg.i18n && current.locale === cfg.i18n.default && typeof location !== "undefined" && new URLSearchParams(location.search).has("lang"));
-            localizeStrip(nav, cfg, { locale: current.locale, here: location.pathname, search: location.search ?? "", messages, explicitLocale });
-          }
-          return s;
-        });
       } else servedBox?.remove();
     } else servedStrip?.remove();
 
-    const runPasskeyAuth = async (button, kind) => {
-      if (sessionLifecycle.busy()) return;
-      const existingFeedback = button?.closest?.("[data-auth-feedback]") ?? null;
-      const container = existingFeedback?.parentElement ?? button?.parentElement ?? null;
-      existingFeedback?.remove();
-      const stripSignIn = nav?.querySelector(":scope > .shell-me .shell-signin") ?? null;
-      const stripCreate = nav?.querySelector(":scope > .shell-me .shell-register") ?? null;
-      const modalControls = container ? [...container.querySelectorAll("button, [data-auth-action], [data-auth-provider]")] : [];
+    /** The account a guest's sign-in found already made, said beside the way
+     * it took — in the panel, in place of its ways in: switching to it leaves
+     * the guest, staying keeps it. */
+    const offerTaken = (container, user, take, stay) => {
+      const panel = container.closest(".shell-signin-panel");
+      const shown = panel ? [...panel.children].filter((el) => !el.hidden) : [];
+      for (const el of shown) el.hidden = true;
+      const locale = current?.locale ?? document.documentElement.lang ?? cfg.i18n?.default;
+      const feedback = document.createElement("div");
+      feedback.className = "shell-auth-feedback";
+      feedback.dataset.authFeedback = "";
+      feedback.setAttribute("role", "alert");
+      const msg = document.createElement("p");
+      msg.className = "shell-auth-error";
+      msg.textContent = chrome("chrome_taken", locale);
+      const who = document.createElement("p");
+      who.className = "shell-auth-taken";
+      who.append(ownName(document, user.handle, user.name ?? undefined));
+      const choices = [["chrome_switch", "switch", take], ["chrome_stay", "stay", stay]].map(([key, choice, run]) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "shell-auth-choice";
+        b.dataset.authChoice = choice;
+        b.textContent = chrome(key, locale);
+        b.addEventListener("click", async () => {
+          for (const c of choices) c.disabled = true;
+          const newer = await run();
+          feedback.remove();
+          for (const el of shown) el.hidden = false;
+          // Another tab's sign-in replaced the offer this one showed: show that one.
+          if (newer) offerTaken(container, newer.user, () => takeHeld(newer), () => stayHere(newer));
+        });
+        return b;
+      });
+      feedback.append(msg, who, ...choices);
+      (panel ?? container).append(feedback);
+    };
+    // The account a sign-in found is held in the device's cookie: taking it
+    // makes it the device's session from now on, staying lets it go. Either
+    // names the offer it answers; a newer one comes back to be shown instead.
+    const askHeld = async (choice, taken) => {
+      const res = await fetch(`${cfg.auth.service}/session/${choice}`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ offer: taken.offer }),
+      });
+      if (res.status === 409) return { newer: await res.json() };
+      if (!res.ok) throw new Error(`${res.status} POST ${cfg.auth.service}/session/${choice}`);
+      return { res };
+    };
+    const takeHeld = async (taken) => {
+      const asked = await askHeld("switch", taken);
+      if (asked.newer) return asked.newer;
+      const next = await asked.res.json();
+      rememberAccount(next, taken.credential);
+      if (cfg.auth?.required) {
+        sessionStorage.removeItem(recoveryKey);
+        localStorage.setItem("pronto-token", JSON.stringify(next));
+        location.reload();
+        return;
+      }
+      await become(next);
+    };
+    const stayHere = async (taken) => (await askHeld("stay", taken)).newer;
+    // A guest's provider sign-in whose subject is another account's came
+    // back held: the panel opens on the choice.
+    if (adopted?.taken) {
+      const box = nav?.querySelector(":scope > .shell-me");
+      const panel = box?.querySelector(":scope > .shell-signin-panel");
+      if (!panel) throw new Error("a held provider sign-in has no Sign in panel to be offered in");
+      box.querySelector(":scope > .shell-signin").click();
+      offerTaken(panel.querySelector(".shell-signin-ways"), adopted.taken.user, () => takeHeld(adopted.taken), () => stayHere(adopted.taken));
+    }
+
+    // Every passkey control runs here, the nav's ways in and any an app places
+    // in its own markup: its neighbours wait out the ceremony, and a failure
+    // is said beside it — or, where the passkey is another account's, the
+    // choice between it and the guest.
+    // A ceremony's neighbours wait it out.
+    const hold = async (container, button, run) => {
+      const neighbours = [...container.querySelectorAll("button, input, [data-auth-action], [data-auth-provider]")];
       if (button) {
         button.disabled = true;
         delete button.dataset.authError;
       }
-      for (const ctrl of modalControls) {
+      for (const ctrl of neighbours) {
         ctrl.disabled = true;
         ctrl.setAttribute("aria-disabled", "true");
       }
-      if (stripSignIn) stripSignIn.disabled = true;
-      if (stripCreate) stripCreate.disabled = true;
-      container?.querySelectorAll(":scope > [data-auth-feedback]").forEach((el) => el.remove());
-      let outcome;
       try {
-        outcome = kind === "register"
-          ? await sessionLifecycle.registerPasskey({ origin: "action" })
-          : await sessionLifecycle.signInPasskey({ origin: "action" });
+        return await run();
       } finally {
         if (button) button.disabled = false;
-        for (const ctrl of modalControls) {
+        for (const ctrl of neighbours) {
           ctrl.disabled = false;
           ctrl.removeAttribute("aria-disabled");
         }
-        if (stripSignIn) stripSignIn.disabled = false;
-        if (stripCreate) stripCreate.disabled = false;
       }
+    };
+    const localeNow = () => current?.locale ?? document.documentElement.lang ?? cfg.i18n?.default;
+    // A session a ceremony brought: the chip's alone where it is the same
+    // account's, the page's in place where it is another's, a new page behind
+    // the gate.
+    const adopt = async (outcome) => {
+      const next = outcome.session;
+      if (outcome.transitionMode !== "in-place") {
+        signedIn = !next.user.guest;
+        if (!outcome.sameOwner) sessionStorage.removeItem(recoveryKey);
+        localStorage.setItem("pronto-token", JSON.stringify(next));
+        location.reload();
+        return;
+      }
+      if (!outcome.sameOwner) return await become(next);
+      signedIn = !next.user.guest;
+      localStorage.setItem("pronto-token", JSON.stringify(next));
+      session = next;
+      if (nav) {
+        const oldBox = nav.querySelector(":scope > .shell-me");
+        oldBox?.querySelector("[data-step]")?._release?.();
+        const nextBox = renderSession(next, cfg, store, chrome);
+        if (oldBox) oldBox.replaceWith(nextBox);
+        else nav.append(nextBox);
+        localizeCurrentStrip();
+      }
+      syncAuthDOM(nav, next, { signOut, chrome, cfg, lifecycle: sessionLifecycle });
+    };
+    // The device holds nothing of this app's: the panel asks the name to make
+    // the account under — the guest's, keeping its work — in place of its ways
+    // in, and Back returns to them.
+    const askName = (container, button) => {
+      const named = nameForm((key) => chrome(key, localeNow()));
+      const panel = container.closest(".shell-signin-panel");
+      if (panel) cover(panel, named.form);
+      else container.append(named.form);
+      named.form.querySelector("input").focus();
+      const back = () => {
+        if (panel) uncover(named.form);
+        else named.form.remove();
+      };
+      named.form.querySelector(".shell-name-back").addEventListener("click", () => {
+        back();
+        button.focus();
+      });
+      named.form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (sessionLifecycle.busy()) return;
+        const outcome = await hold(named.form, null, () => sessionLifecycle.registerPasskey({ origin: "action", name: named.name() }));
+        if (!outcome || outcome.status === "busy" || outcome.status === "stopped") return;
+        if (outcome.status === "failed") {
+          console.error(outcome.error);
+          named.say(nameTaken(outcome.error) ? "chrome_name_taken" : "chrome_passkey_failed");
+          return;
+        }
+        back();
+        await adopt(outcome);
+      });
+    };
+
+    // Every passkey control runs here, the nav's ways in and any an app places
+    // in its own markup: its neighbours wait out the ceremony, and a failure
+    // is said beside it — or, where the passkey is another account's, the
+    // choice between it and the guest.
+    // `kind` is "register", "device", "signin", or `{credential}` for one face.
+    const runPasskeyAuth = async (button, kind) => {
+      if (sessionLifecycle.busy()) return;
+      const existingFeedback = button.closest("[data-auth-feedback]");
+      const container = button.closest(".shell-signin-panel > [data-step]") ?? existingFeedback?.parentElement ?? button.parentElement;
+      existingFeedback?.remove();
+      for (const el of container.querySelectorAll(":scope > [data-auth-feedback]")) el.remove();
+      const outcome = await hold(container, button, () =>
+        kind === "register"
+          ? sessionLifecycle.registerPasskey({ origin: "action" })
+          : sessionLifecycle.signInPasskey({ origin: "action", how: kind === "device" ? "device" : kind === "signin" ? undefined : kind }));
       if (!outcome || outcome.status === "busy" || outcome.status === "stopped") return;
+      if (outcome.status === "failed" && outcome.taken) {
+        offerTaken(container, outcome.taken.user, () => takeHeld(outcome.taken), () => stayHere(outcome.taken));
+        return;
+      }
+      if (outcome.status === "failed" && outcome.empty && kind === "device") {
+        askName(container, button);
+        return;
+      }
       if (outcome.status === "failed") {
         console.error(outcome.error);
-        if (button) button.dataset.authError = "true";
-        const screenEl = button?.closest?.(".shell-screen") ?? container?.closest?.(".shell-screen") ?? null;
-        if (screenEl && (button?.closest?.(".login-modal-backdrop, .login-modal-overlay, .login-modal-card") || container?.closest?.(".login-modal-backdrop, .login-modal-overlay, .login-modal-card")) && !/\blogin\b/.test(screenEl.querySelector(".screen")?.dataset?.state ?? "")) {
-          const toggle = screenEl.querySelector("#login-modal-toggle");
-          if (toggle && "checked" in toggle) {
-            toggle.checked = true;
-          } else {
-            const trigger = screenEl.querySelector("[data-auth-trigger], #btn-top-login");
-            if (typeof trigger?.click === "function") trigger.click();
-            else trigger?.dispatchEvent(new (document.defaultView?.Event ?? Event)("click", { bubbles: true }));
-          }
-        }
-        if (container) {
-          const locale = current?.locale ?? document.documentElement.lang ?? cfg.i18n?.default;
-          const feedback = document.createElement("div");
-          feedback.className = "shell-auth-feedback";
-          feedback.dataset.authFeedback = "";
-          feedback.setAttribute("role", "alert");
-          const msg = document.createElement("p");
-          msg.className = "shell-auth-error";
-          msg.textContent = chrome("chrome_passkey_failed", locale);
-          feedback.append(msg);
-          if (outcome.recoveryOffered && !container.querySelector('[data-auth-action="passkey-register"]')) {
-            const recover = document.createElement("button");
-            recover.type = "button";
-            recover.className = "shell-auth-recover";
-            recover.dataset.authAction = "passkey-register";
-            recover.textContent = chrome("chrome_passkey_create", locale);
-            feedback.append(recover);
-          }
-          container.append(feedback);
-        }
+        button.dataset.authError = "true";
+        const feedback = document.createElement("div");
+        feedback.className = "shell-auth-feedback";
+        feedback.dataset.authFeedback = "";
+        feedback.setAttribute("role", "alert");
+        const msg = document.createElement("p");
+        msg.className = "shell-auth-error";
+        msg.textContent = chrome("chrome_passkey_failed", localeNow());
+        feedback.append(msg);
+        container.append(feedback);
         return;
       }
-      const next = outcome.session;
-      if (!outcome.sameOwner) sessionStorage.removeItem(recoveryKey);
-      sessionStorage.setItem("pronto-token", JSON.stringify(next));
-      if (outcome.transitionMode === "in-place") {
-        session = next;
-        if (nav) {
-          const oldBox = nav.querySelector(":scope > .shell-me");
-          const nextBox = renderSession(next, cfg, store, signOut, chrome, null, sessionLifecycle);
-          if (oldBox) oldBox.replaceWith(nextBox);
-          else nav.append(nextBox);
+      await adopt(outcome);
+    };
+
+    // Passkey: the accounts this device signed in to, as faces, as many as
+    // the panel's width holds — a face asks for its own passkey alone, so no
+    // list opens — then one field. The field holds the browser's passkey
+    // autofill open (a conditional request), which offers every passkey it
+    // has for the site; a new name in it and Enter or → makes one, the
+    // guest's, keeping its work. A page holds one passkey request at a time,
+    // so the autofill is let go before any other and taken up after it.
+    const openAccounts = (button) => {
+      const panel = button.closest(".shell-signin-panel");
+      const say = (key) => chrome(key, localeNow());
+      const step = document.createElement("div");
+      step.className = "shell-accounts";
+      step.append(parseMarkup(document, `<div class="shell-accounts-head"><button type="button" class="shell-accounts-back"><svg class="shell-back-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button><span class="shell-accounts-title"></span></div>`));
+      step.querySelector(".shell-accounts-back").setAttribute("aria-label", say("chrome_back"));
+      step.querySelector(".shell-accounts-title").textContent = say("chrome_device");
+      const accounts = deviceAccounts();
+      if (accounts.length > 0) {
+        const faces = document.createElement("div");
+        faces.className = "shell-faces";
+        for (const account of accounts) {
+          const name = nameOf(account.handle);
+          const face = parseMarkup(document, `<div class="shell-face" role="group"><button type="button" class="shell-face-pick" data-auth-action="face"><span class="shell-face-mark" aria-hidden="true"></span><span class="shell-face-name"></span></button><button type="button" class="shell-face-forget" data-auth-action="forget"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>`).firstElementChild;
+          face.setAttribute("aria-label", name);
+          face.dataset.account = account.id;
+          face.querySelector(".shell-face-pick").dataset.credential = account.credential;
+          face.querySelector(".shell-face-mark").textContent = [...name][0]?.toLocaleUpperCase() ?? "";
+          // Each face its own hue, the same every time it is drawn.
+          face.style.setProperty("--shell-face-hue", String([...account.id].reduce((h, c) => (h * 31 + c.codePointAt(0)) % 360, 7)));
+          face.querySelector(".shell-face-name").textContent = name;
+          const forget = face.querySelector(".shell-face-forget");
+          forget.setAttribute("aria-label", say("chrome_forget"));
+          forget.title = say("chrome_forget");
+          faces.append(face);
+        }
+        step.append(faces);
+        // The faces the row's width holds, the most recent first; the rest
+        // are the field's autofill.
+        const fit = () => {
+          const room = faces.clientWidth;
+          for (const face of faces.children) face.hidden = false;
+          if (room === 0) return;
+          for (const face of faces.children) face.hidden = face.offsetLeft - faces.offsetLeft + face.offsetWidth > room;
+        };
+        if (globalThis.ResizeObserver) new ResizeObserver(fit).observe(faces);
+      }
+      const form = parseMarkup(document, `<form class="shell-passkey-form"><input id="shell-passkey-name" name="username" autocomplete="username webauthn"><button type="submit" class="shell-passkey-go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button><p class="shell-auth-error" role="alert" hidden></p></form>`).firstElementChild;
+      const input = form.querySelector("input");
+      input.setAttribute("placeholder", say("chrome_name_label"));
+      input.setAttribute("aria-label", say("chrome_name_label"));
+      const go = form.querySelector(".shell-passkey-go");
+      go.setAttribute("aria-label", say("chrome_create_passkey"));
+      go.title = say("chrome_create_passkey");
+      const error = form.querySelector(".shell-auth-error");
+      const failed = (err, key = "chrome_passkey_failed") => {
+        console.error(err);
+        error.textContent = say(key);
+        error.hidden = false;
+      };
+      step.append(form);
+
+      let listening = null;
+      const release = () => {
+        listening?.abort();
+        listening = null;
+      };
+      const listen = async () => {
+        if (listening !== null || !step.isConnected) return;
+        const held = (listening = new AbortController());
+        if (!(await globalThis.PublicKeyCredential?.isConditionalMediationAvailable?.())) return;
+        let next;
+        try {
+          next = await loginCeremony(cfg.auth.service, { conditional: held.signal }, keepsWork(session) ? session.token : null);
+        } catch (err) {
+          if (held.signal.aborted) return;
+          listening = null;
+          if (err?.taken) {
+            return offerTaken(step, err.taken.user, () => takeHeld(err.taken), async () => {
+              const newer = await stayHere(err.taken);
+              listen();
+              return newer;
+            });
+          }
+          // The autofill refused is the reader's no, or no passkey here for
+          // this site: nothing to say. Any other failure is said, and waits for
+          // the reader: listening again at once would ask a failing service for
+          // challenges unending.
+          if (err?.name !== "NotAllowedError") failed(err);
+          return;
+        }
+        listening = null;
+        await adopt({ session: next, sameOwner: sessionOwner(next) === sessionOwner(session), transitionMode: cfg.auth?.required ? "reload" : "in-place" });
+      };
+      step._release = release;
+      step._listen = listen;
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (sessionLifecycle.busy()) return;
+        release();
+        error.hidden = true;
+        const outcome = await hold(form, null, () => sessionLifecycle.registerPasskey({ origin: "action", name: input.value.trim() || deviceName() || undefined }));
+        if (!outcome || outcome.status === "busy" || outcome.status === "stopped") return listen();
+        if (outcome.status === "failed") {
+          failed(outcome.error, nameTaken(outcome.error) ? "chrome_name_taken" : "chrome_passkey_failed");
+          return listen();
+        }
+        await adopt(outcome);
+      });
+      step.querySelector(".shell-accounts-back").addEventListener("click", () => {
+        uncover(step);
+        button.focus();
+      });
+      step._opener = button;
+      cover(panel, step);
+      askAhead(cfg.auth.service);
+      (step.querySelector(".shell-face-pick") ?? input).focus();
+      listen();
+    };
+
+    // A rename edits the chip in place: the name, and Save; the suffix
+    // others see stays. A person whose app keeps their name (auth.self.name) renames it
+    // there; anyone else renames the account, guest or person — a visitor's
+    // rename keeps the guest first, which then has a chip to rename.
+    const startRename = async () => {
+      if (sessionLifecycle.posture() === "anonymous") await commitGuest();
+      const box = nav?.querySelector(":scope > .shell-me");
+      const open = box?.querySelector(":scope > :is(.shell-signin.shell-guest, .shell-person)");
+      if (!open) throw new Error("a rename has no account chip to edit");
+      const panel = box.querySelector(":scope > .shell-signin-panel");
+      panel.hidden = true;
+      open.setAttribute("aria-expanded", "false");
+      const shown = open.querySelector(".shell-chip-who .handle");
+      const form = document.createElement("form");
+      form.className = "shell-rename-form";
+      form.append(parseMarkup(document, `<label class="shell-rename-label" for="shell-rename-input"></label>
+        <input id="shell-rename-input" name="nickname" autocomplete="nickname">
+        <button type="submit" class="shell-rename-save"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg></button>
+        <p class="shell-auth-error" role="alert" hidden></p>`));
+      form.querySelector("label").textContent = chrome("chrome_name_label", localeNow());
+      form.querySelector(".shell-rename-save").setAttribute("aria-label", chrome("chrome_save", localeNow()));
+      const input = form.querySelector("input");
+      input.value = shown.firstChild?.textContent ?? "";
+      open.hidden = true;
+      open.before(form);
+      input.focus();
+      input.select?.();
+      const done = () => {
+        form.remove();
+        open.hidden = false;
+        open.focus();
+      };
+      form.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") done();
+      });
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const called = input.value.trim();
+        if (called === "" || called === input.defaultValue) return done();
+        const self = cfg.auth?.self;
+        try {
+          const next = await hold(form, null, async () => {
+            if (self?.name !== undefined && !session.user.guest) {
+              await store.patch(self.name.table, [{ key: session.user.id, changes: { [self.name.column]: called } }]);
+              return null;
+            }
+            return await postJson(`${cfg.auth.service}/rename`, { name: called }, session.token);
+          });
+          if (next === null) return done();
+          if (session.committed) next.committed = true;
+          // Only a device that signed in with a passkey has one to rename.
+          if (session.passkey) next.passkey = session.passkey;
+          else delete next.passkey;
+          session = next;
+          localStorage.setItem("pronto-token", JSON.stringify(next));
+          sessionLifecycle.setSession(next);
+          signalName(next, nameOf(next.user.handle));
+          renameAccount(next.user.id, next.user.handle);
+          box.replaceWith(renderSession(next, cfg, store, chrome));
           localizeCurrentStrip();
+          syncAuthDOM(nav, next, { signOut, chrome, cfg, lifecycle: sessionLifecycle });
+          nav.querySelector(":scope > .shell-me > :is(.shell-signin, .shell-person)")?.focus();
+        } catch (err) {
+          console.error(err);
+          const error = form.querySelector(".shell-auth-error");
+          error.textContent = chrome(nameTaken(err) ? "chrome_name_taken" : "chrome_passkey_failed", localeNow());
+          error.hidden = false;
         }
-        syncAuthDOM(nav, next, { signOut, chrome, cfg, lifecycle: sessionLifecycle });
+      });
+    };
+    /** A provider's sign-in, by navigation: a guest with work goes with its
+     * token as OpenID Connect's id_token_hint, posted, so the token is in no
+     * URL and the provider's subject becomes the guest. The post is fetched
+     * and the page goes where it answers: a form's redirect to the provider is
+     * one the page's CSP (form-action 'self') refuses. */
+    const startProvider = async (provider, here) => {
+      if (!keepsWork(sessionLifecycle.session())) {
+        location.href = providerHref(cfg.auth.service, provider, here);
         return;
       }
-      location.reload();
+      const res = await fetch(providerHref(cfg.auth.service, provider, here).split("?")[0], {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { accept: "application/json" },
+        body: new URLSearchParams({ id_token_hint: sessionLifecycle.session().token, return: here }),
+      });
+      if (!res.ok) throw new Error(`${res.status} POST ${cfg.auth.service}/oidc/${provider}/start`);
+      location.href = (await res.json()).to;
     };
     document.addEventListener("click", (e) => {
-      const providerEl = e.target?.closest?.("[data-auth-provider]");
+      const providerEl = e.target?.closest?.("[data-auth-provider], .shell-me a.shell-provider[data-provider]");
       if (providerEl && cfg.auth?.service) {
         if (providerEl.localName !== "label") e.preventDefault();
         if (sessionLifecycle.busy()) return;
-        const provider = providerEl.dataset.authProvider;
+        const provider = providerEl.dataset.authProvider ?? providerEl.dataset.provider;
         const here = `${location.pathname ?? "/"}${location.search ?? ""}${location.hash ?? ""}`;
-        location.href = providerHref(cfg.auth.service, provider, here);
+        void startProvider(provider, here);
         return;
       }
       const actionEl = e.target?.closest?.("[data-auth-action]");
       if (!actionEl) return;
       const action = actionEl.dataset.authAction;
-      if (action === "guest") {
-        if (actionEl.localName !== "label") e.preventDefault();
-        commitGuest();
-      } else if (action === "signout") {
+      if (action === "signout") {
         if (actionEl.localName !== "label") e.preventDefault();
         signOut();
+      } else if (action === "rename" && cfg.auth?.service) {
+        if (actionEl.localName !== "label") e.preventDefault();
+        startRename();
+      } else if (action === "device" && cfg.auth?.service) {
+        if (actionEl.localName !== "label") e.preventDefault();
+        runPasskeyAuth(actionEl, "device");
+      } else if (action === "accounts" && cfg.auth?.service) {
+        openAccounts(actionEl);
+      } else if (action === "face" && cfg.auth?.service) {
+        const step = actionEl.closest("[data-step]");
+        step._release();
+        runPasskeyAuth(actionEl, { credential: actionEl.dataset.credential }).then(() => step._listen());
+      } else if (action === "forget") {
+        const face = actionEl.closest(".shell-face");
+        forgetAccount((a) => a.id === face.dataset.account);
+        const step = face.closest("[data-step]");
+        uncover(step);
+        openAccounts(step._opener);
       } else if (action === "delete-account" && cfg.auth?.service) {
         if (actionEl.localName !== "label") e.preventDefault();
+        if (!actionEl.hasAttribute("data-confirm")) {
+          actionEl.setAttribute("data-confirm", "");
+          return;
+        }
         void (async () => {
           if (sessionLifecycle.busy()) return;
           const active = session ?? sessionLifecycle.session();
@@ -1375,6 +1202,8 @@ export async function createShell({ config, mount, preload = true, hostDomModule
           const bridge = globalThis.AuthBridge ?? globalThis.__omnishellAuth;
           bridge?.clearSession?.();
           await store?.wipeAccountData?.(active?.user?.id);
+          // A deleted account is no longer one of this device's to sign in as.
+          forgetAccount((a) => a.id === active?.user?.id);
           for (const entry of [...held.values()]) discard(entry);
           current = null;
           nav?.remove();
@@ -1382,7 +1211,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
           forgetSession();
           location.reload();
         })();
-      } else if ((action === "passkey-signin" || action === "passkey") && cfg.auth?.service) {
+      } else if (action === "passkey-signin" && cfg.auth?.service) {
         if (actionEl.localName !== "label") e.preventDefault();
         runPasskeyAuth(actionEl, "signin");
       } else if (action === "passkey-register" && cfg.auth?.service) {
@@ -1468,8 +1297,12 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       }
       const explicitLocale = Boolean(cfg.i18n && locale === cfg.i18n.default && (params?.locale === locale || (typeof location !== "undefined" && new URLSearchParams(location.search).has("lang"))));
       localizeStrip(nav, cfg, { locale, here: location.pathname, search: location.search ?? "", messages, explicitLocale });
+      // A navigation closes the shown screen's open popovers, whether it leaves
+      // the screen or retargets it: the top layer would keep them over the next
+      // view, and over the screen when it comes back.
+      for (const popover of presented?.el.querySelectorAll("[popover]") ?? []) popover.hidePopover?.();
       const key = keyOf(route, params);
-      const retarget = current?.el.querySelector(":scope > .screen")?.getAttribute("data-retarget-params")?.split(/\s+/).filter(Boolean) ?? [];
+      const retarget =current?.el.querySelector(":scope > .screen")?.getAttribute("data-retarget-params")?.split(/\s+/).filter(Boolean) ?? [];
       const unchanged = new Set([...Object.keys(current?.params ?? {}), ...Object.keys(params)]);
       const changesRead = [...(current?.el.querySelectorAll("[data-live]") ?? [])].some((region) =>
         [...region.attributes].some((attr) => (attr.name === "data-filter" || attr.name === "data-order" || attr.name.startsWith("data-read-")) &&
@@ -1580,6 +1413,13 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       if (adopting !== null && (servedCas === undefined || adopting.firstElementChild?.dataset.screen !== route.screen)) {
         adopting.remove();
         adopting = null;
+      }
+      // A tab opened offline paints what the worker kept, rows and all: its
+      // store can read nothing yet, so the page is taken over once the browser
+      // is back online, whether or not the device holds a session.
+      if (adopting !== null && globalThis.navigator?.onLine === false) {
+        await new Promise((resolve) => addEventListener("online", resolve, { once: true }));
+        if (turn !== showing) return;
       }
       let el = adopting;
       let initialLoading;
@@ -2055,7 +1895,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) heed();
     });
-    return { store, navigate, cortex, sessionLifecycle };
+    return { get store() { return store; }, navigate, cortex, sessionLifecycle };
   } catch (err) {
     if (heal !== null && (isMissing(err) || document.querySelector('meta[name="pronto-kept"]')) && await heal()) return;
     banner(err);
