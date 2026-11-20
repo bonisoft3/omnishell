@@ -51,7 +51,7 @@ project's `.mise.toml` and `omnishell` is on PATH:
 
 ```toml
 [tools]
-"github:bonisoft3/omnishell" = "0.27.0"
+"github:bonisoft3/omnishell" = "0.28.0"
 ```
 
 ```
