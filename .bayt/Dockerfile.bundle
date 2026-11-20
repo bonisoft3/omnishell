@@ -12,7 +12,7 @@ COPY --parents [m]ise.local.toml interpreter/vendor/entry-morphlex.ts interprete
 COPY --from=plugins_omnishell-setup_srcs /monorepo /monorepo
 ARG SOURCE_DATE_EPOCH
 ARG BAYT_CLAMP=1
-RUN if [ "${BAYT_CLAMP:-1}" != 0 ]; then find /monorepo/plugins/omnishell -exec touch -hd @${SOURCE_DATE_EPOCH:-0} {} + && touch -hd @${SOURCE_DATE_EPOCH:-0} /monorepo /monorepo/plugins; fi
+RUN if [ "${BAYT_CLAMP:-1}" != 0 ]; then mkdir -p /.bayt-clamp && find /monorepo/plugins/omnishell -exec getfattr -dh {} + > /.bayt-clamp/x && if [ ! -s /.bayt-clamp/x ]; then cd / && cp -a /monorepo/plugins/omnishell /.bayt-clamp/w && rm -rf /monorepo/plugins/omnishell && mv /.bayt-clamp/w /monorepo/plugins/omnishell; fi && rm -rf /.bayt-clamp && find /monorepo/plugins/omnishell -exec touch -hd @${SOURCE_DATE_EPOCH:-0} {} + && touch -hd @${SOURCE_DATE_EPOCH:-0} /monorepo /monorepo/plugins; fi
 FROM scratch AS bundle_srcs
 COPY --from=bundle_ctxs /monorepo /monorepo
 
@@ -32,6 +32,6 @@ COPY --from=plugins_omnishell-setup_bayt /monorepo /monorepo
 COPY --from=libraries_mecha-setup_bayt /monorepo /monorepo
 ARG SOURCE_DATE_EPOCH
 ARG BAYT_CLAMP=1
-RUN if [ "${BAYT_CLAMP:-1}" != 0 ]; then find /monorepo/plugins/omnishell -exec touch -hd @${SOURCE_DATE_EPOCH:-0} {} + && touch -hd @${SOURCE_DATE_EPOCH:-0} /monorepo /monorepo/plugins; fi
+RUN if [ "${BAYT_CLAMP:-1}" != 0 ]; then mkdir -p /.bayt-clamp && find /monorepo/plugins/omnishell -exec getfattr -dh {} + > /.bayt-clamp/x && if [ ! -s /.bayt-clamp/x ]; then cd / && cp -a /monorepo/plugins/omnishell /.bayt-clamp/w && rm -rf /monorepo/plugins/omnishell && mv /.bayt-clamp/w /monorepo/plugins/omnishell; fi && rm -rf /.bayt-clamp && find /monorepo/plugins/omnishell -exec touch -hd @${SOURCE_DATE_EPOCH:-0} {} + && touch -hd @${SOURCE_DATE_EPOCH:-0} /monorepo /monorepo/plugins; fi
 FROM scratch AS bundle_bayt
 COPY --from=bundle_bayt_ctxs /monorepo /monorepo

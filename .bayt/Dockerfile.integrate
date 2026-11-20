@@ -13,7 +13,7 @@ COPY --from=plugins_omnishell-build_srcs /monorepo /monorepo
 COPY --from=plugins_omnishell-setup_srcs /monorepo /monorepo
 ARG SOURCE_DATE_EPOCH
 ARG BAYT_CLAMP=1
-RUN if [ "${BAYT_CLAMP:-1}" != 0 ]; then find /monorepo/plugins/omnishell -exec touch -hd @${SOURCE_DATE_EPOCH:-0} {} + && touch -hd @${SOURCE_DATE_EPOCH:-0} /monorepo /monorepo/plugins; fi
+RUN if [ "${BAYT_CLAMP:-1}" != 0 ]; then mkdir -p /.bayt-clamp && find /monorepo/plugins/omnishell -exec getfattr -dh {} + > /.bayt-clamp/x && if [ ! -s /.bayt-clamp/x ]; then cd / && cp -a /monorepo/plugins/omnishell /.bayt-clamp/w && rm -rf /monorepo/plugins/omnishell && mv /.bayt-clamp/w /monorepo/plugins/omnishell; fi && rm -rf /.bayt-clamp && find /monorepo/plugins/omnishell -exec touch -hd @${SOURCE_DATE_EPOCH:-0} {} + && touch -hd @${SOURCE_DATE_EPOCH:-0} /monorepo /monorepo/plugins; fi
 FROM scratch AS integrate_srcs
 COPY --from=integrate_ctxs /monorepo /monorepo
 
@@ -25,6 +25,6 @@ COPY --from=plugins_omnishell-setup_bayt /monorepo /monorepo
 COPY --from=plugins_omnishell-bundle_bayt /monorepo /monorepo
 ARG SOURCE_DATE_EPOCH
 ARG BAYT_CLAMP=1
-RUN if [ "${BAYT_CLAMP:-1}" != 0 ]; then find /monorepo/plugins/omnishell -exec touch -hd @${SOURCE_DATE_EPOCH:-0} {} + && touch -hd @${SOURCE_DATE_EPOCH:-0} /monorepo /monorepo/plugins; fi
+RUN if [ "${BAYT_CLAMP:-1}" != 0 ]; then mkdir -p /.bayt-clamp && find /monorepo/plugins/omnishell -exec getfattr -dh {} + > /.bayt-clamp/x && if [ ! -s /.bayt-clamp/x ]; then cd / && cp -a /monorepo/plugins/omnishell /.bayt-clamp/w && rm -rf /monorepo/plugins/omnishell && mv /.bayt-clamp/w /monorepo/plugins/omnishell; fi && rm -rf /.bayt-clamp && find /monorepo/plugins/omnishell -exec touch -hd @${SOURCE_DATE_EPOCH:-0} {} + && touch -hd @${SOURCE_DATE_EPOCH:-0} /monorepo /monorepo/plugins; fi
 FROM scratch AS integrate_bayt
 COPY --from=integrate_bayt_ctxs /monorepo /monorepo

@@ -9,7 +9,7 @@ WORKDIR /monorepo/plugins/omnishell
 COPY --parents interpreter/** interpreter/vendor/mecha-client.js components/** src/** test/storybook-injector.ts test/canonical.ts check-visual.ts base-url.ts read-markup.ts render-documents.ts server/** machine.cue ./
 ARG SOURCE_DATE_EPOCH
 ARG BAYT_CLAMP=1
-RUN if [ "${BAYT_CLAMP:-1}" != 0 ]; then find /monorepo/plugins/omnishell -exec touch -hd @${SOURCE_DATE_EPOCH:-0} {} + && touch -hd @${SOURCE_DATE_EPOCH:-0} /monorepo /monorepo/plugins; fi
+RUN if [ "${BAYT_CLAMP:-1}" != 0 ]; then mkdir -p /.bayt-clamp && find /monorepo/plugins/omnishell -exec getfattr -dh {} + > /.bayt-clamp/x && if [ ! -s /.bayt-clamp/x ]; then cd / && cp -a /monorepo/plugins/omnishell /.bayt-clamp/w && rm -rf /monorepo/plugins/omnishell && mv /.bayt-clamp/w /monorepo/plugins/omnishell; fi && rm -rf /.bayt-clamp && find /monorepo/plugins/omnishell -exec touch -hd @${SOURCE_DATE_EPOCH:-0} {} + && touch -hd @${SOURCE_DATE_EPOCH:-0} /monorepo /monorepo/plugins; fi
 FROM scratch AS runtime-image_srcs
 COPY --from=runtime-image_ctxs /monorepo /monorepo
 
@@ -18,6 +18,6 @@ WORKDIR /monorepo/plugins/omnishell
 COPY --parents .bayt/compose.runtime-image.yaml .bayt/Dockerfile.runtime-image .bayt/bayt.runtime-image.json .bayt/Taskfile.yml .bayt/Taskfile.bayt.yml ./
 ARG SOURCE_DATE_EPOCH
 ARG BAYT_CLAMP=1
-RUN if [ "${BAYT_CLAMP:-1}" != 0 ]; then find /monorepo/plugins/omnishell -exec touch -hd @${SOURCE_DATE_EPOCH:-0} {} + && touch -hd @${SOURCE_DATE_EPOCH:-0} /monorepo /monorepo/plugins; fi
+RUN if [ "${BAYT_CLAMP:-1}" != 0 ]; then mkdir -p /.bayt-clamp && find /monorepo/plugins/omnishell -exec getfattr -dh {} + > /.bayt-clamp/x && if [ ! -s /.bayt-clamp/x ]; then cd / && cp -a /monorepo/plugins/omnishell /.bayt-clamp/w && rm -rf /monorepo/plugins/omnishell && mv /.bayt-clamp/w /monorepo/plugins/omnishell; fi && rm -rf /.bayt-clamp && find /monorepo/plugins/omnishell -exec touch -hd @${SOURCE_DATE_EPOCH:-0} {} + && touch -hd @${SOURCE_DATE_EPOCH:-0} /monorepo /monorepo/plugins; fi
 FROM scratch AS runtime-image_bayt
 COPY --from=runtime-image_bayt_ctxs /monorepo /monorepo
