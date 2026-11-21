@@ -388,6 +388,22 @@ const now = () => {
   if (epoch === null) throw new Error("a held clock stamps {now} only from an ?epoch");
   return stamp(Date.parse(epoch) + held);
 };
+// The same clock for a host that runs server-shaped timers in the page: mecha's
+// page cluster sweeps its schedules and resumes its computations on it, so
+// advance() steps them with the screen's own waits, due() lists them and
+// `waits` counts them. Its instant starts at `?epoch`, or where the page
+// loaded without one. Absent on the real clock, where the host keeps its own.
+const loaded = Date.now();
+export const heldTime = MANUAL
+  ? {
+    now: () => (epoch === null ? loaded : Date.parse(epoch)) + held,
+    after: (ms, fire) => {
+      let cancel = () => {};
+      rest(ms, { kind: "cluster" }, (c) => { cancel = c; }).then(fire);
+      return () => cancel();
+    },
+  }
+  : undefined;
 const streamOf = (actor) => {
   let stream = streams.get(actor);
   if (stream === undefined) {

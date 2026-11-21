@@ -34,6 +34,7 @@ import { DOMParser } from "npm:linkedom@0.18.4";
 import { parseMarkup } from "./interpreter/markup.js";
 import { load as parseYaml } from "./interpreter/vendor/js-yaml.js";
 import {
+  behaviorLint,
   type Entity,
   formatBindings,
   formatLint,
@@ -88,6 +89,8 @@ type SchemaField = {
   enum?: string[];
   money?: { currency: string; minorUnits: number };
   secret?: boolean;
+  outputOnly?: boolean;
+  immutable?: boolean;
 };
 type SchemaEntity = {
   durability: string;
@@ -210,6 +213,7 @@ export function screenFindings(
     const chart = JSON.parse(region.machine);
     const why = machineLint(chart, available, { table: region.table, durabilityOf: (t) => schema[t]?.durability, actors, columnsOf: (t) => schema[t]?.fields.map((f) => f.name) });
     if (why !== null) report(`data-machine: ${why}`);
+    for (const how of behaviorLint(chart, region.table, region.emptyRow, (t) => schema[t]?.fields)) report(`data-machine: ${how}`);
     writes.set(region.table, [...(writes.get(region.table) ?? []), ...machineWrites(chart, region.emptyRow)]);
     // The group's own rule, run once per group rather than once per chart.
     const group = region.parallel.join(" ");
@@ -229,6 +233,7 @@ export function screenFindings(
   // After the machine rules: a control's cover depends on what its region's
   // machine answers, and an unparseable machine is that pass's finding.
   for (const why of read(() => secretControls(html, schema)) ?? []) report(why);
+  for (const why of read(() => behaviorControls(html, schema)) ?? []) report(why);
   for (const why of read(() => templateArity(html)) ?? []) report(why);
   for (const why of read(() => unwitnessedControls(html, selectedHostDom)) ?? []) report(why);
   for (const why of read(() => linkLint(html, routes)) ?? []) report(why);
@@ -254,6 +259,31 @@ export function secretControls(html: string, schema: Record<string, SchemaEntity
       const type = (control.getAttribute("type") ?? "").toLowerCase();
       if (control.tagName.toLowerCase() !== "input" || type !== "password") {
         out.push(`form "${table}": "${name}" is a secret field, so its control is <input type="password">, not <${control.tagName.toLowerCase()}${type ? ` type="${type}"` : ""}>`);
+      }
+    }
+  }
+  return out;
+}
+
+/** A form is a client's write, held to its fields' behaviour (pronto's
+ * #Field.outputOnly and #Field.immutable, AIP-203's words): it carries no
+ * control for an output-only field, which the server sets and clears of a
+ * client's value, and an update form none for an immutable one, which is set
+ * when its row is created and never changed. */
+export function behaviorControls(html: string, schema: Record<string, SchemaEntity>): string[] {
+  const doc = new DOMParser().parseFromString(`<html><body>${html}</body></html>`, "text/html");
+  const out: string[] = [];
+  for (const form of doc.querySelectorAll("form[data-entity]")) {
+    const table = form.getAttribute("data-entity") as string;
+    const update = form.getAttribute("data-action") === "update";
+    const fields = schema[table]?.fields ?? [];
+    for (const control of form.querySelectorAll("[name]")) {
+      const name = control.getAttribute("name") as string;
+      const field = fields.find((f) => f.name === name);
+      if (field?.outputOnly) {
+        out.push(`form "${table}": "${name}" is outputOnly, so no control writes it: the server sets it, and clears a value a client sends`);
+      } else if (field?.immutable && update) {
+        out.push(`form "${table}": "${name}" is immutable, so no update form writes it: it is set when its row is created and never changed`);
       }
     }
   }
@@ -373,6 +403,10 @@ export async function selfTest(): Promise<{ failures: string[] }> {
     // nothing because nothing can read its predicate.
     'shell.yaml: "note" uniques "one-pinned" where "title=fts.rain" is outside the translatable fragment subset',
     "arity.html: template[data-item] in [data-live=\"note\"] holds 2 elements",
+    'behavior.html: data-machine: "ledger.stamp" is outputOnly, and an assign writes it',
+    'behavior.html: data-machine: "ledger.code" is immutable, and an effect\'s update writes it',
+    'behavior.html: form "ledger": "stamp" is outputOnly, so no control writes it',
+    'behavior.html: form "ledger": "code" is immutable, so no update form writes it',
     'columns.html: data-filter="colour=eq.blue" names colour — not fields of "note"',
     "control.html: <button class=\"act\"> is wired to nothing",
     'format.html: data-text-format="money" reads {msg.total} outside every data-live region',
@@ -407,8 +441,8 @@ export async function selfTest(): Promise<{ failures: string[] }> {
   // The sound screen is the half that would go dark if a reader's refusal
   // stopped the walk: a count, so a fixture that grows is not silently
   // half-read.
-  if (run.checked !== 16) {
-    failures.push(`the fixture app carries 16 screens, read ${run.checked}`);
+  if (run.checked !== 17) {
+    failures.push(`the fixture app carries 17 screens, read ${run.checked}`);
   }
 
   // An app whose shell.yaml carries no schema is not an app with no rules to

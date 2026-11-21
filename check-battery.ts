@@ -49,7 +49,7 @@ import fc from "npm:fast-check@3.23.2";
 import { sharedInputs, type PropertyFor } from "./battery-inputs.ts";
 import { load as parseYaml } from "./interpreter/vendor/js-yaml.js";
 import { buildEndowments, ensureSes, evaluateCaged, SAFE_ENDOWMENTS } from "./interpreter/jessie.js";
-import { machineRegions, resolveMachineMarkup, scanScreen } from "./interpreter/lint.ts";
+import { type BehaviorField, machineRegions, resolveMachineMarkup, scanScreen } from "./interpreter/lint.ts";
 import { machineCandidates, RESERVED_LEAVES } from "./interpreter/fragment.js";
 import {
   arbitraryHandlerInput,
@@ -217,6 +217,34 @@ const handlerShape: Shape = (value) => {
   return null;
 };
 
+/** A handler's writes, held to their fields' behaviour (pronto's
+ * #Field.outputOnly and #Field.immutable, AIP-203's words): neither an update
+ * it returns nor an effect writes an output-only column, which the server sets
+ * and clears of a client's value, and neither a patch nor an update effect
+ * changes an immutable one, which is set when its row is created. A put and
+ * an upsert state their row whether or not it stands, so restating the value
+ * it holds is theirs to do. A write names its table, or writes the region's. */
+const behavedShape = (table: string | undefined, fieldsOf: (table: string) => BehaviorField[] | undefined): Shape => (value) => {
+  if (typeof value !== "object" || value === null) return null;
+  type Written = { op: string; entity?: string; columns?: unknown };
+  const { updates, effects } = value as { updates?: unknown; effects?: unknown };
+  const writes: { op: string; changes: boolean; at?: string; columns: unknown }[] = [
+    ...(Array.isArray(updates) ? updates as (Written & { row?: unknown })[] : []).map((u) => ({ op: u.op, changes: u.op === "patch", at: u.entity, columns: u.row })),
+    ...(Array.isArray(effects) ? effects as (Written & { values?: unknown })[] : []).map((e) => ({ op: `${e.op} effect`, changes: e.op === "update", at: e.entity, columns: e.values })),
+  ];
+  for (const w of writes) {
+    const a = /^[aeiou]/.test(w.op) ? "an" : "a";
+    const at = w.at ?? table;
+    if (at === undefined || typeof w.columns !== "object" || w.columns === null) continue;
+    for (const col of Object.keys(w.columns)) {
+      const field = fieldsOf(at)?.find((f) => f.name === col);
+      if (field?.outputOnly) return `${a} ${w.op} writes "${at}.${col}", which is outputOnly: the server sets it, and clears a value a client sends`;
+      if (field?.immutable && w.changes) return `${a} ${w.op} writes "${at}.${col}", which is immutable: it is set when its row is created and never changed`;
+    }
+  }
+  return null;
+};
+
 const validationShape: Shape = (value) => typeof value === "boolean" ? null : `returned ${typeof value}, not a boolean`;
 
 /**
@@ -235,10 +263,12 @@ export async function exercise(
   options: BatteryOptions = {},
   propertyFor: PropertyFor<BatteryInput> = (predicate) => fc.property(inputs, predicate),
   endowments: string[] = [],
+  fieldsOf: (table: string) => BehaviorField[] | undefined = () => undefined,
 ): Promise<Exercised> {
   const runs = options.numRuns ?? RUNS;
   const meter = fuelMeter(options.fuelLimit ?? FUEL);
-  const shape = role === "handler" ? handlerShape : validationShape;
+  const behaved = behavedShape(site.table, fieldsOf);
+  const shape: Shape = role === "handler" ? (value) => handlerShape(value) ?? behaved(value) : validationShape;
   const result = (maxFuel: number, error?: string): Exercised => ({
     path,
     role,
@@ -336,7 +366,7 @@ export async function exercise(
  * are built from, and the two places a module is declared with a state and an
  * event to be run on. A renderer and an adapter take a value and a fold takes
  * rows, so none is drawn here — check-handlers loads all five roles. */
-type SchemaEntity = { durability: string; fields: FieldDef[] };
+type SchemaEntity = { durability: string; fields: (FieldDef & BehaviorField)[] };
 type Edge = { table: string; key: string; from: string };
 type Shell = {
   cortex?: { actors?: Record<string, unknown> };
@@ -472,7 +502,7 @@ export async function checkApp(appDir: URL, options: BatteryOptions = {}): Promi
         exercised.push({ path, role, table: site.table, params: site.params, runs: 0, maxFuel: 0, error: said(err) });
         continue;
       }
-      exercised.push(await exercise(path, role, source, inputs, site, options, propertyFor, shell.endowments?.[path] ?? []));
+      exercised.push(await exercise(path, role, source, inputs, site, options, propertyFor, shell.endowments?.[path] ?? [], (t) => schema[t]?.fields));
       const remaining = uses.get(key)! - 1;
       uses.set(key, remaining);
       if (remaining === 0) inputStreams.delete(key);
@@ -618,6 +648,52 @@ export async function selfTest(): Promise<{ failures: string[] }> {
     { numRuns: 5 },
   );
   if (confined.error !== undefined) failures.push(`a module ran outside the compartment: ${confined.error}`);
+
+  // A handler's updates are a client's writes, held to their fields'
+  // behaviour: an output-only column is written by no update, an immutable
+  // one by no patch, and a put restates what its row holds.
+  const ledger = (t: string) => t === "ledger" ? [{ name: "code", immutable: true }, { name: "stamp", outputOnly: true }] : undefined;
+  const behaved = async (update: string) => (await exercise(
+    "behaviour",
+    "handler",
+    `({ context, event }) => ({ updates: [${update}] });`,
+    fc.record({ state: fc.constant({}), event: fc.constant({}) }),
+    { table: "ledger" },
+    { numRuns: 1 },
+    undefined,
+    [],
+    ledger,
+  )).error;
+  if (!(await behaved(`{ op: "put", id: "a", row: { code: "A", stamp: "now" } }`))?.startsWith('a put writes "ledger.stamp", which is outputOnly')) {
+    failures.push("a handler's put of an output-only column passed");
+  }
+  if (!(await behaved(`{ op: "patch", entity: "ledger", id: "a", row: { code: "B" } }`))?.startsWith('a patch writes "ledger.code", which is immutable')) {
+    failures.push("a handler's patch of an immutable column passed");
+  }
+  if ((await behaved(`{ op: "put", id: "a", row: { code: "A" } }`)) !== undefined) {
+    failures.push("a handler's put restating an immutable column was refused");
+  }
+  // An effect a handler returns is a write the terminal submits as well.
+  const effected = async (effect: string) => (await exercise(
+    "behaviour",
+    "handler",
+    `({ context, event }) => ({ updates: [], effects: [${effect}] });`,
+    fc.record({ state: fc.constant({}), event: fc.constant({}) }),
+    { table: "ledger" },
+    { numRuns: 1 },
+    undefined,
+    [],
+    ledger,
+  )).error;
+  if (!(await effected(`{ op: "create", values: { id: "a", stamp: "now" } }`))?.startsWith('a create effect writes "ledger.stamp", which is outputOnly')) {
+    failures.push("a handler's create effect of an output-only column passed");
+  }
+  if (!(await effected(`{ op: "update", entity: "ledger", values: { id: "a", code: "B" } }`))?.startsWith('an update effect writes "ledger.code", which is immutable')) {
+    failures.push("a handler's update effect of an immutable column passed");
+  }
+  if ((await effected(`{ op: "create", values: { id: "a", code: "A" } }`)) !== undefined) {
+    failures.push("a handler's create effect setting an immutable column was refused");
+  }
 
   // And the realm around it was sealed: a compartment on an unlocked realm
   // still shares mutable intrinsics with everything else in the process.

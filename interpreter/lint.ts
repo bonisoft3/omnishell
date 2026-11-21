@@ -1536,6 +1536,89 @@ export function writeLint(writes: Write[], e: Entity): string | null {
   return null;
 }
 
+/** A field's behaviour, as pronto's schema projects it (#Field.outputOnly,
+ * #Field.immutable, in Google AIP-203's words). */
+export type BehaviorField = { name: string; outputOnly?: boolean; immutable?: boolean };
+
+/** A client write a chart states: the table and column, whether it lands as a
+ * row's creation or as a change of a row that stands, and what in the chart
+ * says it. */
+type ChartWrite = { table: string; col: string; update: boolean; by: string };
+
+/** Every column a chart writes, literal or not: what its own row is created
+ * with (the data-empty-row, the initial), what moves it (a target, an
+ * assign), and what its effects write to their tables. */
+function chartWrites(machine: Machine, table: string, emptyRow?: string): ChartWrite[] {
+  const out: ChartWrite[] = [];
+  if (emptyRow !== undefined) {
+    for (const col of Object.keys(JSON.parse(emptyRow) as Record<string, unknown>)) {
+      out.push({ table, col, update: false, by: "its data-empty-row states it" });
+    }
+  }
+  if (machine.field !== undefined && machine.initial !== undefined) {
+    out.push({ table, col: machine.field, update: false, by: "a new row starts in its initial" });
+  }
+  const actions = (acts: unknown) => {
+    for (const a of acts === undefined ? [] : Array.isArray(acts) ? acts : [acts]) {
+      if (typeof a !== "object" || a === null) continue;
+      const { assign, effect } = a as { assign?: Record<string, unknown>; effect?: unknown };
+      for (const col of Object.keys(assign ?? {})) out.push({ table, col, update: true, by: "an assign writes it" });
+      for (const eff of effect === undefined ? [] : Array.isArray(effect) ? effect : [effect]) {
+        const { op, entity, values } = eff as { op?: string; entity?: string; values?: Record<string, unknown> };
+        for (const col of Object.keys(values ?? {})) {
+          out.push({ table: entity ?? table, col, update: op === "update", by: `an effect's ${op} writes it` });
+        }
+      }
+    }
+  };
+  const transitions = (value: unknown) => {
+    for (const c of machineCandidates(value)) {
+      if (typeof c !== "object" || c === null) continue;
+      const t = c as { target?: unknown; assign?: unknown; effect?: unknown; actions?: unknown };
+      if (t.target !== undefined && machine.field !== undefined) {
+        out.push({ table, col: machine.field, update: true, by: "a transition moves it" });
+      }
+      actions({ assign: t.assign, effect: t.effect });
+      actions(t.actions);
+    }
+  };
+  const node = (n: StateNode | Machine) => {
+    for (const v of [...Object.values(n.on ?? {}), ...Object.values(n.after ?? {}), n.always, n.onDone]) {
+      if (v !== undefined) transitions(v);
+    }
+    actions(n.entry);
+    actions(n.exit);
+    for (const sub of Object.values(n.states ?? {})) node(sub);
+  };
+  node(machine);
+  return out;
+}
+
+/** What a chart writes that the field's behaviour does not admit of a
+ * client, one sentence per column: an output-only field is the server's to
+ * set, so no chart writes it, and an immutable one is set when its row is
+ * created, so no chart changes a row's. `fieldsOf` answers a table's fields,
+ * or undefined for a table the schema does not declare, which is another
+ * rule's to report. A row machine's own assign (pronto's state.mecha.rows)
+ * runs in the database, and is not a chart's. */
+export function behaviorLint(
+  machine: Machine,
+  table: string,
+  emptyRow: string | undefined,
+  fieldsOf: (table: string) => BehaviorField[] | undefined,
+): string[] {
+  const out = new Set<string>();
+  for (const w of chartWrites(machine, table, emptyRow)) {
+    const field = fieldsOf(w.table)?.find((f) => f.name === w.col);
+    if (field?.outputOnly) {
+      out.add(`"${w.table}.${w.col}" is outputOnly, and ${w.by}: the server sets it, and clears a value a client sends`);
+    } else if (field?.immutable && w.update) {
+      out.add(`"${w.table}.${w.col}" is immutable, and ${w.by}: it is set when its row is created and never changed`);
+    }
+  }
+  return [...out];
+}
+
 /** A route as the link rule needs it: the screen a link names it by, and the
  * pattern its `:param` holes are read off. */
 export type LinkRoute = { screen: string; path: string };

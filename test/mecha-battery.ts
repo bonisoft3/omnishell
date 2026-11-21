@@ -2,7 +2,8 @@
 //
 // A machine is walked from a fresh instance by seeded draws: every event,
 // from either tier, from any seat or none, with payloads drawn inside their
-// declared shapes and some outside them, at a clock that only moves on. Each
+// declared shapes and some outside them, and every state's timers as the
+// ticker delivers them, at a clock that only moves on. Each
 // step answers accepted or rejected, or the runtime refuses what it was sent
 // (a RefusedError: another tier's event, a payload outside its shape); any
 // other throw is the machine failing, and is what this finds: a rule reading
@@ -29,7 +30,7 @@ export type Machine = {
   fuel: number;
   entropy?: number;
   events: Record<string, { tier: "omnishell" | "mecha"; payload: Shape }>;
-  states: Record<string, { final: boolean }>;
+  states: Record<string, { final: boolean; after?: Record<string, unknown> }>;
 };
 
 type Draw = (n: number) => number;
@@ -82,7 +83,11 @@ export async function walk(
   steps: number,
 ): Promise<Walked> {
   const draw = draws(seed);
-  const events = Object.keys(spec.events);
+  // A timer's event is XState's, `xstate.after.<delay>.<state>`, the
+  // machine's own tier's and empty.
+  const timers = Object.entries(spec.states).flatMap(([name, state]) => Object.keys(state.after ?? {}).map((delay) => `xstate.after.${delay}.${name}`));
+  const declared = (kind: string) => spec.events[kind] ?? { tier: "mecha" as const, payload: { type: "object" as const, fields: {} } };
+  const events = [...Object.keys(spec.events), ...timers];
   const hex = (n: number) => Array.from({ length: n * 2 }, () => "0123456789abcdef"[draw(16)]).join("");
   const crashes: Crash[] = [];
   const visited = new Set<string>();
@@ -92,10 +97,10 @@ export async function walk(
   let now = 1000;
   for (let i = 0; i < steps; i++) {
     const kind = events[draw(events.length)];
-    const declared = spec.events[kind];
+    const { tier: own, payload: shape } = declared(kind);
     // Mostly the declared tier and a payload inside its shape; sometimes not.
-    const tier = draw(8) === 0 ? (declared.tier === "mecha" ? "omnishell" : "mecha") : declared.tier;
-    const payload = draw(8) === 0 ? { stray: true } : inside(declared.payload, draw);
+    const tier = draw(8) === 0 ? (own === "mecha" ? "omnishell" : "mecha") : own;
+    const payload = draw(8) === 0 ? { stray: true } : inside(shape, draw);
     now += draw(3) === 0 ? draw(60000) : draw(100);
     const context: Record<string, unknown> = { tier, now };
     if (tier === "omnishell") context.actor = seats[draw(seats.length)];

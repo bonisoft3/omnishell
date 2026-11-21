@@ -10,7 +10,8 @@
 # `note` is the browser tier every rule about writes and carets needs, `post`
 # the server tier they refuse, and `detail` the second table a nested region
 # binds. Each of the two carries a money column, so the format rule has both a
-# declaration to resolve and a table to resolve it on. The partial unique on
+# declaration to resolve and a table to resolve it on. `ledger`'s fields state
+# a behaviour, which the behaviour screen's chart and forms disregard. The partial unique on
 # `note` is declared with a predicate this grammar cannot read: it witnesses
 # nothing, and saying so is the schema's own finding. `units:` carries one
 # unit whose ports the hatch screen's mounts disagree with on every count,
@@ -39,10 +40,18 @@ schema:
     fields:
       - {name: id, type: text, pk: true}
       - {name: cursor, type: text}
+  ledger:
+    durability: tab
+    fields:
+      - {name: id, type: text, pk: true}
+      - {name: state, type: text}
+      - {name: code, type: text, immutable: true}
+      - {name: stamp, type: text, outputOnly: true}
 routes:
   - {path: /, screen: sound, files: {html: shell/screens/sound.html}}
   - {path: /note/:id, screen: detail, files: {html: shell/screens/sound.html}}
   - {path: /arity, screen: arity, files: {html: shell/screens/arity.html}}
+  - {path: /behavior, screen: behavior, files: {html: shell/screens/behavior.html}}
   - {path: /columns, screen: columns, files: {html: shell/screens/columns.html}}
   - {path: /control, screen: control, files: {html: shell/screens/control.html}}
   - {path: /format, screen: format, files: {html: shell/screens/format.html}}

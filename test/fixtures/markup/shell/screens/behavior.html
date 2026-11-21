@@ -1,0 +1,8 @@
+<!-- A chart that writes what its fields' behaviour does not admit of a client:
+     an output-only column assigned, an immutable one changed by an effect's
+     update. Creating a row with the immutable column is a client's to do. -->
+<div data-live="ledger" data-filter="id=eq.the" data-empty-row='{"id":"the","state":"open","code":"A"}'
+     data-machine='{"field":"state","initial":"open","states":{"open":{"on":{"close":{"target":"closed","assign":{"stamp":"now"},"effect":{"op":"update","values":{"id":"the","code":"B"}}}}},"closed":{}}}'></div>
+<!-- A form naming the output-only column, and an update form the immutable one. -->
+<form data-entity="ledger" data-action="create"><input name="code"><input name="stamp"></form>
+<form data-entity="ledger" data-action="update"><input name="code"></form>

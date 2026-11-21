@@ -860,6 +860,54 @@ export function createStore(base = "", cfg = {}, {
     return filled;
   };
 
+  // A client's write, held to its fields' behaviour (pronto's
+  // #Field.outputOnly and #Field.immutable, in Google AIP-203's words) before
+  // its optimistic row stands, so the row never shows what the server will
+  // not keep: an output-only value is dropped, as the server clears it, and
+  // a change of an immutable one is refused, as the server refuses it, while
+  // the value its row holds passes. `have` is the standing row an update
+  // changes, where the store holds it. For a tab or device table this is the
+  // enforcement. A json value is the value it states, as the server's jsonb
+  // compares it: an object restated with its keys in another order is the
+  // same object.
+  const sortedKeys = (v) => Array.isArray(v) ? v.map(sortedKeys)
+    : v !== null && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortedKeys(v[k])])) : v;
+  const canonical = (field, value) => {
+    if (value === null || value === undefined) return "null";
+    if (field.type === "json" || field.type === "geojson") {
+      let stated = value;
+      if (typeof stated === "string") {
+        try {
+          stated = JSON.parse(stated);
+        } catch {
+          // Text that is no JSON is compared as itself.
+        }
+      }
+      return JSON.stringify(sortedKeys(stated));
+    }
+    try {
+      return JSON.stringify(carrier().normalizeValue(field, value, "canonical"));
+    } catch {
+      return JSON.stringify(value);
+    }
+  };
+  const behaved = (table, row, have) => {
+    if (row === undefined) return row;
+    let out = row;
+    for (const field of cfg.schema?.[table]?.fields ?? []) {
+      if (!(field.name in row)) continue;
+      if (field.outputOnly) {
+        if (out === row) out = { ...row };
+        delete out[field.name];
+      } else if (field.immutable && have !== undefined && canonical(field, row[field.name]) !== canonical(field, have[field.name])) {
+        const err = new Error(`${table}.${field.name} is immutable: it is set when its row is created and never changed`);
+        err.name = "NonRetriableError";
+        throw err;
+      }
+    }
+    return out;
+  };
+
   // Written straight through the client, not through create(): a seed is the
   // program stating the collection's initial world, not a reader's gesture, so
   // there is no refusal to settle and no key to mint — the program names each
@@ -2361,7 +2409,7 @@ export function createStore(base = "", cfg = {}, {
       for (const [i, row] of rows.entries()) {
         const filter = `${key}=eq.${encodeURIComponent(row[key])}`;
         const have = (await readServer(table, null, { filter }))[0];
-        const stated = have === undefined ? inserted(row, i) : row;
+        const stated = have === undefined ? behaved(table, inserted(row, i)) : behaved(table, row, have);
         await validate(table, have === undefined ? "insert" : "update", stated, have, edgeIndex);
         commands.push({ row: stated, method: have === undefined ? "POST" : "PATCH", filter: have === undefined ? undefined : filter });
       }
@@ -2379,8 +2427,8 @@ export function createStore(base = "", cfg = {}, {
     const edgeIndex = new Map();
     for (const [i, row] of rows.entries()) {
       const have = byKey.get(String(row[key]));
-      if (have === undefined) await validate(table, "insert", blank(table, inserted(row, i)), undefined, edgeIndex);
-      else await validate(table, "update", row, have, edgeIndex);
+      if (have === undefined) await validate(table, "insert", blank(table, behaved(table, inserted(row, i))), undefined, edgeIndex);
+      else await validate(table, "update", behaved(table, row, have), have, edgeIndex);
     }
     // Judging awaits, so the collection may have moved under the snapshot the
     // verdicts were read from; the partition the client calls carry is the one
@@ -2390,8 +2438,8 @@ export function createStore(base = "", cfg = {}, {
     const standing = [];
     for (const [i, row] of rows.entries()) {
       const have = now.get(String(row[key]));
-      if (have === undefined) fresh.push(blank(table, inserted(row, i)));
-      else standing.push({ key: have[key], changes: row });
+      if (have === undefined) fresh.push(blank(table, behaved(table, inserted(row, i))));
+      else standing.push({ key: have[key], changes: behaved(table, row, have) });
     }
     // Standing rows change before fresh ones arrive, so a batch that demotes one
     // row and promotes another never holds both in a unique's domain, not even
@@ -2415,7 +2463,7 @@ export function createStore(base = "", cfg = {}, {
     if (rows.length === 0) return;
     await ensurePrepared(table);
     const key = keyOf(table);
-    const filled = rows.map((r) => blank(table, r));
+    const filled = rows.map((r) => blank(table, behaved(table, r)));
     const edgeIndex = new Map();
     for (const row of filled) await validate(table, "insert", row, undefined, edgeIndex);
     if (requestOnly(table)) return serverCommand(table, "POST", filled);
@@ -2512,6 +2560,9 @@ export function createStore(base = "", cfg = {}, {
     if (edits.length === 0) return;
     await ensurePrepared(table);
     const key = keyOf(table);
+    // A server-read table's standing row is the server's to judge an
+    // immutable change against; a held one is judged once it is held, below.
+    edits = edits.map((e) => ({ ...e, changes: behaved(table, e.changes) }));
     for (const edit of edits) {
       if (edit.ifTxid === undefined) continue;
       if (typeof edit.ifTxid !== "string" || !/^[1-9][0-9]*$/.test(edit.ifTxid) || BigInt(edit.ifTxid) > 9223372036854775807n) {
@@ -2536,6 +2587,7 @@ export function createStore(base = "", cfg = {}, {
       return;
     }
     await holding(table, edits.map((e) => e.key), async () => {
+      for (const e of edits) behaved(table, e.changes, client.collections[table].get(e.key));
       // The key last: a `changes` naming the key cannot redirect the judgement
       // onto a row other than the one this edit identifies.
       const edgeIndex = new Map();

@@ -130,6 +130,14 @@ descriptor whose level says what can be claimed of it
   whose durability `shell.yaml` carries, so the rule is total: an upsert onto
   an `offline` or `live` row owes the arrow whatever the chart says of
   itself, and a chart can say nothing — `effect.level` is not in the grammar.
+- **A field's behaviour binds every write a chart states.** A field
+  `shell.yaml` marks `outputOnly` (Google AIP-203's word, pronto's
+  `#Field.outputOnly`) is the server's to set, so no assign, transition,
+  empty row or effect writes it; one marked `immutable` is set when its row is
+  created, so no assign, transition or `update` effect changes it.
+  `check markup` refuses both (`behaviorLint`, `interpreter/lint.ts`), and the
+  store drops an output-only value and refuses an immutable change before the
+  optimistic row stands, which for a `tab` or `device` row is the whole of it.
 
 ## Gestures and cancels
 
@@ -169,6 +177,16 @@ the terminal delivers — which is what makes confinement possible at all.
 is the relocated `invoke`, being in the state *is* the pending timer. Every
 wait is the terminal's, so `?tempo=` scales it and `?clock=manual` holds it for
 `__prontoClock.advance(ms)`.
+
+A bundled page's cluster (mecha's
+[browser platform](../../../libraries/mecha/docs/browser.md#drains-and-the-clock))
+runs on the same clock. Under `?clock=manual` the screen exports it as
+`heldTime`: the cluster's sweep of the app's schedules and its computations'
+retries are waits `due()` lists with the label `{kind: "cluster"}`, `waits`
+counts them, and `advance` fires the one that comes due. Its instant starts at
+`?epoch`, or where the page loaded without one. The page's database reads the
+same instant through `machine_clock()`, so a server row machine's `after:`
+arms and fires on the time `advance` passes.
 
 - **A reduce re-arming its own `then:` can double**: two chains find the armed
   phase and both re-arm. Carry a generation mark on the row, or use `after`,

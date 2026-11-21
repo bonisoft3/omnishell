@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@test/harness"
-import { type Entity, machineRegions, machineWrites, writeLint, type Write } from "../interpreter/lint.ts"
+import { behaviorLint, type Entity, machineRegions, machineWrites, writeLint, type Write } from "../interpreter/lint.ts"
 
 const match = (extra: Partial<Entity> = {}): Entity => ({
   table: "match",
@@ -262,5 +262,29 @@ describe("machineRegions anchors a machine to its table", () => {
   // else, so a data-machine off a region binds nothing at all.
   it("a machine with no region is a precondition error", () => {
     expect(() => machineRegions(`<div data-machine='{"field":"f","initial":"a","states":{"a":{}}}'></div>`)).toThrow()
+  })
+})
+
+describe("behaviorLint", () => {
+  const fields = (t: string) => t === "ledger"
+    ? [{ name: "id" }, { name: "state" }, { name: "code", immutable: true }, { name: "stamp", outputOnly: true }]
+    : undefined
+  it("creates an immutable column and changes none, and writes no output-only one anywhere", () => {
+    const machine = {
+      field: "state",
+      initial: "open",
+      on: { reset: { effect: { op: "upsert", entity: "ledger", values: { id: "x", stamp: "now" } } } },
+      states: {
+        open: { entry: { assign: { code: "B" } }, on: { close: { target: "closed", effect: { op: "create", values: { id: "y", code: "C" } } } } },
+        closed: {},
+      },
+    }
+    expect(behaviorLint(machine, "ledger", '{"id":"the","code":"A"}', fields)).toEqual([
+      '"ledger.stamp" is outputOnly, and an effect\'s upsert writes it: the server sets it, and clears a value a client sends',
+      '"ledger.code" is immutable, and an assign writes it: it is set when its row is created and never changed',
+    ])
+  })
+  it("judges a column of a table the schema does not declare by no behaviour", () => {
+    expect(behaviorLint({ field: "state", initial: "a", states: { a: { on: { go: { effect: { op: "update", entity: "ghost", values: { code: "B" } } } } } } }, "ledger", undefined, fields)).toEqual([])
   })
 })
