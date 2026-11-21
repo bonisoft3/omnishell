@@ -110,6 +110,7 @@ function boot({ config = CONFIG_YAML, catalogue = null, guestFails = false, cook
     }
     if (u.endsWith(".html")) return Promise.resolve(new Response(SCREEN_HTML));
     if (u.endsWith(".css")) return Promise.resolve(new Response(""));
+    if (u.endsWith("/auth/oidc")) return Promise.resolve(Response.json({ providers: ["google", "apple"] }));
     return Promise.reject(new Error(`unexpected fetch ${u}`));
   };
   return { document, Event, mount: document.getElementById("shell"), asked, reloads, jar: () => jar };
@@ -1563,6 +1564,44 @@ Deno.test({
       doc.querySelector("nav .shell-signin").dispatchEvent(new Event("click", { bubbles: true }));
       doc.querySelector('nav [data-auth-action="accounts"]').dispatchEvent(new Event("click", { bubbles: true }));
       assert(doc.querySelector("nav .shell-signin-panel > .shell-accounts"), "and this release's My device opens its accounts");
+    } finally {
+      globalThis.PublicKeyCredential = origCred;
+    }
+  },
+});
+
+Deno.test({
+  name: "a served panel drawn with the program's providers keeps only those this deployment turns on",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    // Regression: a prerendered document's panel held Google for a deployment
+    // that turns on none, and its link led to a 404.
+    const origCred = globalThis.PublicKeyCredential;
+    globalThis.PublicKeyCredential = class {};
+    try {
+      const { document: doc, mount } = boot({ config: GUEST_YAML.replace("  service: /auth\n", "  service: /auth\n  providers: [google]\n") });
+      const { drawStrip, signinBox } = await import("./chrome.js");
+      const cfg = { routes: [{ path: "/", screen: "home", nav: { label: "Home" } }], auth: { service: "/auth", providers: ["google"] } };
+      const served = drawStrip(doc, cfg);
+      served.append(signinBox(doc, cfg));
+      mount.before(served);
+      const assert = check(mount);
+      assert(served.querySelector('.shell-provider[data-provider="google"]'), "the document was drawn with Google");
+      const prevFetch = globalThis.fetch;
+      // A visitor's guest, as the auth service answers one: still a visitor's panel.
+      globalThis.fetch = (url, init) => {
+        const u = String(url);
+        if (u.endsWith("/auth/oidc")) return Promise.resolve(Response.json({ providers: [] }));
+        if (u.endsWith("/auth/guest")) return Promise.resolve(Response.json({ token: "t", user: { id: "u1", handle: "sunlit-fox-01", guest: true } }));
+        return prevFetch(url, init);
+      };
+      const { createShell } = await import("./shell.js");
+      createShell({ config: "./shell.yaml", mount });
+      await settle(300);
+      assert(doc.querySelector("nav .shell-signin-panel"), "the visitor's panel stands");
+      assert(!doc.querySelector("nav .shell-provider"), "a deployment with no provider keeps no provider's link");
+      assert(doc.querySelector('nav [data-auth-action="accounts"]'), "and keeps this device's way in");
     } finally {
       globalThis.PublicKeyCredential = origCred;
     }

@@ -333,6 +333,7 @@ Deno.test({
       if (u.endsWith("shout.js")) return Promise.resolve(new Response(SHOUT));
       if (u.endsWith(".html")) return Promise.resolve(new Response(SCREEN_HTML));
       if (u.endsWith(".css")) return Promise.resolve(new Response(""));
+      if (u.endsWith("/auth/oidc")) return Promise.resolve(Response.json({ providers: ["google", "apple"] }));
       return Promise.reject(new Error(`unexpected fetch ${u}`));
     };
 

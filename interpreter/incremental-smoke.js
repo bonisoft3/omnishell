@@ -49,6 +49,7 @@ function boot(rows) {
     const u = String(url);
     if (u.endsWith(".html")) return Promise.resolve(new Response(SCREEN_HTML));
     if (u.endsWith(".css")) return Promise.resolve(new Response(""));
+    if (u.endsWith("/auth/oidc")) return Promise.resolve(Response.json({ providers: ["google", "apple"] }));
     return Promise.reject(new Error(`unexpected fetch ${u}`));
   };
   return { document, Event, store, poke: (changes) => wake(changes) };
@@ -218,6 +219,7 @@ Deno.test({
       const u = String(url);
       if (u.endsWith(".html")) return Promise.resolve(new Response(SINGLETON_HTML));
       if (u.endsWith(".css")) return Promise.resolve(new Response(""));
+      if (u.endsWith("/auth/oidc")) return Promise.resolve(Response.json({ providers: ["google", "apple"] }));
       return Promise.reject(new Error(`unexpected fetch ${u}`));
     };
     const { interpretScreen } = await import("./screen.js");

@@ -32,6 +32,7 @@ async function boot(initial: any[], html = SCREEN_HTML) {
     const u = String(url)
     if (u.endsWith(".html")) return Promise.resolve(new Response(html))
     if (u.endsWith(".css")) return Promise.resolve(new Response(""))
+    if (u.endsWith("/auth/oidc")) return Promise.resolve(Response.json({ providers: ["google", "apple"] }));
     return Promise.reject(new Error(`unexpected fetch ${u}`))
   }) as any
 

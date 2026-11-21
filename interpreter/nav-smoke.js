@@ -219,6 +219,7 @@ function boot({
     const copy = catalogues[catalogue];
     if (copy !== undefined) return Promise.resolve(new Response(copy));
     if (u.includes("/messages/")) return Promise.resolve(new Response("{}", {status: 404}));
+    if (u.endsWith("/auth/oidc")) return Promise.resolve(Response.json({ providers: ["google", "apple"] }));
     return Promise.reject(new Error(`unexpected fetch ${u}`));
   };
 

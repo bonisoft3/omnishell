@@ -65,6 +65,24 @@ const sessionHinted = () => (globalThis.document?.cookie ?? "").split(";").some(
  * keeps its identity. A guest's sign-in whose account is another's comes
  * back `{taken}`, that account, for the reader to take or leave. Fails open
  * as accountLives does: offline, the tab boots as it would have. */
+/** The ways in the program offers that this deployment turns on, as the auth
+ * service says: a release its program's, a local stack none. Offline, none
+ * can be reached, so none is drawn; online, a lookup that fails is a fault. */
+export async function providersOffered(cfg) {
+  const declared = cfg.auth.providers ?? [];
+  if (declared.length === 0) return declared;
+  let res;
+  try {
+    res = await fetch(`${cfg.auth.service}/oidc`, { credentials: "same-origin" });
+  } catch (error) {
+    if (!(error instanceof TypeError) || globalThis.navigator?.onLine !== false) throw error;
+    return [];
+  }
+  if (!res.ok) throw new Error(`${res.status} GET ${cfg.auth.service}/oidc`);
+  const { providers } = await res.json();
+  return declared.filter((p) => providers.includes(p));
+}
+
 export async function adoptDeviceSession(cfg) {
   if (!cfg.auth?.service || !sessionHinted()) return null;
   let held = null;
@@ -574,6 +592,11 @@ export function renderSignin(cfg, served = null, session = null) {
   if (document.body) document.body.dataset.auth = auth;
   const open = box.querySelector(":scope > .shell-signin");
   const panel = box.querySelector(":scope > .shell-signin-panel");
+  // A served panel was drawn with every way the program offers; this
+  // deployment's are those its auth service names (providersOffered).
+  for (const link of panel.querySelectorAll(".shell-provider")) {
+    if (!(cfg.auth.providers ?? []).includes(link.dataset.provider)) link.remove();
+  }
   const device = panel.querySelector('[data-auth-action="accounts"]');
   device.hidden = !supportsPasskeys();
   open.hidden = guest === null && panel.querySelector(".shell-provider, .shell-passkey:not([hidden])") === null;

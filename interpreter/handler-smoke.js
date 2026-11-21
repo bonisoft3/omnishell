@@ -95,6 +95,7 @@ function boot() {
     if (u.endsWith(".html")) return Promise.resolve(new Response(SCREEN_HTML));
     if (u.endsWith(".css")) return Promise.resolve(new Response(""));
     if (u.endsWith("reorder-items.js")) return Promise.resolve(new Response(HANDLER_SOURCE));
+    if (u.endsWith("/auth/oidc")) return Promise.resolve(Response.json({ providers: ["google", "apple"] }));
     return Promise.reject(new Error(`unexpected fetch ${u}`));
   };
 

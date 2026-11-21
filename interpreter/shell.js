@@ -31,7 +31,7 @@ export { routeAt } from "./fragment.js";
 import { assetURL, preloadLinkedScreens, preloadScreen, releaseOf, setRelease } from "./preloads.js";
 import { startLinkPrefetch } from "./link-prefetch.js";
 import { signalName } from "./passkey-signals.js";
-import { accountLives, adoptDeviceSession, adoptGuest, askAhead, cover, deviceAccounts, deviceName, dropAhead, forgetAccount, forgetSession, keepsWork, learnDeviceAlone, loginCeremony, mintGuest, nameForm, nameTaken, postJson, recoveryKey, registerCeremony, rememberAccount, renameAccount, renderLogin, renderSession, renderSignin, sessionOwner, storedSessionOwner, syncAuthDOM, uncover, upgradeEarlierGuest } from "./signin.js";
+import { accountLives, adoptDeviceSession, adoptGuest, askAhead, cover, deviceAccounts, deviceName, dropAhead, forgetAccount, forgetSession, keepsWork, learnDeviceAlone, loginCeremony, mintGuest, nameForm, nameTaken, postJson, providersOffered, recoveryKey, registerCeremony, rememberAccount, renameAccount, renderLogin, renderSession, renderSignin, sessionOwner, storedSessionOwner, syncAuthDOM, uncover, upgradeEarlierGuest } from "./signin.js";
 
 const releaseKey = (imports) => templateHash(JSON.stringify(imports));
 // How often an open page asks whether a deployment landed, besides whenever it
@@ -375,6 +375,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       return { storybook: true, stop: book.stop };
     }
     const dataPlane = import("./data-sync.js");
+    const offered = cfg.auth ? providersOffered(cfg) : null;
 
     let session = null;
     // A sign-in no longer waits for the guest minted at boot, so it can land
@@ -401,6 +402,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
     });
     if (cfg.auth) await upgradeEarlierGuest(cfg);
     const adopted = cfg.auth?.required || (cfg.tables?.length ?? 0) > 0 ? await adoptDeviceSession(cfg) : null;
+    if (offered !== null) cfg.auth.providers = await offered;
     if (cfg.auth?.required) {
       const stored = localStorage.getItem("pronto-token");
       // A stored token is not a session. The account it names can be gone —

@@ -61,6 +61,7 @@ function boot(rows, { adapterOnDisk = true, html = SCREEN_HTML } = {}) {
         ? Promise.resolve(new Response(SHOUT))
         : Promise.resolve(new Response("not found", { status: 404 }));
     }
+    if (u.endsWith("/auth/oidc")) return Promise.resolve(Response.json({ providers: ["google", "apple"] }));
     return Promise.reject(new Error(`unexpected fetch ${u}`));
   };
   return { document, store };

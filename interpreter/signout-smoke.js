@@ -133,6 +133,7 @@ function boot(at = "/") {
     if (u.includes("/messages/")) return Promise.resolve(new Response(JSON.stringify(CATALOGUE)));
     if (u.endsWith("home.html")) return Promise.resolve(new Response(screenHtml("home")));
     if (u.endsWith(".css")) return Promise.resolve(new Response(""));
+    if (u.endsWith("/auth/oidc")) return Promise.resolve(Response.json({ providers: ["google", "apple"] }));
     return Promise.reject(new Error(`unexpected fetch ${u}`));
   };
 

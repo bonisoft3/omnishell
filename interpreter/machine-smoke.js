@@ -57,6 +57,7 @@ function boot(html, handlerSource) {
     if (handlerSource !== undefined && u.endsWith("log.js")) {
       return Promise.resolve(new Response(handlerSource));
     }
+    if (u.endsWith("/auth/oidc")) return Promise.resolve(Response.json({ providers: ["google", "apple"] }));
     return Promise.reject(new Error(`unexpected fetch ${u}`));
   };
 

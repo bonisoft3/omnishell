@@ -353,6 +353,7 @@ Deno.test({
       if (u.endsWith(".css")) return Promise.resolve(new Response(""));
       if (u.endsWith("record.js")) return Promise.resolve(new Response("const reduce = () => ({ updates: [] });\nreduce;"));
       if (u.endsWith("unit.js")) return Promise.resolve(new Response(""));
+      if (u.endsWith("/auth/oidc")) return Promise.resolve(Response.json({ providers: ["google", "apple"] }));
       return Promise.reject(new Error(`unexpected fetch ${u}`));
     };
     await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");

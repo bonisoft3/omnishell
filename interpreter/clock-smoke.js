@@ -104,6 +104,7 @@ async function mountScreen(screen, html, rows) {
     const u = String(url);
     if (u.endsWith(".html")) return Promise.resolve(new Response(html));
     if (u.endsWith(".css")) return Promise.resolve(new Response(""));
+    if (u.endsWith("/auth/oidc")) return Promise.resolve(Response.json({ providers: ["google", "apple"] }));
     return Promise.reject(new Error(`unexpected fetch ${u}`));
   };
 
@@ -285,6 +286,7 @@ async function drawnIn(order, source = DRAWER) {
     if (u.endsWith(".css")) return Promise.resolve(new Response(""));
     const drawer = /\/(alpha|beta)\.js$/.exec(u)?.[1];
     if (drawer !== undefined) return Promise.resolve(new Response(source(drawer)));
+    if (u.endsWith("/auth/oidc")) return Promise.resolve(Response.json({ providers: ["google", "apple"] }));
     return Promise.reject(new Error(`unexpected fetch ${u}`));
   };
   const { interpretScreen } = await import("./screen.js");

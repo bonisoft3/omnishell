@@ -42,6 +42,7 @@ function serve(sources) {
     for (const [path, body] of Object.entries(sources)) {
       if (u === `http://localhost/app/${path}`) return Promise.resolve(new Response(body));
     }
+    if (u.endsWith("/auth/oidc")) return Promise.resolve(Response.json({ providers: ["google", "apple"] }));
     return Promise.reject(new Error(`unexpected fetch ${u}`));
   };
 }

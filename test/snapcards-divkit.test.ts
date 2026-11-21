@@ -272,7 +272,7 @@ describe("Snapcards 6 core screens -> DivKit compilation & headless reconciliati
 
   it("persists Snapcards offline UGC (`card_set`, `favorite` upsert, `device`) in SQLite across cold reboot and adopts provisional UUID on guest promotion", async () => {
     const shellJson = JSON.parse(await Deno.readTextFile(new URL("shell/shell.json", snapcardsDir)));
-    expect(shellJson.native).toBe(true);
+    expect(shellJson.native).toEqual(["android"]);
     expect(shellJson.schema.favorite.durability).toBe("offline");
     expect(shellJson.tables.includes("favorite")).toBe(true);
 
@@ -530,7 +530,7 @@ describe("Snapcards 6 core screens -> DivKit compilation & headless reconciliati
     }
   });
 
-  it("projects `/print` scoped realms (`web-realm` & `print-realm`), handles `snapcards://print/return` order recheck, and executes Apple sign-in + Delete Account wipe", async () => {
+  it("projects `/print` scoped realms (`web-realm` & `print-realm`), handles `snapcards://print/return` order recheck, and executes the host's Apple sign-in + Delete Account wipe", async () => {
     const projection = await projectAppNative(snapcardsDir, {
       origin: "https://snapcards.fun",
     });
@@ -560,7 +560,9 @@ describe("Snapcards 6 core screens -> DivKit compilation & headless reconciliati
     expect(String(sheetProps.checkout_action_url).startsWith("omnishell://checkout?")).toBe(true);
 
     const printJson = JSON.stringify(printEntry.divkit);
-    expect(printJson.includes("btn-auth-apple")).toBe(true);
+    // Snapcards ships an Android host alone, so Google stands without Apple (App Review 4.8 binds iOS).
+    expect(printJson.includes("btn-auth-google")).toBe(true);
+    expect(printJson.includes("btn-auth-apple")).toBe(false);
     expect(printJson.includes("btn-auth-delete")).toBe(true);
 
     // Parse both custom-scheme and Universal Link Stripe Checkout return URLs

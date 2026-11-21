@@ -62,9 +62,10 @@ struct (`pose_buffer.js`).
 
 ## Declaring it
 
-An app opts in with `capabilities: native: true` in its program, which the
-emitter writes into `shell.yaml` beside `server:`; omitting it makes the app
-web-only. `omnishell project native --emit-bundle <appDir>` emits the runtime
+An app names the hosts it ships with `capabilities: native: ["android",
+"ios"]` in its program; the emitter writes `native: true` into `shell.yaml`
+beside `server:` for any, and builds each named host alone. Omitting it makes
+the app web-only. `omnishell project native --emit-bundle <appDir>` emits the runtime
 bundle (`realworld_bundle.js`) directly from `shell/screens/*.{html,css}`, and
 `test/project-native.test.ts` verifies that `apps/realworld` and `apps/apexrun`
 project 100% of their inputs, actions, HUD layers, and touch zones with zero
