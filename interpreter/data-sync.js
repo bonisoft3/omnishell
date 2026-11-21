@@ -272,19 +272,21 @@ const CONFLICT_FIRST_MS = 25;
 const reloading = new Set();
 
 let inflightRefresh = null;
+let previousRendererBearer = null;
 
-async function tryRefreshSession(requestUrl, held) {
+async function tryRefreshSession(requestUrl, held, refreshUrl) {
   const refreshToken = held?.refresh_token ?? held?.refreshToken;
   if (!refreshToken) return null;
   if (inflightRefresh) return inflightRefresh;
-  const origin = new URL(requestUrl, globalThis.location?.origin || globalThis.__omnishellOrigin || "https://localhost").origin;
+  const endpoint = refreshUrl ?? new URL("/auth/refresh", new URL(requestUrl, globalThis.location?.origin || globalThis.__omnishellOrigin || "https://localhost")).href;
   inflightRefresh = (async () => {
     try {
-      const r = await fetch(`${origin}/auth/refresh`, {
+      const r = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refresh_token: refreshToken }),
       });
+      if (refreshUrl && (r.status >= 500 || r.status === 408 || r.status === 429)) return r;
       if (!r.ok) return null;
       const body = await r.json();
       if (!body?.token) return null;
@@ -294,6 +296,7 @@ async function tryRefreshSession(requestUrl, held) {
         ...(body.refresh_token ? { refresh_token: body.refresh_token } : {}),
         ...(body.user ? { user: body.user } : {}),
       };
+      if (refreshUrl) previousRendererBearer = `Bearer ${held.token}`;
       writeSession(updated);
       return body.token;
     } finally {
@@ -303,15 +306,24 @@ async function tryRefreshSession(requestUrl, held) {
   return inflightRefresh;
 }
 
-async function send(url, init, retriedRefresh = false) {
+async function send(url, init, refreshUrl, retriedRefresh = false) {
   if (init?.signal?.aborted) {
     throw init.signal.reason ?? new DOMException("aborted", "AbortError");
   }
   if (pendingSession && !token()) await pendingSession();
   const sender = currentSession();
-  const t = token();
-  if (t && !init?.headers?.Authorization && !init?.headers?.authorization) {
-    init = { ...init, headers: { ...init?.headers, Authorization: `Bearer ${t}` } };
+  const address = url instanceof Request ? url.url : String(url);
+  const electric = address.includes("/electric/");
+  const headers = new Headers(init?.headers ?? (url instanceof Request ? url.headers : undefined));
+  const bearer = sender?.token ? `Bearer ${sender.token}` : null;
+  const sentBearer = headers.get("authorization");
+  // Public shapes use the session directly. Electric can back off with the
+  // previous header even after another read has successfully refreshed it.
+  const sessionShape = refreshUrl && electric && bearer && sentBearer &&
+    (sentBearer === bearer || sentBearer === previousRendererBearer);
+  if (bearer && (!sentBearer || (sessionShape && sentBearer !== bearer))) {
+    headers.set("Authorization", bearer);
+    init = { ...init, headers };
   }
   let res;
   let conflicted = false;
@@ -326,8 +338,8 @@ async function send(url, init, retriedRefresh = false) {
   // answers an expired shape token with 401 so the stream re-mints at /auth/shape.
   if (
     res.status === 401 &&
-    !String(url).includes("/electric/") &&
-    !String(url).endsWith("/auth/refresh") &&
+    (!electric || sessionShape) &&
+    !address.endsWith("/auth/refresh") &&
     !(await res.clone().text()).includes('"code":"42501"')
   ) {
     // The request was its sender's: another tab that made this device another
@@ -339,12 +351,13 @@ async function send(url, init, retriedRefresh = false) {
     }
     if (!retriedRefresh) {
       // Renewed since it was sent, by another request: sent again with that token.
-      const refreshedToken = current && current.token !== sender?.token ? current.token : await tryRefreshSession(String(url), current);
-      if (refreshedToken) {
-        const nextHeaders = { ...init?.headers };
-        delete nextHeaders.authorization;
-        nextHeaders.Authorization = `Bearer ${refreshedToken}`;
-        return send(url, { ...init, headers: nextHeaders }, true);
+      const refreshed = current && current.token !== sender?.token
+        ? current.token
+        : await tryRefreshSession(address, current, refreshUrl);
+      if (refreshed instanceof Response) return { res: refreshed.clone(), conflicted: false };
+      if (refreshed) {
+        headers.set("Authorization", `Bearer ${refreshed}`);
+        return send(url, { ...init, headers }, refreshUrl, true);
       }
     }
     // Expired/invalid token: re-gate through the login screen. The reload
@@ -364,7 +377,7 @@ async function send(url, init, retriedRefresh = false) {
   return { res, conflicted };
 }
 
-export async function http(url, init) {
+export async function http(url, init, refreshUrl = /** @type {string | undefined} */ (undefined)) {
   if ((init?.method ?? "GET") === "GET" && init?.cache !== "no-store") {
     const body = takeServedBody(url);
     if (body !== undefined) {
@@ -375,7 +388,7 @@ export async function http(url, init) {
   const headers = { ...init?.headers };
   const t = token();
   if (t) headers.Authorization = `Bearer ${t}`;
-  const { res, conflicted } = await send(url, { ...init, headers });
+  const { res, conflicted } = await send(url, { ...init, headers }, refreshUrl);
   if (!res.ok) {
     const method = init?.method ?? "GET";
     const detail = await res.text();
@@ -533,7 +546,11 @@ export function othersFor(p, sinkRow, mine, pair, compareTxid) {
   return total;
 }
 
-export function createStore(base = "", cfg = {}, { request = http, schedule: enqueue = later } = {}) {
+export function createStore(base = "", cfg = {}, {
+  refreshUrl = /** @type {string | undefined} */ (undefined),
+  request = (url, init) => http(url, init, refreshUrl),
+  schedule: enqueue = later,
+} = {}) {
   servedToReader = cfg.mintedGuest === true;
   pendingSession = cfg.ensureSession ?? null;
   prefetchedPages.clear();
@@ -586,7 +603,7 @@ export function createStore(base = "", cfg = {}, { request = http, schedule: enq
     electricUrl: `${base || globalThis.location?.origin || ""}/electric`,
     crudUrl: `${base}/crud`,
     authUrl: `${base}/auth`,
-    fetcher: (url, init) => send(url, init).then(({ res }) => res),
+    fetcher: (url, init) => send(url, init, refreshUrl).then(({ res }) => res),
     token,
     subject: userId,
     ...(sql ? { sql } : {}),

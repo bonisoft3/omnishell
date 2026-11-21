@@ -1,7 +1,8 @@
 import { describe, expect, it } from "@test/harness"
-import { admittedOrigin, boundedFetch, createRenderer, inhabit, keepGuest, serve, warmEagerTables } from "../server/render.ts"
+import { admittedOrigin, boundedFetch, createRenderer, inhabit, serve, warmEagerTables } from "../server/render.ts"
 import { createStore } from "../interpreter/data-sync.js"
 import { FIXTURE_CARRIERS } from "../interpreter/fixture-types.js"
+import { until, withBrowser } from "../interpreter/smoke-browser.js"
 
 // The server terminal's cache, held to its contract with a store that only
 // records and wakes: a document stands until a read that drew it moves, a
@@ -433,78 +434,134 @@ describe("the renderer's reads through its door", () => {
   })
 })
 
-describe("the server terminal's guest", () => {
-  const tokenFor = (exp: number) => `h.${btoa(JSON.stringify({ exp })).replace(/=+$/, "")}.s`
-
-  it("is minted again once half its token's life is gone", async () => {
-    // A guest minted once at start expired a week later; every shape mint was
-    // refused from then on, the streams stopped without a word, and the held
-    // documents stood frozen behind a healthy /health.
-    const now = Math.floor(Date.now() / 1000)
-    let minted = 0
-    const kept: string[] = []
-    const scheduled: { fn: () => void; ms: number }[] = []
-    await keepGuest(
-      async () => ({ token: tokenFor(now + 7 * 24 * 3600 + minted++) }),
-      (g) => kept.push(g.token),
-      (err) => {
-        throw err
-      },
-      (fn, ms) => scheduled.push({ fn, ms }),
-    )
-    expect(kept.length).toBe(1)
-    expect(scheduled.length).toBe(1)
-    expect(Math.abs(scheduled[0].ms - 3.5 * 24 * 3600 * 1000)).toBeLessThan(5000)
-    scheduled[0].fn()
-    await new Promise((r) => setTimeout(r, 0))
-    expect(kept.length).toBe(2)
-    expect(kept[1]).not.toBe(kept[0])
-  })
-
-  it("ends the renderer when a renewal is refused", async () => {
-    let calls = 0
-    const scheduled: (() => void)[] = []
-    let died: unknown
-    await keepGuest(
-      async () => {
-        if (calls++ > 0) throw new Error("503 minting a guest")
-        return { token: tokenFor(Math.floor(Date.now() / 1000) + 60) }
-      },
-      () => {},
-      (err) => (died = err),
-      (fn) => scheduled.push(fn),
-    )
-    scheduled[0]()
-    await new Promise((r) => setTimeout(r, 0))
-    expect(String(died)).toContain("503 minting a guest")
-  })
+describe("the server terminal's store", () => {
+  for (const [firstStatus, name] of [
+    [200, "refreshes a refused guest through the Dapr door and retries the reads"],
+    [401, "ends the renderer when its refresh token is refused"],
+    [503, "keeps its guest through a temporary auth outage"],
+  ] as const) {
+    it(name, async () => {
+      const names = ["location", "document", "CSS", "requestAnimationFrame", "fetch"] as const
+      const global = globalThis as unknown as Record<string, unknown>
+      const ambient = names.map((n) => [n, Object.getOwnPropertyDescriptor(globalThis, n)] as const)
+      const door = "http://localhost:3500/v1.0/invoke/caddy/method"
+      let died: unknown
+      let refreshes = 0
+      const reads: string[] = []
+      const guest = { id: "guest-id", guest: true }
+      try {
+        inhabit(door, (err) => (died = err))
+        global.fetch = (input: string, init: RequestInit) => {
+          if (input === `${door}/auth/refresh`) {
+            refreshes++
+            expect(init.method).toBe("POST")
+            expect(JSON.parse(String(init.body))).toEqual({ refresh_token: "refresh-old" })
+            const status = refreshes === 1 ? firstStatus : 200
+            return Promise.resolve(status === 200
+              ? Response.json({ token: "renewed", refresh_token: "refresh-new", user: guest })
+              : new Response("", { status }))
+          }
+          expect(input.startsWith(`${door}/crud/`)).toBe(true)
+          const auth = new Headers(init.headers).get("authorization") ?? ""
+          reads.push(auth)
+          return Promise.resolve(auth === "Bearer renewed" ? Response.json([{ id: "1" }]) : new Response("", { status: 401 }))
+        }
+        localStorage.setItem("pronto-token", JSON.stringify({ token: "refused", refresh_token: "refresh-old", user: guest }))
+        const store = createStore(door, { tables: [], carriers: FIXTURE_CARRIERS, keepReads: false }, { refreshUrl: `${door}/auth/refresh` })
+        const read = store.query("game", null, {})
+        if (firstStatus === 200) {
+          expect(await Promise.all([read, store.query("team", null, {})])).toEqual([[{ id: "1" }], [{ id: "1" }]])
+          expect(reads.filter((auth) => auth === "Bearer refused").length).toBe(2)
+          expect(reads.filter((auth) => auth === "Bearer renewed").length).toBe(2)
+          expect(died).toBe(undefined)
+          expect(JSON.parse(localStorage.getItem("pronto-token")!)).toEqual({
+            token: "renewed", refresh_token: "refresh-new", user: guest,
+          })
+        } else if (firstStatus === 503) {
+          await expect(read).rejects.toThrow("503")
+          expect(died).toBe(undefined)
+          expect(JSON.parse(localStorage.getItem("pronto-token")!).refresh_token).toBe("refresh-old")
+          expect(await store.query("game", null, {})).toEqual([{ id: "1" }])
+        } else {
+          // The real reload exits. The stub records it while the old read waits.
+          expect(await Promise.race([read.then(() => "answered"), new Promise((r) => setTimeout(() => r("pending"), 10))])).toBe("pending")
+          expect(String(died)).toContain("refused")
+        }
+        expect(refreshes).toBe(firstStatus === 503 ? 2 : 1)
+      } finally {
+        for (const [n, d] of ambient) {
+          if (d === undefined) delete global[n]
+          else Object.defineProperty(globalThis, n, d)
+        }
+        localStorage.removeItem("pronto-token")
+      }
+    })
+  }
 })
 
-describe("the server terminal's store", () => {
-  it("ends the renderer when the door refuses its token", async () => {
-    // A refused token was dropped and the read thrown: every render after
-    // went out with no token and answered 500, while held documents stood
-    // frozen behind a healthy /health until the next renewal. The world is
-    // the one the renderer installs, so a location without its reload fails
-    // here as it did there, with every read throwing past a healthy /health.
-    const names = ["location", "document", "CSS", "requestAnimationFrame", "fetch"] as const
-    const global = globalThis as unknown as Record<string, unknown>
-    const ambient = names.map((n) => [n, Object.getOwnPropertyDescriptor(globalThis, n)] as const)
-    let died: unknown
-    try {
-      inhabit("http://caddy:8080", (err) => (died = err))
-      global.fetch = () => Promise.resolve(new Response("", { status: 401 }))
-      localStorage.setItem("pronto-token", JSON.stringify({ token: "refused" }))
-      const read = createStore("http://caddy:8080", { tables: [], carriers: FIXTURE_CARRIERS }).query("game", null, {})
-      await new Promise((r) => setTimeout(r, 0))
-      expect(String(died)).toContain("refused")
-      expect(await Promise.race([read.then(() => "answered", () => "threw"), new Promise((r) => setTimeout(() => r("pending"), 10))])).toBe("pending")
-    } finally {
-      for (const [n, d] of ambient) {
-        if (d === undefined) delete global[n]
-        else Object.defineProperty(globalThis, n, d)
-      }
-      localStorage.removeItem("pronto-token")
+Deno.test({
+  name: "a public Electric subscription keeps receiving rows after the renderer guest expires",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const door = "http://localhost:3500/v1.0/invoke/caddy/method"
+    const guest = { id: "renderer", guest: true }
+    let refreshes = 0
+    let offset = 0
+    let expired = false
+    const cfg = {
+      tables: ["game"], carriers: FIXTURE_CARRIERS,
+      access: { game: { scope: "public" } },
+      schema: { game: { durability: "live", fields: [{ name: "id", type: "string" }] } },
     }
-  })
+    const online = Object.getOwnPropertyDescriptor(navigator, "onLine")
+    Object.defineProperty(navigator, "onLine", { value: true, configurable: true })
+    try {
+      await withBrowser({
+        storage: { "pronto-token": { token: "initial", refresh_token: "refresh-old", user: guest } },
+        fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = new URL(String(input))
+          if (url.href === `${door}/auth/refresh`) {
+            refreshes++
+            expect(JSON.parse(String(init?.body)).refresh_token).toBe("refresh-old")
+            if (refreshes === 1) return new Response(null, { status: 503 })
+            return Response.json({ token: "renewed", refresh_token: "refresh-new", user: guest })
+          }
+          expect(url.origin + url.pathname).toBe(`${door}/electric/v1/shape`)
+          const bearer = new Headers(init?.headers).get("authorization")
+          if (expired && bearer === "Bearer initial") return new Response(null, { status: 401 })
+          expect(bearer).toBe(expired ? "Bearer renewed" : "Bearer initial")
+          if (offset > 0) await new Promise((resolve) => setTimeout(resolve, 10))
+          const id = String(++offset)
+          return Response.json([
+            { key: `"public"."game"/"${id}"`, value: { id }, headers: { operation: "insert", relation: ["public", "game"] } },
+            { headers: { control: "up-to-date", global_last_seen_lsn: id } },
+          ], { headers: {
+            "electric-handle": "games", "electric-offset": `0_${id}`, "electric-cursor": id,
+            "electric-schema": JSON.stringify({ id: { type: "text" } }),
+          } })
+        },
+      }, async (makeStore: typeof createStore) => {
+        const store = makeStore(door, cfg, { refreshUrl: `${door}/auth/refresh` })
+        let updates = 0
+        const stop = store.subscribe("game", () => { updates++ }, {})
+        try {
+          expect((await store.query("game", null, {})).some((row: { id: string }) => row.id === "1")).toBe(true)
+          expired = true
+          const before = updates
+          await until(() => refreshes === 2 && updates > before, "the public stream received another batch")
+          expect(JSON.parse(localStorage.getItem("pronto-token")!)).toEqual({
+            token: "renewed", refresh_token: "refresh-new", user: guest,
+          })
+          expect((await store.query("game", null, {})).length).toBeGreaterThan(1)
+        } finally {
+          stop()
+          await store.close()
+        }
+      })
+    } finally {
+      if (online) Object.defineProperty(navigator, "onLine", online)
+      else delete (navigator as unknown as { onLine?: boolean }).onLine
+    }
+  },
 })

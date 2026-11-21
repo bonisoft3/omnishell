@@ -257,29 +257,6 @@ export function createRenderer({
 }
 
 /**
- * A guest kept for as long as the process runs: minted now, and again once
- * half its token's life is gone, so the store's next shape mint carries one
- * the gate accepts. A mint that fails is the renderer's end: a store holding a
- * refused token stops syncing and says nothing, and its documents would stand
- * frozen behind a healthy /health.
- */
-export async function keepGuest(
-  mint: () => Promise<{ token: string }>,
-  keep: (guest: { token: string }) => void,
-  die: (err: unknown) => void,
-  later: (fn: () => void, ms: number) => unknown = setTimeout,
-): Promise<void> {
-  const renew = async () => {
-    const guest = await mint();
-    const exp = JSON.parse(atob(guest.token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).exp;
-    if (typeof exp !== "number") throw new Error("the guest's token states no expiry");
-    keep(guest);
-    later(() => renew().catch(die), Math.max(0, (exp * 1000 - Date.now()) / 2));
-  };
-  await renew();
-}
-
-/**
  * Every fetch the renderer makes goes to its door, and none outlives `ms`: the
  * door's own bound on its upstreams is shorter, and the bound of whatever
  * proxies the render is longer (pronto's resilience package holds all three).
@@ -329,11 +306,8 @@ const parse = (html: string) => (parseHTML(html) as unknown as { document: unkno
 /**
  * The world the interpreter expects, installed on this realm: a screen reads
  * its clock knobs off location at module evaluation, and its stylesheet and
- * markup by URL against the door. Its location is the door's root, and a
- * reload: a page reloads when the door refuses its token, to be gated again
- * (data-sync.js); a renderer has no gate, and its store reads nothing more
- * past the refusal, so its reload is its end, and whatever runs it starts it
- * again with a guest minted afresh.
+ * markup by URL against the door. The renderer's reload exits so the
+ * supervisor can start it again with a fresh guest.
  */
 export function inhabit(door: string, die: (err: unknown) => void): void {
   const global = globalThis as unknown as Record<string, unknown>;
@@ -413,21 +387,21 @@ export async function serve(env: (name: string) => string | undefined = (name) =
   // mints one. Its token is the store's, through localStorage as in a tab —
   // Deno's own would write it to disk, so the process's lives in memory.
   Object.defineProperty(globalThis, "localStorage", { value: sessionStorage, configurable: true });
-  await keepGuest(
-    async () => {
-      const minted = await fetch(`${door}/auth/guest`, { method: "POST" });
-      if (!minted.ok) throw new Error(`${minted.status} minting a guest through ${door}: ${await minted.text()}`);
-      return await minted.json();
-    },
-    (guest) => localStorage.setItem("pronto-token", JSON.stringify(guest)),
-    die,
-  );
+  const minted = await fetch(`${door}/auth/guest`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh: true, cookie: false }),
+  });
+  if (!minted.ok) throw new Error(`${minted.status} minting a guest through ${door}: ${await minted.text()}`);
+  localStorage.setItem("pronto-token", JSON.stringify(await minted.json()));
   // What a render reads through the door's /crud, carried in its document.
   const reads = recordReads(door, globalThis.fetch, (url) => readKey(url));
   globalThis.fetch = reads.fetch;
   const appBase = new URL(`${door}/`);
   // Every render asks the door for its reads, which its document carries.
-  const store = createStore(door, { ...cfg, appBase, keepReads: false });
+  const store = createStore(door, { ...cfg, appBase, keepReads: false }, {
+    refreshUrl: `${door}/auth/refresh`,
+  });
   const cacheableRead = (table: string) => cfg.schema?.[table]?.durability !== "server";
 
   const renderer = createRenderer({
