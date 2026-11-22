@@ -75,8 +75,9 @@ const SIGNIN = {
 const PROVIDERS = {
   chrome_signin_google: "Continue with Google",
   chrome_signin_apple: "Continue with Apple",
+  chrome_signin_facebook: "Continue with Facebook",
 };
-const PROVIDER_NAMES = { google: "Google", apple: "Apple" };
+const PROVIDER_NAMES = { google: "Google", apple: "Apple", facebook: "Facebook" };
 
 /** The key a provider's way in is spoken under. */
 export const providerKey = (provider) => `chrome_signin_${provider}`;

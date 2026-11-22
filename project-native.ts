@@ -2836,7 +2836,7 @@ export function emitWinioRustSource(
  * screen carries it as the sheet the host's account button opens. */
 export function nativeAccountSheet(auth: { service?: string; providers?: string[] } | undefined): string {
   if (auth?.service === undefined) return "";
-  const names: Record<string, string> = { google: "Google", apple: "Apple" };
+  const names: Record<string, string> = { google: "Google", apple: "Apple", facebook: "Facebook" };
   const choice = (id: string, attr: string, text: string) =>
     `<button type="button" id="${id}" class="login-method-btn" ${attr}><span class="login-method-title">${text}</span></button>`;
   // The runtime's variables say which part shows (inferVisibilityExpression):
