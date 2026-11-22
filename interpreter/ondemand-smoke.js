@@ -16,7 +16,7 @@ import { BasicIndex, BTreeIndex } from "./vendor/mecha-client.js";
 // waits on the gate the test holds for its table.
 let worlds = 0;
 const servers = new Map();
-function electric(server, schema) {
+function electric(server, schema, scopes = {}) {
   const base = `http://fake${++worlds}`;
   const subsets = [];
   const gates = new Map();
@@ -90,9 +90,12 @@ function electric(server, schema) {
         headers: { "content-type": "application/json", "x-txid": String(txid) },
       });
     }
+    // A shape keyed on a row (a grant's) is that column's equality; any other
+    // is the table under its scope.
     if (url.pathname.endsWith("/auth/shape")) {
-      const { table } = JSON.parse(init.body);
-      return new Response(JSON.stringify({ token: "t", where: `table ${table}`, expires_in: 900 }));
+      const { table, key } = JSON.parse(init.body);
+      const where = key ? `"${key.column}" = '${key.value}'` : `table ${table}`;
+      return new Response(JSON.stringify({ token: "t", where, expires_in: 900 }));
     }
     const p = url.searchParams;
     const table = p.get("table");
@@ -112,8 +115,11 @@ function electric(server, schema) {
       }), { headers: headers(table) });
     }
     if (p.get("live") !== "true") {
-      await (stalls.get(table) ?? Promise.resolve());
-      const rows = p.get("log") === "changes_only" ? [] : (server[table] ?? []).map((r) => message(table, "insert", r));
+      const where = p.get("where") ?? "";
+      await (stalls.get(where) ?? stalls.get(table) ?? Promise.resolve());
+      const keyed = /^"(\w+)" = '(.*)'$/.exec(where);
+      const admits = keyed ? (r) => String(r[keyed[1]]) === keyed[2] : (scopes[table] ?? (() => true));
+      const rows = p.get("log") === "changes_only" ? [] : (server[table] ?? []).filter(admits).map((r) => message(table, "insert", r));
       return new Response(JSON.stringify([...rows, upToDate(table)]), { headers: headers(table) });
     }
     const queued = live.get(table) ?? { changes: [], wake: null };
@@ -150,8 +156,8 @@ function electric(server, schema) {
         release();
       };
     },
-    /** Holds the first snapshot of `table` until the returned release is
-     * called. */
+    /** Holds the first snapshot of `table`, or of the one shape whose where
+     * is `table`, until the returned release is called. */
     stall(table) {
       let release;
       stalls.set(table, new Promise((r) => (release = r)));
@@ -1117,6 +1123,83 @@ lazy("a whole read demands its embeds while an eager base snapshot is pending", 
   await pending;
   assert(answered.length === 2 && answered[1].player.name === "Bia", "complete embedded rows arrived");
   assert(globalThis.__prontoViews.size === 0, "temporary complete demand released");
+});
+
+lazy("syncing counts an eager collection from its first reader until its snapshot is in", async ({ fake, store }) => {
+  assert(store.syncing() === 0, `a collection nothing reads is not syncing, got ${store.syncing()}`);
+  const release = fake.stall("stat");
+  const releaseLazy = fake.hold("player");
+  const stopEager = store.subscribe("stat", () => {});
+  const stopLazy = store.subscribe("player", () => {});
+  await until(() => store.syncing() === 1, "the eager collection began syncing");
+  assert(store.answer("stat") === undefined, "the tab cannot answer it yet");
+  release();
+  await until(() => store.syncing() === 0, "the eager collection held its snapshot");
+  assert(store.answer("stat")?.length === 2, `the tab answers it, got ${JSON.stringify(store.answer("stat"))}`);
+  assert(fake.subsets.some((s) => s.table === "player"), "the lazy view is still loading its subset");
+  releaseLazy();
+  stopEager();
+  stopLazy();
+});
+
+// A table a grant reaches is a union of its scope's shape and one shape per
+// grant, and the union is ready with its scope: the reader's own notes may all
+// be in while a note shared to them is still on its way.
+// A table posed into is not counted, its grants' shapes loading or not.
+for (const posing of [false, true]) Deno.test({
+  name: posing
+    ? "a shared table posed into is not syncing while a grant's shape loads"
+    : "syncing counts a shared table until the shape of each grant it opened holds its snapshot",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const schema = {
+      note: { id: { type: "text" }, owner_id: { type: "text" }, title: { type: "text" }, txid: { type: "int8" } },
+      note_share: { id: { type: "text" }, note_id: { type: "text" }, user_id: { type: "text" }, txid: { type: "int8" } },
+    };
+    const fake = electric({
+      note: [{ id: "n1", owner_id: "u2", title: "theirs", txid: "1" }],
+      note_share: [{ id: "s1", note_id: "n1", user_id: "u1", txid: "1" }],
+    }, schema, { note: (r) => r.owner_id === "u1", note_share: () => false });
+    const online = Object.getOwnPropertyDescriptor(navigator, "onLine");
+    Object.defineProperty(navigator, "onLine", { value: true, configurable: true });
+    try {
+      await withBrowser({ fetch: fake.fetcher, storage: { "pronto-token": { token: "t", user: { id: "u1" } } } }, async (createStore) => {
+        const store = createStore(fake.base, {
+          carriers: FIXTURE_CARRIERS,
+          appBase: "http://fake/app/",
+          tables: ["note", "note_share"],
+          schema: {
+            note: { fields: [{ name: "id", type: "string" }, { name: "owner_id", type: "string" }, { name: "title", type: "string" }] },
+            note_share: { fields: [{ name: "id", type: "string" }, { name: "note_id", type: "string", ref: "note" }, { name: "user_id", type: "string" }] },
+          },
+          access: {
+            note: { scope: "private", owner: "owner_id", shared: { via: "note_share", on: "note_id", user: "user_id" } },
+            note_share: { scope: "folder", parent: "note", on: "note_id" },
+          },
+        });
+        const release = fake.stall(`"id" = 'n1'`);
+        const stops = [store.subscribe("note", () => {}), store.subscribe("note_share", () => {})];
+        const note = globalThis.__mechaClient.collections.note;
+        await until(() => note.isReady() && note.utils.sources().length === 2, "the scope is in and the grant opened its shape");
+        assert(!note.has("n1"), "the shared note is still on its way");
+        assert(store.syncing() === 1, `the shared table is syncing while its grant's shape loads, got ${store.syncing()}`);
+        if (posing) {
+          await store.pose("note", { id: "p1", owner_id: "u1", title: "posed" });
+          assert(store.syncing() === 0, `a posed table is not syncing, got ${store.syncing()}`);
+          assert(!note.has("n1"), "though the shared note is still on its way");
+        }
+        release();
+        // Posed, zero is no news: the note's arrival is waited for itself.
+        await until(() => store.syncing() === 0 && (!posing || note.has("n1")), "the grant's shape held its snapshot");
+        assert(note.has("n1"), "and the shared note is in the tab");
+        for (const stop of stops) stop();
+      });
+    } finally {
+      if (online) Object.defineProperty(navigator, "onLine", online);
+      else delete navigator.onLine;
+    }
+  },
 });
 
 lazy("a broad reader neither widens nor blocks a concurrent filtered reader", async ({ fake, store }) => {

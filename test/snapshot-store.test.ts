@@ -919,3 +919,45 @@ Deno.test({
     })
   },
 })
+
+// A browser store loads its validation modules at boot so the offline worker
+// keeps them; a render on the server has no worker and a store per document,
+// so its store loads them only for a write.
+Deno.test({
+  name: "a snapshot store fetches no validation module at construction, while a browser store does",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const fetched: string[] = []
+    await withBrowser({
+      fetch: (input: RequestInfo | URL) => {
+        fetched.push(String(input))
+        return Promise.resolve(new Response("({ context, event }) => true;\n"))
+      },
+    }, async (createStore: (base: string, cfg: Record<string, unknown>) => { close(): Promise<void> }) => {
+      const cfg = {
+        tables: [],
+        local: { card: "tab" },
+        carriers: FIXTURE_CARRIERS,
+        schema: { card: { durability: "tab", fields: [{ name: "id", type: "string" }] } },
+        validations: { card: { kept: { src: "shell/validations/kept.js", on: ["insert"], order: { insert: [0, 0] }, edges: [] } } },
+      }
+      const appBase = new URL("https://snapshot.test/app/")
+      const src = "https://snapshot.test/app/shell/validations/kept.js"
+      const snapshot = snapshotStore(cfg, appBase, { read: () => Promise.resolve([]) })
+      try {
+        await new Promise((r) => setTimeout(r, 20))
+        assertEquals(fetched.filter((u) => u === src), [])
+      } finally {
+        await snapshot.close()
+      }
+      const browser = createStore("", { ...cfg, appBase })
+      try {
+        for (let i = 0; i < 100 && !fetched.includes(src); i++) await new Promise((r) => setTimeout(r, 5))
+        assertEquals(fetched.filter((u) => u === src), [src])
+      } finally {
+        await browser.close()
+      }
+    })
+  },
+})

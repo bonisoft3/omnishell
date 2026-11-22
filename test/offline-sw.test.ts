@@ -28,7 +28,11 @@ function worker(initial: string | null, cacheControl = "public, no-cache") {
   const caches = {
     open: () =>
       Promise.resolve({
-        match: (req: Request) => Promise.resolve(store.get(key(req))?.clone()),
+        match: (req: Request, opts?: { ignoreSearch?: boolean }) => {
+          const at = new URL(key(req))
+          if (opts?.ignoreSearch) at.search = ""
+          return Promise.resolve(store.get(at.href)?.clone())
+        },
         put: (req: Request, res: Response) => rejectCacheWrites
           ? Promise.reject(new Error("cache full"))
           : Promise.resolve(void store.set(key(req), res)),
@@ -87,6 +91,15 @@ describe("the offline service worker", () => {
     expect(await sw.get(address)).toBe("<section>1</section>")
     sw.serve(null)
     expect(await sw.get(address)).toBe("<section>1</section>")
+  })
+
+  // A retried module load names its address with a query of its own
+  // (jessie.js retrySpecifier); the address is the same bytes.
+  it("answers an address asked with a query from the copy it keeps", async () => {
+    const sw = worker("<section>1</section>")
+    expect(await sw.get(address)).toBe("<section>1</section>")
+    sw.serve(null)
+    expect(await sw.get(address + "?retry=1")).toBe("<section>1</section>")
   })
 
   it("keeps no copy of an address the door failed", async () => {

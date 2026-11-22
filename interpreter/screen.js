@@ -296,8 +296,20 @@ let held = 0;
 // every arrow it could take declined. So the number a driver can act on is
 // zero-or-not, and reading it as "transitions pending" would count a wait that
 // moves nothing.
+//
+// `syncing` is the store's: tables whose rows are still on their way into the
+// tab (data-sync.js `syncing`). A region can answer from the server while its
+// eager table is still loading, so `regions` at zero does not say the tab holds
+// those rows; `syncing` at zero says no eager sync or local preparation a read
+// started is in progress, which is what a driver about to go offline waits
+// for, rather than asking `__prontoStore.answer` table by table. It is not
+// that every table answers from the tab: a table whose preparation failed is
+// not in progress and does not answer either. A table posed into
+// (`__prontoPose`) is not counted, its snapshot in or not, so a driver that
+// poses rows cannot read `syncing` as holding the server's. A provisional
+// session's collections count as local from the start, empty as they are.
 let busy = 0;
-globalThis.__prontoBusy = () => ({ regions: busy, waits: pending.size });
+globalThis.__prontoBusy = () => ({ regions: busy, waits: pending.size, syncing: globalThis.__prontoStore?.syncing?.() ?? 0 });
 // The seed's generators, declared ahead of the clock because a held clock can
 // rewind them: a replay is the same seed from the same start, and `reset` is
 // what puts the start back. Each actor draws from a stream of its own, seeded

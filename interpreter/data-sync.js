@@ -25,7 +25,7 @@ import {
 } from "./vendor/mecha-client.js";
 import { canCoalesceSchemaEq, coalesceReads, columnOrder, compareBy, embedDeps, embedTables, parseFilter, parseFilterSpec, parseLimit, parseSelect, ProgramError, progressiveReadsComment, routeOf, stripProgressiveReads, takeProgressiveReads } from "./fragment.js";
 export { progressiveReadsComment, stripProgressiveReads, takeProgressiveReads };
-import { evaluateRole } from "./jessie.js";
+import { evaluateRole, sesAddress } from "./jessie.js";
 import { judge } from "./validate.js";
 import { assetURL } from "./preloads.js";
 
@@ -546,6 +546,22 @@ export function othersFor(p, sinkRow, mine, pair, compareTxid) {
   return total;
 }
 
+// The offline worker keeps what the page fetches while the worker controls
+// it (offline-first-sw.js), and a first visit fetches before the worker it
+// registers (boot.js) has claimed the page. So a page that starts with no
+// controller fetches `urls` again once one takes over, and the worker keeps
+// them then. Answers what stops waiting for it.
+export function refetchOnControl(container, urls, fetcher) {
+  if (container == null || container.controller != null || urls.length === 0) return () => {};
+  const again = () => {
+    for (const url of urls) {
+      Promise.resolve().then(() => fetcher(url)).catch(() => {});
+    }
+  };
+  container.addEventListener("controllerchange", again, { once: true });
+  return () => container.removeEventListener("controllerchange", again);
+}
+
 export function createStore(base = "", cfg = {}, {
   refreshUrl = /** @type {string | undefined} */ (undefined),
   request = (url, init) => http(url, init, refreshUrl),
@@ -712,8 +728,8 @@ export function createStore(base = "", cfg = {}, {
     return c;
   }
 
-  // Validations by table (shell.yaml); each table's modules load on its first
-  // write, through the same compartment a handler runs in.
+  // Validations by table (shell.yaml); every table's modules load with the
+  // store, through the same compartment a handler runs in.
   const validations = cfg.validations ?? {};
   const predicates = new Map();
   function predicatesFor(table) {
@@ -743,6 +759,30 @@ export function createStore(base = "", cfg = {}, {
       predicates.set(table, p);
     }
     return p;
+  }
+  // At boot rather than on a table's first write, as a screen's handlers load
+  // when it mounts: the offline worker keeps only what the page fetched
+  // (offline-first-sw.js), so a guard first reached offline would have no
+  // module to judge with. A load that fails here is dropped, and the table's
+  // first write tries again. A store that keeps no reads renders a document
+  // on the server (keepReads below), where there is no worker to keep them
+  // and a store per render, so its modules load on a write, if one comes.
+  let unwatchControl = () => {};
+  if (cfg.keepReads !== false) {
+    for (const table of Object.keys(validations)) predicatesFor(table).catch(() => {});
+    const sources = [];
+    for (const byName of Object.values(validations)) {
+      for (const v of Object.values(byName)) {
+        try {
+          sources.push(assetURL(new URL(v.src, cfg.appBase)));
+        } catch {
+          // A source with no address fails its table's load, which says so.
+        }
+      }
+    }
+    // A validation runs in the cage, so the worker keeps the cage's bundle too.
+    if (sources.length > 0) sources.push(sesAddress());
+    unwatchControl = refetchOnControl(globalThis.navigator?.serviceWorker, sources, (url) => fetch(url));
   }
 
   // The store seat: every validation of the table judges the row the write
@@ -817,16 +857,27 @@ export function createStore(base = "", cfg = {}, {
     }
     let p = preparedAt.get(table);
     if (p === undefined) {
+      // Dropped on rejection, as a validation's load is: a bootstrap write
+      // that failed once would otherwise refuse the table for the session.
+      // The next use resumes after the steps that finished (prepare).
       p = prepare(table);
-      p.then(() => prepared.add(table), () => {});
+      const mine = p;
+      p.then(() => prepared.add(table), () => {
+        if (preparedAt.get(table) === mine) preparedAt.delete(table);
+      });
       preparedAt.set(table, p);
     }
     return p;
   };
+  // The steps of a table's preparation it has finished, counted, so a retry
+  // after a failure resumes rather than seeding rows the collection holds.
+  const preparedSteps = new Map();
   async function prepare(table) {
-    await seed(table);
-    await fill(table);
-    await reconcile(table);
+    const steps = [seed, fill, reconcile];
+    for (let i = preparedSteps.get(table) ?? 0; i < steps.length; i++) {
+      await steps[i](table);
+      preparedSteps.set(table, i + 1);
+    }
   }
 
   // Every row of a local collection carries each column shell.yaml lists as
@@ -1943,6 +1994,30 @@ export function createStore(base = "", cfg = {}, {
     return preds !== null && localEmbeds(table, parseSelect(opts.select));
   }
 
+  // How many tables have rows on their way into the tab: an eager collection
+  // whose sync has begun and not yet held its first snapshot, and a local
+  // table being prepared. Zero says no such sync or preparation is in
+  // progress, not that every table answers. A collection no read has opened
+  // has not begun, so it is not counted; a lazy table's views are its reads'.
+  // A table a grant reaches is a union of shapes, ready with its base, so a
+  // grant's shape still loading is asked of the union's sources. A failed
+  // preparation is not in progress, and the table does not answer either
+  // until its next use prepares it again. A table posed into (pose, the
+  // fixture seam) is marked ready, so it is not counted whether or not its
+  // snapshot, or a grant's, arrived: zero after a pose does not say the tab
+  // holds the server's rows. A provisional session's collections are marked
+  // ready empty by mecha's client, so they count as local from the start.
+  function syncing() {
+    let n = 0;
+    for (const t of tables) {
+      if (lazy(t) || requestOnly(t) || posed.has(t)) continue;
+      const c = client.collections[t];
+      const shapes = [c, ...(c?.utils?.sources?.() ?? [])];
+      if (shapes.some((s) => s?.status === "loading") || (preparedAt.has(t) && !prepared.has(t))) n++;
+    }
+    return n;
+  }
+
   // Server-computed regions have one blind spot the collections cannot
   // cover: a re-fetch triggered by this session's own optimistic write races
   // the write's HTTP, and once the write confirms the collection state shows
@@ -2719,7 +2794,10 @@ export function createStore(base = "", cfg = {}, {
     for (const [table, value] of Object.entries(saved ?? {})) {
       if (local[table] !== "tab" ||
           JSON.stringify(value.schema) !== JSON.stringify(cfg.schema?.[table])) continue;
-      if (preparedAt.has(table)) throw new Error(`tab recovery after ${table} was prepared`);
+      // A preparation that failed after its seed resumes past it (prepare), so
+      // the saved rows would never be read: a started one refuses as a
+      // finished one does.
+      if (preparedAt.has(table) || preparedSteps.has(table)) throw new Error(`tab recovery after ${table} was prepared`);
       restoredTabs.set(table, value.rows);
     }
   }
@@ -2866,6 +2944,7 @@ export function createStore(base = "", cfg = {}, {
     query,
     answer,
     answers,
+    syncing,
     orderOf,
     seedReads,
     readAhead,
@@ -2919,6 +2998,7 @@ export function createStore(base = "", cfg = {}, {
     tabSnapshot,
     restoreTabs,
     async close() {
+      unwatchControl();
       activeSeed = null;
       notifyAllSeedWaiters();
       await client.ready;

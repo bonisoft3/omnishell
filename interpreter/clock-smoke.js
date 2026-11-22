@@ -338,3 +338,24 @@ Deno.test({
     );
   },
 });
+
+Deno.test({
+  name: "the busy report carries the store's syncing count, and zero with no store",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await mountScreen("still", `<section class="screen" data-screen="still"></section>`, {});
+    const saved = globalThis.__prontoStore;
+    try {
+      delete globalThis.__prontoStore;
+      assert(globalThis.__prontoBusy().syncing === 0, `no store syncs nothing, got ${JSON.stringify(globalThis.__prontoBusy())}`);
+      let syncing = 2;
+      globalThis.__prontoStore = { syncing: () => syncing };
+      assert(globalThis.__prontoBusy().syncing === 2, `the store's count, got ${JSON.stringify(globalThis.__prontoBusy())}`);
+      syncing = 0;
+      assert(globalThis.__prontoBusy().syncing === 0, `and it drops with the store's, got ${JSON.stringify(globalThis.__prontoBusy())}`);
+    } finally {
+      globalThis.__prontoStore = saved;
+    }
+  },
+});

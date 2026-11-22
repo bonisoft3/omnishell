@@ -27,15 +27,51 @@ function prepareEval() {
 }
 
 let sesReady;
+// Loads that failed on this module instance: the next load names the bundle
+// by a query of its own, since a browser may keep a failed module fetch for
+// its URL and answer a second import of it with the same failure (WebKit
+// before https://bugs.webkit.org/show_bug.cgi?id=319492). The first load keeps
+// the bare URL, so caches and the offline worker see the address as ever.
+let failedLoads = 0;
+const sesSpecifier = () => failedLoads === 0 ? SES_URL : retrySpecifier(SES_URL, failedLoads);
+
+/** The specifier of the `attempt`th retry of `specifier`: the address the
+ * page's import map resolves it to, the release's pinned bytes, with a query
+ * of its own. A query misses the map's exact entry, so it is added to what the
+ * map answers, never to the logical path; the offline worker matches an
+ * address without its query (offline-first-sw.js). */
+/** The address the bundle's first load fetches, as the page's import map
+ * resolves it: what an offline worker must hold for the cage to load without
+ * the network (data-sync.js refetchOnControl). */
+export function sesAddress(resolve = (s) => import.meta.resolve?.(s) ?? s) {
+  return new URL(resolve(SES_URL)).href;
+}
+
+export function retrySpecifier(specifier, attempt, resolve = (s) => import.meta.resolve?.(s) ?? s) {
+  const url = new URL(resolve(specifier));
+  url.searchParams.set("retry", String(attempt));
+  return url.href;
+}
+
 // Single-file releases supply their compiled SES installer; the same policy
-// window owns both that installation and the ordinary module load.
-export function ensureSes(install = () => import(SES_URL)) {
-  return (sesReady ??= (async () => {
+// window owns both that installation and the ordinary module load. A load that
+// fails is dropped, so the next module to ask loads it again: one transient
+// failure would otherwise refuse every module for the page's lifetime. A
+// lockdown that fails is not a load: the realm it left is not one to seal
+// again or to run app source in, so every later ask meets that failure.
+// `install` is handed the specifier to load; one that installs SES by other
+// means ignores it.
+export function ensureSes(install = (specifier) => import(specifier)) {
+  if (sesReady !== undefined) return sesReady;
+  const loading = (async () => {
+    if (globalThis.__prontoLockdownFailure !== undefined) throw globalThis.__prontoLockdownFailure.thrown;
     prepareEval();
-    if (!globalThis.Compartment) {
+    // Installed is both globals: an installer that failed between them left
+    // a cage with no seal, and the next ask installs again.
+    if (!globalThis.Compartment || !globalThis.lockdown) {
       evaluating++;
       try {
-        await install();
+        await install(sesSpecifier());
       } finally {
         evaluating--;
       }
@@ -47,18 +83,35 @@ export function ensureSes(install = () => import(SES_URL)) {
     if (missing.length > 0) {
       throw new Error(`${SES_URL} installed no ${missing.join(" and no ")}`);
     }
-    // lockdown throws when repeated; the flag survives multiple module
-    // instances of this file on one page.
+    // lockdown throws when repeated; the flag and the failure survive
+    // multiple module instances of this file on one page. The flag is set
+    // only once lockdown has returned. Both are read again here, after the
+    // install's await, because another instance may have attempted lockdown
+    // meanwhile; lockdown itself is synchronous, so from this check to its
+    // return no other instance runs, and a page attempts it once.
+    if (globalThis.__prontoLockdownFailure !== undefined) throw globalThis.__prontoLockdownFailure.thrown;
     if (!globalThis.__prontoLockdown) {
-      globalThis.__prontoLockdown = true;
       evaluating++;
       try {
         lockdown({ errorTaming: "unsafe" });
+      } catch (err) {
+        // Boxed, so a lockdown that throws undefined is recorded as failed too.
+        globalThis.__prontoLockdownFailure = { thrown: err };
+        throw err;
       } finally {
         evaluating--;
       }
+      globalThis.__prontoLockdown = true;
     }
-  })());
+  })();
+  sesReady = loading;
+  loading.catch(() => {
+    if (sesReady === loading) {
+      sesReady = undefined;
+      failedLoads++;
+    }
+  });
+  return loading;
 }
 
 // A Jessie role is a module the app writes and the platform runs: the source's

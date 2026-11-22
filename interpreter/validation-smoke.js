@@ -5,7 +5,7 @@
 // refusal — the seat has no fallback for a rule that did not answer.
 
 import { FIXTURE_CARRIERS } from "./fixture-types.js";
-import { assert, withBrowser } from "./smoke-browser.js";
+import { assert, tick, until, withBrowser } from "./smoke-browser.js";
 
 const OWN_ARTICLE = `({ context, event }) => context.rows.article.every((a) => a.author_id !== event.row.user_id);\n`;
 const UNANSWERED = `({ context, event }) => "maybe";\n`;
@@ -114,6 +114,170 @@ Deno.test({
   },
 });
 
+// The offline worker keeps only what the page fetched, so a module first
+// asked for by a write made offline would not be there to judge it.
+// A first visit loads the modules before the worker it registered controls
+// the page, so the worker never saw them; the store fetches them again when
+// control arrives, which is when the worker keeps them.
+Deno.test({
+  name: "a store that boots uncontrolled fetches its validation modules again when a worker takes control",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const src = "http://localhost/app/shell/validations/own-article.js";
+    const fetched = [];
+    globalThis.fetch = (url) => {
+      fetched.push(String(url));
+      return String(url) === src ? Promise.resolve(new Response(OWN_ARTICLE)) : Promise.reject(new Error(`unexpected fetch ${url}`));
+    };
+    const sw = Object.assign(new EventTarget(), { controller: null });
+    const had = Object.getOwnPropertyDescriptor(navigator, "serviceWorker");
+    Object.defineProperty(navigator, "serviceWorker", { value: sw, configurable: true });
+    try {
+      await withBrowser({}, async (createStore) => {
+        const store = createStore("", config("shell/validations/own-article.js"));
+        await until(() => fetched.includes(src), "the store fetched the module");
+        await tick();
+        assert(fetched.length === 1, `one fetch before control, got ${JSON.stringify(fetched)}`);
+        sw.controller = {};
+        sw.dispatchEvent(new Event("controllerchange"));
+        await until(() => fetched.length === 3, "the store fetched the module and the cage again under the worker");
+        assert(fetched[1] === src, `the same module, got ${JSON.stringify(fetched)}`);
+        // The cage the module runs in: SES's bundle, at the address its first
+        // load names.
+        assert(fetched[2].endsWith("/interpreter/vendor/ses.umd.min.js"), `and the cage's bundle, got ${JSON.stringify(fetched)}`);
+        await store.close();
+      });
+    } finally {
+      if (had) Object.defineProperty(navigator, "serviceWorker", had);
+      else delete navigator.serviceWorker;
+    }
+  },
+});
+
+Deno.test({
+  name: "a table's validation modules are fetched with the store, before any write",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    const src = "http://localhost/app/shell/validations/own-article.js";
+    let online = true;
+    const fetched = [];
+    globalThis.fetch = (url) => {
+      fetched.push(String(url));
+      if (!online) return Promise.reject(new TypeError("Failed to fetch"));
+      return String(url) === src ? Promise.resolve(new Response(OWN_ARTICLE)) : Promise.reject(new Error(`unexpected fetch ${url}`));
+    };
+    await withBrowser({}, async (createStore) => {
+      const store = createStore("", config("shell/validations/own-article.js"));
+      await until(() => fetched.includes(src), "the store fetched the module");
+      await tick();
+      // Nothing reaches the network from here, and the module is still there
+      // to refuse the first write.
+      online = false;
+      const err = await refusal(store.add("favorite", [{ id: "f1", article_id: "a1", user_id: "u1" }]));
+      assert(err?.validation === "own-article", `the first write is judged, got ${err?.message}`);
+      assert(fetched.length === 1, `the module was fetched once, got ${JSON.stringify(fetched)}`);
+    });
+  },
+});
+
+// A local table is prepared on its first use; a bootstrap write that fails is
+// not a preparation under way, and the next use prepares it again.
+Deno.test({
+  name: "a failed preparation is not counted as syncing, and the table's next use prepares it again",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    serve({ "shell/validations/own-article.js": OWN_ARTICLE });
+    await withBrowser({}, async (createStore) => {
+      const store = createStore("", config("shell/validations/own-article.js"));
+      const client = globalThis.__mechaClient;
+      const insert = client.insert;
+      let refused = 0;
+      client.insert = (table, rows) =>
+        table === "article" && refused++ === 0 ? Promise.reject(new Error("quota exceeded")) : insert.call(client, table, rows);
+      const reading = store.query("article", null, {});
+      assert(store.syncing() === 1, `a preparation under way is syncing, got ${store.syncing()}`);
+      const err = await refusal(reading);
+      assert(err?.message === "quota exceeded", `the first read meets the failed write, got ${err?.message}`);
+      assert(store.syncing() === 0, `a failed preparation is not syncing, got ${store.syncing()}`);
+      const rows = await store.query("article", null, {});
+      assert(rows.length === 2, `the next read prepares the table again, got ${JSON.stringify(rows)}`);
+      assert(store.syncing() === 0, `and it is done, got ${store.syncing()}`);
+    });
+  },
+});
+
+// A preparation that fails after its seed resumes from where it stopped: the
+// seeded rows are in the collection, and writing them again would refuse the
+// table for good.
+Deno.test({
+  name: "a preparation that failed after its seed resumes, and seeds the rows once",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    serve({ "shell/validations/own-article.js": OWN_ARTICLE });
+    await withBrowser({}, async (createStore) => {
+      const store = createStore("", { ...config("shell/validations/own-article.js"), optional: { article: [{ name: "title", type: "string" }] } });
+      const client = globalThis.__mechaClient;
+      const insert = client.insert;
+      const update = client.update;
+      let seeded = 0;
+      let filled = 0;
+      client.insert = (table, rows) => {
+        if (table === "article") seeded++;
+        return insert.call(client, table, rows);
+      };
+      client.update = (table, edits) =>
+        table === "article" && filled++ === 0 ? Promise.reject(new Error("quota exceeded")) : update.call(client, table, edits);
+      const err = await refusal(store.query("article", null, {}));
+      assert(err?.message === "quota exceeded", `the first read meets the failed fill, got ${err?.message}`);
+      const rows = await store.query("article", null, {});
+      assert(rows.length === 2 && rows.every((r) => r.title === ""), `the next read finishes the preparation, got ${JSON.stringify(rows)}`);
+      assert(seeded === 1, `the seed was written once, got ${seeded}`);
+      assert(filled === 2, `the fill ran again, got ${filled}`);
+      assert(store.syncing() === 0, `and the table is done, got ${store.syncing()}`);
+    });
+  },
+});
+
+// Tab recovery replaces a table's seed, so once the seed is written it is late:
+// a preparation that failed after it resumes past the seed, and would never
+// read the saved rows.
+Deno.test({
+  name: "tab recovery after a preparation that failed past its seed is refused, not ignored",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await import("https://cdn.jsdelivr.net/npm/ses@1.15.0/dist/ses.umd.min.js");
+    serve({ "shell/validations/own-article.js": OWN_ARTICLE });
+    await withBrowser({}, async (createStore) => {
+      const store = createStore("", { ...config("shell/validations/own-article.js"), optional: { article: [{ name: "title", type: "string" }] } });
+      const client = globalThis.__mechaClient;
+      const update = client.update;
+      let filled = 0;
+      client.update = (table, edits) =>
+        table === "article" && filled++ === 0 ? Promise.reject(new Error("quota exceeded")) : update.call(client, table, edits);
+      const err = await refusal(store.query("article", null, {}));
+      assert(err?.message === "quota exceeded", `the first read meets the failed fill, got ${err?.message}`);
+      let late = null;
+      try {
+        await store.restoreTabs({ article: { schema: undefined, rows: [{ id: "saved", author_id: "u9" }] } });
+      } catch (e) {
+        late = e;
+      }
+      assert(late?.message === "tab recovery after article was prepared", `recovery is refused as late, got ${late?.message}`);
+      const rows = await store.query("article", null, {});
+      assert(rows.map((r) => r.id).sort().join() === "a1,a2", `the seeded rows stand, got ${JSON.stringify(rows)}`);
+    });
+  },
+});
+
 Deno.test({
   name: "an update of a row the store does not hold is a program error, not a refusal",
   sanitizeOps: false,
@@ -144,11 +308,15 @@ Deno.test({
     globalThis.fetch = (url) => {
       if (String(url) !== src) return Promise.reject(new Error(`unexpected fetch ${url}`));
       attempts += 1;
-      return Promise.resolve(attempts === 1 ? new Response("", { status: 404 }) : new Response(OWN_ARTICLE));
+      return Promise.resolve(attempts <= 2 ? new Response("", { status: 404 }) : new Response(OWN_ARTICLE));
     };
     await withBrowser({}, async (createStore) => {
       const store = createStore("", config("shell/validations/own-article.js"));
+      // The store's own load fails first, and is not held against the write.
+      await until(() => attempts === 1, "the store loaded the module");
+      await tick();
       const err = await refusal(store.add("favorite", [{ id: "f1", article_id: "a2", user_id: "u1" }]));
+      assert(attempts === 2, `the write fetched the module again, got ${attempts} fetches`);
       assert(err !== null && err.name !== "NonRetriableError", `a failed fetch is a program error, got ${err?.name}`);
       assert(
         err.message === "validation favorite.own-article: shell/validations/own-article.js 404",
