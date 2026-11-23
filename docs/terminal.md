@@ -63,7 +63,14 @@ platform evaluates a compartment. The eval policy never accepts HTML or
 script elements. These are the reviewed sinks in the
 [Trusted Types model](https://www.w3.org/TR/trusted-types/#dom-xss-injection-sinks).
 Remote presentation resources require the app's explicit declaration
-([[../../pronto/SPEC|artifact spec]]); scripts cannot be added that way.
+([[../../pronto/SPEC|artifact spec]]); scripts cannot be added that way. A
+Google Ads tag runs outside the terminal, in a frame of the app's origin with
+a policy and a realm of its own; the entry admits only the inline bridge that
+mounts it
+([[../../pronto/docs/component-contracts#google-ads-tag-metagoogletag|component contracts]]).
+The terminal draws the reader's consent bar itself, as it draws the login
+gate, and states the choice to that bridge before any screen mounts
+([[../../pronto/docs/component-contracts#consent-metaconsent|component contracts]]).
 
 ## Units
 

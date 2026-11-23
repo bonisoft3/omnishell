@@ -77,6 +77,8 @@ type ShellConfig = {
   // app's own mints the session the strip names, declaring auth offers that
   // session the ways in, and each provider is one of them.
   auth?: { required?: boolean; providers?: string[] };
+  // Consent in mode "bar" draws its bar (interpreter/consent.js).
+  consent?: { mode?: string };
   tables?: string[];
   routes?: Route[];
   units?: Record<string, unknown>;
@@ -513,7 +515,8 @@ export function checkChrome(
   const session = gated || (shell.tables?.length ?? 0) > 0;
   const signin = session && shell.auth !== undefined;
   const providers = signin ? (shell.auth?.providers ?? []).map(providerKey) : [];
-  for (const key of [...(gated ? CHROME_KEYS.login : []), ...(session ? CHROME_KEYS.session : []), ...(signin ? CHROME_KEYS.signin : []), ...providers]) {
+  const consent = shell.consent?.mode === "bar" ? CHROME_KEYS.consent : [];
+  for (const key of [...(gated ? CHROME_KEYS.login : []), ...(session ? CHROME_KEYS.session : []), ...(signin ? CHROME_KEYS.signin : []), ...providers, ...consent]) {
     for (const tag of tags) {
       if (said(tag, key)) continue;
       report(`messages/${tag}.json`, `chrome key "${key}" is missing: the terminal speaks its own English here`);
@@ -1475,6 +1478,10 @@ function chromeFailures(): string[] {
   grades("a provider offered in no Spanish", `chrome key "chrome_signin_google" is missing`, {
     shell: { auth: { required: false, providers: ["google"] } },
   });
+  grades("a consent bar in no Spanish", `chrome key "chrome_consent_reject" is missing`, {
+    shell: { consent: { mode: "bar" } },
+  });
+  quiet("consent that asks nobody", { shell: { auth: undefined, consent: { mode: "none" } }, messages: guestsOnly });
 
   // The whole of the built-in copy's point: an app that shows neither surface
   // is asked for none of it.

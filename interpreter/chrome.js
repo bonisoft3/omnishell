@@ -81,11 +81,21 @@ const PROVIDER_NAMES = { google: "Google", apple: "Apple" };
 /** The key a provider's way in is spoken under. */
 export const providerKey = (provider) => `chrome_signin_${provider}`;
 
+// The consent bar's (consent.js), wherever the app asks for consent.
+const CONSENT = {
+  chrome_consent_title: "Advertising cookies",
+  chrome_consent_body: "May we and Google use cookies to measure our ads and show them to people who visited? The app works the same either way.",
+  chrome_consent_policy: "Privacy policy",
+  chrome_consent_reject: "Reject",
+  chrome_consent_accept: "Accept",
+  chrome_consent_choices: "Privacy choices",
+};
+
 /** Which copy a reader can reach, by the surface that shows it: an app is asked
  * for the group its own declaration puts on screen, never for the rest. */
-export const CHROME_KEYS = { login: Object.keys(LOGIN), session: Object.keys(SESSION), signin: Object.keys(SIGNIN), providers: Object.keys(PROVIDERS) };
+export const CHROME_KEYS = { login: Object.keys(LOGIN), session: Object.keys(SESSION), signin: Object.keys(SIGNIN), providers: Object.keys(PROVIDERS), consent: Object.keys(CONSENT) };
 
-export const CHROME = { ...LOGIN, ...SESSION, ...SIGNIN, ...PROVIDERS };
+export const CHROME = { ...LOGIN, ...SESSION, ...SIGNIN, ...PROVIDERS, ...CONSENT };
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -160,7 +170,7 @@ export const CHROME_ICONS = {
   terminal: [["polyline", { points: "4 17 10 11 4 5" }], ["line", { x1: "12", x2: "20", y1: "19", y2: "19" }]],
 };
 
-function drawIcon(doc, name) {
+export function drawIcon(doc, name) {
   if (!name || !Object.hasOwn(CHROME_ICONS, name)) return null;
   const svg = doc.createElementNS(SVG_NS, "svg");
   svg.setAttribute("class", "shell-nav-icon");

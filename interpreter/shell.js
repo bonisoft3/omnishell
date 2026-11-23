@@ -19,6 +19,7 @@ import { parseMarkup } from "./markup.js";
 // service exists to sign against.
 
 import { chromeText, describe, drawStrip, hasStrip, localizeStrip, nameOf, offersSignin, ownName, providerHref, stripRoutes } from "./chrome.js";
+import { startConsent } from "./consent.js";
 import { localeAt, localeTable, ProgramError, restatedHref, routeAt, routeHref, screenEnv, Unanswered } from "./fragment.js";
 import { activateScreenStyle, fetchText, forgetFiles, interpretScreen, prefetchScreen, templateHash, submitsOnChange, AssetMissing } from "./screen.js";
 import { compileCatalog } from "./vendor/messages.js";
@@ -373,6 +374,23 @@ export async function createShell({ config, mount, preload = true, hostDomModule
         cortex: cfg.cortex,
       });
       return { storybook: true, stop: book.stop };
+    }
+    // Before any screen, so the tag hears the reader's consent before any
+    // event; the entry's bridge (pronto's meta.googleTag) is its `gtag`.
+    if (cfg.consent) {
+      if (typeof globalThis.gtag !== "function") throw new Error("consent is declared, and the entry carries no tag bridge to state it to");
+      const locale = arriving?.locale ?? cfg.i18n?.default;
+      startConsent({
+        consent: cfg.consent,
+        doc: document,
+        storage: localStorage,
+        navigator: globalThis.navigator,
+        location,
+        gtag: globalThis.gtag,
+        text: (key) => chrome(key, locale),
+        ready: catalogued,
+        now: Date.now,
+      }).catch(banner);
     }
     const dataPlane = import("./data-sync.js");
     const offered = cfg.auth ? providersOffered(cfg) : null;
