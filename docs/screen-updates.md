@@ -271,6 +271,16 @@ way to a fresh mount. A tab opened offline holds no session, since one lives in
 the tab: the document stays the page, unbound, until a guest session can be
 minted ([`nav-smoke.js`](../interpreter/nav-smoke.js)).
 
+Any mount puts its screen on the page before its forms are wired, and a region's
+forms as it hydrates. A `data-action` form submitted before it is wired is held
+by the screen and made once it is, with the same button and once, even if the
+button was pressed twice; the browser never sends it, whose own submit would be
+a GET to the page's address with the fields in its query. A form removed before
+it was wired takes its held submit with it, and the screen says so. On a served
+first load `early-gestures.js` holds the submit first, and the shell replays it
+once the screen has settled. Only `data-action` forms are held, and a press the
+browser's own validation refuses fires no submit, so there is nothing to hold.
+
 A newer template taken in place ([when a deployment
 lands](#when-a-deployment-lands)) reaches a screen through the handle's
 `morph`, once the screen is mounted, and ends where a mount of the newer

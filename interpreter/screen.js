@@ -1969,6 +1969,8 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   // keep their poll keys hot — stop them before mounting the next one.
   for (const stop of mount._prontoStops ?? []) stop();
   const cleanups = [];
+  // A submit made before its form was wired, by form, with the button that made it.
+  const heldSubmits = new Map();
   mount._prontoStops = cleanups;
   cleanups.push(hostDom.stop);
   // One seat per data-on-mutation handler, screen-wide (see wireEvents).
@@ -2069,7 +2071,15 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         const readers = new Set(changed.flatMap((table) => [...(derived.get(table) ?? [])]));
         for (const refresh of readers) refresh([]);
         if (failure !== undefined) throw failure;
-        if (work.size === 0 && wakes === 0 && dirty.size === 0) return;
+        if (work.size === 0 && wakes === 0 && dirty.size === 0) {
+          // A form removed or replaced before it was wired will never make its held submit.
+          for (const form of [...heldSubmits.keys()]) {
+            if (form.isConnected) continue;
+            heldSubmits.delete(form);
+            report(new ProgramError("a submit held for a form that was removed before it was wired was dropped"));
+          }
+          return;
+        }
       }
     } finally {
       settling = undefined;
@@ -2186,6 +2196,24 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   const cas = templateHash(html);
   let links = skeletonRoutes(html);
   const screen = served?.screen ?? markup;
+
+  // The screen is the reader's once it is connected, but a form is the shell's only
+  // once its modules have loaded, and a region's as it hydrates. A data-action form
+  // submitted in between would be the browser's: a GET to the page's own address with
+  // its fields in the query, which loses the write. It is held here, and wireForm makes
+  // it with the same button. On a served document early-gestures.js holds it first, at
+  // the document, and stops it there. The listener stays for the screen's life, so a
+  // region that hydrates after the screen has settled is covered too; a hold whose form
+  // was removed before it was wired is dropped, and said, each time the screen settles.
+  const holdUnwiredSubmit = (e) => {
+    const form = e.target;
+    if (form?.localName !== "form" || form._prontoForm || !form.hasAttribute("data-action")) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    heldSubmits.set(form, e.submitter ?? null);
+  };
+  screen.addEventListener("submit", holdUnwiredSubmit, true);
+  cleanups.push(() => screen.removeEventListener("submit", holdUnwiredSubmit, true));
 
   let base = screen.getAttribute("data-state") || route.states?.[0] || "populated";
   const setState = (s) => {
@@ -2709,6 +2737,19 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // A form with no submit button (the toggle checkbox) submits on change.
     form.addEventListener("change", () => {
       if (submitsOnChange(form)) form.requestSubmit();
+    });
+    // A submit the reader made before this form was wired is its first, made now,
+    // unless its region has yet to bind the row it acts on (releaseHeld, at the bind).
+    if (region?._prontoRowPending !== true) releaseHeld(form);
+  }
+
+  // Makes the submit held for a form, if any, with the button that made it.
+  function releaseHeld(form) {
+    if (!heldSubmits.has(form)) return;
+    const submitter = heldSubmits.get(form);
+    heldSubmits.delete(form);
+    queueMicrotask(() => {
+      if (form.isConnected) form.requestSubmit(submitter?.isConnected && submitter.form === form ? submitter : undefined);
     });
   }
 
@@ -4701,6 +4742,15 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         }
         const row = shownRow(rows);
         currentRow = row;
+        if (region._prontoRowPending) {
+          region._prontoRowPending = false;
+          // A row that is gone has nothing for the held submit to act on: it is dropped.
+          for (const form of [...heldSubmits.keys()]) {
+            if (!region.contains(form)) continue;
+            if (row !== undefined) releaseHeld(form);
+            else heldSubmits.delete(form);
+          }
+        }
         if (row === undefined) {
           // Vanished singleton (row deleted or its visibility revoked
           // mid-visit): the screen's "gone" state owns the frame. The output
@@ -4962,7 +5012,12 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         wireForm(form, () => currentRow.id, () => ({ params: ctx.params, row: currentRow }), region);
       }
     };
-    if (templates.length === 0) wireSlotForms();
+    // A slot's forms act on its one row, which it binds only once its read answers:
+    // a submit held for them is made then (releaseHeld), not as they are wired.
+    if (templates.length === 0) {
+      region._prontoRowPending = true;
+      wireSlotForms();
+    }
     const attempt = guarded();
     attempt.then(finishActions, finishActions);
     // A nested region's ProgramError reaches its enclosing row through
