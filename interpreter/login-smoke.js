@@ -58,6 +58,9 @@ function boot({ config = CONFIG_YAML, catalogue = null, guestFails = false, cook
   );
   globalThis.document = document;
   globalThis.window = globalThis;
+  // These are independent pages, not outbox peers; native Deno channels make
+  // their stores wait for a cross-tab election before session teardown.
+  globalThis.BroadcastChannel = undefined;
   globalThis.addEventListener = () => {};
   globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
   globalThis.scrollTo = () => {};
@@ -1688,4 +1691,101 @@ Deno.test({
     assert(reloads.length === 1, `an account changed elsewhere reloads the tab, got ${reloads.length}`);
     globalThis.addEventListener = prevListen;
   },
+});
+
+Deno.test({
+  name: "a stored guest recovers its device cookie without losing local work",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const { mount } = boot({ config: GUEST_YAML, cookie: "mecha_session_hint=1" });
+    const held = { token: "tok-old", user: { id: "g1", handle: "guest", guest: true }, committed: true, shown: true };
+    localStorage.setItem("pronto-token", JSON.stringify(held));
+    const previous = globalThis.fetch;
+    let adopted = 0;
+    globalThis.fetch = (url, init) => {
+      const path = String(url);
+      if (path.endsWith("/auth/session")) return Promise.resolve(new Response(null, { status: 401 }));
+      if (path.endsWith("/auth/session/adopt")) {
+        adopted++;
+        if (init.headers.Authorization !== "Bearer tok-old") throw new Error("adoption lost the guest's bearer");
+        return Promise.resolve(Response.json({ ...held, token: "tok-fresh", committed: undefined, shown: undefined }));
+      }
+      if (path.includes("/crud/app_user")) return Promise.resolve(Response.json([{ id: "g1" }]));
+      return previous(url, init);
+    };
+    const { createShell } = await import("./shell.js");
+    createShell({ config: "./shell.yaml", mount });
+    await settle(300);
+    const assert = check(mount);
+    const stored = JSON.parse(localStorage.getItem("pronto-token"));
+    assert(adopted === 1, "boot adopts the guest once");
+    assert(stored.token === "tok-fresh" && stored.committed && stored.shown, "renewal retains the guest's work and presentation");
+  },
+});
+
+Deno.test("guest cookie recovery respects a concurrent sign-in, refuses expired bearers and retries after network failure", async () => {
+  const { adoptDeviceSession } = await import("./signin.js");
+  for (const outcome of ["race", "expired", "offline"]) {
+    const { mount } = boot({ cookie: "mecha_session_hint=1" });
+    const assert = check(mount);
+    const held = { token: "guest-token", user: { id: "g1", guest: true }, committed: true };
+    localStorage.setItem("pronto-token", JSON.stringify(held));
+    let reads = 0;
+    let attempts = 0;
+    globalThis.fetch = (url) => {
+      if (String(url).endsWith("/session/adopt")) {
+        attempts++;
+        if (outcome === "offline" && attempts === 1) return Promise.reject(new TypeError("offline"));
+        if (outcome === "offline") return Promise.resolve(Response.json({ ...held, token: "fresh" }));
+        return Promise.resolve(new Response(null, { status: outcome === "race" ? 409 : 401 }));
+      }
+      if (String(url).endsWith("/session")) {
+        reads++;
+        return Promise.resolve(outcome === "race" && reads === 2
+          ? Response.json({ token: "account-token", user: { id: "person" } })
+          : new Response(null, { status: 401 }));
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+    const result = await adoptDeviceSession({ auth: { service: "/auth" } });
+    if (outcome === "race") {
+      assert(result.user.id === "person" && !result.committed, "concurrent sign-in wins without inheriting guest metadata");
+    } else {
+      assert(result === null && localStorage.getItem("pronto-token") === JSON.stringify(held), "failed adoption does not overwrite the stored guest");
+      if (outcome === "offline") {
+        const retried = await adoptDeviceSession({ auth: { service: "/auth" } });
+        assert(retried.token === "fresh" && retried.committed, "a subsequent boot retries recovery");
+      }
+    }
+  }
+});
+
+Deno.test("a late guest recovery cannot overwrite a newer stored sign-in and adoption errors name their endpoint", async () => {
+  const { adoptDeviceSession } = await import("./signin.js");
+  for (const outcome of ["late", "late-refusal", "error"]) {
+    const { mount, jar } = boot({ cookie: "mecha_session_hint=1" });
+    const assert = check(mount);
+    const guest = { token: "guest", user: { id: "guest", guest: true } };
+    const person = { token: "account", user: { id: "person" } };
+    localStorage.setItem("pronto-token", JSON.stringify(guest));
+    globalThis.fetch = (url) => {
+      if (String(url).endsWith("/session")) return Promise.resolve(new Response(null, { status: 401 }));
+      if (String(url).endsWith("/session/adopt")) {
+        if (outcome === "error") return Promise.resolve(new Response(null, { status: 503 }));
+        localStorage.setItem("pronto-token", JSON.stringify(person));
+        return Promise.resolve(outcome === "late-refusal" ? new Response(null, { status: 401 }) : Response.json(guest));
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+    if (outcome !== "error") {
+      assert(await adoptDeviceSession({ auth: { service: "/auth" } }) === null, "a stale response does not supply the boot's session");
+      assert(localStorage.getItem("pronto-token") === JSON.stringify(person), "the newer account is retained");
+      assert(jar() === "mecha_session_hint=1", "the newer session hint is retained");
+    } else {
+      let failure;
+      try { await adoptDeviceSession({ auth: { service: "/auth" } }); } catch (error) { failure = error; }
+      assert(failure?.message === "503 POST /auth/session/adopt", `wrong adoption failure: ${failure}`);
+    }
+  }
 });

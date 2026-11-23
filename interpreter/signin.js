@@ -93,8 +93,20 @@ export async function adoptDeviceSession(cfg) {
   }
   if (held !== null && !held.user?.guest && await accountLives(held)) return null;
   let res;
+  let endpoint = `${cfg.auth.service}/session`;
   try {
-    res = await fetch(`${cfg.auth.service}/session`, { method: "POST", credentials: "same-origin" });
+    res = await fetch(endpoint, { method: "POST", credentials: "same-origin" });
+    if (res.status === 401 && held?.user?.guest) {
+      await res.body?.cancel();
+      endpoint = `${cfg.auth.service}/session/adopt`;
+      res = await fetch(endpoint, { method: "POST", credentials: "same-origin", headers: { Authorization: `Bearer ${held.token}` } });
+      // A sign-in in another tab wins the race with adoption.
+      if (res.status === 409) {
+        await res.body?.cancel();
+        endpoint = `${cfg.auth.service}/session`;
+        res = await fetch(endpoint, { method: "POST", credentials: "same-origin" });
+      }
+    }
   } catch (error) {
     if (!(error instanceof TypeError)) throw error;
     return null;
@@ -102,6 +114,7 @@ export async function adoptDeviceSession(cfg) {
   // Signed out elsewhere, or the link revoked: the hint is stale, and the
   // next boot need not ask.
   if (res.status === 401) {
+    if (storedSessionOwner() !== sessionOwner(held)) return null;
     document.cookie = `${SESSION_HINT}=; Path=/; Max-Age=0`;
     return null;
   }
@@ -109,8 +122,9 @@ export async function adoptDeviceSession(cfg) {
     const { user, offer } = await res.json();
     return { taken: { user, offer } };
   }
-  if (!res.ok) throw new Error(`${res.status} POST ${cfg.auth.service}/session`);
+  if (!res.ok) throw new Error(`${res.status} POST ${endpoint}`);
   const fresh = await res.json();
+  if (storedSessionOwner() !== sessionOwner(held)) return null;
   const same = sessionOwner(fresh) === sessionOwner(held);
   if (!same) sessionStorage.removeItem(recoveryKey);
   // What the device knows of its own guest — that it wrote, that it was
