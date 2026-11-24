@@ -52,7 +52,11 @@ const SCREEN_HTML = `<section class="screen" data-screen="home"><h2>Home</h2></s
 
 // `cookie` is the jar the auth service left; `provider` answers its session
 // exchange with a status, and the requests the boot made are in `asked`.
-function boot({ config = CONFIG_YAML, catalogue = null, guestFails = false, cookie = "", provider = 200, expiredToken = null } = {}) {
+// An account signed in by its one passkey, long enough ago that changing its
+// ways needs a sign-in first, and not asked to set up recovery.
+const ONE_WAY = { ways: [{ kind: "passkey", id: "c1", added: null, current: true }], recent: false, recovery: false };
+
+function boot({ config = CONFIG_YAML, catalogue = null, guestFails = false, cookie = "", provider = 200, expiredToken = null, ways = () => ONE_WAY } = {}) {
   const { document, Event } = parseHTML(
     "<!doctype html><html><head></head><body><div id=shell></div></body></html>",
   );
@@ -92,6 +96,7 @@ function boot({ config = CONFIG_YAML, catalogue = null, guestFails = false, cook
       return Promise.resolve(new Response(JSON.stringify({ token: "g", user: { id: "u-google", handle: "amber-fox-12" } })));
     }
     if (u.endsWith("/auth/signout")) return Promise.resolve(new Response(null, { status: 204 }));
+    if (u.includes("/auth/ways")) return Promise.resolve(Response.json(ways(u)));
     if (u.includes("/crud/app_user")) {
       if (expiredToken && init?.headers?.Authorization === `Bearer ${expiredToken}`) return Promise.resolve(new Response("{}", { status: 401 }));
       return Promise.resolve(new Response(JSON.stringify([{ id: "u-google" }])));
@@ -1574,6 +1579,118 @@ Deno.test({
 });
 
 Deno.test({
+  name: "a provider signing in by its own button is framed from the auth service once the panel opens, and its script never runs in the terminal",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const origCred = globalThis.PublicKeyCredential;
+    globalThis.PublicKeyCredential = class {};
+    try {
+      const { document: doc, Event, mount } = boot({ config: GUEST_YAML.replace("  service: /auth\n", "  service: /auth\n  providers: [google]\n") });
+      const prevFetch = globalThis.fetch;
+      globalThis.fetch = (url, init) =>
+        String(url).endsWith("/auth/oidc") ? Promise.resolve(Response.json({ providers: ["google"], credential: { google: "client-123" } })) : prevFetch(url, init);
+      const { createShell } = await import("./shell.js");
+      createShell({ config: "./shell.yaml", mount });
+      await settle(300);
+      const assert = check(mount);
+      const holder = doc.querySelector('nav .shell-provider-button[data-provider="google"]');
+      assert(holder, "Google's place in the panel is its button's, not a redirect link");
+      assert(!doc.querySelector('nav a.shell-provider[data-provider="google"]'), "and no redirect link stands beside it");
+      assert(!holder.querySelector("iframe"), "a visitor who has not opened the panel loads none of Google's");
+      doc.querySelector("nav .shell-signin").dispatchEvent(new Event("click", { bubbles: true }));
+      const frame = holder.querySelector("iframe.shell-provider-frame");
+      // Google's script assigns markup no Trusted Types policy vouches for, so
+      // it runs in the auth service's page, framed, never in the terminal's.
+      assert(frame?.getAttribute("src")?.startsWith("/auth/oidc/google/button"), `opening the panel frames the auth service's button page, got ${frame?.getAttribute("src")}`);
+      assert(frame.getAttribute("allow") === "identity-credentials-get", "which may ask FedCM");
+      assert(!doc.querySelector('script[src*="accounts.google.com"]'), "and the terminal loads no Google script itself");
+    } finally {
+      globalThis.PublicKeyCredential = origCred;
+    }
+  },
+});
+
+Deno.test({
+  name: "a provider's prompt is framed only once a person first presses outside the panel, never for a script's event",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const origCred = globalThis.PublicKeyCredential;
+    const origIdentity = globalThis.IdentityCredential;
+    globalThis.PublicKeyCredential = class {};
+    globalThis.IdentityCredential = class {};
+    try {
+      const { document: doc, Event, mount } = boot({ config: GUEST_YAML.replace("  service: /auth\n", "  service: /auth\n  providers: [google]\n") });
+      const prevFetch = globalThis.fetch;
+      globalThis.fetch = (url, init) =>
+        String(url).endsWith("/auth/oidc") ? Promise.resolve(Response.json({ providers: ["google"], credential: { google: "client-123" } })) : prevFetch(url, init);
+      const { createShell } = await import("./shell.js");
+      createShell({ config: "./shell.yaml", mount });
+      await settle(300);
+      const assert = check(mount);
+      const prompt = () => doc.querySelector("body > iframe.shell-provider-prompt");
+      // A crawler or a visit no one touches pays nothing of Google's.
+      assert(prompt() === null, "no prompt before a person is there");
+      const press = (el) => {
+        const e = new Event("pointerdown", { bubbles: true });
+        Object.defineProperty(e, "isTrusted", { value: true });
+        el.dispatchEvent(e);
+      };
+      mount.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      assert(prompt() === null, "a script's press is no person's");
+      // Regression: a press on the way to the panel spent the prompt for good.
+      press(doc.querySelector("nav .shell-signin"));
+      assert(prompt() === null, "the panel's own button serves a press on Sign in");
+      press(mount);
+      assert(prompt()?.getAttribute("src")?.startsWith("/auth/oidc/google/button?prompt="), `a person's first press frames the prompt, got ${prompt()?.getAttribute("src")}`);
+      assert(prompt().getAttribute("allow") === "identity-credentials-get", "which may ask FedCM");
+      // Regression: a prompt framed while signed out outlived a passkey
+      // sign-in and could sign Google in over the account.
+      const { renderSession } = await import("./signin.js");
+      renderSession({ user: { id: "u1", handle: "ana", guest: false }, passkey: true }, { app: "t", auth: { service: "/auth" } }, null, (k) => k);
+      assert(prompt() === null, "signing in another way withdraws the prompt");
+    } finally {
+      globalThis.PublicKeyCredential = origCred;
+      globalThis.IdentityCredential = origIdentity;
+    }
+  },
+});
+
+Deno.test({
+  name: "an app's own control for a provider signing in by its own button gives way to that button when pressed",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const origCred = globalThis.PublicKeyCredential;
+    globalThis.PublicKeyCredential = class {};
+    const SCREEN = `<section class="screen" data-screen="home"><button type="button" id="btn-auth-google" data-auth-provider="google">Google</button></section>`;
+    try {
+      const { document: doc, Event, mount } = boot({ config: GUEST_YAML.replace("  service: /auth\n", "  service: /auth\n  providers: [google]\n") });
+      const prevFetch = globalThis.fetch;
+      const asked = [];
+      globalThis.fetch = (url, init) => {
+        asked.push(`${init?.method ?? "GET"} ${url}`);
+        if (String(url).endsWith("/auth/oidc")) return Promise.resolve(Response.json({ providers: ["google"], credential: { google: "client-123" } }));
+        return String(url).endsWith(".html") ? Promise.resolve(new Response(SCREEN)) : prevFetch(url, init);
+      };
+      const { createShell } = await import("./shell.js");
+      createShell({ config: "./shell.yaml", mount });
+      await settle(300);
+      const assert = check(mount);
+      // Regression: the control's press was refused out of sight, and the
+      // person saw nothing happen.
+      mount.querySelector("#btn-auth-google").dispatchEvent(new Event("click", { bubbles: true }));
+      const frame = mount.querySelector('.shell-provider-button[data-provider="google"] > iframe.shell-provider-frame');
+      assert(frame?.getAttribute("src")?.startsWith("/auth/oidc/google/button"), `the control gives way to Google's button, got ${frame?.getAttribute("src")}`);
+      assert(!asked.some((a) => a.includes("/oidc/google/start")), `and no redirect is begun, asked ${asked}`);
+    } finally {
+      globalThis.PublicKeyCredential = origCred;
+    }
+  },
+});
+
+Deno.test({
   name: "a served panel drawn with the program's providers keeps only those this deployment turns on",
   sanitizeOps: false,
   sanitizeResources: false,
@@ -1690,6 +1807,61 @@ Deno.test({
     await settle(20);
     assert(reloads.length === 1, `an account changed elsewhere reloads the tab, got ${reloads.length}`);
     globalThis.addEventListener = prevListen;
+  },
+});
+
+Deno.test({
+  name: "a person signed in again after an external effect, with one way in, finds the panel open on Set up recovery, until Not now",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    let later = false;
+    const ways = (u) => {
+      if (u.endsWith("/later")) later = true;
+      return { ways: [{ kind: "provider", provider: "google", issuer: "https://accounts.google.com", sub: "g1", name: "Ada", email: "ada@example.test", added: "2026-11-20T10:00:00Z", current: true }], recent: true, recovery: !later };
+    };
+    const config = GUEST_YAML.replace("  required: false\n", "  required: false\n  providers: [google, apple]\n");
+    const { document: doc, Event, mount, asked } = boot({ config, ways });
+    localStorage.setItem("pronto-token", JSON.stringify({ token: "tok", user: { id: "u1", handle: "Ada-3fa2", email: "ada@example.test" } }));
+    const { createShell } = await import("./shell.js");
+    createShell({ config: "./shell.yaml", mount });
+    await settle(300);
+    const assert = check(mount);
+    const panel = doc.querySelector("nav #shell-account-panel");
+    assert(!panel.hidden, "asked, the panel opens itself after the sign-in");
+    const section = panel.querySelector(".shell-ways");
+    assert(section.nextElementSibling === panel.querySelector(".shell-signout"), "the ways sit above Sign out");
+    assert(!section.querySelector(".shell-recovery").hidden, "Set up recovery is asked");
+    const listed = [...section.querySelectorAll(".shell-way")];
+    assert(listed.length === 1 && listed[0].querySelector(".shell-way-name").textContent === "Google", "its one way in, named by the provider");
+    assert(listed[0].querySelector(".shell-way-detail").textContent === "This device", "the way this device came in by");
+    assert(!listed[0].querySelector(".shell-way-remove"), "the last way in has no Remove");
+    const offered = [...section.querySelectorAll(".shell-way-add .shell-way-provider")].map((b) => b.dataset.provider);
+    assert(offered.join("|") === "apple", `a provider it has no link of is offered, got ${offered}`);
+    section.querySelector(".shell-later").dispatchEvent(new Event("click", { bubbles: true }));
+    await settle(100);
+    assert(asked.includes("POST /auth/ways/later") && section.querySelector(".shell-recovery").hidden, "Not now puts the question off");
+  },
+});
+
+Deno.test({
+  name: "ways whose sign-in is not recent offer no change, only the sign-in that would allow one, and a device without its session cookie shows none",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const { document: doc, Event, mount } = boot({ config: GUEST_YAML });
+    localStorage.setItem("pronto-token", JSON.stringify({ token: "tok", user: { id: "u1", handle: "Ada-3fa2" }, passkey: { rpId: "localhost", userId: "dTE" } }));
+    const { createShell } = await import("./shell.js");
+    createShell({ config: "./shell.yaml", mount });
+    await settle(300);
+    const assert = check(mount);
+    const panel = doc.querySelector("nav #shell-account-panel");
+    assert(panel.hidden, "not asked, the panel stays shut");
+    doc.querySelector("nav .shell-me > .shell-person").dispatchEvent(new Event("click", { bubbles: true }));
+    await settle(100);
+    const section = panel.querySelector(".shell-ways");
+    assert(section.querySelector(".shell-way-add").hidden, "nothing to add on a stale sign-in");
+    assert(section.querySelector(".shell-ways-note").textContent === "Sign in again to change these.", "and it says what would allow it");
   },
 });
 

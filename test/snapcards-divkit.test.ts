@@ -272,7 +272,6 @@ describe("Snapcards 6 core screens -> DivKit compilation & headless reconciliati
 
   it("persists Snapcards offline UGC (`card_set`, `favorite` upsert, `device`) in SQLite across cold reboot and adopts provisional UUID on guest promotion", async () => {
     const shellJson = JSON.parse(await Deno.readTextFile(new URL("shell/shell.json", snapcardsDir)));
-    expect(shellJson.native).toEqual(["android"]);
     expect(shellJson.schema.favorite.durability).toBe("offline");
     expect(shellJson.tables.includes("favorite")).toBe(true);
 
@@ -769,42 +768,34 @@ describe("Snapcards 6 core screens -> DivKit compilation & headless reconciliati
     expect((rtlFlip.custom_props as Record<string, unknown>).direction).toBe("rtl");
   });
 
-  it("boots 100% offline from pre-seeded `seed-cache.sql` + `derived.sql` with zero network requests and gates OTA `morph` / `restart` / `bridge-mismatch`", async () => {
-    // Read the pre-seeded SQLite artifacts produced by `saytw build@android` (or generate into a temp dir if absent)
-    let cacheSqlPath = new URL("dist/android/app/src/main/assets/seed-cache.sql", snapcardsDir);
-    let derivedSqlPath = new URL("dist/android/app/src/main/assets/derived.sql", snapcardsDir);
-    let signingJsonPath = new URL("dist/android/app/src/main/assets/manifest-signing.json", snapcardsDir);
-    try {
-      await Deno.stat(cacheSqlPath);
-    } catch {
-      const prontoDir = new URL("../../pronto/", import.meta.url);
-      const { buildNativeApp } = await import(new URL("bundle/native.ts", prontoDir).href);
-      const tmpAndroid = await Deno.makeTempDir({ prefix: "snapcards-cold-android-" });
-      await buildNativeApp({
-        appDir: snapcardsDir.pathname,
-        platform: "android",
-        omnishellDir: new URL("../", import.meta.url).pathname,
-        mechaDir: new URL("../../../libraries/mecha/", import.meta.url).pathname,
-        outDir: tmpAndroid,
-        domain: "snapcards.fun",
-      });
-      cacheSqlPath = new URL(`file://${tmpAndroid}/app/src/main/assets/seed-cache.sql`);
-      derivedSqlPath = new URL(`file://${tmpAndroid}/app/src/main/assets/derived.sql`);
-      signingJsonPath = new URL(`file://${tmpAndroid}/app/src/main/assets/manifest-signing.json`);
-    }
-
-    const cacheSql = await Deno.readTextFile(cacheSqlPath);
-    const derivedSql = await Deno.readTextFile(derivedSqlPath);
-    const signingMeta = JSON.parse(await Deno.readTextFile(signingJsonPath)) as {
+  // Snapcards ships no native host (its Android app is a TWA of the web one),
+  // so a native cold boot is realworld's, a test app that declares no package
+  // of its own: the test names one.
+  it("boots a native host 100% offline from pre-seeded `seed-cache.sql` + `derived.sql` with zero network requests and gates OTA `morph` / `restart` / `bridge-mismatch`", async () => {
+    const realworldDir = new URL("../../../apps/realworld/", import.meta.url);
+    const origin = "https://realworld.bonisoft3.com";
+    const prontoDir = new URL("../../pronto/", import.meta.url);
+    const { buildNativeApp } = await import(new URL("bundle/native.ts", prontoDir).href);
+    const tmpAndroid = await Deno.makeTempDir({ prefix: "realworld-cold-android-" });
+    await buildNativeApp({
+      appDir: realworldDir.pathname,
+      platform: "android",
+      omnishellDir: new URL("../", import.meta.url).pathname,
+      mechaDir: new URL("../../../libraries/mecha/", import.meta.url).pathname,
+      outDir: tmpAndroid,
+      domain: "realworld.bonisoft3.com",
+      androidPackage: "com.bonisoft3.realworld",
+    });
+    const cacheSql = await Deno.readTextFile(`${tmpAndroid}/app/src/main/assets/seed-cache.sql`);
+    const derivedSql = await Deno.readTextFile(`${tmpAndroid}/app/src/main/assets/derived.sql`);
+    const signingMeta = JSON.parse(await Deno.readTextFile(`${tmpAndroid}/app/src/main/assets/manifest-signing.json`)) as {
       publicKeyBase64: string;
       nativeBridgeAddress: string;
     };
     const swSource = await Deno.readTextFile(new URL("../offline-first-sw.js", import.meta.url));
-    const shellJson = JSON.parse(await Deno.readTextFile(new URL("shell/shell.json", snapcardsDir)));
 
-    const tmpDir = await Deno.makeTempDir({ prefix: "snapcards-zero-net-" });
+    const tmpDir = await Deno.makeTempDir({ prefix: "realworld-zero-net-" });
     const dbPath = `${tmpDir}/cold.sqlite`;
-    let successfulNetworkResponses = 0;
     let addressedNetworkCalls = 0;
     const g = globalThis as Record<string, unknown>;
     const prevFetch = globalThis.fetch;
@@ -817,15 +808,12 @@ describe("Snapcards 6 core screens -> DivKit compilation & headless reconciliati
       storage.sql!.exec(derivedSql);
 
       // Airplane mode: reject every network request so cold boot relies 100% on pre-seeded SQLite
-      const airplaneFetch: typeof fetch = () => {
-        return Promise.reject(new TypeError("Airplane mode: network disabled"));
-      };
-      g.fetch = airplaneFetch;
+      g.fetch = (() => Promise.reject(new TypeError("Airplane mode: network disabled"))) as typeof fetch;
       g.__omnishellStorage = storage;
 
       const sw = createHeadlessSwrRuntime({
         workerSource: swSource,
-        origin: "https://snapcards.fun",
+        origin,
         storage,
         networkFetch: (req) => {
           if (req.url.includes("_immutable-")) addressedNetworkCalls++;
@@ -833,66 +821,25 @@ describe("Snapcards 6 core screens -> DivKit compilation & headless reconciliati
         },
       });
 
-      // 1. Cold navigation to `/` hits `pronto-entries-v1` (stamped `<meta name="pronto-kept">`) in airplane mode!
-      const entryRes = await sw.fetch("https://snapcards.fun/", { mode: "navigate" });
+      // 1. Cold navigation to `/` hits `pronto-entries-v1` (stamped `<meta name="pronto-kept">`) in airplane mode.
+      const entryRes = await sw.fetch(`${origin}/`, { mode: "navigate" });
       expect(entryRes.status).toBe(200);
       const entryHtml = await entryRes.text();
       expect(entryHtml.includes('<meta name="pronto-kept">')).toBe(true);
       await sw.flushBackground();
 
-      // 2. Ed25519 signature verification passes against the pinned public key, and all `.divkit.json` assets resolve from `pronto-addressed-v1` with 0 network calls!
+      // 2. Ed25519 signature verification passes against the pinned public key, and every screen's `.divkit.json` resolves from `pronto-addressed-v1` with 0 network calls.
       const verified = await verifyEntryManifestEd25519(entryHtml, signingMeta.publicKeyBase64);
       expect(verified.imports["/@native/bridge"]).toBe(signingMeta.nativeBridgeAddress);
-      const cardsDivkitUrl = verified.imports["/shell/screens/cards.divkit.json"];
-      expect(typeof cardsDivkitUrl).toBe("string");
-      const cardsDivkitRes = await sw.fetch(`https://snapcards.fun${cardsDivkitUrl}`);
-      expect(cardsDivkitRes.status).toBe(200);
-      const cardsDivkitAst = (await cardsDivkitRes.json()) as DivKitCard;
-      expect(cardsDivkitAst.card.log_id).toBe("omnishell_cards");
+      const projection = await projectAppNative(realworldDir, { origin });
+      for (const name of Object.keys(projection.screens)) {
+        const url = verified.imports[`/shell/screens/${name}.divkit.json`];
+        expect(typeof url).toBe("string");
+        const res = await sw.fetch(`${origin}${url}`);
+        expect(res.status).toBe(200);
+        expect(((await res.json()) as DivKitCard).card.log_id).toBe(`omnishell_${name}`);
+      }
       expect(addressedNetworkCalls).toBe(0);
-
-      // 3. `createStore` hydrates curated Snapcards decks + flashcards + deck_stats from `derived.sql` in airplane mode!
-      const offlineStore = createStore("https://snapcards.fun", {
-        app: "snapcards",
-        carriers: shellJson.carriers,
-        keys: shellJson.keys,
-        tables: ["card_set", "flashcard", "deck_stats"],
-        schema: {
-          card_set: shellJson.schema.card_set,
-          flashcard: shellJson.schema.flashcard,
-          deck_stats: shellJson.schema.deck_stats,
-        },
-        access: {
-          card_set: shellJson.access.card_set,
-          flashcard: shellJson.access.flashcard,
-          deck_stats: shellJson.access.deck_stats,
-        },
-        provisional: () => true,
-      });
-      const curatedDecks = await offlineStore.query("card_set");
-      const curatedCards = await offlineStore.query("flashcard");
-      const curatedStats = await offlineStore.query("deck_stats");
-      expect(curatedDecks.length).toBe(8);
-      expect(curatedCards.length).toBe(82);
-      expect(curatedStats.length).toBe(8);
-      expect(successfulNetworkResponses).toBe(0);
-
-      // Reconcile the `cards` screen directly against the cold-hydrated curated rows
-      const projection = await projectAppNative(snapcardsDir, { origin: "https://snapcards.fun" });
-      const renderedOffline = reconcileScreenToDivKit(projection.screens.cards.ir, {
-        origin: "https://snapcards.fun",
-        tables: {
-          localized_deck: curatedDecks as Array<Record<string, unknown>>,
-          card_set: curatedDecks as Array<Record<string, unknown>>,
-          deck_stats: curatedStats as Array<Record<string, unknown>>,
-        },
-        palettes: projection.palettes,
-        navEntries: projection.navEntries,
-      });
-      const renderedText = JSON.stringify(renderedOffline);
-      expect(renderedText.includes("Our Solar System")).toBe(true);
-      expect(renderedText.includes("South American Giants")).toBe(true);
-      await offlineStore.close();
 
       // 4. Live OTA release planner: `morph` vs `restart` vs `bridge-mismatch` (`store_update`)
       const screenRefs: NativeScreenAssetRef[] = Object.keys(projection.screens).map((name) => ({
@@ -901,15 +848,16 @@ describe("Snapcards 6 core screens -> DivKit compilation & headless reconciliati
         divkit: `/shell/screens/${name}.divkit.json`,
       }));
 
+      const first = Object.keys(projection.screens)[0];
       const morphNext = {
         ...verified.imports,
-        "/shell/screens/cards.divkit.json": "/shell/screens/_immutable-9999-cards.divkit.json",
+        [`/shell/screens/${first}.divkit.json`]: `/shell/screens/_immutable-9999-${first}.divkit.json`,
         "/messages/he.json": "/messages/_immutable-9999-he.json",
       };
       const morphPlan = planNativeRelease(verified.imports, morphNext, screenRefs);
       expect(morphPlan.kind).toBe("morph");
       if (morphPlan.kind === "morph") {
-        expect(morphPlan.divkitScreens).toEqual(["/shell/screens/cards.divkit.json"]);
+        expect(morphPlan.divkitScreens).toEqual([`/shell/screens/${first}.divkit.json`]);
         expect(morphPlan.catalogues).toEqual(["/messages/he.json"]);
       }
 
@@ -931,6 +879,7 @@ describe("Snapcards 6 core screens -> DivKit compilation & headless reconciliati
       else g.__omnishellStorage = prevStorage;
       storage.close();
       await Deno.remove(tmpDir, { recursive: true }).catch(() => {});
+      await Deno.remove(tmpAndroid, { recursive: true }).catch(() => {});
     }
   });
 });

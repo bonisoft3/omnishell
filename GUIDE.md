@@ -61,14 +61,22 @@ classes are `.shell-signin` (`.shell-guest` for a shown guest), `.shell-person`
 `.shell-face`, `.shell-face-pick`, `.shell-face-mark`, `.shell-face-name`,
 `.shell-face-forget`, `.shell-passkey-form`, `.shell-passkey-go`),
 `.shell-name-form`, `.shell-rename`, `.shell-rename-form`,
-`.shell-account-page`, `.shell-signout` and `.shell-guest-signout`; its copy
+`.shell-account-page`, `.shell-signout`, `.shell-guest-signout` and
+`.shell-delete`, and a person's ways to sign in: `.shell-ways`,
+`.shell-recovery` (Set up recovery, with `.shell-later`), `.shell-way-list`,
+`.shell-way`, `.shell-way-name`, `.shell-way-detail`, `.shell-way-remove`,
+`.shell-way-add`, `.shell-way-passkey`, `.shell-way-provider` and
+`.shell-ways-note`; its copy
 is `chrome_passkey`, `chrome_signin_with`, `chrome_device`, `chrome_close`,
 `chrome_guest`, `chrome_guest_signout_hint`, `chrome_signin`,
 `chrome_passkey_failed`, `chrome_taken`, `chrome_switch`, `chrome_stay`,
 `chrome_name_title`, `chrome_continue`, `chrome_back`, `chrome_signout`,
 `chrome_profile`, `chrome_rename`, `chrome_name_label`, `chrome_save`,
 `chrome_name_taken`, `chrome_keep`, `chrome_forget`, `chrome_this_device`,
-`chrome_signed_in_guest` and `chrome_create_passkey`.
+`chrome_signed_in_guest`, `chrome_create_passkey`, `chrome_delete_account`,
+`chrome_delete_confirm`, `chrome_ways`, `chrome_way_add`, `chrome_way_remove`,
+`chrome_way_taken`, `chrome_ways_stale`, `chrome_recovery`,
+`chrome_recovery_hint` and `chrome_later`.
 
 ## What you are writing
 

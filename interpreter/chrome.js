@@ -36,7 +36,9 @@ const SESSION = {
 // one. A guest is "Guest" to itself, signed in on this device; its panel
 // keeps its work the same ways and ends in a quiet Sign out, which no sign-in
 // brings back; its sign-in into another account offers that account or the
-// guest. A person's chip opens onto their page, Rename and Sign out. Nobody
+// guest. A person's chip opens onto their page, Rename, their ways to sign
+// in — Remove beside each while another stays, Add a way below, Set up
+// recovery above when asked — and Sign out. Nobody
 // sees their own handle's suffix or a guest's generated name: those are for
 // others.
 const SIGNIN = {
@@ -66,6 +68,14 @@ const SIGNIN = {
   chrome_create_passkey: "Create a passkey",
   chrome_delete_account: "Delete account",
   chrome_delete_confirm: "Delete for good",
+  chrome_ways: "Ways to sign in",
+  chrome_way_add: "Add a way",
+  chrome_way_remove: "Remove",
+  chrome_way_taken: "That one already signs in to another account.",
+  chrome_ways_stale: "Sign in again to change these.",
+  chrome_recovery: "Set up recovery",
+  chrome_recovery_hint: "Add another way to sign in, so you can get back in if you lose this one.",
+  chrome_later: "Not now",
 };
 
 // A provider's way in, one sentence per provider the auth service knows
@@ -75,8 +85,11 @@ const SIGNIN = {
 const PROVIDERS = {
   chrome_signin_google: "Continue with Google",
   chrome_signin_apple: "Continue with Apple",
+  chrome_signin_bluesky: "Continue with Bluesky",
 };
-const PROVIDER_NAMES = { google: "Google", apple: "Apple" };
+const PROVIDER_NAMES = { google: "Google", apple: "Apple", bluesky: "Bluesky" };
+/** A provider as the panel names it: its own name, which no language translates. */
+export const providerName = (provider) => PROVIDER_NAMES[provider] ?? provider;
 
 /** The key a provider's way in is spoken under. */
 export const providerKey = (provider) => `chrome_signin_${provider}`;
@@ -304,7 +317,7 @@ function stroke(doc, cls, shapes) {
   return svg;
 }
 
-const worded = (doc, tag, cls, key) => {
+export const worded = (doc, tag, cls, key) => {
   const el = doc.createElement(tag);
   if (cls) el.className = cls;
   el.setAttribute("data-key", key);

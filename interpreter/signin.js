@@ -3,7 +3,7 @@
 // the passkey ceremonies, the accounts this device signed in to — and the
 // nav's chip and panel that offer them. shell.js wires them to the page.
 import { parseMarkup } from "./markup.js";
-import { accountBox, nameOf, offersSignin, ownName, providerHref, providerKey, signinBox, supportsPasskeys } from "./chrome.js";
+import { accountBox, nameOf, offersSignin, ownName, providerHref, providerKey, providerName, signinBox, supportsPasskeys, worded } from "./chrome.js";
 import { authPosture } from "./cortex-navigation.js";
 import { signal, signalName } from "./passkey-signals.js";
 
@@ -66,21 +66,23 @@ const sessionHinted = () => (globalThis.document?.cookie ?? "").split(";").some(
  * back `{taken}`, that account, for the reader to take or leave. Fails open
  * as accountLives does: offline, the tab boots as it would have. */
 /** The ways in the program offers that this deployment turns on, as the auth
- * service says: a release its program's, a local stack none. Offline, none
- * can be reached, so none is drawn; online, a lookup that fails is a fault. */
+ * service says: a release its program's, a local stack none, each signing in
+ * by redirect or, `credential` naming its client, by its own button. Offline,
+ * none can be reached, so none is drawn; online, a lookup that fails is a
+ * fault. */
 export async function providersOffered(cfg) {
   const declared = cfg.auth.providers ?? [];
-  if (declared.length === 0) return declared;
+  if (declared.length === 0) return { providers: declared, credential: {} };
   let res;
   try {
     res = await fetch(`${cfg.auth.service}/oidc`, { credentials: "same-origin" });
   } catch (error) {
     if (!(error instanceof TypeError) || globalThis.navigator?.onLine !== false) throw error;
-    return [];
+    return { providers: [], credential: {} };
   }
   if (!res.ok) throw new Error(`${res.status} GET ${cfg.auth.service}/oidc`);
-  const { providers } = await res.json();
-  return declared.filter((p) => providers.includes(p));
+  const { providers, credential } = await res.json();
+  return { providers: declared.filter((p) => providers.includes(p)), credential };
 }
 
 export async function adoptDeviceSession(cfg) {
@@ -279,6 +281,16 @@ const rpIdOf = (options) => options?.rpId ?? options?.rp?.id ?? globalThis.locat
 // way in goes on to create the account there (the session chart).
 export async function registerCeremony(service, token, name) {
   const { state, ...options } = await postJson(`${service}/register/start`, name ? { name } : {}, token);
+  const { cred, response } = await createPasskey(options);
+  const session = await postJson(`${service}/register/verify`, { state, response });
+  signalName(session, nameOf(session.user.handle));
+  rememberAccount(session, cred.id);
+  return session;
+}
+
+/** A passkey the authenticator makes from a start's options, and the answer
+ * its verify takes. */
+async function createPasskey(options) {
   const cred = await navigator.credentials.create({
     publicKey: {
       ...options,
@@ -293,8 +305,8 @@ export async function registerCeremony(service, token, name) {
       })),
     },
   });
-  const session = await postJson(`${service}/register/verify`, {
-    state,
+  return {
+    cred,
     response: {
       id: cred.id,
       rawId: b64uFromBuf(cred.rawId),
@@ -307,10 +319,7 @@ export async function registerCeremony(service, token, name) {
         transports: cred.response.getTransports?.() ?? [],
       },
     },
-  });
-  signalName(session, nameOf(session.user.handle));
-  rememberAccount(session, cred.id);
-  return session;
+  };
 }
 
 /** What the device is called, for a reader who gives no name of their own:
@@ -496,6 +505,13 @@ export function renderLogin(mount, cfg, chrome) {
   // the session (adoptDeviceSession).
   const here = `${location.pathname ?? "/"}${location.search ?? ""}`;
   for (const provider of cfg.auth.providers ?? []) {
+    if (cfg.auth.credential?.[provider] !== undefined) {
+      const holder = document.createElement("div");
+      holder.className = "login-provider-button";
+      holder.append(providerFrame(cfg, provider, "button"));
+      wrap.querySelector(".login-passkey").before(holder);
+      continue;
+    }
     const a = document.createElement("a");
     a.className = "login-provider";
     a.dataset.provider = provider;
@@ -611,16 +627,70 @@ export function renderSignin(cfg, served = null, session = null) {
   for (const link of panel.querySelectorAll(".shell-provider")) {
     if (!(cfg.auth.providers ?? []).includes(link.dataset.provider)) link.remove();
   }
+  // A provider signing in by its own button holds the place of its link.
+  // The button is the auth service's page, framed afresh each time the panel
+  // opens, so its nonce is never one that lapsed while the panel was shut.
+  const credential = cfg.auth.credential ?? {};
+  const holders = [];
+  for (const link of panel.querySelectorAll("a.shell-provider")) {
+    if (credential[link.dataset.provider] === undefined) continue;
+    const holder = document.createElement("div");
+    holder.className = "shell-provider-button";
+    holder.dataset.provider = link.dataset.provider;
+    link.replaceWith(holder);
+    holders.push(holder);
+  }
   const device = panel.querySelector('[data-auth-action="accounts"]');
   device.hidden = !supportsPasskeys();
-  open.hidden = guest === null && panel.querySelector(".shell-provider, .shell-passkey:not([hidden])") === null;
+  open.hidden = guest === null && panel.querySelector(".shell-provider, .shell-provider-button, .shell-passkey:not([hidden])") === null;
   // A device asked alone needs a challenge already in hand, for this way in
   // and any an app places in its own markup.
   deviceAloneLearnt.then((alone) => {
     if (alone && !device.hidden) askAhead(cfg.auth.service);
   });
-  wirePanel(box);
+  wirePanel(box, () => {
+    for (const holder of holders) holder.replaceChildren(providerFrame(cfg, holder.dataset.provider, "button"));
+  });
+  promptOnce(cfg);
   return box;
+}
+
+/** A provider's own button, its prompt, or its button adding a way to the
+ * device's account, as the auth service's page: the
+ * provider's script runs there, under that page's policy, never in this
+ * realm (mecha's services/auth/README.md#provider-sign-in). */
+export function providerFrame(cfg, provider, mode) {
+  const frame = document.createElement("iframe");
+  frame.className = mode === "prompt" ? "shell-provider-prompt" : "shell-provider-frame";
+  frame.title = provider;
+  // FedCM asks from the frame, which the page must allow.
+  frame.allow = "identity-credentials-get";
+  const q = new URLSearchParams(mode === "button" ? {} : { [mode]: "" });
+  if (document.documentElement.lang) q.set("hl", document.documentElement.lang);
+  frame.src = `${cfg.auth.service}/oidc/${encodeURIComponent(provider)}/button${q.size ? `?${q}` : ""}`;
+  return frame;
+}
+
+/** A page not signed in offers each button provider's prompt once, where the
+ * browser draws it itself (FedCM): a browser without it would draw it in the
+ * frame, which shows nothing, so there the panel's button is the only way.
+ * It waits for a person's first key or press, so a crawler, a prerender or a
+ * visit no one touches loads nothing of the provider's and asks no nonce. */
+let prompted = false;
+function promptOnce(cfg) {
+  if (prompted || !("IdentityCredential" in globalThis)) return;
+  prompted = true;
+  const providers = Object.keys(cfg.auth.credential ?? {}).filter((p) => (cfg.auth.providers ?? []).includes(p));
+  if (providers.length === 0) return;
+  const human = (e) => {
+    // The panel's own button serves a press on its way there; the next press
+    // elsewhere may still bring the prompt.
+    if (!e.isTrusted || e.target?.closest?.(".shell-signin, .shell-signin-panel")) return;
+    for (const type of ["pointerdown", "keydown"]) document.removeEventListener(type, human, true);
+    if (document.querySelector("body > nav .shell-signin") === null) return;
+    for (const provider of providers) document.body.append(providerFrame(cfg, provider, "prompt"));
+  };
+  for (const type of ["pointerdown", "keydown"]) document.addEventListener(type, human, { capture: true, passive: true });
 }
 
 /** A step the panel goes on to — Passkey's accounts, the name a new one
@@ -638,13 +708,15 @@ export function uncover(step) {
 }
 
 /** The chip opens its panel in place and closes it again, as do the panel's
- * close button and Escape; closed, it opens next on its first step. */
-function wirePanel(box) {
+ * close button and Escape; closed, it opens next on its first step. Answers
+ * the panel's opening and closing, for a step that opens it itself. */
+function wirePanel(box, opened = () => {}) {
   const open = box.querySelector(":scope > :is(.shell-signin, .shell-person)");
   const panel = box.querySelector(":scope > .shell-signin-panel");
   const show = (expanded) => {
     open.setAttribute("aria-expanded", String(expanded));
     panel.hidden = !expanded;
+    if (expanded) opened();
     if (!expanded) panel.querySelector(".shell-delete")?.removeAttribute("data-confirm");
     if (!expanded) for (const step of [...panel.querySelectorAll(":scope > [data-step]")].reverse()) uncover(step);
   };
@@ -658,7 +730,160 @@ function wirePanel(box) {
     show(false);
     open.focus();
   });
+  return show;
 }
+
+/** The account's ways to sign in, in its panel, read afresh as it opens:
+ * Remove beside each while another stays, never beside the way this device
+ * came in by; Add a way below, on a sign-in recent enough to change them;
+ * Set up recovery above when the auth service asks it, which opens the
+ * panel once (mecha's services/auth/README.md#ways-in). A device with no
+ * session cookie (a native host) has nothing here to change. */
+function waysSection(cfg, chrome, show) {
+  const service = cfg.auth.service;
+  const word = (key) => chrome(key, document.documentElement.lang || cfg.i18n?.default);
+  // Worded as made, and again by the strip's own pass on every navigation.
+  const said = (tag, cls, key) => {
+    const el = worded(document, tag, cls, key);
+    el.textContent = word(key);
+    return el;
+  };
+  const section = document.createElement("section");
+  section.className = "shell-ways";
+  section.hidden = true;
+  const recovery = document.createElement("div");
+  recovery.className = "shell-recovery";
+  recovery.hidden = true;
+  const later = said("button", "shell-later", "chrome_later");
+  later.type = "button";
+  recovery.append(said("strong", "", "chrome_recovery"), said("span", "", "chrome_recovery_hint"), later);
+  const list = document.createElement("ul");
+  list.className = "shell-way-list";
+  const add = document.createElement("div");
+  add.className = "shell-way-add";
+  const note = document.createElement("p");
+  note.className = "shell-ways-note";
+  note.setAttribute("role", "status");
+  note.hidden = true;
+  section.append(recovery, said("h3", "shell-ways-title", "chrome_ways"), list, add, note);
+  const say = (key) => {
+    note.textContent = word(key);
+    note.hidden = false;
+  };
+  const changed = async (res, what) => {
+    if (!res.ok) throw new Error(`${res.status} POST ${service}/ways${what}`);
+    await load();
+  };
+  const at = (what, body = {}) =>
+    fetch(`${service}/ways${what}`, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+  function paint({ ways, recent, recovery: ask }) {
+    section.hidden = false;
+    recovery.hidden = !ask;
+    note.hidden = true;
+    const when = new Intl.DateTimeFormat(document.documentElement.lang || undefined, { dateStyle: "medium" });
+    list.replaceChildren(...ways.map((way) => {
+      const item = document.createElement("li");
+      item.className = "shell-way";
+      item.dataset.kind = way.kind;
+      const name = document.createElement("span");
+      name.className = "shell-way-name";
+      name.textContent = way.kind === "passkey" ? word("chrome_device") : providerName(way.provider);
+      const detail = document.createElement("span");
+      detail.className = "shell-way-detail";
+      detail.textContent = way.current ? word("chrome_this_device") : (way.email ?? way.name ?? (way.added ? when.format(new Date(way.added)) : ""));
+      item.append(name, detail);
+      if (recent && !way.current && ways.length > 1) {
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "shell-way-remove";
+        remove.textContent = word("chrome_way_remove");
+        remove.setAttribute("aria-label", `${word("chrome_way_remove")} ${name.textContent} ${detail.textContent}`.trim());
+        const { kind, id, provider, issuer, sub } = way;
+        remove.addEventListener("click", async () => changed(await at("/remove", { kind, id, provider, issuer, sub }), "/remove"));
+        item.append(remove);
+      }
+      return item;
+    }));
+    add.hidden = !recent;
+    if (!recent) say("chrome_ways_stale");
+    const linked = new Set(ways.filter((w) => w.kind === "provider").map((w) => w.provider));
+    const options = [];
+    if (supportsPasskeys()) {
+      const passkey = said("button", "shell-way-passkey", "chrome_device");
+      passkey.type = "button";
+      passkey.addEventListener("click", async () => {
+        const { state, ...start } = await postJson(`${service}/ways/passkey`, {});
+        const { response } = await createPasskey(start);
+        await postJson(`${service}/ways/passkey/verify`, { state, response });
+        await load();
+      });
+      options.push(passkey);
+    }
+    for (const provider of (cfg.auth.providers ?? []).filter((p) => !linked.has(p))) {
+      // A provider's own button adds in its frame, which says what came of it.
+      if (cfg.auth.credential?.[provider] !== undefined) {
+        const holder = document.createElement("div");
+        holder.className = "shell-provider-button";
+        holder.dataset.provider = provider;
+        holder.append(providerFrame(cfg, provider, "add"));
+        options.push(holder);
+        continue;
+      }
+      const go = said("button", "shell-way-provider", providerKey(provider));
+      go.type = "button";
+      go.dataset.provider = provider;
+      go.addEventListener("click", async () => {
+        const here = `${location.pathname}${location.search}`;
+        const res = await fetch(`${service}/oidc/${encodeURIComponent(provider)}/start`, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { accept: "application/json" },
+          body: new URLSearchParams({ add: "", return: here }),
+        });
+        if (!res.ok) throw new Error(`${res.status} POST ${service}/oidc/${provider}/start`);
+        location.href = (await res.json()).to;
+      });
+      options.push(go);
+    }
+    add.replaceChildren(said("span", "shell-way-add-title", "chrome_way_add"), ...options);
+  }
+
+  async function load() {
+    const res = await fetch(`${service}/ways`, { method: "POST", credentials: "same-origin" });
+    if (res.status === 401) {
+      section.hidden = true;
+      return null;
+    }
+    if (!res.ok) throw new Error(`${res.status} POST ${service}/ways`);
+    const answer = await res.json();
+    paint(answer);
+    return answer;
+  }
+
+  later.addEventListener("click", async () => changed(await at("/later"), "/later"));
+  // A provider's frame, adding, says what came of it.
+  globalThis.addEventListener?.("message", (e) => {
+    if (e.origin !== location.origin || typeof e.data?.way !== "string" || !section.isConnected) return;
+    if (e.data.way === "taken") say("chrome_way_taken");
+    // A provider already its way, added in another tab, is in the list read anew.
+    else if (e.data.way === "added" || e.data.way === "held") load();
+    else say("chrome_ways_stale");
+  });
+  // Back from a provider's redirect, what came of adding it.
+  const back = /^#ways=(added|taken|held|revoked)$/.exec(location.hash ?? "");
+  if (back) {
+    history.replaceState(history.state, "", `${location.pathname}${location.search}`);
+    show(true);
+  }
+  load().then((answer) => {
+    if (back?.[1] === "taken") say("chrome_way_taken");
+    if (back?.[1] === "revoked") say("chrome_ways_stale");
+    if (answer?.recovery && answer.recent) show(true);
+  });
+  return { section, load };
+}
+
 export function renderSession(session, cfg, store, chrome, served = null) {
   // A guest is shown once it has written — before that it is a visitor's
   // Sign in — and only where the app declares a way in: without one there is
@@ -673,6 +898,8 @@ export function renderSession(session, cfg, store, chrome, served = null) {
   // Under the handle, the address a provider vouched for, else how this
   // device signed in.
   const label = session.user.email ? { text: session.user.email } : session.passkey ? { key: "chrome_device" } : { text: "" };
+  // A prompt offered while signed out must not sign in over this account.
+  for (const frame of document.querySelectorAll("body > iframe.shell-provider-prompt")) frame.remove();
   const box = accountBox(document, cfg, session.user, label);
   box.dataset.auth = "user";
   if (document.body) document.body.dataset.auth = "user";
@@ -680,8 +907,13 @@ export function renderSession(session, cfg, store, chrome, served = null) {
   // currentRoute() that throws on an address the app has no route for, while
   // the strip outlives that banner beside the mount: the only way out of a
   // session may not be a control with no word on it.
+  let ways = null;
+  const show = wirePanel(box, () => ways?.load());
+  if (cfg.auth?.service) {
+    ways = waysSection(cfg, chrome, show);
+    box.querySelector(":scope > .shell-signin-panel > .shell-signout").before(ways.section);
+  }
   for (const el of box.querySelectorAll("[data-key]")) el.textContent = chrome(el.getAttribute("data-key"), cfg.i18n?.default);
-  wirePanel(box);
 
   // The strip is one of the places a person appears, so a rename has to reach
   // it the way it reaches a byline: read live, not stamped from the token,

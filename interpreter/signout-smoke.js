@@ -134,6 +134,8 @@ function boot(at = "/") {
     if (u.endsWith("home.html")) return Promise.resolve(new Response(screenHtml("home")));
     if (u.endsWith(".css")) return Promise.resolve(new Response(""));
     if (u.endsWith("/auth/oidc")) return Promise.resolve(Response.json({ providers: ["google", "apple"] }));
+    // No session cookie in this browser: the panel has no ways to show.
+    if (u.endsWith("/auth/ways")) return Promise.resolve(Response.json({ error: "not signed in" }, { status: 401 }));
     return Promise.reject(new Error(`unexpected fetch ${u}`));
   };
 
