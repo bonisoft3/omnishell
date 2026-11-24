@@ -271,6 +271,20 @@ way to a fresh mount. A tab opened offline holds no session, since one lives in
 the tab: the document stays the page, unbound, until a guest session can be
 minted ([`nav-smoke.js`](../interpreter/nav-smoke.js)).
 
+Forms with `data-action` are inert and marked busy before the screen or a new
+row is connected. A screen-level form becomes usable once its handlers are
+wired; a region's forms wait for its initial values, locale catalogue, and
+nested controls to finish binding. Other ready forms and the rest of the page
+remain usable. Template refreshes preserve the readiness and focus of existing
+forms, while still applying changes to authored `inert` attributes. Failed
+nested reads keep a new parent form inactive until they recover.
+The loading animation's timeout does not enable pending forms.
+
+There is no early-submit queue. A failed read leaves its form inactive and
+reports through settlement; a programmatic submit before readiness is a
+`ProgramError`. Served documents carry the same inactive forms until the
+browser wires them.
+
 A newer template taken in place ([when a deployment
 lands](#when-a-deployment-lands)) reaches a screen through the handle's
 `morph`, once the screen is mounted, and ends where a mount of the newer

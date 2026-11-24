@@ -10,5 +10,5 @@ import { defineConfig } from "@playwright/test"
 
 export default defineConfig({
   testDir: "./playwright-tests",
-  testMatch: /(region-reorder|roving-tabstop|focus-target)\.pw\.ts$/,
+  testMatch: /(region-reorder|roving-tabstop|focus-target|form-readiness)\.pw\.ts$/,
 })

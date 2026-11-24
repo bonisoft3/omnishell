@@ -166,6 +166,20 @@ describe("a prerendered document", () => {
     })
   })
 
+  it("keeps rendered forms inactive until the browser wires them", async () => {
+    await withCopy(async (app) => {
+      const file = `${app}/shell/screens/regras.html`
+      const html = await Deno.readTextFile(file)
+      await Deno.writeTextFile(file, html.replace("</section>", '<form id="ready-later" data-action="create" data-entity="note"><input name="title"><button>Save</button></form></section>'))
+    }, async (app) => {
+      const d = parseHTML((await renderDocuments(app, ORIGIN)).get("/regras")!).document
+      const form = d.getElementById("ready-later")!
+      expect(form.hasAttribute("inert")).toBe(true)
+      expect(form.getAttribute("aria-busy")).toBe("true")
+      expect(form.hasAttribute("data-form-pending")).toBe(true)
+    })
+  })
+
   it("is the same bytes every time it is rendered", async () => {
     // A compiler commits these and checks them for drift.
     const again = await renderDocuments(APP, ORIGIN)

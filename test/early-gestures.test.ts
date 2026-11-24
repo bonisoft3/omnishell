@@ -2,10 +2,7 @@ import { describe, expect, it } from "@test/harness"
 import { parseHTML } from "linkedom"
 import { replayEarlyGestures, takeEarlyGestures } from "../interpreter/early-replay.js"
 
-// A reader on a served form typed a title and pressed Create before the terminal arrived:
-// nothing answered, no deck was made, and the binding wiped the title. linkedom has no
-// capture phase, so what holds the gestures (early-gestures.js) is a browser's to check:
-// the release's verify presses Create the moment the screen is in the document.
+// Non-form gestures can still be replayed after a served document is adopted.
 const held = (gestures: unknown[]) => {
   (globalThis as { __prontoEarlyGestures?: () => unknown[] }).__prontoEarlyGestures = () => {
     delete (globalThis as { __prontoEarlyGestures?: unknown }).__prontoEarlyGestures

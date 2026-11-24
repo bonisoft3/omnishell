@@ -12,7 +12,7 @@ export function takeEarlyGestures() {
 export async function replayEarlyGestures(doc, settle) {
   for (const gesture of takeEarlyGestures()) {
     const { target, type, value, key, shiftKey, altKey, ctrlKey, metaKey } = gesture;
-    if (!target.isConnected) continue;
+    if (!target.isConnected || target.closest("form[data-action]")) continue;
     if (type === "click" && target.closest("a[href]")) continue;
     // A sign-in asks the device with the reader's own click, whose activation
     // a replay does not carry: refused at once, it would read as a device with

@@ -57,7 +57,7 @@ export async function fetchText(url, init) {
 // A screen's stylesheet. One replacing another is swapped once it has loaded
 // what it imports, so a screen on show is never drawn between two releases'
 // styles; a first one, or one that imports nothing, applies as it is written.
-const TOP_DOWN_HYDRATION_CSS = ".screen [data-hydrating] > * { display: none !important; }";
+const TOP_DOWN_HYDRATION_CSS = ".screen [data-hydrating] > * { display: none !important; } .screen form[data-form-pending] { opacity: .6; }";
 const hydrationDocs = new WeakSet();
 function ensureHydrationStyle(doc) {
   if (hydrationDocs.has(doc)) return;
@@ -1482,6 +1482,16 @@ const formsIn = (scope) => [
   ...scope.querySelectorAll("form[data-action]"),
 ];
 
+// Templates carry the guard into rows cloned after the screen has mounted.
+function pendingForms(root) {
+  for (const scope of withTemplates(root)) for (const form of formsIn(scope)) {
+    if (form.hasAttribute("inert") && !form.hasAttribute("data-form-pending")) continue;
+    form.setAttribute("data-form-pending", "");
+    form.setAttribute("inert", "");
+    form.setAttribute("aria-busy", "true");
+  }
+}
+
 /** Hatches under a node, the node included when it is itself one — bindHatches
  * mounts on the scope root too, so every release sweep must reach it. */
 const hatchesIn = (node) => [
@@ -2083,6 +2093,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     const root = parseMarkup(document, text).firstElementChild;
     resolveMachineReferences(root, screenOpts.chartBindings ?? {}, route.screen);
     localize(root);
+    pendingForms(root);
     // A URL still carrying its placeholder is a URL the document would fetch
     // the instant this tree is connected — `src="{image_url}"` is a relative
     // path, and the request 404s before any row exists to bind. Stash the
@@ -2186,6 +2197,28 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
   const cas = templateHash(html);
   let links = skeletonRoutes(html);
   const screen = served?.screen ?? markup;
+  pendingForms(screen);
+  // Inert blocks people, but requestSubmit() also needs the readiness guard.
+  const refuseUnreadySubmit = (event) => {
+    const form = event.target;
+    if (!form.matches?.("form[data-action]") || (form._prontoForm && !form.hasAttribute("data-form-pending"))) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const error = new ProgramError("a form was submitted before it was ready");
+    failed(error);
+    throw error;
+  };
+  screen.addEventListener("submit", refuseUnreadySubmit, true);
+  cleanups.push(() => screen.removeEventListener("submit", refuseUnreadySubmit, true));
+
+  const readyForm = (form) => {
+    if (opts.forms === false || !form._prontoForm || !form.hasAttribute("data-form-pending") || form.closest("[data-exit]")) return;
+    if (form._prontoWiring.region && !form._prontoWiring.region._prontoReadReady) return;
+    if ([...form.querySelectorAll("[data-live]")].some((region) => !region._prontoReadReady)) return;
+    form.removeAttribute("inert");
+    form.removeAttribute("aria-busy");
+    form.removeAttribute("data-form-pending");
+  };
 
   let base = screen.getAttribute("data-state") || route.states?.[0] || "populated";
   const setState = (s) => {
@@ -2532,7 +2565,10 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     // it declares, which a newer template may change, and the row and region
     // of whoever wired it last, which a region hydrated again in place is.
     form._prontoWiring = { rowId, getCtx, region };
-    if (form._prontoForm) return;
+    if (form._prontoForm) {
+      if (!region) readyForm(form);
+      return;
+    }
     form._prontoForm = true;
     const wiring = () => form._prontoWiring;
     // The shell owns validation so the storyboard's validation-error state is
@@ -2710,6 +2746,7 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
     form.addEventListener("change", () => {
       if (submitsOnChange(form)) form.requestSubmit();
     });
+    if (!region) readyForm(form);
   }
 
   // Stage-4's only handler event source: DOM drags become {type:"move",
@@ -4733,6 +4770,9 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
           dropAll();
           emptyNote(region, region.dataset.empty, slotCtx);
           finishOwn();
+          region._prontoReadReady = true;
+          const parentForm = region.closest("form[data-action]");
+          if (parentForm && parentForm._prontoWiring?.region !== region) readyForm(parentForm);
           return;
         }
         emptyNote(region, undefined);
@@ -4792,6 +4832,12 @@ export async function interpretScreen(mount, appBase, route, store, params = {},
         first = false;
         finishOwn();
       }
+      region._prontoReadReady = true;
+      for (const form of formsIn(region)) {
+        if (form._prontoWiring?.region === region) readyForm(form);
+      }
+      const parentForm = region.closest("form[data-action]");
+      if (parentForm) readyForm(parentForm);
     };
     let retryTimer;
     let retryMs = 2000;
@@ -5411,6 +5457,15 @@ let morphlex = null;
 
 /** morphScreen's walk over a target it may consume. */
 function morphTree(live, target, { slots }) {
+  // Prepared templates guard new forms; an existing ready form only takes
+  // authored attributes. An authored inert form carries no pending marker.
+  const preserveReadiness = (from, to) => {
+    if (!from._prontoForm || from.hasAttribute("data-form-pending") || !to.hasAttribute("data-form-pending")) return;
+    to.removeAttribute("data-form-pending");
+    to.removeAttribute("inert");
+    to.removeAttribute("aria-busy");
+  };
+  preserveReadiness(live, target);
   // The state is the screen's and the key the row's, never the template's.
   const own = (name) => name === "data-state" || name === "data-id";
   // A region's attributes are its read, which no binding writes over, so they
@@ -5431,6 +5486,7 @@ function morphTree(live, target, { slots }) {
   morphlex.morphInner(live, target, {
     preserveChanges: true,
     beforeNodeVisited: (from, to) => {
+      preserveReadiness(from, to);
       if (to.nodeType === 1 && to.hasAttribute("data-image-src")) imageTemplated.add(from);
       if (to.nodeType === 1 && to.hasAttribute("data-live") && (!slots || listRegion(to))) halted.add(from);
       return true;

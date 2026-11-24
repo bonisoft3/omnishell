@@ -9,6 +9,14 @@
   const TYPES = ["click", "input", "change", "keydown", "submit"];
   const held = [];
   const hold = (e) => {
+    const form = e.target.closest?.("form[data-action]");
+    if (form) {
+      if (!form._prontoForm || form.hasAttribute("data-form-pending")) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
+      return;
+    }
     // A form the terminal does not submit is the browser's to send.
     if (e.type === "submit" && !e.target.hasAttribute("data-action") && !e.target.hasAttribute("data-on-submit")) return;
     e.stopImmediatePropagation();

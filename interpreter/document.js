@@ -120,6 +120,7 @@ export async function renderDocument({
       // belongs to the shell, which mounts it into the screen it takes over.
       mountUnits: false,
       mountHostDom: false,
+      forms: false,
       navigate: () => {
         throw new Error("a rendered document navigates by its links");
       },
