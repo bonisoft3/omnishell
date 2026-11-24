@@ -17,6 +17,7 @@ import { checkTouchTargets } from "../src/lint/playwright/checks/touch-targets.t
 import { checkAlignmentDrift } from "../src/lint/playwright/checks/alignment-drift.ts"
 import { checkGridBaseline } from "../src/lint/playwright/checks/grid-baseline.ts"
 import { checkWhiteSpace } from "../src/lint/playwright/checks/whitespace-balance.ts"
+import { checkEmptyStrip } from "../src/lint/playwright/checks/empty-strip.ts"
 
 const fixtures = new URL("../test/lint/fixtures/", import.meta.url).href
 const BAD = `${fixtures}bad-page.html`
@@ -426,5 +427,52 @@ describe("checkVerticalFit", () => {
       },
       { viewport: { width: 1280, height: 800 } },
     ))
+})
+
+describe("checkEmptyStrip", () => {
+  it("flags visible body > nav with no visible content, even when CSS hides .shell-me", () =>
+    withPage(async (page) => {
+      await page.setContent(`
+        <!DOCTYPE html>
+        <html><head><style>
+          body { margin: 0; }
+          body > nav { min-height: 52px; display: flex; align-items: center; border-bottom: 1px solid #ccc; }
+          body > nav .shell-me { display: none; }
+        </style></head><body>
+          <nav><span class="shell-me"><button class="shell-signin">Sign in</button></span></nav>
+          <div id="app"><h1>Arena</h1></div>
+        </body></html>
+      `)
+      const bugs = await checkEmptyStrip(asCheckPage(page))
+      expect(bugs.map((b) => [b.rule, b.severity, b.element])).toEqual([
+        ["empty-strip", "major", "body > nav"],
+      ])
+    }))
+
+  it("ignores hidden nav and allows populated nav", () =>
+    withPage(async (page) => {
+      await page.setContent(`
+        <!DOCTYPE html>
+        <html><head><style>
+          body > nav { min-height: 52px; display: flex; }
+          body > nav[hidden] { display: none; }
+        </style></head><body>
+          <nav hidden></nav>
+          <div id="app"><h1>Arena</h1></div>
+        </body></html>
+      `)
+      expect(await checkEmptyStrip(asCheckPage(page))).toEqual([])
+
+      await page.setContent(`
+        <!DOCTYPE html>
+        <html><head><style>
+          body > nav { min-height: 52px; display: flex; align-items: center; }
+        </style></head><body>
+          <nav><a href="/">Home</a></nav>
+          <div id="app"><h1>Arena</h1></div>
+        </body></html>
+      `)
+      expect(await checkEmptyStrip(asCheckPage(page))).toEqual([])
+    }))
 })
 

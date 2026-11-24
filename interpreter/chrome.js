@@ -252,6 +252,7 @@ export function stripRoutes(cfg) {
  * is not one: there is nothing to gain, and signing out only mints another.
  * `session` is the restored one; `mintedGuest`, one minted on first write. */
 export function hasStrip(cfg, session, mintedGuest = false) {
+  if (cfg.nav === "none") return false;
   const guest = session ? Boolean(session.user?.guest) : mintedGuest;
   const person = guest ? offersSignin(cfg) : Boolean(session);
   return stripRoutes(cfg).length > 1 || person || Boolean(cfg.brand?.label);
@@ -287,6 +288,28 @@ export function drawStrip(doc, cfg) {
     }
   }
   return nav;
+}
+
+/** Keeps a mounted strip hidden whenever it would paint empty — no brand,
+ * fewer than two route links, and no visible control in `.shell-me` — so
+ * toggling `[hidden]` also collapses posture layout clearance on `#app`. */
+export function syncStripVisibility(nav) {
+  if (!nav) return;
+  let routeCount = 0;
+  let visible = false;
+  for (const child of nav.children) {
+    if (child.classList?.contains("shell-brand")) { visible = true; break; }
+    if (child.localName === "a" && child.hasAttribute("data-route")) {
+      if (++routeCount > 1) { visible = true; break; }
+    } else if (child.classList?.contains("shell-me")) {
+      for (const item of child.children) {
+        if (!item.hasAttribute("hidden")) { visible = true; break; }
+      }
+      if (visible) break;
+    }
+  }
+  if (visible) nav.removeAttribute("hidden");
+  else nav.setAttribute("hidden", "");
 }
 
 export const supportsPasskeys = () =>

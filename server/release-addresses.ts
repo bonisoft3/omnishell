@@ -42,7 +42,7 @@ export interface Release {
   entries: string[]
   scripts: string[]
   signature?: string
-  cfg: { brand?: { label: string; key?: string }; routes: { path: string; screen?: string; paths?: Record<string, string>; access?: 'public' | 'private'; ssr?: 'spa' | 'ssg' | 'ssr'; files: Record<string, string | string[]>; nav: { label: string; icon?: string; display?: 'icon-only'; strip?: boolean } }[]; auth?: { required?: boolean }; tables?: unknown[]; i18n?: { locales?: Record<string, unknown> }; prefix?: string }
+  cfg: { nav?: string; brand?: { label: string; key?: string }; routes: { path: string; screen?: string; paths?: Record<string, string>; access?: 'public' | 'private'; ssr?: 'spa' | 'ssg' | 'ssr'; files: Record<string, string | string[]>; nav: { label: string; icon?: string; display?: 'icon-only'; strip?: boolean } }[]; auth?: { required?: boolean }; tables?: unknown[]; i18n?: { locales?: Record<string, unknown> }; prefix?: string }
 }
 
 /** An RTCIceServer: a STUN server's `urls`, and a TURN relay's credentials. */
@@ -195,7 +195,7 @@ export async function addressRelease(out: string, options: AddressOptions = {}):
 
   const cfg = JSON.parse(decoder.decode(files.get('/shell/shell.json')!)) as Release['cfg']
   // The strip a reader may meet: the served page's, or a signed-in person's.
-  const stripTargets = hasStrip(cfg, null, servesGuests(cfg)) || Boolean(cfg.auth?.required)
+  const stripTargets = cfg.nav !== 'none' && (hasStrip(cfg, null, servesGuests(cfg)) || Boolean(cfg.auth?.required))
     ? stripRoutes(cfg).map((r: Release['cfg']['routes'][number]) => r.screen ?? path.posix.basename(String(r.files.html), '.html'))
     : []
   const screens: Record<string, string[]> = {}

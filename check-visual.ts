@@ -31,6 +31,7 @@ import { checkClippedControls } from "./src/lint/playwright/checks/clipped-contr
 import { checkAlignmentDrift } from "./src/lint/playwright/checks/alignment-drift.ts"
 import { checkGridBaseline } from "./src/lint/playwright/checks/grid-baseline.ts"
 import { checkWhiteSpace } from "./src/lint/playwright/checks/whitespace-balance.ts"
+import { checkEmptyStrip } from "./src/lint/playwright/checks/empty-strip.ts"
 import { baseUrl } from "./base-url.ts"
 import { checkContrast, contrastFloor, contrastRatio } from "./src/lint/playwright/checks/contrast.ts"
 import { armCLS, checkCLS } from "./src/lint/playwright/checks/cls.ts"
@@ -1003,6 +1004,7 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
           checkAlignmentDrift(b),
           checkGridBaseline(b),
           checkWhiteSpace(b),
+          checkEmptyStrip(b),
           checkCLS(b),
         ])
       ).flat()
@@ -1163,6 +1165,7 @@ async function main(appDir: string, viewports: Viewport[] = DEFAULT_VIEWPORTS): 
                 checkAlignmentDrift(b),
                 checkGridBaseline(b),
                 checkWhiteSpace(b),
+                checkEmptyStrip(b),
               ])
             ).flat()
             // Geometry checks run on every pairwise interaction; checkContrast

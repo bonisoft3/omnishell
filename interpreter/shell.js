@@ -18,7 +18,7 @@ import { parseMarkup } from "./markup.js";
 // bypasses it entirely: the fixture adapter runs without the cluster, so no auth
 // service exists to sign against.
 
-import { chromeText, describe, drawStrip, hasStrip, localizeStrip, nameOf, offersSignin, ownName, providerHref, stripRoutes } from "./chrome.js";
+import { chromeText, describe, drawStrip, hasStrip, localizeStrip, nameOf, offersSignin, ownName, providerHref, stripRoutes, syncStripVisibility } from "./chrome.js";
 import { startConsent } from "./consent.js";
 import { localeAt, localeTable, ProgramError, restatedHref, routeAt, routeHref, screenEnv, Unanswered } from "./fragment.js";
 import { activateScreenStyle, fetchText, forgetFiles, interpretScreen, prefetchScreen, templateHash, submitsOnChange, AssetMissing } from "./screen.js";
@@ -675,7 +675,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
     // stand in has one only as the boot draws it.
     const become = async (next) => {
       const person = next !== null && !next.user.guest;
-      if (person && !nav) {
+      if (person && !nav && hasStrip(cfg, next)) {
         sessionStorage.removeItem(recoveryKey);
         localStorage.setItem("pronto-token", JSON.stringify(next));
         location.reload();
@@ -759,6 +759,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
           nav.append(box);
         }
       } else servedBox?.remove();
+      syncStripVisibility(nav);
     } else servedStrip?.remove();
 
     /** The account a guest's sign-in found already made, said beside the way

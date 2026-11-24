@@ -70,6 +70,7 @@ type I18n = { default: string; locales: Record<string, { path: string }> };
 type ShellConfig = {
   cortex?: { actors?: Record<string, unknown> };
   app?: string;
+  nav?: string;
   brand?: { label: string; key?: string };
   i18n?: I18n;
   // The facts that decide which of the terminal's own chrome a reader reaches:
@@ -529,7 +530,7 @@ export function checkChrome(
   // in, and no brand title, the terminal draws none at all.
   const strip = (shell.routes ?? []).filter((r) => requiredParams(r.path).length === 0 && r.nav?.strip !== false);
   const branded = typeof shell.brand?.label === "string" && shell.brand.label !== "";
-  if (strip.length <= 1 && !session && !branded) return findings;
+  if (shell.nav === "none" || (strip.length <= 1 && !session && !branded)) return findings;
   if (branded) {
     const key = shell.brand?.key;
     if (key === undefined) {

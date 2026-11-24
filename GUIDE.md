@@ -295,7 +295,7 @@ must exist. Do not mint scenery from a reduce if you can declare it.
 `DESIGN.md` explicitly declares the eight core colour roles (`--neutral --surface
 --surface-muted --border --primary --secondary --accent --danger`, plus any
 domain roles such as `--attention`) in both `colors` and `dark`, alongside an
-explicit `shell.nav` (`"topbar" | "tabbar" | "sidebar" | "dock" | "custom"`,
+explicit `shell.nav` (`"topbar" | "tabbar" | "sidebar" | "dock" | "custom" | "none"`,
 with optional `shell.title` brand wordmark and per-screen `icon` / `iconOnly`), while `#Design` defaults
 spacing `--sp-sm|md|lg|xl`, radii `--r-sm|md|full`, and `--motion-*`. A `var()`
 naming a token that does not exist makes the whole declaration invalid and it is

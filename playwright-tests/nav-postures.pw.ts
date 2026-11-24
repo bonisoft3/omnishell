@@ -16,6 +16,7 @@ import { checkThemeStability } from "../src/lint/playwright/checks/theme-stabili
 import { checkAlignmentDrift } from "../src/lint/playwright/checks/alignment-drift.ts"
 import { checkGridBaseline } from "../src/lint/playwright/checks/grid-baseline.ts"
 import { checkWhiteSpace } from "../src/lint/playwright/checks/whitespace-balance.ts"
+import { checkEmptyStrip } from "../src/lint/playwright/checks/empty-strip.ts"
 import { checkContrast } from "../src/lint/playwright/checks/contrast.ts"
 
 type Posture = "topbar" | "tabbar" | "sidebar" | "dock"
@@ -45,6 +46,7 @@ async function runAppVisualBattery(page: Parameters<Parameters<typeof withPage>[
     checkAlignmentDrift(b),
     checkGridBaseline(b),
     checkWhiteSpace(b),
+    checkEmptyStrip(b),
   ])
   const bugs = batches.flat()
   bugs.push(...(await checkContrast(b)))

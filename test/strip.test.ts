@@ -4,7 +4,7 @@
 // from an app whose one route signs in through Google.
 import { describe, expect, it } from "@test/harness";
 import { parseHTML } from "npm:linkedom@0.18.4";
-import { CHROME_ICONS, drawStrip, hasStrip, localizeStrip } from "../interpreter/chrome.js";
+import { CHROME_ICONS, drawStrip, hasStrip, localizeStrip, signinBox, syncStripVisibility } from "../interpreter/chrome.js";
 import { checkChrome } from "../check-i18n.ts";
 
 const routes = (n: number) => Array.from({ length: n }, (_, i) => ({ path: `/r${i}`, screen: `r${i}`, nav: { label: `R${i}` } }));
@@ -23,6 +23,43 @@ describe("hasStrip", () => {
     expect(hasStrip({ routes: routes(1), auth: {} }, { user: { guest: false } })).toBe(true);
     expect(hasStrip({ routes: routes(2), auth: {} }, null)).toBe(true);
     expect(hasStrip({ routes: routes(1), brand: { label: "Daily Five" }, auth: {} }, null)).toBe(true);
+  });
+  it("never shows a strip when shell.nav is none", () => {
+    expect(hasStrip({ nav: "none", routes: routes(2), brand: { label: "App" }, auth: { providers: ["google"] } }, { user: { guest: false } })).toBe(false);
+    expect(hasStrip({ nav: "none", routes: routes(1), auth: {} }, null, true)).toBe(false);
+  });
+});
+
+describe("syncStripVisibility", () => {
+  const { document } = parseHTML("<!doctype html><html><body></body></html>");
+
+  it("hides empty or passkey-only SSR strips and unhides when visible content is present", () => {
+    const empty = drawStrip(document, { routes: routes(1).map((r) => ({ ...r, nav: { ...r.nav, strip: false } })) });
+    syncStripVisibility(empty);
+    expect(empty.hasAttribute("hidden")).toBe(true);
+
+    // Regression: guest auth without OIDC providers draws `.shell-signin` hidden on SSR.
+    const passkeySsr = drawStrip(document, { routes: [] });
+    passkeySsr.append(signinBox(document, { auth: { providers: [] } }));
+    syncStripVisibility(passkeySsr);
+    expect(passkeySsr.hasAttribute("hidden")).toBe(true);
+
+    passkeySsr.querySelector(".shell-signin")!.removeAttribute("hidden");
+    syncStripVisibility(passkeySsr);
+    expect(passkeySsr.hasAttribute("hidden")).toBe(false);
+
+    const singleLinkHiddenMe = drawStrip(document, { routes: routes(1) });
+    singleLinkHiddenMe.append(signinBox(document, { auth: { providers: [] } }));
+    syncStripVisibility(singleLinkHiddenMe);
+    expect(singleLinkHiddenMe.hasAttribute("hidden")).toBe(true);
+
+    const branded = drawStrip(document, { brand: { label: "Apex" }, routes: [] });
+    syncStripVisibility(branded);
+    expect(branded.hasAttribute("hidden")).toBe(false);
+
+    const twoLinks = drawStrip(document, { routes: routes(2) });
+    syncStripVisibility(twoLinks);
+    expect(twoLinks.hasAttribute("hidden")).toBe(false);
   });
 });
 
@@ -122,5 +159,11 @@ describe("drawStrip icons and brand title", () => {
       es: { app_brand: "Cinco Diario", nav_play: "Jugar" },
     });
     expect(complete).toEqual([]);
+
+    const navNone = checkChrome(
+      { nav: "none", ...baseShell, brand: undefined, routes: [...baseShell.routes, { path: "/two", screen: "two", nav: { label: "Two" }, files: { html: "b.html", css: "b.css" } }] },
+      { en: {}, es: {} },
+    );
+    expect(navNone).toEqual([]);
   });
 });
