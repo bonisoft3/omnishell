@@ -3,50 +3,48 @@
 tool-stubs = ["runtime/deno.toml"]
 
 [[tools."github:bonisoft3/mecha"]]
-version = "0.33.0"
+version = "0.34.0"
 backend = "github:bonisoft3/mecha"
 
 [tools."github:bonisoft3/mecha"."platforms.linux-arm64"]
-checksum = "sha256:d01ddf8365b3ff02bbc3afea4bbac2c7d958d0abc2b32bbb206b6053c9a2d725"
-checksum_source = "mise-versions"
-url = "https://github.com/bonisoft3/mecha/releases/download/v0.33.0/mecha-linux-arm64.tar.gz"
-url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/783856426"
+checksum = "sha256:936ef3454abc6ec37cf715e81e917d768d27641a3e1c80bd4686311760c545bb"
+url = "https://github.com/bonisoft3/mecha/releases/download/v0.34.0/mecha-linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/787204810"
 
 [tools."github:bonisoft3/mecha"."platforms.linux-arm64-musl"]
-checksum = "sha256:d01ddf8365b3ff02bbc3afea4bbac2c7d958d0abc2b32bbb206b6053c9a2d725"
-checksum_source = "mise-versions"
-url = "https://github.com/bonisoft3/mecha/releases/download/v0.33.0/mecha-linux-arm64.tar.gz"
-url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/783856426"
+checksum = "sha256:936ef3454abc6ec37cf715e81e917d768d27641a3e1c80bd4686311760c545bb"
+url = "https://github.com/bonisoft3/mecha/releases/download/v0.34.0/mecha-linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/787204810"
 
 [tools."github:bonisoft3/mecha"."platforms.linux-x64"]
-checksum = "sha256:d01ddf8365b3ff02bbc3afea4bbac2c7d958d0abc2b32bbb206b6053c9a2d725"
-checksum_source = "mise-versions"
-url = "https://github.com/bonisoft3/mecha/releases/download/v0.33.0/mecha-linux-x64.tar.gz"
-url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/783856416"
+checksum = "sha256:936ef3454abc6ec37cf715e81e917d768d27641a3e1c80bd4686311760c545bb"
+url = "https://github.com/bonisoft3/mecha/releases/download/v0.34.0/mecha-linux-x64.tar.gz"
+url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/787204809"
 
 [tools."github:bonisoft3/mecha"."platforms.linux-x64-musl"]
-checksum = "sha256:d01ddf8365b3ff02bbc3afea4bbac2c7d958d0abc2b32bbb206b6053c9a2d725"
-checksum_source = "mise-versions"
-url = "https://github.com/bonisoft3/mecha/releases/download/v0.33.0/mecha-linux-x64.tar.gz"
-url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/783856416"
+checksum = "sha256:936ef3454abc6ec37cf715e81e917d768d27641a3e1c80bd4686311760c545bb"
+url = "https://github.com/bonisoft3/mecha/releases/download/v0.34.0/mecha-linux-x64.tar.gz"
+url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/787204809"
 
 [tools."github:bonisoft3/mecha"."platforms.macos-arm64"]
-checksum = "sha256:d01ddf8365b3ff02bbc3afea4bbac2c7d958d0abc2b32bbb206b6053c9a2d725"
-checksum_source = "mise-versions"
-url = "https://github.com/bonisoft3/mecha/releases/download/v0.33.0/mecha-macos-arm64.tar.gz"
-url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/783856415"
+checksum = "sha256:936ef3454abc6ec37cf715e81e917d768d27641a3e1c80bd4686311760c545bb"
+url = "https://github.com/bonisoft3/mecha/releases/download/v0.34.0/mecha-macos-arm64.tar.gz"
+url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/787204804"
 
 [tools."github:bonisoft3/mecha"."platforms.macos-x64"]
-checksum = "sha256:d01ddf8365b3ff02bbc3afea4bbac2c7d958d0abc2b32bbb206b6053c9a2d725"
-checksum_source = "mise-versions"
-url = "https://github.com/bonisoft3/mecha/releases/download/v0.33.0/mecha-macos-x64.tar.gz"
-url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/783856421"
+checksum = "sha256:936ef3454abc6ec37cf715e81e917d768d27641a3e1c80bd4686311760c545bb"
+url = "https://github.com/bonisoft3/mecha/releases/download/v0.34.0/mecha-macos-x64.tar.gz"
+url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/787204808"
+
+[tools."github:bonisoft3/mecha"."platforms.windows-arm64"]
+checksum = "sha256:936ef3454abc6ec37cf715e81e917d768d27641a3e1c80bd4686311760c545bb"
+url = "https://github.com/bonisoft3/mecha/releases/download/v0.34.0/mecha-windows-arm64.tar.gz"
+url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/787204801"
 
 [tools."github:bonisoft3/mecha"."platforms.windows-x64"]
-checksum = "sha256:d01ddf8365b3ff02bbc3afea4bbac2c7d958d0abc2b32bbb206b6053c9a2d725"
-checksum_source = "mise-versions"
-url = "https://github.com/bonisoft3/mecha/releases/download/v0.33.0/mecha-windows-x64.tar.gz"
-url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/783856419"
+checksum = "sha256:936ef3454abc6ec37cf715e81e917d768d27641a3e1c80bd4686311760c545bb"
+url = "https://github.com/bonisoft3/mecha/releases/download/v0.34.0/mecha-windows-x64.tar.gz"
+url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/787204806"
 
 [[tools."github:denoland/deno"]]
 version = "2.9.7"
@@ -81,6 +79,11 @@ url_api = "https://api.github.com/repos/denoland/deno/releases/assets/568561366"
 checksum = "sha256:95daaff11c116a52ad54785e7914c8e9c9cdcaba793c5ed929c74ca2d8e6259a"
 url = "https://github.com/denoland/deno/releases/download/v2.9.7/deno-x86_64-apple-darwin.zip"
 url_api = "https://api.github.com/repos/denoland/deno/releases/assets/568516488"
+
+[tools."github:denoland/deno"."platforms.windows-arm64"]
+checksum = "sha256:c4c4ac8bfdaa37814bda5c05fc9cdf2154904e2ef8277673a30bdceaaa649807"
+url = "https://github.com/denoland/deno/releases/download/v2.9.7/deno-aarch64-pc-windows-msvc.zip"
+url_api = "https://api.github.com/repos/denoland/deno/releases/assets/568444935"
 
 [tools."github:denoland/deno"."platforms.windows-x64"]
 checksum = "sha256:a0c3101b4158d1dfb7d6a78a7bf0f3de80c96bb423c152beec8beb22786f2238"
@@ -120,6 +123,11 @@ url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/371216291"
 checksum = "sha256:8b83277343bbc400fdb90608bd51b4f56e380e6624ac5fd0e11d6c08815e3f04"
 url = "https://github.com/pnpm/pnpm/releases/download/v10.32.1/pnpm-macos-x64"
 url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/371216287"
+
+[tools."github:pnpm/pnpm"."platforms.windows-arm64"]
+checksum = "sha256:6b18a614367c127f76ca8f68eaa88b3415f9921929a40b608279069c240c0826"
+url = "https://github.com/pnpm/pnpm/releases/download/v10.32.1/pnpm-win-arm64.exe"
+url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/371216283"
 
 [tools."github:pnpm/pnpm"."platforms.windows-x64"]
 checksum = "sha256:849141504c83bcd08a3d84dc20d43cff2584d672138d28c33ad62bdac809e7f2"
@@ -185,6 +193,10 @@ url = "https://nodejs.org/dist/v26.11.1/node-v26.11.1-darwin-arm64.tar.gz"
 [tools.node."platforms.macos-x64"]
 checksum = "sha256:9a8129bd9ab08039793dd1143a7aedee6b5d60ac06592ad938d8bddf36142f3a"
 url = "https://nodejs.org/dist/v26.11.1/node-v26.11.1-darwin-x64.tar.gz"
+
+[tools.node."platforms.windows-arm64"]
+checksum = "sha256:8dd03add3ed431eb436306f9abe946434bce928d2bf967b04117dc3755051208"
+url = "https://nodejs.org/dist/v26.11.1/node-v26.11.1-win-arm64.zip"
 
 [tools.node."platforms.windows-x64"]
 checksum = "sha256:97f36a8a9684ff0d3e35758b4610fef5b628a5880e96f2ccc11240e5daf9934e"
