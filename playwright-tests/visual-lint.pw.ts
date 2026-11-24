@@ -445,7 +445,7 @@ describe("checkEmptyStrip", () => {
       `)
       const bugs = await checkEmptyStrip(asCheckPage(page))
       expect(bugs.map((b) => [b.rule, b.severity, b.element])).toEqual([
-        ["empty-strip", "major", "body > nav"],
+        ["empty-strip", "critical", "body > nav"],
       ])
     }))
 

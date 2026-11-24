@@ -12,7 +12,7 @@
 // The interpreter reads the ambient `document`, so a render owns it for its
 // duration and one process renders one document at a time.
 
-import { describe, drawStrip, hasStrip, localizeStrip, offersSignin, signinBox, syncStripVisibility } from "./chrome.js";
+import { describe, drawStrip, hasStrip, localizeStrip, offersSignin, signinBox, stripRoutes } from "./chrome.js";
 import { screenEnv } from "./fragment.js";
 import { hasOnMutation, interpretScreen } from "./screen.js";
 import { assetURL, preloadScreen } from "./preloads.js";
@@ -68,11 +68,11 @@ export async function renderDocument({
   const ambient = globalThis.document;
   globalThis.document = doc;
   const decorateDoc = (screen, cas) => {
-    if (hasStrip(cfg, null, servesGuests(cfg))) {
+    const guestSignin = servesGuests(cfg) && ((cfg.auth?.providers?.length ?? 0) > 0 || stripRoutes(cfg).length > 0);
+    if (hasStrip(cfg, null, guestSignin)) {
       const nav = drawStrip(doc, cfg);
       if (servesGuests(cfg) && offersSignin(cfg)) nav.append(signinBox(doc, cfg));
       localizeStrip(nav, cfg, { locale, here, messages, explicitLocale: Boolean(cfg.i18n && locale === cfg.i18n.default && params?.locale === locale) });
-      syncStripVisibility(nav);
       doc.getElementById("app").before(nav);
     }
     describe(doc, cfg, { route, params, locale, written, el: screen, origin });

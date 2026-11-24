@@ -18,7 +18,7 @@ import { parseMarkup } from "./markup.js";
 // bypasses it entirely: the fixture adapter runs without the cluster, so no auth
 // service exists to sign against.
 
-import { chromeText, describe, drawStrip, hasStrip, localizeStrip, nameOf, offersSignin, ownName, providerHref, stripRoutes, syncStripVisibility } from "./chrome.js";
+import { chromeText, describe, drawStrip, hasStrip, localizeStrip, nameOf, offersSignin, ownName, providerHref, stripRoutes, supportsPasskeys } from "./chrome.js";
 import { startConsent } from "./consent.js";
 import { localeAt, localeTable, ProgramError, restatedHref, routeAt, routeHref, screenEnv, Unanswered } from "./fragment.js";
 import { activateScreenStyle, fetchText, forgetFiles, interpretScreen, prefetchScreen, templateHash, submitsOnChange, AssetMissing } from "./screen.js";
@@ -729,7 +729,8 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       location.reload();
     };
 
-    if (hasStrip(cfg, session, mintedGuest)) {
+    const guestSignin = mintedGuest && ((cfg.auth?.providers?.length ?? 0) > 0 || supportsPasskeys());
+    if (hasStrip(cfg, session, guestSignin)) {
       nav = drawStrip(document, cfg);
       // A served strip naming this strip's routes is this strip: kept, with
       // the link the reader may be on, and its words and addresses rewritten
@@ -759,7 +760,6 @@ export async function createShell({ config, mount, preload = true, hostDomModule
           nav.append(box);
         }
       } else servedBox?.remove();
-      syncStripVisibility(nav);
     } else servedStrip?.remove();
 
     /** The account a guest's sign-in found already made, said beside the way

@@ -3,7 +3,7 @@
 // the passkey ceremonies, the accounts this device signed in to — and the
 // nav's chip and panel that offer them. shell.js wires them to the page.
 import { parseMarkup } from "./markup.js";
-import { accountBox, nameOf, offersSignin, ownName, providerHref, providerKey, providerName, signinBox, supportsPasskeys, syncStripVisibility, worded } from "./chrome.js";
+import { accountBox, nameOf, offersSignin, ownName, providerHref, providerKey, providerName, signinBox, supportsPasskeys, worded } from "./chrome.js";
 import { authPosture } from "./cortex-navigation.js";
 import { signal, signalName } from "./passkey-signals.js";
 
@@ -606,7 +606,6 @@ export function syncAuthDOM(nav, session, opts = {}) {
       el.textContent = val;
     }
   }
-  syncStripVisibility(nav);
 }
 
 /** The nav's Sign in, or a kept guest's chip, bound to the panel it opens

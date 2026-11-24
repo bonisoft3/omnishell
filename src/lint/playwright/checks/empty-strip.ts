@@ -28,7 +28,7 @@ export async function checkEmptyStrip(page: Page): Promise<VisualBug[]> {
 
     return [{
       rule: "empty-strip",
-      severity: "major",
+      severity: "critical",
       element: "body > nav",
       description: `body > nav rendered ${Math.round(navRect.width)}x${Math.round(navRect.height)}px with no visible brand, link, or control`,
     }]
