@@ -37,3 +37,29 @@ Deno.test("the bundle's address is what the import map resolves its first load t
   assertEquals(sesAddress((s: string) => (s.endsWith("/vendor/ses.umd.min.js") ? pinned : s)), pinned);
   assert(sesAddress((s: string) => s).endsWith("/interpreter/vendor/ses.umd.min.js"), "unmapped, the bundle's own path");
 });
+
+// Regression: edge-ssr.ts aliases `./jessie.js` to `server/worker-roles.ts` in
+// renderer.jsonc, so any `./jessie.js` import in `interpreter/` missing from
+// `worker-roles.ts` fails Wrangler's SSR bundle at release time.
+Deno.test("server/worker-roles.ts exports every binding interpreter modules import from ./jessie.js", async () => {
+  const workerRoles = await Deno.readTextFile(new URL("../server/worker-roles.ts", import.meta.url));
+  const exported = new Set<string>();
+  for (const m of workerRoles.matchAll(/\bexport\s+(?:async\s+)?(?:function|const)\s+([A-Za-z0-9_$]+)/g)) exported.add(m[1]);
+  for (const m of workerRoles.matchAll(/\bexport\s*\{([^}]+)\}/g)) {
+    for (const part of m[1].split(",")) {
+      const name = part.trim().split(/\s+as\s+/).at(-1)?.trim();
+      if (name) exported.add(name);
+    }
+  }
+  const interpreterDir = new URL("../interpreter/", import.meta.url);
+  for await (const entry of Deno.readDir(interpreterDir)) {
+    if (!entry.isFile || !/\.[jt]s$/.test(entry.name)) continue;
+    const src = await Deno.readTextFile(new URL(entry.name, interpreterDir));
+    for (const m of src.matchAll(/\bimport\s*\{([^}]+)\}\s*from\s*["']\.\/jessie\.js["']/g)) {
+      for (const part of m[1].split(",")) {
+        const imported = part.trim().split(/\s+as\s+/)[0]?.trim();
+        if (imported) assert(exported.has(imported), `interpreter/${entry.name} imports ${imported} from ./jessie.js, missing from server/worker-roles.ts`);
+      }
+    }
+  }
+});

@@ -17,5 +17,6 @@ export async function evaluateRole(source, role = 'handler', endowments = []) {
   if (!factory) throw new Error(`role was not compiled at startup: ${role}`)
   return factory()
 }
+export function sesAddress() { throw new Error('SES is bundled at startup during server rendering') }
 export async function evaluateCaged() { throw new Error('runtime compilation is unavailable') }
 export async function evaluateEngine() { throw new Error('kinetic engines cannot run during server rendering') }
