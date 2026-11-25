@@ -90,6 +90,8 @@ describe("startConsent", () => {
 
     flushTimers();
     expect([screen!.bar.hidden, screen!.open.hidden]).toEqual([false, true]);
+    expect(screen!.bar.querySelector(".shell-consent-head .shell-consent-title")!.textContent).toBe("Advertising cookies");
+    expect(screen!.bar.querySelector(".shell-consent-head .shell-consent-close svg")).not.toBe(null);
     const [reject, accept] = [...screen!.bar.querySelectorAll("button[data-consent]")];
     expect([reject.textContent, accept.textContent]).toEqual(["Reject", "Accept"]);
     expect(screen!.bar.querySelector("a")!.getAttribute("href")).toBe("https://shop.example/privacy");

@@ -29,14 +29,35 @@ export function storedChoice(storage, version) {
   return record.version === version ? record : null;
 }
 
-/** The bar: a sentence with the policy link, Reject and Accept as one control
- * twice, and a close button to dismiss it; and the control that reopens it.
- * Both hidden until shown; `choose` hears "granted" or "denied". */
+/** The floating card: a title with close button, policy copy and link, Reject
+ * and Accept side by side; and the control that reopens it. Both hidden until
+ * shown; `choose` hears "granted" or "denied". */
 export function drawConsent(doc, { text, policy, choose, dismiss }) {
   const bar = doc.createElement("section");
   bar.className = "shell-consent";
   bar.hidden = true;
   bar.setAttribute("role", "region");
+  const head = doc.createElement("div");
+  head.className = "shell-consent-head";
+  const title = doc.createElement("strong");
+  title.className = "shell-consent-title";
+  const close = doc.createElement("button");
+  close.type = "button";
+  close.className = "shell-consent-close";
+  const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  const path = doc.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "M6 6l12 12M18 6L6 18");
+  svg.append(path);
+  close.append(svg);
+  close.addEventListener("click", () => dismiss());
+  head.append(title, close);
   const body = doc.createElement("p");
   const words = doc.createElement("span");
   const link = doc.createElement("a");
@@ -56,12 +77,7 @@ export function drawConsent(doc, { text, policy, choose, dismiss }) {
   const reject = button("denied");
   const accept = button("granted");
   actions.append(reject, accept);
-  const close = doc.createElement("button");
-  close.type = "button";
-  close.className = "shell-consent-close";
-  close.textContent = "×";
-  close.addEventListener("click", () => dismiss());
-  bar.append(body, actions, close);
+  bar.append(head, body, actions);
 
   const open = doc.createElement("button");
   open.type = "button";
@@ -70,6 +86,7 @@ export function drawConsent(doc, { text, policy, choose, dismiss }) {
   open.append(drawIcon(doc, "shield"));
 
   bar.setAttribute("aria-label", text("chrome_consent_title"));
+  title.textContent = text("chrome_consent_title");
   words.textContent = text("chrome_consent_body");
   link.textContent = text("chrome_consent_policy");
   reject.textContent = text("chrome_consent_reject");

@@ -1578,13 +1578,37 @@ Deno.test({
   },
 });
 
+Deno.test("the nav's Sign in puts Passkey ahead of More options (email) while keeping primary providers first", async () => {
+  const { document } = parseHTML("<!doctype html><html><body><nav></nav></body></html>");
+  const { signinBox, localizeStrip } = await import("./chrome.js");
+  for (const [providers, expected] of [
+    [["google", "email"], ["google", "accounts", "email"]],
+    [["email"], ["accounts", "email"]],
+  ]) {
+    const cfg = { routes: [], auth: { service: "/auth", providers } };
+    const nav = document.createElement("nav");
+    nav.append(signinBox(document, cfg));
+    localizeStrip(nav, cfg, { here: "/deck", messages: {}, locale: "en" });
+    const order = [...nav.querySelectorAll(".shell-signin-ways > *")].map((el) => el.dataset.provider ?? el.dataset.authAction);
+    if (order.join("|") !== expected.join("|")) {
+      throw new Error(`smoke failed: expected ${expected.join("|")}, got ${order.join("|")}`);
+    }
+    const more = nav.querySelector('.shell-provider[data-provider="email"]');
+    if (more?.textContent !== "More options" || more.getAttribute("aria-label") !== "More options") {
+      throw new Error(`smoke failed: expected More options, got ${more?.textContent} / ${more?.getAttribute("aria-label")}`);
+    }
+  }
+});
+
 Deno.test({
-  name: "a provider signing in by its own button is framed from the auth service once the panel opens, and its script never runs in the terminal",
+  name: "a credential provider keeps its styled link and overlays FedCM when IdentityCredential is available, and falls back to redirect without it",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
     const origCred = globalThis.PublicKeyCredential;
+    const origIdentity = globalThis.IdentityCredential;
     globalThis.PublicKeyCredential = class {};
+    globalThis.IdentityCredential = class {};
     try {
       const { document: doc, Event, mount } = boot({ config: GUEST_YAML.replace("  service: /auth\n", "  service: /auth\n  providers: [google]\n") });
       const prevFetch = globalThis.fetch;
@@ -1594,19 +1618,41 @@ Deno.test({
       createShell({ config: "./shell.yaml", mount });
       await settle(300);
       const assert = check(mount);
-      const holder = doc.querySelector('nav .shell-provider-button[data-provider="google"]');
-      assert(holder, "Google's place in the panel is its button's, not a redirect link");
-      assert(!doc.querySelector('nav a.shell-provider[data-provider="google"]'), "and no redirect link stands beside it");
-      assert(!holder.querySelector("iframe"), "a visitor who has not opened the panel loads none of Google's");
+      const wrap = doc.querySelector('nav .shell-provider-wrap[data-provider="google"]');
+      const link = wrap?.querySelector('a.shell-provider[data-provider="google"]');
+      assert(wrap && link, "Google keeps its styled link inside a wrap without rendering flips");
+      assert(!doc.querySelector("nav .shell-provider-button"), "no GIS button holder replaces the link");
+      assert(!wrap.querySelector("iframe"), "a visitor who has not opened the panel loads no FedCM frame");
       doc.querySelector("nav .shell-signin").dispatchEvent(new Event("click", { bubbles: true }));
-      const frame = holder.querySelector("iframe.shell-provider-frame");
-      // Google's script assigns markup no Trusted Types policy vouches for, so
-      // it runs in the auth service's page, framed, never in the terminal's.
-      assert(frame?.getAttribute("src")?.startsWith("/auth/oidc/google/button"), `opening the panel frames the auth service's button page, got ${frame?.getAttribute("src")}`);
+      const frame = wrap.querySelector("iframe.shell-provider-active");
+      assert(frame?.getAttribute("src")?.startsWith("/auth/oidc/google/button?prompt="), `opening the panel mounts the active+prompt FedCM frame, got ${frame?.getAttribute("src")}`);
       assert(frame.getAttribute("allow") === "identity-credentials-get", "which may ask FedCM");
+      assert(frame.hasAttribute("data-pending"), "and waits for ready before intercepting clicks");
       assert(!doc.querySelector('script[src*="accounts.google.com"]'), "and the terminal loads no Google script itself");
+      doc.querySelector("nav .shell-signin-close").dispatchEvent(new Event("click", { bubbles: true }));
+      assert(!wrap.querySelector("iframe"), "closing the panel removes the FedCM frame");
+    } finally {
+      globalThis.IdentityCredential = origIdentity;
+    }
+
+    // Without IdentityCredential (e.g. Safari/Firefox), no FedCM frame mounts and the styled link stays plain.
+    delete globalThis.IdentityCredential;
+    try {
+      const { document: doc, Event, mount } = boot({ config: GUEST_YAML.replace("  service: /auth\n", "  service: /auth\n  providers: [google]\n") });
+      const prevFetch = globalThis.fetch;
+      globalThis.fetch = (url, init) =>
+        String(url).endsWith("/auth/oidc") ? Promise.resolve(Response.json({ providers: ["google"], credential: { google: "client-123" } })) : prevFetch(url, init);
+      const { createShell } = await import("./shell.js");
+      createShell({ config: "./shell.yaml", mount });
+      await settle(300);
+      const assert = check(mount);
+      doc.querySelector("nav .shell-signin").dispatchEvent(new Event("click", { bubbles: true }));
+      assert(!doc.querySelector("nav .shell-provider-wrap"), "without FedCM no overlay wrap is added");
+      assert(doc.querySelector('nav a.shell-provider[data-provider="google"]'), "the styled redirect link stands directly");
+      assert(!doc.querySelector("nav iframe.shell-provider-active"), "no FedCM frame mounts");
     } finally {
       globalThis.PublicKeyCredential = origCred;
+      globalThis.IdentityCredential = origIdentity;
     }
   },
 });
@@ -1674,7 +1720,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "an app's own control for a provider signing in by its own button gives way to that button when pressed",
+  name: "an app's own control for a credential provider redirects cleanly without swapping into an iframe",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -1682,11 +1728,9 @@ Deno.test({
     globalThis.PublicKeyCredential = class {};
     const SCREEN = `<section class="screen" data-screen="home"><button type="button" id="btn-auth-google" data-auth-provider="google">Google</button></section>`;
     try {
-      const { document: doc, Event, mount } = boot({ config: GUEST_YAML.replace("  service: /auth\n", "  service: /auth\n  providers: [google]\n") });
+      const { Event, mount } = boot({ config: GUEST_YAML.replace("  service: /auth\n", "  service: /auth\n  providers: [google]\n") });
       const prevFetch = globalThis.fetch;
-      const asked = [];
       globalThis.fetch = (url, init) => {
-        asked.push(`${init?.method ?? "GET"} ${url}`);
         if (String(url).endsWith("/auth/oidc")) return Promise.resolve(Response.json({ providers: ["google"], credential: { google: "client-123" } }));
         return String(url).endsWith(".html") ? Promise.resolve(new Response(SCREEN)) : prevFetch(url, init);
       };
@@ -1694,12 +1738,9 @@ Deno.test({
       createShell({ config: "./shell.yaml", mount });
       await settle(300);
       const assert = check(mount);
-      // Regression: the control's press was refused out of sight, and the
-      // person saw nothing happen.
       mount.querySelector("#btn-auth-google").dispatchEvent(new Event("click", { bubbles: true }));
-      const frame = mount.querySelector('.shell-provider-button[data-provider="google"] > iframe.shell-provider-frame');
-      assert(frame?.getAttribute("src")?.startsWith("/auth/oidc/google/button"), `the control gives way to Google's button, got ${frame?.getAttribute("src")}`);
-      assert(!asked.some((a) => a.includes("/oidc/google/start")), `and no redirect is begun, asked ${asked}`);
+      assert(!mount.querySelector("iframe.shell-provider-frame, iframe.shell-provider-active"), "app control does not swap into a Google iframe");
+      assert(String(globalThis.location.href).endsWith("/auth/oidc/google/start?return=%2F%3Fpage%3D2"), `clicking starts the OIDC redirect, got ${globalThis.location.href}`);
     } finally {
       globalThis.PublicKeyCredential = origCred;
     }

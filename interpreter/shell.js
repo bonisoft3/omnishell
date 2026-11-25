@@ -32,7 +32,7 @@ export { routeAt } from "./fragment.js";
 import { assetURL, preloadLinkedScreens, preloadScreen, releaseOf, setRelease } from "./preloads.js";
 import { startLinkPrefetch } from "./link-prefetch.js";
 import { signalName } from "./passkey-signals.js";
-import { accountLives, adoptDeviceSession, adoptGuest, askAhead, cover, deviceAccounts, deviceName, dropAhead, forgetAccount, forgetSession, keepsWork, learnDeviceAlone, loginCeremony, mintGuest, nameForm, nameTaken, postJson, providerFrame, providersOffered, recoveryKey, registerCeremony, rememberAccount, renameAccount, renderLogin, renderSession, renderSignin, sessionOwner, storedSessionOwner, syncAuthDOM, uncover, upgradeEarlierGuest } from "./signin.js";
+import { accountLives, adoptDeviceSession, adoptGuest, askAhead, cover, deviceAccounts, deviceName, dropAhead, forgetAccount, forgetSession, keepsWork, learnDeviceAlone, loginCeremony, mintGuest, nameForm, nameTaken, postJson, providersOffered, recoveryKey, registerCeremony, rememberAccount, renameAccount, renderLogin, renderSession, renderSignin, sessionOwner, storedSessionOwner, syncAuthDOM, uncover, upgradeEarlierGuest } from "./signin.js";
 
 const releaseKey = (imports) => templateHash(JSON.stringify(imports));
 // How often an open page asks whether a deployment landed, besides whenever it
@@ -1171,22 +1171,19 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       if (!res.ok) throw new Error(`${res.status} POST ${cfg.auth.service}/oidc/${provider}/start`);
       location.href = (await res.json()).to;
     };
+    globalThis.addEventListener?.("message", (e) => {
+      if (e.origin !== location.origin || e.data?.fallback !== "redirect" || e.data?.add === true) return;
+      if (typeof e.data.provider !== "string" || !cfg.auth?.service || sessionLifecycle.busy()) return;
+      if (e.source && ![...document.querySelectorAll("iframe.shell-provider-active")].some((f) => f.contentWindow === e.source)) return;
+      const here = `${location.pathname ?? "/"}${location.search ?? ""}${location.hash ?? ""}`;
+      void startProvider(e.data.provider, here);
+    });
     document.addEventListener("click", (e) => {
       const providerEl = e.target?.closest?.("[data-auth-provider], .shell-me a.shell-provider[data-provider]");
       if (providerEl && cfg.auth?.service) {
         if (providerEl.localName !== "label") e.preventDefault();
         if (sessionLifecycle.busy()) return;
         const provider = providerEl.dataset.authProvider ?? providerEl.dataset.provider;
-        // A provider signing in by its own button has no redirect: the app's
-        // control gives way to that button, which the person presses next.
-        if (cfg.auth.credential?.[provider] !== undefined) {
-          const holder = document.createElement("div");
-          holder.className = "shell-provider-button";
-          holder.dataset.provider = provider;
-          holder.append(providerFrame(cfg, provider, "button"));
-          providerEl.replaceWith(holder);
-          return;
-        }
         const here = `${location.pathname ?? "/"}${location.search ?? ""}${location.hash ?? ""}`;
         void startProvider(provider, here);
         return;

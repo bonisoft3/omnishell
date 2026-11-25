@@ -86,7 +86,7 @@ const PROVIDERS = {
   chrome_signin_google: "Continue with Google",
   chrome_signin_apple: "Continue with Apple",
   chrome_signin_bluesky: "Continue with Bluesky",
-  chrome_signin_email: "Continue with email",
+  chrome_signin_email: "More options",
 };
 const PROVIDER_NAMES = { google: "Google", apple: "Apple", bluesky: "Bluesky", email: "Email" };
 /** A provider as the panel names it: its own name, which no language translates. */
@@ -320,6 +320,12 @@ function stroke(doc, cls, shapes) {
   return svg;
 }
 
+const moreIcon = (doc) => stroke(doc, "shell-more-icon", [
+  ["circle", { cx: "5", cy: "12", r: "1", fill: "currentColor" }],
+  ["circle", { cx: "12", cy: "12", r: "1", fill: "currentColor" }],
+  ["circle", { cx: "19", cy: "12", r: "1", fill: "currentColor" }],
+]);
+
 export const worded = (doc, tag, cls, key) => {
   const el = doc.createElement(tag);
   if (cls) el.className = cls;
@@ -374,11 +380,15 @@ export function signinBox(doc, cfg, guest = null) {
   head.append(title, close);
   const ways = doc.createElement("div");
   ways.className = "shell-signin-ways";
-  for (const provider of cfg.auth.providers ?? []) {
+  const providerLink = (provider) => {
     const a = doc.createElement("a");
     a.className = "shell-provider";
     a.setAttribute("data-provider", provider);
     a.setAttribute("data-label-key", providerKey(provider));
+    if (provider === "email") {
+      a.append(moreIcon(doc), worded(doc, "span", "", "chrome_signin_email"));
+      return a;
+    }
     const mark = doc.createElement("span");
     mark.className = "shell-provider-mark";
     mark.setAttribute("aria-hidden", "true");
@@ -386,8 +396,10 @@ export function signinBox(doc, cfg, guest = null) {
     const name = doc.createElement("span");
     name.textContent = PROVIDER_NAMES[provider] ?? provider;
     a.append(mark, name);
-    ways.append(a);
-  }
+    return a;
+  };
+  const providers = cfg.auth.providers ?? [];
+  for (const provider of providers) if (provider !== "email") ways.append(providerLink(provider));
   const device = doc.createElement("button");
   device.setAttribute("type", "button");
   device.className = "shell-passkey";
@@ -395,6 +407,7 @@ export function signinBox(doc, cfg, guest = null) {
   device.setAttribute("hidden", "");
   device.append(passkeyIcon(doc), worded(doc, "span", "", "chrome_device"));
   ways.append(device);
+  for (const provider of providers) if (provider === "email") ways.append(providerLink(provider));
   panel.append(head, worded(doc, "p", "shell-signin-with", guest === null ? "chrome_signin_with" : "chrome_keep"), ways);
   if (guest !== null) {
     const out = worded(doc, "button", "shell-guest-signout", "chrome_signout");

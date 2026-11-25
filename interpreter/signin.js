@@ -504,20 +504,40 @@ export function renderLogin(mount, cfg, chrome) {
   // provider brings the reader back to this address, where the boot adopts
   // the session (adoptDeviceSession).
   const here = `${location.pathname ?? "/"}${location.search ?? ""}`;
+  const loginOverlays = [];
   for (const provider of cfg.auth.providers ?? []) {
-    if (cfg.auth.credential?.[provider] !== undefined) {
-      const holder = document.createElement("div");
-      holder.className = "login-provider-button";
-      holder.append(providerFrame(cfg, provider, "button"));
-      wrap.querySelector(".login-passkey").before(holder);
-      continue;
-    }
     const a = document.createElement("a");
     a.className = "login-provider";
     a.dataset.provider = provider;
     a.href = providerHref(cfg.auth.service, provider, here);
     a.textContent = chrome(providerKey(provider));
-    wrap.querySelector(".login-passkey").before(a);
+    if (cfg.auth.credential?.[provider] !== undefined && "IdentityCredential" in globalThis) {
+      const container = document.createElement("span");
+      container.className = "shell-provider-wrap";
+      container.dataset.provider = provider;
+      const frame = providerFrame(cfg, provider, "active-prompt", a.textContent);
+      container.append(a, frame);
+      wrap.querySelector(".login-passkey").before(container);
+      loginOverlays.push({ control: a, frame, provider });
+    } else {
+      wrap.querySelector(".login-passkey").before(a);
+    }
+  }
+  if (loginOverlays.length > 0) {
+    const onMessage = (e) => {
+      if (!wrap.isConnected) {
+        globalThis.removeEventListener?.("message", onMessage);
+        return;
+      }
+      if (e.origin !== location.origin || typeof e.data?.provider !== "string") return;
+      for (const o of loginOverlays) {
+        if (o.provider !== e.data.provider) continue;
+        if (o.frame.contentWindow && e.source && e.source !== o.frame.contentWindow) continue;
+        if (e.data.ready === true) markOverlayReady(o.frame, o.control);
+        else if (e.data.fallback === "redirect") location.href = o.control.href;
+      }
+    };
+    globalThis.addEventListener?.("message", onMessage);
   }
   wrap.querySelector("h1").textContent = cfg.app;
   wrap.querySelector(".login-mark").textContent = [...cfg.app][0]?.toLocaleUpperCase() ?? "";
@@ -627,46 +647,94 @@ export function renderSignin(cfg, served = null, session = null) {
   for (const link of panel.querySelectorAll(".shell-provider")) {
     if (!(cfg.auth.providers ?? []).includes(link.dataset.provider)) link.remove();
   }
-  // A provider signing in by its own button holds the place of its link.
-  // The button is the auth service's page, framed afresh each time the panel
-  // opens, so its nonce is never one that lapsed while the panel was shut.
-  const credential = cfg.auth.credential ?? {};
-  const holders = [];
-  for (const link of panel.querySelectorAll("a.shell-provider")) {
-    if (credential[link.dataset.provider] === undefined) continue;
-    const holder = document.createElement("div");
-    holder.className = "shell-provider-button";
-    holder.dataset.provider = link.dataset.provider;
-    link.replaceWith(holder);
-    holders.push(holder);
-  }
   const device = panel.querySelector('[data-auth-action="accounts"]');
+  // Keep Passkey ahead of "More options" even on older cached documents.
+  const waysEl = panel.querySelector(".shell-signin-ways");
+  const emailLink = waysEl?.querySelector('a.shell-provider[data-provider="email"]');
+  if (emailLink && device && waysEl) waysEl.append(emailLink);
+  // Credential providers keep their styled link in place and overlay an invisible
+  // FedCM frame once the panel opens, avoiding any button rendering flip.
+  const credential = cfg.auth.credential ?? {};
+  const overlays = [];
+  if ("IdentityCredential" in globalThis) {
+    for (const link of panel.querySelectorAll("a.shell-provider")) {
+      const provider = link.dataset.provider;
+      if (credential[provider] === undefined) continue;
+      const container = document.createElement("span");
+      container.className = "shell-provider-wrap";
+      container.dataset.provider = provider;
+      link.replaceWith(container);
+      container.append(link);
+      overlays.push({ container, link, provider, frame: null });
+    }
+  }
   device.hidden = !supportsPasskeys();
-  open.hidden = guest === null && panel.querySelector(".shell-provider, .shell-provider-button, .shell-passkey:not([hidden])") === null;
+  open.hidden = guest === null && panel.querySelector(".shell-provider, .shell-provider-wrap, .shell-passkey:not([hidden])") === null;
   // A device asked alone needs a challenge already in hand, for this way in
   // and any an app places in its own markup.
   deviceAloneLearnt.then((alone) => {
     if (alone && !device.hidden) askAhead(cfg.auth.service);
   });
+  const clearOverlays = () => {
+    for (const o of overlays) {
+      o.frame?.remove();
+      o.frame = null;
+      restoreControl(o.link);
+    }
+  };
   wirePanel(box, () => {
-    for (const holder of holders) holder.replaceChildren(providerFrame(cfg, holder.dataset.provider, "button"));
-  });
+    for (const frame of document.querySelectorAll("body > iframe.shell-provider-prompt")) frame.remove();
+    for (const o of overlays) {
+      o.frame?.remove();
+      const label = o.link.getAttribute("aria-label") || o.link.textContent || "";
+      o.frame = providerFrame(cfg, o.provider, "active-prompt", label);
+      o.container.append(o.frame);
+    }
+  }, clearOverlays);
+  if (overlays.length > 0) {
+    const onMessage = (e) => {
+      if (!box.isConnected) {
+        globalThis.removeEventListener?.("message", onMessage);
+        return;
+      }
+      if (e.origin !== location.origin || e.data?.ready !== true || typeof e.data.provider !== "string") return;
+      for (const o of overlays) {
+        if (o.provider !== e.data.provider || !o.frame) continue;
+        if (o.frame.contentWindow && e.source && e.source !== o.frame.contentWindow) continue;
+        markOverlayReady(o.frame, o.link);
+      }
+    };
+    globalThis.addEventListener?.("message", onMessage);
+  }
   promptOnce(cfg);
   return box;
 }
 
-/** A provider's own button, its prompt, or its button adding a way to the
- * device's account, as the auth service's page: the
- * provider's script runs there, under that page's policy, never in this
- * realm (mecha's services/auth/README.md#provider-sign-in). */
-export function providerFrame(cfg, provider, mode) {
+function markOverlayReady(frame, control) {
+  frame.removeAttribute("data-pending");
+  control.setAttribute("tabindex", "-1");
+  control.setAttribute("aria-hidden", "true");
+}
+
+function restoreControl(control) {
+  control.removeAttribute("tabindex");
+  control.removeAttribute("aria-hidden");
+}
+
+/** A provider's FedCM frame — active+prompt overlay on a panel/login control,
+ * passive top-right prompt, or `add` overlay in Ways in — running under the
+ * auth service's policy, never in this realm. */
+export function providerFrame(cfg, provider, mode, label = "") {
   const frame = document.createElement("iframe");
-  frame.className = mode === "prompt" ? "shell-provider-prompt" : "shell-provider-frame";
-  frame.title = provider;
+  frame.className = mode === "prompt" ? "shell-provider-prompt" : "shell-provider-active";
+  frame.title = label || provider;
   // FedCM asks from the frame, which the page must allow.
   frame.allow = "identity-credentials-get";
-  const q = new URLSearchParams(mode === "button" ? {} : { [mode]: "" });
-  if (document.documentElement.lang) q.set("hl", document.documentElement.lang);
+  const q = new URLSearchParams();
+  if (mode === "prompt" || mode === "active-prompt") q.set("prompt", "");
+  else if (mode === "add") q.set("add", "");
+  if (label) q.set("label", label);
+  if (frame.className === "shell-provider-active") frame.setAttribute("data-pending", "");
   frame.src = `${cfg.auth.service}/oidc/${encodeURIComponent(provider)}/button${q.size ? `?${q}` : ""}`;
   return frame;
 }
@@ -708,15 +776,18 @@ export function uncover(step) {
 /** The chip opens its panel in place and closes it again, as do the panel's
  * close button and Escape; closed, it opens next on its first step. Answers
  * the panel's opening and closing, for a step that opens it itself. */
-function wirePanel(box, opened = () => {}) {
+function wirePanel(box, opened = () => {}, closed = () => {}) {
   const open = box.querySelector(":scope > :is(.shell-signin, .shell-person)");
   const panel = box.querySelector(":scope > .shell-signin-panel");
   const show = (expanded) => {
     open.setAttribute("aria-expanded", String(expanded));
     panel.hidden = !expanded;
     if (expanded) opened();
-    if (!expanded) panel.querySelector(".shell-delete")?.removeAttribute("data-confirm");
-    if (!expanded) for (const step of [...panel.querySelectorAll(":scope > [data-step]")].reverse()) uncover(step);
+    else {
+      closed();
+      panel.querySelector(".shell-delete")?.removeAttribute("data-confirm");
+      for (const step of [...panel.querySelectorAll(":scope > [data-step]")].reverse()) uncover(step);
+    }
   };
   open.addEventListener("click", () => show(panel.hidden));
   panel.querySelector(".shell-signin-close")?.addEventListener("click", () => {
@@ -775,6 +846,8 @@ function waysSection(cfg, chrome, show) {
   const at = (what, body = {}) =>
     fetch(`${service}/ways${what}`, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
+  const addOverlays = new Map();
+  const addFallbacks = new Map();
   function paint({ ways, recent, recovery: ask }) {
     section.hidden = false;
     recovery.hidden = !ask;
@@ -818,20 +891,13 @@ function waysSection(cfg, chrome, show) {
       });
       options.push(passkey);
     }
+    addOverlays.clear();
+    addFallbacks.clear();
     for (const provider of (cfg.auth.providers ?? []).filter((p) => !linked.has(p))) {
-      // A provider's own button adds in its frame, which says what came of it.
-      if (cfg.auth.credential?.[provider] !== undefined) {
-        const holder = document.createElement("div");
-        holder.className = "shell-provider-button";
-        holder.dataset.provider = provider;
-        holder.append(providerFrame(cfg, provider, "add"));
-        options.push(holder);
-        continue;
-      }
       const go = said("button", "shell-way-provider", providerKey(provider));
       go.type = "button";
       go.dataset.provider = provider;
-      go.addEventListener("click", async () => {
+      const startAdd = async () => {
         const here = `${location.pathname}${location.search}`;
         const res = await fetch(`${service}/oidc/${encodeURIComponent(provider)}/start`, {
           method: "POST",
@@ -841,7 +907,19 @@ function waysSection(cfg, chrome, show) {
         });
         if (!res.ok) throw new Error(`${res.status} POST ${service}/oidc/${provider}/start`);
         location.href = (await res.json()).to;
-      });
+      };
+      go.addEventListener("click", startAdd);
+      if (cfg.auth.credential?.[provider] !== undefined && "IdentityCredential" in globalThis) {
+        const container = document.createElement("span");
+        container.className = "shell-provider-wrap";
+        container.dataset.provider = provider;
+        const frame = providerFrame(cfg, provider, "add", go.textContent);
+        container.append(go, frame);
+        addOverlays.set(provider, { control: go, frame });
+        addFallbacks.set(provider, startAdd);
+        options.push(container);
+        continue;
+      }
       options.push(go);
     }
     add.replaceChildren(said("span", "shell-way-add-title", "chrome_way_add"), ...options);
@@ -860,9 +938,24 @@ function waysSection(cfg, chrome, show) {
   }
 
   later.addEventListener("click", async () => changed(await at("/later"), "/later"));
-  // A provider's frame, adding, says what came of it.
+  // A provider's frame, adding, says when it is ready, if it fell back, or what came of it.
   globalThis.addEventListener?.("message", (e) => {
-    if (e.origin !== location.origin || typeof e.data?.way !== "string" || !section.isConnected) return;
+    if (e.origin !== location.origin || !section.isConnected) return;
+    if (e.data?.ready === true && typeof e.data.provider === "string") {
+      const overlay = addOverlays.get(e.data.provider);
+      if (overlay && (!overlay.frame.contentWindow || !e.source || e.source === overlay.frame.contentWindow)) {
+        markOverlayReady(overlay.frame, overlay.control);
+      }
+      return;
+    }
+    if (e.data?.fallback === "redirect" && e.data?.add === true && typeof e.data.provider === "string") {
+      const overlay = addOverlays.get(e.data.provider);
+      if (overlay && (!overlay.frame.contentWindow || !e.source || e.source === overlay.frame.contentWindow)) {
+        void addFallbacks.get(e.data.provider)?.();
+      }
+      return;
+    }
+    if (typeof e.data?.way !== "string") return;
     if (e.data.way === "taken") say("chrome_way_taken");
     // A provider already its way, added in another tab, is in the list read anew.
     else if (e.data.way === "added" || e.data.way === "held") load();
