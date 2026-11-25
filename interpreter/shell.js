@@ -384,6 +384,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
         consent: cfg.consent,
         doc: document,
         storage: localStorage,
+        sessionStorage: globalThis.sessionStorage,
         navigator: globalThis.navigator,
         location,
         gtag: globalThis.gtag,

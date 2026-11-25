@@ -86,8 +86,9 @@ const PROVIDERS = {
   chrome_signin_google: "Continue with Google",
   chrome_signin_apple: "Continue with Apple",
   chrome_signin_bluesky: "Continue with Bluesky",
+  chrome_signin_email: "Continue with email",
 };
-const PROVIDER_NAMES = { google: "Google", apple: "Apple", bluesky: "Bluesky" };
+const PROVIDER_NAMES = { google: "Google", apple: "Apple", bluesky: "Bluesky", email: "Email" };
 /** A provider as the panel names it: its own name, which no language translates. */
 export const providerName = (provider) => PROVIDER_NAMES[provider] ?? provider;
 
@@ -101,6 +102,7 @@ const CONSENT = {
   chrome_consent_policy: "Privacy policy",
   chrome_consent_reject: "Reject",
   chrome_consent_accept: "Accept",
+  chrome_consent_close: "Close",
   chrome_consent_choices: "Privacy choices",
 };
 

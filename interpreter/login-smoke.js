@@ -1612,7 +1612,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "a provider's prompt is framed only once a person first presses outside the panel, never for a script's event",
+  name: "a provider's prompt stays off by default and is framed on interaction only when opted in",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -1621,7 +1621,23 @@ Deno.test({
     globalThis.PublicKeyCredential = class {};
     globalThis.IdentityCredential = class {};
     try {
-      const { document: doc, Event, mount } = boot({ config: GUEST_YAML.replace("  service: /auth\n", "  service: /auth\n  providers: [google]\n") });
+      // Off by default: even after a trusted press outside the panel, no prompt opens.
+      {
+        const { document: doc, Event, mount } = boot({ config: GUEST_YAML.replace("  service: /auth\n", "  service: /auth\n  providers: [google]\n") });
+        const prevFetch = globalThis.fetch;
+        globalThis.fetch = (url, init) =>
+          String(url).endsWith("/auth/oidc") ? Promise.resolve(Response.json({ providers: ["google"], credential: { google: "client-123" } })) : prevFetch(url, init);
+        const { createShell } = await import("./shell.js");
+        createShell({ config: "./shell.yaml", mount });
+        await settle(300);
+        const assert = check(mount);
+        const ev = new Event("pointerdown", { bubbles: true });
+        Object.defineProperty(ev, "isTrusted", { value: true });
+        mount.dispatchEvent(ev);
+        assert(doc.querySelector("body > iframe.shell-provider-prompt") === null, "no prompt without auth.prompt: true");
+      }
+
+      const { document: doc, Event, mount } = boot({ config: GUEST_YAML.replace("  service: /auth\n", "  service: /auth\n  prompt: true\n  providers: [google]\n") });
       const prevFetch = globalThis.fetch;
       globalThis.fetch = (url, init) =>
         String(url).endsWith("/auth/oidc") ? Promise.resolve(Response.json({ providers: ["google"], credential: { google: "client-123" } })) : prevFetch(url, init);

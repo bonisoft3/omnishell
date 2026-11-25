@@ -9,6 +9,8 @@
 import { drawIcon } from "./chrome.js";
 
 export const CONSENT_KEY = "pronto-consent";
+export const CONSENT_DISMISSED_KEY = "pronto-consent-dismissed";
+export const CONSENT_SHOW_DELAY_MS = 2500;
 
 /** The four Consent Mode signals for an advertising choice. */
 export const signalsOf = (advertising) => ({
@@ -27,10 +29,10 @@ export function storedChoice(storage, version) {
   return record.version === version ? record : null;
 }
 
-/** The bar: a sentence with the policy link, and Reject and Accept as one
- * control twice; and the control that reopens it. Both hidden until shown;
- * `choose` hears "granted" or "denied". */
-export function drawConsent(doc, { text, policy, choose }) {
+/** The bar: a sentence with the policy link, Reject and Accept as one control
+ * twice, and a close button to dismiss it; and the control that reopens it.
+ * Both hidden until shown; `choose` hears "granted" or "denied". */
+export function drawConsent(doc, { text, policy, choose, dismiss }) {
   const bar = doc.createElement("section");
   bar.className = "shell-consent";
   bar.hidden = true;
@@ -54,7 +56,12 @@ export function drawConsent(doc, { text, policy, choose }) {
   const reject = button("denied");
   const accept = button("granted");
   actions.append(reject, accept);
-  bar.append(body, actions);
+  const close = doc.createElement("button");
+  close.type = "button";
+  close.className = "shell-consent-close";
+  close.textContent = "×";
+  close.addEventListener("click", () => dismiss());
+  bar.append(body, actions, close);
 
   const open = doc.createElement("button");
   open.type = "button";
@@ -67,19 +74,52 @@ export function drawConsent(doc, { text, policy, choose }) {
   link.textContent = text("chrome_consent_policy");
   reject.textContent = text("chrome_consent_reject");
   accept.textContent = text("chrome_consent_accept");
+  close.setAttribute("aria-label", text("chrome_consent_close"));
+  close.title = text("chrome_consent_close");
   open.setAttribute("aria-label", text("chrome_consent_choices"));
   open.title = text("chrome_consent_choices");
-  return { bar, open };
+  return { bar, open, close };
 }
 
-/** States the reader's advertising signals through `gtag` before anything
+/**
+ * States the reader's advertising signals through `gtag` before anything
  * else can: what they chose, else denied. On a host whose tags consent
- * governs, once `ready` (the catalogues) resolves, it draws the bar into
- * `doc.body`, shown on every view until answered. Ignoring it is a refusal,
- * and a Reject, or Global Privacy Control, is not asked again: the reopening
- * control stands in for the bar until the reader opens it. An explicit Accept
- * outranks Global Privacy Control. */
-export async function startConsent({ consent, doc, storage, navigator, location, gtag, text, ready, now }) {
+ * governs, once `ready` (the catalogues) resolves, it mounts the bar hidden
+ * beside the reopen shield and arms a first-interaction listener; after the
+ * first trusted interaction and a short delay, it shows the bar unless the
+ * reader already answered, has Global Privacy Control enabled, or dismissed
+ * the bar for this tab.
+ *
+ * @param {object} opts
+ * @param {any} opts.consent
+ * @param {Document} opts.doc
+ * @param {{ getItem(k: string): string | null, setItem(k: string, v: string): void, removeItem?(k: string): void }} opts.storage
+ * @param {{ getItem(k: string): string | null, setItem(k: string, v: string): void, removeItem?(k: string): void } | null} [opts.sessionStorage]
+ * @param {{ globalPrivacyControl?: boolean }} opts.navigator
+ * @param {{ hostname: string }} opts.location
+ * @param {(...args: unknown[]) => void} opts.gtag
+ * @param {(key: string) => string} opts.text
+ * @param {Promise<unknown>} opts.ready
+ * @param {() => number} opts.now
+ * @param {number} [opts.delayMs]
+ * @param {(fn: () => void, ms: number) => any} [opts.schedule]
+ * @param {(id: any) => void} [opts.cancel]
+ */
+export async function startConsent({
+  consent,
+  doc,
+  storage,
+  sessionStorage = null,
+  navigator,
+  location,
+  gtag,
+  text,
+  ready,
+  now,
+  delayMs = CONSENT_SHOW_DELAY_MS,
+  schedule = (fn, ms) => setTimeout(fn, ms),
+  cancel = (id) => clearTimeout(id),
+}) {
   if (consent.mode === "none") {
     gtag("consent", "update", signalsOf(consent.none.advertising));
     return null;
@@ -91,6 +131,30 @@ export async function startConsent({ consent, doc, storage, navigator, location,
   await ready;
 
   let held = choice;
+  let dismissed = sessionStorage?.getItem(CONSENT_DISMISSED_KEY) === consent.policy.version;
+  let timer = null;
+  let armed = false;
+  const onInteract = (event) => {
+    if (!event.isTrusted || screen.open.contains(event.target)) return;
+    disarmListeners();
+    timer = schedule(() => {
+      timer = null;
+      if (held === null && !dismissed && screen.bar.hidden) show(false);
+    }, delayMs);
+  };
+  const disarmListeners = () => {
+    if (!armed) return;
+    armed = false;
+    doc.removeEventListener("pointerdown", onInteract, true);
+    doc.removeEventListener("keydown", onInteract, true);
+  };
+  const disarm = () => {
+    disarmListeners();
+    if (timer !== null) {
+      cancel(timer);
+      timer = null;
+    }
+  };
   const show = (focus) => {
     for (const b of screen.bar.querySelectorAll("button[data-consent]")) {
       b.setAttribute("aria-pressed", String(held?.advertising === b.dataset.consent));
@@ -99,29 +163,46 @@ export async function startConsent({ consent, doc, storage, navigator, location,
     screen.open.hidden = true;
     if (focus) screen.bar.querySelector("button[data-consent]").focus();
   };
-  const hide = () => {
+  const hideBar = () => {
     const within = screen.bar.contains(doc.activeElement);
     screen.bar.hidden = true;
     screen.open.hidden = false;
     if (within) screen.open.focus();
   };
+  const dismiss = () => {
+    disarm();
+    dismissed = true;
+    sessionStorage?.setItem(CONSENT_DISMISSED_KEY, consent.policy.version);
+    hideBar();
+  };
   const screen = drawConsent(doc, {
     text,
     policy: consent.policy.url,
     choose: (advertising) => {
+      disarm();
+      dismissed = false;
+      sessionStorage?.removeItem(CONSENT_DISMISSED_KEY);
       held = { version: consent.policy.version, advertising, at: new Date(now()).toISOString() };
       storage.setItem(CONSENT_KEY, JSON.stringify(held));
       gtag("consent", "update", signalsOf(advertising));
-      hide();
+      hideBar();
     },
+    dismiss,
   });
-  screen.open.addEventListener("click", () => show(true));
+  screen.open.addEventListener("click", () => {
+    disarm();
+    show(true);
+  });
   screen.bar.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && (held !== null || gpc)) hide();
+    if (event.key === "Escape") dismiss();
   });
   // First in the body, so the first Tab reaches it before the page.
   doc.body.prepend(screen.bar, screen.open);
-  if (held === null && !gpc) show(false);
-  else hide();
+  hideBar();
+  if (held === null && !gpc && !dismissed) {
+    armed = true;
+    doc.addEventListener("pointerdown", onInteract, { capture: true, passive: true });
+    doc.addEventListener("keydown", onInteract, { capture: true, passive: true });
+  }
   return screen;
 }

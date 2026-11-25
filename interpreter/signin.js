@@ -671,13 +671,11 @@ export function providerFrame(cfg, provider, mode) {
   return frame;
 }
 
-/** A page not signed in offers each button provider's prompt once, where the
- * browser draws it itself (FedCM): a browser without it would draw it in the
- * frame, which shows nothing, so there the panel's button is the only way.
- * It waits for a person's first key or press, so a crawler, a prerender or a
- * visit no one touches loads nothing of the provider's and asks no nonce. */
+/** When opted in (`auth.prompt: true`), a page not signed in offers each
+ * button provider's prompt once via FedCM after the first human key or press. */
 let prompted = false;
 function promptOnce(cfg) {
+  if (cfg.auth?.prompt !== true) return;
   if (prompted || !("IdentityCredential" in globalThis)) return;
   prompted = true;
   const providers = Object.keys(cfg.auth.credential ?? {}).filter((p) => (cfg.auth.providers ?? []).includes(p));
