@@ -171,12 +171,18 @@ cannot see.
 
 ## A refused write is an event
 
-A write settles twice: accepted optimistically and already on screen, then
+A replicated write settles twice: accepted optimistically and already on screen, then
 confirmed or withdrawn, possibly after a reload from the IndexedDB outbox.
 The withdrawal cannot be a return value, so it arrives in the region's fold as
 `{type: "refused", entity, id?, kind, validation?}`, from every write the region
 makes — its forms, its reduces, a drag, a machine effect — and the same way
 inside the 2.5 s acceptance window (`ACCEPT_MS`) or after it.
+
+Server-durability commands wait for the server's answer. A natural-key upsert
+uses a confirmed, uncached lookup before choosing insert or update; neither a
+stale display snapshot nor unrelated screen prefetch can decide that choice.
+The lookup and command are separate requests, so database constraints and RLS
+still arbitrate concurrent writes.
 
 - `kind: "refused"` is `NonRetriableError`: mecha's answer to a 4xx other than
   408 or 429, the optimistic row already rolled back, or a validation the store

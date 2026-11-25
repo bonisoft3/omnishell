@@ -1,5 +1,5 @@
 import { FIXTURE_CARRIERS } from "./fixture-types.js";
-import { assert, withBrowser } from "./smoke-browser.js";
+import { assert, until, withBrowser } from "./smoke-browser.js";
 
 let worlds = 0;
 function server() {
@@ -365,6 +365,62 @@ Deno.test({
         stop();
         await globalThis.__mechaClient.collections.note.cleanup();
       }
+    });
+  },
+});
+
+Deno.test({
+  name: "a server upsert resolves its natural key while unrelated screen prefetch is pending",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const fake = server();
+    await withBrowser({ fetch: fake.fetch }, async createStore => {
+      const store = createStore(fake.base, {
+        tables: ["note"], carriers: FIXTURE_CARRIERS,
+        uniques: { note: [["slug"]] },
+        schema: { note: { durability: "server", fields: [
+          { name: "id", type: "string" }, { name: "slug", type: "string" }, { name: "title", type: "string" },
+        ] } },
+      });
+      let finishSeed;
+      store.waitSeed(new Promise(resolve => { finishSeed = resolve; }));
+      const writing = store.upsertBy("note", { slug: "existing", title: "after" });
+      try {
+        await until(() => fake.writes === 1, "the write settles without waiting for unrelated prefetch");
+        await writing;
+        assert(fake.rows.length === 1 && fake.rows[0].title === "after", "the existing natural key is updated");
+        assert(fake.requests[0].cache === "no-store", "a mutation resolves its key from confirmed server state");
+      } finally {
+        finishSeed();
+        await writing;
+        await store.close();
+      }
+    });
+  },
+});
+
+Deno.test({
+  name: "a server upsert does not treat cached absence as authority to create",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const fake = server();
+    await withBrowser({ fetch: fake.fetch }, async createStore => {
+      const store = createStore(fake.base, {
+        tables: ["note"], carriers: FIXTURE_CARRIERS,
+        uniques: { note: [["slug"]] },
+        schema: { note: { durability: "server", fields: [
+          { name: "id", type: "string" }, { name: "slug", type: "string" }, { name: "title", type: "string" },
+        ] } },
+      });
+      try {
+        assert((await store.query("note", null, { filter: "slug=eq.arrived" })).length === 0, "the display read caches absence");
+        fake.rows.push({ id: "n2", slug: "arrived", title: "elsewhere", owner_id: "reader", txid: "2" });
+        await store.upsertBy("note", { slug: "arrived", title: "here" });
+        assert(fake.rows.filter(row => row.slug === "arrived").length === 1, "the stale display snapshot cannot authorize a duplicate insert");
+        assert(fake.rows.find(row => row.id === "n2").title === "here", "the newly discovered row is updated");
+      } finally { await store.close(); }
     });
   },
 });

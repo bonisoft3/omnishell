@@ -2698,7 +2698,7 @@ export function createStore(base = "", cfg = {}, {
     const wanted = keys.map((c) => at(values, c));
     if (requestOnly(table)) {
       const filter = keys.map((col, i) => values[col] === null ? `${col}=is.null` : `${col}=eq.${encodeURIComponent(wanted[i])}`).join("&");
-      const rows = await readServer(table, null, { filter });
+      const rows = await readServer(table, null, { filter, confirmed: true });
       if (rows.length > 1) throw new ProgramError(`upsert ${table}: its natural key identifies ${rows.length} rows`);
       if (rows.length === 1) return patch(table, [{ key: rows[0][keyOf(table)], changes: values }], onRefused);
       return add(table, [{ [keyOf(table)]: crypto.randomUUID(), ...values }], onRefused);
