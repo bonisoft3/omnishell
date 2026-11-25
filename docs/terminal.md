@@ -71,6 +71,8 @@ mounts it
 The terminal draws the reader's consent bar itself, as it draws the login
 gate, and states the choice to that bridge before any screen mounts
 ([[../../pronto/docs/component-contracts#consent-metaconsent|component contracts]]).
+Through the same bridge it reports the conversions the app declares, a guest
+becoming a person among them, since only the terminal sees that moment.
 
 ## Units
 

@@ -20,6 +20,7 @@ import { parseMarkup } from "./markup.js";
 
 import { chromeText, describe, drawStrip, hasStrip, localizeStrip, nameOf, offersSignin, ownName, providerHref, stripRoutes, supportsPasskeys } from "./chrome.js";
 import { startConsent } from "./consent.js";
+import { startConversions } from "./conversions.js";
 import { localeAt, localeTable, ProgramError, restatedHref, routeAt, routeHref, screenEnv, Unanswered } from "./fragment.js";
 import { activateScreenStyle, fetchText, forgetFiles, interpretScreen, prefetchScreen, templateHash, submitsOnChange, AssetMissing } from "./screen.js";
 import { compileCatalog } from "./vendor/messages.js";
@@ -393,6 +394,10 @@ export async function createShell({ config, mount, preload = true, hostDomModule
         now: Date.now,
       }).catch(banner);
     }
+    // After consent is stated, which the bridge takes before any event.
+    const conversions = cfg.conversions
+      ? startConversions({ conversions: cfg.conversions, gtag: globalThis.gtag, storage: sessionStorage })
+      : null;
     const dataPlane = import("./data-sync.js");
     const offered = cfg.auth ? providersOffered(cfg) : null;
 
@@ -420,7 +425,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       if (sessionOwner(e.newValue === null ? null : JSON.parse(e.newValue)) !== sessionOwner(session)) location.reload();
     });
     if (cfg.auth) await upgradeEarlierGuest(cfg);
-    const adopted = cfg.auth?.required || (cfg.tables?.length ?? 0) > 0 ? await adoptDeviceSession(cfg) : null;
+    const adopted = cfg.auth?.required || (cfg.tables?.length ?? 0) > 0 ? await adoptDeviceSession(cfg, conversions?.signedIn) : null;
     if (offered !== null) Object.assign(cfg.auth, await offered);
     if (cfg.auth?.required) {
       const stored = localStorage.getItem("pronto-token");
@@ -442,7 +447,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       } else {
         const gate = localeAt(cfg, location.pathname || "/", location.search ?? "", globalThis.navigator?.languages);
         await Promise.all([catalogued, ensureMessages(gate.locale)]);
-        session = await renderLogin(mount, cfg, (key) => chrome(key, gate.locale));
+        session = await renderLogin(mount, cfg, (key) => chrome(key, gate.locale), conversions?.made);
         // The gate takes its own chrome down. The navigation stack appends
         // each screen beside whatever is already mounted rather than replacing
         // it, so nothing else will: left here, the login form outlives the
@@ -869,6 +874,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
     // the gate.
     const adopt = async (outcome) => {
       const next = outcome.session;
+      conversions?.signedIn(outcome.activeSession, next, outcome.transitionMode !== "in-place");
       if (outcome.transitionMode !== "in-place") {
         signedIn = !next.user.guest;
         if (!outcome.sameOwner) sessionStorage.removeItem(recoveryKey);

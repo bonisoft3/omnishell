@@ -420,6 +420,18 @@ const GUEST_YAML = CONFIG_YAML
   .replace("  required: true\n", "  required: false\n")
   .replace("tables: []", "tables: [note]\nread: [note]");
 
+// A tag whose consent asks nobody, and the signup it reports (pronto's
+// meta.googleTag.conversions).
+const CONVERSION_YAML = `
+consent:
+  mode: none
+  none: {advertising: denied}
+  policy: {url: "https://smoke.example/privacy", version: "1"}
+  hosts: []
+conversions:
+  signup: AW-1/label
+`;
+
 Deno.test({
   name: "the nav's My device is offered wherever the browser has passkeys",
   sanitizeOps: false,
@@ -1108,8 +1120,10 @@ Deno.test({
       },
       configurable: true,
     });
+    const tagged = [];
+    globalThis.gtag = (...args) => tagged.push(args);
     try {
-      const { mount, Event } = boot();
+      const { mount, Event } = boot({ config: CONFIG_YAML + CONVERSION_YAML });
       const named = [];
       const prevFetch = globalThis.fetch;
       globalThis.fetch = (url, init) => {
@@ -1136,7 +1150,10 @@ Deno.test({
       assert(created.length === 1 && named.join() === "nobody Ada", `the account is made under the name, got ${named}`);
       assert(JSON.parse(localStorage.getItem("pronto-token")).token === "tok-made", "and is the device's");
       assert(!mount.querySelector(".shell-login"), "the gate comes down");
+      const reported = tagged.filter(([command]) => command === "event");
+      assert(JSON.stringify(reported) === JSON.stringify([["event", "conversion", { send_to: "AW-1/label", transaction_id: "u1" }]]), `the account made is one signup, got ${JSON.stringify(reported)}`);
     } finally {
+      delete globalThis.gtag;
       globalThis.PublicKeyCredential = origCred;
       if (origNavCreds !== undefined) {
         Object.defineProperty(globalThis.navigator, "credentials", { value: origNavCreds, configurable: true });
@@ -1392,8 +1409,11 @@ Deno.test({
     const { b64u } = browser;
     Object.defineProperty(globalThis.navigator, "credentials", { value: browser.credentials, configurable: true });
     const people = { [b64u("cred-ana")]: { id: "ana", handle: "Ana-3fa2" }, [b64u("cred-marta")]: { id: "marta", handle: "Marta-c4d8" } };
+    const tagged = [];
+    globalThis.gtag = (...args) => tagged.push(args);
     try {
-      const { document: doc, Event, mount, reloads } = boot({ config: GUEST_YAML });
+      const { document: doc, Event, mount, reloads } = boot({ config: GUEST_YAML + CONVERSION_YAML });
+      const conversions = () => tagged.filter(([command]) => command === "event");
       const registered = [];
       const prevFetch = globalThis.fetch;
       globalThis.fetch = (url, init) => {
@@ -1407,7 +1427,8 @@ Deno.test({
           registered.push(JSON.parse(init.body).name);
           return Promise.resolve(Response.json({ state: "st-reg", rp: { id: "localhost", name: "localhost" }, challenge: "Y2hhbA", user: { id: "dTE", name: "Zed", displayName: "Zed" } }));
         }
-        if (u.endsWith("/auth/register/verify")) return Promise.resolve(Response.json({ token: "tok-zed", user: { id: "zed", handle: "Zed-5e21" }, passkey: { rpId: "localhost", userId: "dTE" } }));
+        // The device's guest, promoted: its id kept.
+        if (u.endsWith("/auth/register/verify")) return Promise.resolve(Response.json({ token: "tok-zed", user: { id: "g1", handle: "Zed-5e21" }, passkey: { rpId: "localhost", userId: "dTE" } }));
         if (u.endsWith("/auth/guest")) return Promise.resolve(Response.json({ token: "tok-guest", user: { id: "g1", handle: "sunlit-fox-01", guest: true } }));
         if (u.includes("/crud/app_user")) return Promise.resolve(Response.json([{ id: "x" }]));
         return prevFetch(url, init);
@@ -1448,6 +1469,7 @@ Deno.test({
       await settle(300);
       assert(doc.querySelector("nav .shell-person .handle")?.textContent === "Marta", "Marta's page, from the autofill");
       assert(JSON.parse(localStorage.getItem("pronto-device-accounts")).map((a) => a.id).join() === "marta,ana", "Marta first now");
+      assert(conversions().length === 0, `a returning sign-in is no signup, got ${JSON.stringify(conversions())}`);
 
       // A new name in the field makes a passkey under it, the autofill let go.
       click(doc.querySelector("nav .shell-person"));
@@ -1461,6 +1483,7 @@ Deno.test({
       assert(browser.released === released + 1, "the autofill let go before the passkey is made");
       assert(registered.join() === "Zed" && browser.created.length === 1, `made under the name, got ${registered}`);
       assert(doc.querySelector("nav .shell-person .handle")?.textContent === "Zed", "Zed's page, in place");
+      assert(JSON.stringify(conversions()) === JSON.stringify([["event", "conversion", { send_to: "AW-1/label", transaction_id: "g1" }]]), `the guest made a person is one signup, got ${JSON.stringify(conversions())}`);
 
       // Regression: an autofill that failed fell through to adopt no session,
       // and the shell threw. The reader's no is quiet; any other failure is
@@ -1479,6 +1502,7 @@ Deno.test({
         click(doc.querySelector("nav .shell-signin"));
       }
     } finally {
+      delete globalThis.gtag;
       globalThis.PublicKeyCredential = origCred;
       if (origNavCreds !== undefined) Object.defineProperty(globalThis.navigator, "credentials", { value: origNavCreds, configurable: true });
     }
@@ -2016,5 +2040,32 @@ Deno.test("a late guest recovery cannot overwrite a newer stored sign-in and ado
       try { await adoptDeviceSession({ auth: { service: "/auth" } }); } catch (error) { failure = error; }
       assert(failure?.message === "503 POST /auth/session/adopt", `wrong adoption failure: ${failure}`);
     }
+  }
+});
+
+Deno.test("a provider's return reports signup when it promoted the device's guest, and not when it reached an account already made", async () => {
+  const { adoptDeviceSession } = await import("./signin.js");
+  const { startConversions } = await import("./conversions.js");
+  const send_to = "AW-1/label";
+  for (const [answered, expected] of [
+    [{ token: "p", user: { id: "g1", handle: "davi-0001" } }, [["event", "conversion", { send_to, transaction_id: "g1" }]]],
+    [{ token: "p", user: { id: "u2", handle: "ana-0002" } }, []],
+  ]) {
+    const { mount } = boot({ cookie: "mecha_session_hint=1" });
+    const assert = check(mount);
+    localStorage.setItem("pronto-token", JSON.stringify({ token: "g", user: { id: "g1", guest: true }, committed: true }));
+    let asked = 0;
+    globalThis.fetch = (url) => {
+      if (String(url).endsWith("/session")) return Promise.resolve(Response.json(answered, { status: asked++ === 0 ? 200 : 500 }));
+      if (String(url).includes("/crud/app_user")) return Promise.resolve(Response.json([{ id: answered.user.id }]));
+      throw new Error(`unexpected fetch ${url}`);
+    };
+    const told = [];
+    const conversions = startConversions({ conversions: { signup: send_to }, gtag: (...args) => told.push(args), storage: sessionStorage });
+    await adoptDeviceSession({ auth: { service: "/auth" } }, conversions.signedIn);
+    // The next boot holds the person, whose account lives: nothing is asked.
+    assert(await adoptDeviceSession({ auth: { service: "/auth" } }, conversions.signedIn) === null, "the next boot keeps the person");
+    assert(asked === 1, `the session was asked ${asked} times`);
+    assert(JSON.stringify(told) === JSON.stringify(expected), `reported ${JSON.stringify(told)}`);
   }
 });

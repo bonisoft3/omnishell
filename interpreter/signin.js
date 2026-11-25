@@ -64,7 +64,8 @@ const sessionHinted = () => (globalThis.document?.cookie ?? "").split(";").some(
  * cleared is taken up again without a ceremony. A live non-guest session
  * keeps its identity. A guest's sign-in whose account is another's comes
  * back `{taken}`, that account, for the reader to take or leave. Fails open
- * as accountLives does: offline, the tab boots as it would have. */
+ * as accountLives does: offline, the tab boots as it would have. `signedIn`
+ * hears the session the device held and the one it takes up. */
 /** The ways in the program offers that this deployment turns on, as the auth
  * service says: a release its program's, a local stack none, each signing in
  * by redirect or, `credential` naming its client, by its own button. Offline,
@@ -85,7 +86,7 @@ export async function providersOffered(cfg) {
   return { providers: declared.filter((p) => providers.includes(p)), credential };
 }
 
-export async function adoptDeviceSession(cfg) {
+export async function adoptDeviceSession(cfg, signedIn = () => {}) {
   if (!cfg.auth?.service || !sessionHinted()) return null;
   let held = null;
   try {
@@ -133,6 +134,7 @@ export async function adoptDeviceSession(cfg) {
   // shown — is no claim the cookie carries, and outlives a fresh token.
   const session = same ? { ...fresh, ...(held.committed ? { committed: true } : {}), ...(held.shown ? { shown: true } : {}) } : fresh;
   localStorage.setItem("pronto-token", JSON.stringify(session));
+  signedIn(held, session);
   return session;
 }
 
@@ -480,8 +482,8 @@ export async function loginCeremony(service, how, hint = null) {
 
 // Resolves {token, user} once a ceremony succeeds; failures surface inline
 // and leave the form live for another attempt. `chrome` answers the terminal's
-// own copy in the reader's language.
-export function renderLogin(mount, cfg, chrome) {
+// own copy in the reader's language; `made` hears an account its passkey made.
+export function renderLogin(mount, cfg, chrome, made = () => {}) {
   const wrap = document.createElement("div");
   wrap.className = "shell-login";
   // Every word is written in after the template rather than interpolated into
@@ -576,12 +578,16 @@ export function renderLogin(mount, cfg, chrome) {
         });
         named.form.addEventListener("submit", async (submitted) => {
           submitted.preventDefault();
+          let session;
           try {
-            resolve(await registerCeremony(cfg.auth.service, null, named.name()));
+            session = await registerCeremony(cfg.auth.service, null, named.name());
           } catch (failed) {
             console.error(failed);
             named.say(nameTaken(failed) ? "chrome_name_taken" : "chrome_signin_failed");
+            return;
           }
+          made(session);
+          resolve(session);
         });
       });
     });
