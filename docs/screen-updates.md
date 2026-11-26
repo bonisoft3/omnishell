@@ -65,13 +65,21 @@ carries. The difference between the two maps decides what it does
 - **what the page only links to** — `/docs/`, images and text — changes nothing
   it runs, so the page only swaps the map `assetURL` reads.
 - **a screen's template or stylesheet, a catalogue, or a handler**: taken in
-  place. The page swaps the map `assetURL` reads; each held screen whose files
-  moved is morphed to its new template, carrying what the reader typed through
-  the morph, and its stylesheet swapped once the new one has loaded what it
-  imports; the screen on show and the strip are written in the new words at
-  once, and a held screen as it is shown again. A handler is a pure function
-  looked up as it is called, so a held screen's next event takes the new one and
-  a chain already running ends on the one it began on.
+  place. The page takes the new catalogues and swaps the map `assetURL` reads in
+  one task, before any template is fetched, so neither a morph nor a screen
+  mounted meanwhile reads one release's markup against the other's words; a
+  catalogue asked at the older address and answered after is asked again at the
+  newer. Each held screen whose files moved is then morphed to its new
+  template, carrying what the reader typed through the morph, and its
+  stylesheet swapped once the new one has loaded what it imports; the screen on
+  show and the strip are written in the new words at once, and a held screen as
+  it is shown again. A handler is a pure function looked up as it is called, so
+  a held screen's next event takes the new one and a chain already running ends
+  on the one it began on.
+- **a catalogue that drops a key** cannot be taken in place: a held screen
+  names the key until its morph lands, and its newer template names the newer
+  keys from the first word it localizes, so neither order is safe. The page
+  restarts, as below.
 - **anything else** — a renderer, a validation, the config, a shared
   stylesheet, the interpreter — is code the page runs: it restarts into
   the new entry. It waits while an editable control is focused, a file is

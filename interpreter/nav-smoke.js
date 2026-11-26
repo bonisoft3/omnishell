@@ -4,7 +4,7 @@
 // takes the click itself. Screens here carry no live regions, so no store
 // query runs and the cases stay about navigation.
 import { parseHTML } from "npm:linkedom@0.18.4";
-import { templateHash } from "./screen.js";
+import { forgetFiles, templateHash } from "./screen.js";
 
 const CONFIG_YAML = `
 app: smoke
@@ -75,7 +75,8 @@ const served = (name, template = screenHtml(name), witness = true) => ({
 });
 
 // `serving` names the screen a served document carries, `witness` whether its
-// head names its template; `slowCatalogues` answer when released.
+// head names its template; `slowCatalogues` answer when released, with the
+// served copy.
 // `catalogues` are the served ones by tag; `blips` fail once, as a network that
 // drops. `config` is the served config, and `modules` answer each handler by
 // name, a status at a time until one is left. `tables` makes the app one a
@@ -210,7 +211,8 @@ function boot({
     if (u.endsWith(".css")) return Promise.resolve(new Response(""));
     const catalogue = u.match(/\/messages\/([\w-]+)\.json$/)?.[1];
     if (slowCatalogues.includes(catalogue)) {
-      return new Promise((resolve) => held.push(() => resolve(new Response("{}", {status: 404}))));
+      const copy = catalogues[catalogue];
+      return new Promise((resolve) => held.push({catalogue, answer: () => resolve(copy === undefined ? new Response("{}", {status: 404}) : new Response(copy))}));
     }
     if (blips.includes(catalogue)) {
       blips.splice(blips.indexOf(catalogue), 1);
@@ -242,8 +244,13 @@ function boot({
     // A throw nobody caught — a listener's, a timer's — delivered as the
     // browser's error event.
     errored: (error) => (listeners.error ?? []).forEach((fn) => fn({error, preventDefault() {}})),
-    // Answers every catalogue held back so far.
-    releaseCatalogues: () => held.splice(0).forEach((answer) => answer()),
+    // Answers the catalogues held back so far, every one or one tag's.
+    releaseCatalogues: (tag) => {
+      for (const h of held.filter((h) => tag === undefined || h.catalogue === tag)) {
+        held.splice(held.indexOf(h), 1);
+        h.answer();
+      }
+    },
     // A deployment: each file, by its logical path, at an address of its own,
     // and the entry naming them served at every route.
     deploy: (files) => {
@@ -319,6 +326,9 @@ const shown = (app) => [...app.mount.querySelectorAll(".shell-screen")]
   .map((el) => el.querySelector("[data-screen]"));
 
 async function start(opts) {
+  // The module keeps the templates it fetched, by logical path: a case's
+  // deployment would otherwise be the next case's first screen.
+  forgetFiles(RELEASED);
   const app = boot(opts);
   const {createShell} = await import("./shell.js");
   await createShell({config: "./shell/shell.yaml", mount: app.mount});
@@ -903,6 +913,8 @@ Deno.test({
 const OLD_WORDS = JSON.stringify({greet: "Olá"});
 const NEW_WORDS = JSON.stringify({greet: "Olá de novo"});
 const greeting = (app) => app.mount.querySelector(".greet")?.textContent;
+const cta = (app) => app.mount.querySelector(".cta")?.textContent;
+const withCta = screenHtml("words").replace("</section>", '<a class="cta" data-text="{msg.cta_try}"></a></section>');
 
 Deno.test({
   name: "a deployment's catalogue is written into the screen on show and the ones held",
@@ -920,6 +932,86 @@ Deno.test({
     await app.check();
     await app.goto("/palavras", "traverse");
     assert(greeting(app) === "Olá", `the held screen came back as ${JSON.stringify(greeting(app))}`);
+  },
+});
+
+// pronto.bonisoft3.com, a pre-rendered root open across a deploy that added a
+// key and the screen naming it: the screen was morphed to the new template
+// before the new catalogue was taken, so the page read one release's markup
+// against the other's words and bannered "unknown message {msg.cta_try}" until
+// a reload. A mounted screen took the same path.
+for (const serving of [undefined, "words"]) {
+  Deno.test({
+    name: `a deployment's screen and the catalogue it names are taken together${serving ? ", on a served document" : ""}`,
+    sanitizeOps: false,
+    sanitizeResources: false,
+    async fn() {
+      const app = await start({at: "/palavras", serving, catalogues: {"pt-BR": OLD_WORDS}});
+      assert(greeting(app) === "Olá", `drawn as ${JSON.stringify(greeting(app))}`);
+      app.deploy({
+        "/shell/screens/words.html": withCta,
+        "/messages/pt-BR.json": JSON.stringify({greet: "Olá", cta_try: "Experimente"}),
+      });
+      await app.check();
+      assert(app.mount.querySelector("pre") === null, `a banner: ${app.mount.querySelector("pre")?.textContent}`);
+      assert(cta(app) === "Experimente", `the new key reads ${JSON.stringify(cta(app))}`);
+      assert(app.reloads.length === 0, `replaced at ${JSON.stringify(app.reloads)}`);
+    },
+  });
+}
+
+// The words and the map are taken in one task, but a catalogue asked while the
+// page waited to take them was asked at the older address: landing after them,
+// it put the older words under the newer screens.
+Deno.test({
+  name: "a catalogue asked of the older release and answered after the newer is asked again",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const app = await start({
+      at: "/palavras",
+      slowCatalogues: ["en", "es"],
+      catalogues: {"pt-BR": OLD_WORDS, en: JSON.stringify({greet: "Hi"}), es: JSON.stringify({greet: "Hola"})},
+    });
+    const english = app.goto("/en/palavras");
+    await settle(10);
+    app.deploy({
+      "/shell/screens/words.html": withCta,
+      "/messages/pt-BR.json": JSON.stringify({greet: "Olá", cta_try: "Experimente"}),
+      "/messages/en.json": JSON.stringify({greet: "Hi", cta_try: "Try it"}),
+      "/messages/es.json": JSON.stringify({greet: "Hola", cta_try: "Pruébalo"}),
+    });
+    const checking = app.check();
+    await settle(10);
+    const spanish = app.goto("/es/palavras");
+    await settle(10);
+    app.releaseCatalogues("en");
+    await Promise.all([english, checking]);
+    app.releaseCatalogues("es");
+    await spanish;
+    await settle();
+    assert(app.mount.querySelector("pre") === null, `a banner: ${app.mount.querySelector("pre")?.textContent}`);
+    assert(app.at() === "/es/palavras" && cta(app) === "Pruébalo", `at ${app.at()} the new key reads ${JSON.stringify(cta(app))}`);
+  },
+});
+
+// A key the newer catalogue drops may still be named by a screen the page
+// holds until its morph lands, and the page cannot take the words before the
+// screen or the screen before the words: it restarts into the newer entry.
+Deno.test({
+  name: "a deployment whose catalogue drops a key restarts the page into it",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const app = await start({at: "/palavras", catalogues: {"pt-BR": OLD_WORDS}});
+    app.deploy({
+      "/shell/screens/words.html": screenHtml("words").replace("{msg.greet}", "{msg.welcome}"),
+      "/messages/pt-BR.json": JSON.stringify({welcome: "Bem-vindo"}),
+    });
+    await app.check();
+    assert(app.mount.querySelector("pre") === null, `a banner: ${app.mount.querySelector("pre")?.textContent}`);
+    assert(app.reloads.length === 1 && app.reloads[0] === "/palavras", `replaced at ${JSON.stringify(app.reloads)}`);
+    assert(greeting(app) === "Olá", `the screen on show was taken before the restart: ${JSON.stringify(greeting(app))}`);
   },
 });
 

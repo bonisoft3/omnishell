@@ -24,7 +24,7 @@ import { startConversions } from "./conversions.js";
 import { localeAt, localeTable, ProgramError, restatedHref, routeAt, routeHref, screenEnv, Unanswered } from "./fragment.js";
 import { activateScreenStyle, fetchText, forgetFiles, interpretScreen, prefetchScreen, templateHash, submitsOnChange, AssetMissing } from "./screen.js";
 import { compileCatalog } from "./vendor/messages.js";
-import { filesMoved, planRelease } from "./release-plan.js";
+import { filesMoved, planRelease, wordsDropped } from "./release-plan.js";
 import { replayEarlyGestures, takeEarlyGestures } from "./early-replay.js";
 import { navFeedback } from "./nav-feedback.js";
 import { createRowAttachments } from "./row-attachments.js";
@@ -53,25 +53,33 @@ const SERVED_MAP = /<script\b[^>]*\bid="pronto-assets"[^>]*>([\s\S]*?)<\/script>
  * shows the copy it was written with. A request that never answered is no
  * answer: it rejects whoever waits on it, and the next to ask asks again.
  *
- * `heard` takes a newer release's copy once the
- * one asked has landed, so the older cannot land after it; `taken` counts what
- * has been taken, which a screen compares with what it was last written in. */
+ * `heard` takes a newer release's copy, in the caller's task, of a locale
+ * `settle` saw answered; one still in flight when the map moved is asked again
+ * at the newer address, so the older cannot land after it. `dropped` names the
+ * keys a newer copy no longer holds. `taken` counts what has been taken, which a
+ * screen compares with what it was last written in. */
 function catalogues(appBase, i18n) {
   const messages = {};
   const witnessed = {};
+  const said = {};
   const asked = new Map();
   const answered = new Set();
   let taken = 0;
   const declared = i18n?.locales ? localeTable(i18n) : {};
   const urlOf = (loc) => new URL(`messages/${loc}.json`, appBase);
+  const askedAt = (pathname) => [...asked.keys()].find((l) => urlOf(l).pathname === pathname);
   const take = (loc, text) => {
-    messages[loc] = compileCatalog(JSON.parse(text));
+    said[loc] = JSON.parse(text);
+    messages[loc] = compileCatalog(said[loc]);
     witnessed[loc] = templateHash(text);
     taken++;
   };
   const load = async (loc, init) => {
-    const res = await fetch(assetURL(urlOf(loc)), init);
-    if (res.ok) take(loc, await res.text());
+    const at = assetURL(urlOf(loc)).href;
+    const res = await fetch(at, init);
+    const text = res.ok ? await res.text() : null;
+    if (assetURL(urlOf(loc)).href !== at) return load(loc, init);
+    if (text !== null) take(loc, text);
     answered.add(loc);
   };
   const ensure = (loc) => {
@@ -93,14 +101,14 @@ function catalogues(appBase, i18n) {
     // yield before it mounts, or a second navigation can land between the two.
     answered: (loc) => loc === undefined || !Object.hasOwn(declared, loc) || answered.has(loc),
     all: () => Promise.all(Object.keys(declared).map(ensure)),
-    heard: async (pathname, text) => {
-      const loc = [...asked.keys()].find((l) => urlOf(l).pathname === pathname);
-      if (loc === undefined) return false;
-      // Whoever asked for it hears how its request ended.
-      await Promise.allSettled([asked.get(loc)]);
-      if (witnessed[loc] === templateHash(text)) return false;
-      take(loc, text);
-      return true;
+    settle: () => Promise.allSettled([...asked.values()]),
+    dropped: (pathname, text) => {
+      const loc = askedAt(pathname);
+      return loc === undefined || said[loc] === undefined ? [] : wordsDropped(said[loc], JSON.parse(text));
+    },
+    heard: (pathname, text) => {
+      const loc = askedAt(pathname);
+      if (loc !== undefined && answered.has(loc) && witnessed[loc] !== templateHash(text)) take(loc, text);
     },
     taken: () => taken,
   };
@@ -1885,7 +1893,14 @@ export async function createShell({ config, mount, preload = true, hostDomModule
           handlers: (r.files.handlers ?? []).map((f) => new URL(f, appBase).pathname),
         })));
         if (plan.kind === "unchanged") return;
-        if (plan.kind === "restart") {
+        // A template the page still holds may name a key until it is morphed,
+        // and a template it takes names the newer ones from the first word it
+        // localizes: only a catalogue that keeps every key is taken in place.
+        const said = plan.kind === "morph"
+          ? await Promise.all(plan.catalogues.map(async (name) => [name, await fetchText(new URL(next[name], location.origin))]))
+          : [];
+        await words.settle();
+        if (plan.kind === "restart" || said.some(([name, text]) => words.dropped(name, text).length > 0)) {
           pending = next;
           await restart();
           return;
@@ -1895,11 +1910,14 @@ export async function createShell({ config, mount, preload = true, hostDomModule
           return;
         }
         deferred = false;
+        // The words and the map in one task, before any template is fetched
+        // or morphed: no screen reads one release's markup against another's
+        // catalogue, whether it is morphed here or mounted meanwhile.
+        for (const [name, text] of said) words.heard(name, text);
         forgetFiles(filesMoved(running, next));
         setRelease(document, next);
         await updateHandlers(plan.handlers);
         await updateScreens(plan.screens);
-        for (const name of plan.catalogues) await words.heard(name, await fetchText(new URL(name, location.origin)));
         // Only now: a failed update is found again at the next check, not taken for done.
         running = next;
         if (current) reword(current);

@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert"
-import { filesMoved, planRelease } from "../interpreter/release-plan.js"
+import { filesMoved, planRelease, wordsDropped } from "../interpreter/release-plan.js"
 
 const screens = [{ html: "/shell/screens/team.html", css: "/shell/screens/team.css", handlers: ["/shell/handlers/team.js"] }]
 const map = (over: Record<string, string> = {}): Record<string, string> => ({
@@ -53,3 +53,10 @@ Deno.test("a file added or removed is a change", () => {
 Deno.test("what moved includes a file the new release dropped", () => {
   assert.deepEqual(filesMoved({ "/a.css": "1", "/b.css": "2" }, { "/a.css": "1" }), ["/b.css"]);
 });
+
+// A screen still on show names its keys until its morph lands, so a catalogue
+// is taken in place only when it keeps every one, a namespaced key included.
+Deno.test("the keys a newer catalogue drops, nested ones by their dotted name", () => {
+  assert.deepEqual(wordsDropped({ greet: "Olá", nav: { home: "Início", rules: "Regras" } }, { greet: "Oi", cta_try: "Experimente", nav: { home: "Início" } }), ["nav.rules"])
+  assert.deepEqual(wordsDropped({ greet: "Olá" }, { greet: "Olá", cta_try: "Experimente" }), [])
+})

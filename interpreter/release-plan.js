@@ -4,7 +4,9 @@
 // style, a catalogue and a handler, a pure function looked up as it is called,
 // are taken in place; anything else — a renderer, the config, a shared
 // stylesheet, the interpreter — is code the page is running, and the page
-// restarts into the new entry.
+// restarts into the new entry. The catalogues are taken before any screen, so a
+// newer template never reads the older words, and only when they keep every key
+// (wordsDropped), so an older template still on show never misses one.
 const unrun = (name) => name.startsWith("/docs/") || /\.(md|txt|xml|png|jpe?g|webp|gif|svg|ico)$/.test(name);
 
 /** Every file the two maps disagree on, one the new release dropped among them. */
@@ -24,4 +26,14 @@ export function planRelease(current, next, screens) {
   const taken = new Set([...moved.flatMap((s) => [s.html, s.css]), ...catalogues, ...handlers]);
   if (changed.some((name) => !taken.has(name))) return { kind: "restart" };
   return { kind: "morph", screens: moved.map((s) => s.html), catalogues, handlers };
+}
+
+const leaves = (catalogue, prefix = "") =>
+  Object.entries(catalogue).flatMap(([key, value]) =>
+    value !== null && typeof value === "object" && !Array.isArray(value) ? leaves(value, `${prefix}${key}.`) : [`${prefix}${key}`]);
+
+/** The message keys a catalogue names that its newer copy does not. */
+export function wordsDropped(current, next) {
+  const kept = new Set(leaves(next));
+  return leaves(current).filter((key) => !kept.has(key));
 }
