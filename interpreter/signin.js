@@ -253,6 +253,30 @@ const b64uFromBuf = (buf) =>
     .replace(/\//g, "_")
     .replace(/=+$/, "");
 
+// A push subscription belongs to the browser, not the account: left behind by a
+// sign-out, it delivers the departed account's notices to whoever uses the
+// browser next. So every sign-out lets go of every one this origin holds, always
+// asking the browser rather than trusting what a screen last drew, and throws if
+// one will not go, which leaves the reader signed in. An opt-in that takes the
+// same lock ("omnishell:push") cannot subscribe again between this and the
+// sign-out's cookies; it checks `data-signing-out` on <html> once it holds it.
+export async function revokePush(nav = globalThis.navigator, root = globalThis.document?.documentElement) {
+  if (!nav?.serviceWorker?.getRegistrations) return;
+  root?.setAttribute("data-signing-out", "");
+  try {
+    const run = async () => {
+      for (const registration of await nav.serviceWorker.getRegistrations()) {
+        const subscription = await registration.pushManager?.getSubscription();
+        if (subscription && (await subscription.unsubscribe()) !== true) throw new Error("a push subscription would not go");
+      }
+    };
+    await (nav.locks?.request ? nav.locks.request("omnishell:push", run) : run());
+  } catch (error) {
+    root?.removeAttribute("data-signing-out");
+    throw error;
+  }
+}
+
 export async function postJson(url, body, token) {
   const res = await fetch(url, {
     method: "POST",

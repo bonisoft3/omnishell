@@ -367,6 +367,70 @@ Deno.test({
   },
 });
 
+// A push subscription outlives the sign-out unless the sign-out lets go of it.
+async function signOutWithPush(unsubscribed) {
+  const { document: doc, Event, mount, asked } = boot({ config: GUEST_YAML, cookie: "mecha_session_hint=1" });
+  localStorage.setItem("pronto-token", JSON.stringify({ token: "tok-ada", user: { id: "u7", handle: "Ada-1a2b" }, passkey: { rpId: "localhost", userId: "dTc" } }));
+  const prevFetch = globalThis.fetch;
+  globalThis.fetch = (url, init) => {
+    const u = String(url);
+    if (u.endsWith("/auth/signout")) {
+      asked.push("POST /auth/signout");
+      return Promise.resolve(new Response(null, { status: 204 }));
+    }
+    if (u.endsWith("/auth/guest")) return Promise.resolve(Response.json({ token: "tok-next", user: { id: "u8", handle: "pear-otter-0c1d", guest: true } }));
+    return prevFetch(url, init);
+  };
+  const held = new Set(["a", "b"]);
+  const registration = (name) => ({ pushManager: { getSubscription: async () => (held.has(name) ? { unsubscribe: async () => { asked.push(`unsubscribe ${name}`); if (unsubscribed) held.delete(name); return unsubscribed; } } : null) } });
+  const locks = [];
+  let failure = null;
+  doc.addEventListener("omnishell:signout-failed", (e) => { failure = e.error; });
+  const stub = { getRegistrations: async () => [registration("a"), registration("b")] };
+  Object.defineProperty(globalThis.navigator, "serviceWorker", { value: stub, configurable: true });
+  Object.defineProperty(globalThis.navigator, "locks", { value: { request: (name, fn) => { locks.push(name); return fn(); } }, configurable: true });
+  try {
+    const { createShell } = await import("./shell.js");
+    createShell({ config: "./shell.yaml", mount });
+    await settle(200);
+    doc.querySelector("nav .shell-person").dispatchEvent(new Event("click", { bubbles: true }));
+    doc.querySelector("nav .shell-signout").dispatchEvent(new Event("click", { bubbles: true }));
+    await settle(200);
+    return { asked, held, locks, doc, mount, failure };
+  } finally {
+    globalThis.fetch = prevFetch;
+    delete globalThis.navigator.serviceWorker;
+    delete globalThis.navigator.locks;
+  }
+}
+
+Deno.test({
+  name: "signing out lets go of every push subscription first, under the opt-in's lock, and then clears the cookie",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const { asked, held, locks, doc } = await signOutWithPush(true);
+    const assert = check(doc.body);
+    assert(held.size === 0, `no subscription is left, held ${[...held]}`);
+    assert(locks.filter((l) => l.startsWith("omnishell:")).join() === "omnishell:push", `taken under the shared lock, got ${locks}`);
+    assert(asked.indexOf("unsubscribe b") < asked.indexOf("POST /auth/signout") && asked.includes("POST /auth/signout"), `asked ${asked}`);
+  },
+});
+
+Deno.test({
+  name: "a push subscription that will not go leaves the reader signed in, and the sign-out unbarred",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const { asked, doc, mount, failure } = await signOutWithPush(false);
+    const assert = check(doc.body);
+    assert(failure?.message === "a push subscription would not go", `the page hears it, got ${failure}`);
+    assert(!asked.includes("POST /auth/signout"), `the cookie stays, asked ${asked}`);
+    assert(doc.body.dataset.auth === "user" && mount.querySelector('[data-screen="home"]'), "still signed in, on screen");
+    assert(!doc.documentElement.hasAttribute("data-signing-out"), "a later opt-in is not barred");
+  },
+});
+
 Deno.test({
   name: "a stale hint gates as before and is cleared, and a passkey's session is never traded",
   sanitizeOps: false,

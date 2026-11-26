@@ -33,7 +33,7 @@ export { routeAt } from "./fragment.js";
 import { assetURL, preloadLinkedScreens, preloadScreen, releaseOf, setRelease } from "./preloads.js";
 import { startLinkPrefetch } from "./link-prefetch.js";
 import { signalName } from "./passkey-signals.js";
-import { accountLives, adoptDeviceSession, adoptGuest, askAhead, cover, deviceAccounts, deviceName, dropAhead, forgetAccount, forgetSession, keepsWork, learnDeviceAlone, loginCeremony, mintGuest, nameForm, nameTaken, postJson, providersOffered, recoveryKey, registerCeremony, rememberAccount, renameAccount, renderLogin, renderSession, renderSignin, sessionOwner, storedSessionOwner, syncAuthDOM, uncover, upgradeEarlierGuest } from "./signin.js";
+import { accountLives, adoptDeviceSession, adoptGuest, askAhead, cover, deviceAccounts, deviceName, dropAhead, forgetAccount, forgetSession, keepsWork, learnDeviceAlone, loginCeremony, mintGuest, nameForm, nameTaken, postJson, providersOffered, recoveryKey, registerCeremony, rememberAccount, renameAccount, renderLogin, renderSession, renderSignin, revokePush, sessionOwner, storedSessionOwner, syncAuthDOM, uncover, upgradeEarlierGuest } from "./signin.js";
 
 const releaseKey = (imports) => templateHash(JSON.stringify(imports));
 // How often an open page asks whether a deployment landed, besides whenever it
@@ -515,6 +515,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       passkeySignin: (s, how) => loginCeremony(cfg.auth.service, how, keepsWork(s) ? s.token : null),
       passkeyRegister: (s, _how, name) => registerCeremony(cfg.auth.service, s?.token, name),
       signOut: async () => {
+        await revokePush();
         const res = await fetch(`${cfg.auth.service}/signout`, { method: "POST", credentials: "same-origin" });
         if (!res.ok) throw new Error(`${res.status} POST ${cfg.auth.service}/signout`);
       },
@@ -728,7 +729,11 @@ export async function createShell({ config, mount, preload = true, hostDomModule
     // next boot takes the session up again; a sign-out that cannot reach the
     // auth service leaves the reader signed in, and on screen as they were.
     signOut = async () => {
-      const outcome = await sessionLifecycle.signOut();
+      // `data-signing-out` (revokePush) bars a new push opt-in; it stays until the page reloads.
+      const open = () => document.documentElement.removeAttribute("data-signing-out");
+      let outcome;
+      try { outcome = await sessionLifecycle.signOut(); } catch (error) { open(); throw error; }
+      if (!outcome || outcome.mode === "busy" || outcome.mode === "stopped" || outcome.mode === "in-place") open();
       if (!outcome || outcome.mode === "busy" || outcome.mode === "stopped") return;
       if (outcome.mode === "in-place") return await becomeVisitor();
       // An app that admits only a signed-in reader lands on its gate, which
@@ -1207,7 +1212,9 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       const action = actionEl.dataset.authAction;
       if (action === "signout") {
         if (actionEl.localName !== "label") e.preventDefault();
-        signOut();
+        // A sign-out that fails (a push subscription that will not go, the auth service out of reach) leaves the
+        // reader signed in; the page hears it as an event, to say so in its own words.
+        signOut().catch((error) => { const failed = new (actionEl.ownerDocument.defaultView?.Event ?? Event)("omnishell:signout-failed", { bubbles: true }); failed.error = error; actionEl.dispatchEvent(failed); });
       } else if (action === "rename" && cfg.auth?.service) {
         if (actionEl.localName !== "label") e.preventDefault();
         startRename();
