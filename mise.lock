@@ -3,49 +3,49 @@
 tool-stubs = ["runtime/deno.toml"]
 
 [[tools."github:bonisoft3/mecha"]]
-version = "0.36.0"
+version = "0.36.1"
 backend = "github:bonisoft3/mecha"
-specifiers = ["0.36.0"]
+specifiers = ["0.36.1"]
 
 [tools."github:bonisoft3/mecha"."platforms.linux-arm64"]
-checksum = "sha256:586fc78fbf384e90e38f8c063f3d661f0c4ce7d72ddfb27a1f810d3375ef06a2"
-url = "https://github.com/bonisoft3/mecha/releases/download/v0.36.0/mecha-linux-arm64.tar.gz"
-url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/793560340"
+checksum = "sha256:9e4ff9061ea910811ff3931b9a9cf5f261f583471b288e5bdb892e4841bca8c3"
+url = "https://github.com/bonisoft3/mecha/releases/download/v0.36.1/mecha-linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/796248765"
 
 [tools."github:bonisoft3/mecha"."platforms.linux-arm64-musl"]
-checksum = "sha256:586fc78fbf384e90e38f8c063f3d661f0c4ce7d72ddfb27a1f810d3375ef06a2"
-url = "https://github.com/bonisoft3/mecha/releases/download/v0.36.0/mecha-linux-arm64.tar.gz"
-url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/793560340"
+checksum = "sha256:9e4ff9061ea910811ff3931b9a9cf5f261f583471b288e5bdb892e4841bca8c3"
+url = "https://github.com/bonisoft3/mecha/releases/download/v0.36.1/mecha-linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/796248765"
 
 [tools."github:bonisoft3/mecha"."platforms.linux-x64"]
-checksum = "sha256:586fc78fbf384e90e38f8c063f3d661f0c4ce7d72ddfb27a1f810d3375ef06a2"
-url = "https://github.com/bonisoft3/mecha/releases/download/v0.36.0/mecha-linux-x64.tar.gz"
-url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/793560341"
+checksum = "sha256:9e4ff9061ea910811ff3931b9a9cf5f261f583471b288e5bdb892e4841bca8c3"
+url = "https://github.com/bonisoft3/mecha/releases/download/v0.36.1/mecha-linux-x64.tar.gz"
+url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/796248772"
 
 [tools."github:bonisoft3/mecha"."platforms.linux-x64-musl"]
-checksum = "sha256:586fc78fbf384e90e38f8c063f3d661f0c4ce7d72ddfb27a1f810d3375ef06a2"
-url = "https://github.com/bonisoft3/mecha/releases/download/v0.36.0/mecha-linux-x64.tar.gz"
-url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/793560341"
+checksum = "sha256:9e4ff9061ea910811ff3931b9a9cf5f261f583471b288e5bdb892e4841bca8c3"
+url = "https://github.com/bonisoft3/mecha/releases/download/v0.36.1/mecha-linux-x64.tar.gz"
+url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/796248772"
 
 [tools."github:bonisoft3/mecha"."platforms.macos-arm64"]
-checksum = "sha256:586fc78fbf384e90e38f8c063f3d661f0c4ce7d72ddfb27a1f810d3375ef06a2"
-url = "https://github.com/bonisoft3/mecha/releases/download/v0.36.0/mecha-macos-arm64.tar.gz"
-url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/793560339"
+checksum = "sha256:9e4ff9061ea910811ff3931b9a9cf5f261f583471b288e5bdb892e4841bca8c3"
+url = "https://github.com/bonisoft3/mecha/releases/download/v0.36.1/mecha-macos-arm64.tar.gz"
+url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/796248762"
 
 [tools."github:bonisoft3/mecha"."platforms.macos-x64"]
-checksum = "sha256:586fc78fbf384e90e38f8c063f3d661f0c4ce7d72ddfb27a1f810d3375ef06a2"
-url = "https://github.com/bonisoft3/mecha/releases/download/v0.36.0/mecha-macos-x64.tar.gz"
-url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/793560336"
+checksum = "sha256:9e4ff9061ea910811ff3931b9a9cf5f261f583471b288e5bdb892e4841bca8c3"
+url = "https://github.com/bonisoft3/mecha/releases/download/v0.36.1/mecha-macos-x64.tar.gz"
+url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/796248761"
 
 [tools."github:bonisoft3/mecha"."platforms.windows-arm64"]
-checksum = "sha256:586fc78fbf384e90e38f8c063f3d661f0c4ce7d72ddfb27a1f810d3375ef06a2"
-url = "https://github.com/bonisoft3/mecha/releases/download/v0.36.0/mecha-windows-arm64.tar.gz"
-url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/793560338"
+checksum = "sha256:9e4ff9061ea910811ff3931b9a9cf5f261f583471b288e5bdb892e4841bca8c3"
+url = "https://github.com/bonisoft3/mecha/releases/download/v0.36.1/mecha-windows-arm64.tar.gz"
+url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/796248760"
 
 [tools."github:bonisoft3/mecha"."platforms.windows-x64"]
-checksum = "sha256:586fc78fbf384e90e38f8c063f3d661f0c4ce7d72ddfb27a1f810d3375ef06a2"
-url = "https://github.com/bonisoft3/mecha/releases/download/v0.36.0/mecha-windows-x64.tar.gz"
-url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/793560333"
+checksum = "sha256:9e4ff9061ea910811ff3931b9a9cf5f261f583471b288e5bdb892e4841bca8c3"
+url = "https://github.com/bonisoft3/mecha/releases/download/v0.36.1/mecha-windows-x64.tar.gz"
+url_api = "https://api.github.com/repos/bonisoft3/mecha/releases/assets/796248769"
 [[tools."github:denoland/deno"]]
 version = "2.9.7"
 backend = "github:denoland/deno"
