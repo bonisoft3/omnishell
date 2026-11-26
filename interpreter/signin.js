@@ -541,8 +541,8 @@ export function renderLogin(mount, cfg, chrome, made = () => {}) {
     };
     globalThis.addEventListener?.("message", onMessage);
   }
-  wrap.querySelector("h1").textContent = cfg.app;
-  wrap.querySelector(".login-mark").textContent = [...cfg.app][0]?.toLocaleUpperCase() ?? "";
+  wrap.querySelector("h1").textContent = cfg.title ?? cfg.app;
+  wrap.querySelector(".login-mark").textContent = [...(cfg.title ?? cfg.app)][0]?.toLocaleUpperCase() ?? "";
   wrap.querySelector(".login-hint").textContent = chrome("chrome_signin_hint");
   wrap.querySelector("button[type=submit]").textContent = chrome("chrome_signin");
   wrap.querySelector(".login-guest").textContent = chrome("chrome_signin_guest");

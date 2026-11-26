@@ -166,6 +166,19 @@ describe("a prerendered document", () => {
     })
   })
 
+  // meta.name is the app's identifier (a Worker's, a slot's); meta.title,
+  // emitted only where it differs, is what a reader sees after the dash.
+  it("ends its title in the app's display name when the shell carries one", async () => {
+    await withCopy(async (app) => {
+      const shell = `${app}/shell/shell.json`
+      await Deno.writeTextFile(shell, JSON.stringify({ ...JSON.parse(await Deno.readTextFile(shell)), title: "Truco" }))
+    }, async (app) => {
+      const d = parseHTML((await renderDocuments(app, ORIGIN)).get("/ca/regles")!).document
+      expect(d.querySelector("title")?.textContent).toBe("Com es juga — Truco")
+      expect(d.querySelector('meta[property="og:title"]')?.getAttribute("content")).toBe("Com es juga — Truco")
+    })
+  })
+
   it("keeps rendered forms inactive until the browser wires them", async () => {
     await withCopy(async (app) => {
       const file = `${app}/shell/screens/regras.html`

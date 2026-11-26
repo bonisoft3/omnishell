@@ -599,7 +599,7 @@ export function describe(doc, cfg, { route, params, locale, written, el, origin 
     title = doc.createElement("title");
     doc.head.append(title);
   }
-  title.textContent = name ? `${name} — ${cfg.app}` : cfg.app;
+  title.textContent = name ? `${name} — ${cfg.title ?? cfg.app}` : (cfg.title ?? cfg.app);
 
   for (const old of doc.head.querySelectorAll('link[rel="canonical"], link[rel="alternate"][hreflang]')) {
     old.remove();

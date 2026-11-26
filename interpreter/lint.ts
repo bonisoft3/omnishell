@@ -1696,3 +1696,30 @@ export function linkLint(html: string, routes: LinkRoute[]): string[] {
   }
   return out;
 }
+
+/**
+ * A link conversion's links (shell.yaml's `conversions.links`, conversions.js):
+ * each names a declared conversion and leaves for another site in a new tab,
+ * since a page that navigates away takes its tag frame down with the
+ * conversion it was handed. Returns the names the markup used, for the
+ * app-wide rule that every declared conversion has a link.
+ */
+export function conversionLinkLint(html: string, links: readonly string[]): { findings: string[]; named: string[] } {
+  const findings: string[] = [];
+  const named: string[] = [];
+  for (const [, closing, tag, attrText] of strip(html).matchAll(ANY_TAG)) {
+    if (closing === "/") continue;
+    const { attr } = attrsOf(attrText);
+    const name = attr("data-conversion");
+    if (name === undefined) continue;
+    named.push(name);
+    if (tag.toLowerCase() !== "a") {
+      findings.push(`<${tag.toLowerCase()} data-conversion="${name}"> is not a link: a link conversion is a click on <a href>`);
+      continue;
+    }
+    if (!links.includes(name)) findings.push(`data-conversion="${name}" names no link conversion in meta.googleTag.conversions.links`);
+    if (!/^https:\/\//.test(attr("href") ?? "")) findings.push(`<a data-conversion="${name}"> leaves for no https:// address: a link conversion is a click to another site`);
+    if (attr("target") !== "_blank") findings.push(`<a data-conversion="${name}"> opens in this tab, whose tag frame goes before it can send the conversion: add target="_blank"`);
+  }
+  return { findings, named };
+}

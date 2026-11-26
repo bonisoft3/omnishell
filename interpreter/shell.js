@@ -332,7 +332,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
       : (await import("./vendor/js-yaml.js")).load(text);
     const rowAttachments = createRowAttachments(Object.fromEntries(Object.entries(cfg.cortex?.actors ?? {}).filter(([, binding]) => binding.via === "rows")));
     // A served document's head already says what it is.
-    if (served === null) document.title = cfg.app;
+    if (served === null) document.title = cfg.title ?? cfg.app;
 
     const search = new URLSearchParams(location.search);
     // This app's own reading of an address, at the terminal's preferences.
@@ -404,7 +404,7 @@ export async function createShell({ config, mount, preload = true, hostDomModule
     }
     // After consent is stated, which the bridge takes before any event.
     const conversions = cfg.conversions
-      ? startConversions({ conversions: cfg.conversions, gtag: globalThis.gtag, storage: sessionStorage })
+      ? startConversions({ conversions: cfg.conversions, gtag: globalThis.gtag, storage: sessionStorage, doc: document })
       : null;
     const dataPlane = import("./data-sync.js");
     const offered = cfg.auth ? providersOffered(cfg) : null;

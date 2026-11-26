@@ -43,6 +43,7 @@ import {
   hatchSites,
   kindedRegions,
   kindLint,
+  conversionLinkLint,
   linkLint,
   type LinkRoute,
   machineLint,
@@ -97,7 +98,7 @@ type SchemaEntity = {
   fields: SchemaField[];
   uniques?: { name: string; cols: string[]; where?: string }[];
 };
-type Shell = { cortex?: { actors?: Record<string, unknown> }; schema?: Record<string, SchemaEntity>; routes?: (LinkRoute & { hatches?: string[]; files?: { html?: string } })[]; hostDom?: Record<string, unknown>; units?: Record<string, UnitPorts>; actors?: Record<string, import("./interpreter/lint.ts").ObservationBinding> };
+type Shell = { conversions?: { links?: Record<string, string> }; cortex?: { actors?: Record<string, unknown> }; schema?: Record<string, SchemaEntity>; routes?: (LinkRoute & { hatches?: string[]; files?: { html?: string } })[]; hostDom?: Record<string, unknown>; units?: Record<string, UnitPorts>; actors?: Record<string, import("./interpreter/lint.ts").ObservationBinding> };
 
 
 /** The schema entry as the rules take it: they are written against a whole
@@ -362,14 +363,20 @@ export async function checkApp(appDir: URL): Promise<Checked> {
 
   const units = shell.units ?? {};
   const sites: HatchSite[] = [];
+  const links = Object.keys(shell.conversions?.links ?? {});
+  const linked = new Set<string>();
   for (const [name, path] of [...paths].sort(([a], [b]) => a.localeCompare(b))) {
     const screenRoutes = routes.filter(route => route.screen === name);
     const selectedHostDom = new Set(Object.keys(shell.hostDom ?? {}).filter(hatch =>
       screenRoutes.length > 0 && screenRoutes.every(route => route.hatches?.includes(hatch))));
+    const html = await Deno.readTextFile(new URL(path, appDir));
+    const conversion = conversionLinkLint(html, links);
+    for (const why of conversion.findings) findings.push({ severity: "error", path, message: why });
+    for (const n of conversion.named) linked.add(n);
     findings.push(
       ...screenFindings(
         path,
-        resolveMachineMarkup(await Deno.readTextFile(new URL(path, appDir)), shell.cortex?.actors, name),
+        resolveMachineMarkup(html, shell.cortex?.actors, name),
         schema,
         available,
         routes,
@@ -381,6 +388,10 @@ export async function checkApp(appDir: URL): Promise<Checked> {
     );
   }
   for (const why of unhandledRaises(sites, units)) findings.push({ severity: "error", path: "shell/shell.yaml", message: why });
+  // A declared conversion no link names is one Google expects and never hears.
+  for (const name of links.filter((n) => !linked.has(n))) {
+    findings.push({ severity: "error", path: "shell/shell.yaml", message: `link conversion "${name}" is declared, and no screen's <a data-conversion="${name}"> reports it` });
+  }
   return { findings, checked: paths.size };
 }
 
