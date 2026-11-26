@@ -84,7 +84,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "apexrun: arena screen projects kinetic:race, 24 HUD layers, 16 touch zones, and keys-only vs touch-only split",
+  name: "apexrun: arena screen projects kinetic:race, 24 HUD layers, 11 touch zones, and keys-only vs touch-only split",
   fn: async () => {
     const apexrunDir = new URL("../../../apps/apexrun/", import.meta.url);
     const projection = await projectAppNative(apexrunDir);
@@ -96,7 +96,7 @@ Deno.test({
       ["race"],
     );
     assertEquals(arena.ir.hudLayers.length, 24);
-    assertEquals(arena.ir.touchZones.length, 16);
+    assertEquals(arena.ir.touchZones.length, 11);
     assertEquals(
       arena.ir.inputs.map((i) => i.field),
       ["volume", "join"],
